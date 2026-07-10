@@ -130,9 +130,12 @@ Local dev needs Postgres up first: `docker compose up -d`.
 
 ## Things to know before extending
 
-- Postgres is wired up (GP-2) but the schema is **empty** — there is **no auth
-  or plan-ingestion yet**. When adding features, business logic should sit behind
-  the route layer (consider `src/services/`), not inside route handlers.
+- Postgres is wired up (GP-2). The schema (GP-3) has **`projects`** and
+  **`repositories`** (a project has many repos; delete cascades). There is still
+  **no auth or plan-ingestion yet** — route protection is a later auth story.
+- CRUD API lives under **`/api/v1`**: `projects` (list/create/get/delete),
+  `projects/:id/repositories` (list/create), `repositories/:id` (delete). No
+  PATCH/pagination yet (out of scope for GP-3).
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,
