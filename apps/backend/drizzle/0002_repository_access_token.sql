@@ -1,0 +1,1 @@
+ALTER TABLE "repositories" ADD COLUMN "access_token" text;

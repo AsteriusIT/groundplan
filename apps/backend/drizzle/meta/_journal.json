@@ -15,6 +15,13 @@
       "when": 1783705662031,
       "tag": "0001_projects_repositories",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783706345837,
+      "tag": "0002_repository_access_token",
+      "breakpoints": true
     }
   ]
 }

@@ -136,6 +136,15 @@ Local dev needs Postgres up first: `docker compose up -d`.
 - CRUD API lives under **`/api/v1`**: `projects` (list/create/get/delete),
   `projects/:id/repositories` (list/create), `repositories/:id` (delete). No
   PATCH/pagination yet (out of scope for GP-3).
+- Read-only repo file access (GP-4): `GET /repositories/:id/files?ref=` and
+  `GET /repositories/:id/files/*?ref=`. Backed by `services/repo-files.ts`,
+  which **shallow-clones** the repo to a temp dir per request (no caching yet),
+  reads from disk, and always cleans up. Path traversal is blocked; only `https`
+  repo URLs are allowed by the routes.
+- **Security:** `repositories.access_token` is **write-only** — set on create,
+  cloned with, but stripped from every response via `publicRepositoryColumns`.
+  Never add `access_token` to a `.select()`/`.returning()` that leaves the API,
+  and never log an authenticated clone URL (tokens are redacted in errors).
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,

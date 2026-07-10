@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { desc, eq } from "drizzle-orm";
 
-import { projects, repositories } from "../db/schema.js";
+import { projects, publicRepositoryColumns, repositories } from "../db/schema.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -36,6 +36,8 @@ const createRepositorySchema = {
     provider: { type: "string", enum: ["github", "gitlab"] },
     url: { type: "string", minLength: 1, maxLength: 500 },
     defaultBranch: { type: "string", minLength: 1, maxLength: 200 },
+    // Write-only: accepted here, never echoed back in any response.
+    accessToken: { type: "string", minLength: 1, maxLength: 500 },
   },
 };
 
@@ -136,7 +138,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "project not found" });
       }
       return app.db
-        .select()
+        .select(publicRepositoryColumns)
         .from(repositories)
         .where(eq(repositories.projectId, id))
         .orderBy(desc(repositories.createdAt));
@@ -152,6 +154,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         provider: "github" | "gitlab";
         url: string;
         defaultBranch?: string;
+        accessToken?: string;
       };
 
       const [project] = await app.db
@@ -172,8 +175,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           url: body.url,
           // Omitted -> DB default ("main").
           defaultBranch: body.defaultBranch,
+          accessToken: body.accessToken,
         })
-        .returning();
+        .returning(publicRepositoryColumns);
       return reply.code(201).send(row);
     },
   );

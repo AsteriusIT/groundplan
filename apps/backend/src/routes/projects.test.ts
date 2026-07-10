@@ -76,6 +76,46 @@ test("happy path: create project -> add repo -> list -> delete (cascades)", asyn
   }
 });
 
+test("repository access_token is write-only and never returned", async () => {
+  const app = await buildApp(env);
+  const slug = `tok-${Date.now()}`;
+  const secret = "super-secret-token-abc123";
+  try {
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/projects",
+      payload: { name: "Tok", slug },
+    });
+    const project = projectRes.json();
+
+    const repoRes = await app.inject({
+      method: "POST",
+      url: `/api/v1/projects/${project.id}/repositories`,
+      payload: {
+        provider: "github",
+        url: "https://github.com/acme/repo",
+        accessToken: secret,
+      },
+    });
+    assert.equal(repoRes.statusCode, 201);
+    const repo = repoRes.json();
+    assert.equal(repo.provider, "github");
+    assert.ok(!("accessToken" in repo), "create response leaked accessToken");
+    assert.ok(!repoRes.body.includes(secret), "create response leaked token value");
+
+    const listRes = await app.inject({
+      method: "GET",
+      url: `/api/v1/projects/${project.id}/repositories`,
+    });
+    assert.ok(!listRes.body.includes(secret), "list response leaked token value");
+    assert.ok(!("accessToken" in listRes.json()[0]), "list leaked accessToken");
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+  } finally {
+    await app.close();
+  }
+});
+
 test("POST /projects with a duplicate slug returns 409", async () => {
   const app = await buildApp(env);
   const slug = `dup-${Date.now()}`;

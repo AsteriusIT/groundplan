@@ -9,6 +9,7 @@ import { registerErrorHandler } from "./plugins/error-handler.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { projectRoutes } from "./routes/projects.js";
+import { repositoryFileRoutes } from "./routes/repository-files.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 
 export type BuildAppOptions = {
@@ -54,6 +55,7 @@ export async function buildApp(
   await app.register(healthRoutes, { prefix: "/api/v1" });
   await app.register(projectRoutes, { prefix: "/api/v1" });
   await app.register(repositoryRoutes, { prefix: "/api/v1" });
+  await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
 
   return app;
 }
