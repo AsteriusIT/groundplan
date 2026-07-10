@@ -23,6 +23,16 @@ const DEFAULT_DATABASE_URL =
 const DEV_OIDC_ISSUER = "http://localhost:8085/realms/groundplan";
 const DEV_OIDC_AUDIENCE = "groundplan-api";
 
+/**
+ * Fixed dev/test key so credential encryption works out of the box. NEVER used
+ * in production — there `ENCRYPTION_KEY` is required (see buildApp).
+ * base64 of a readable 32-byte string.
+ */
+const DEV_ENCRYPTION_KEY = Buffer.from(
+  "groundplan-dev-encryption-key!!!",
+  "utf8",
+).toString("base64");
+
 export type AppEnv = {
   nodeEnv: "development" | "production" | "test";
   host: string;
@@ -35,6 +45,8 @@ export type AppEnv = {
   oidcIssuer: string;
   /** Expected `aud` claim of accepted access tokens. */
   oidcAudience: string;
+  /** base64-encoded 32-byte key for encrypting repository PATs at rest. */
+  encryptionKey: string;
 };
 
 export function loadEnv(): AppEnv {
@@ -49,5 +61,8 @@ export function loadEnv(): AppEnv {
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     oidcIssuer: process.env.OIDC_ISSUER_URL ?? (isDev ? DEV_OIDC_ISSUER : ""),
     oidcAudience: process.env.OIDC_AUDIENCE ?? (isDev ? DEV_OIDC_AUDIENCE : ""),
+    encryptionKey:
+      process.env.ENCRYPTION_KEY ??
+      (nodeEnv === "production" ? "" : DEV_ENCRYPTION_KEY),
   };
 }

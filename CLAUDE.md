@@ -171,12 +171,20 @@ Local dev needs Postgres up first: `docker compose up -d`.
   `X-Groundplan-Token` header; 10 MB body limit → 413; 202 with the event id)
   stores rows in `ingestion_events` (JSONB `payload`, no processing yet).
   `GET /api/v1/repositories/:id/events` lists the last 20 (no payload).
-- **Two per-repo secrets, handled differently:** `access_token` is **write-only**
-  (never returned; `publicRepositoryColumns`); `webhook_token` is **shown once**
-  in the create-repository response, then excluded from list responses. Never add
-  either to a `.select()`/`.returning()` that leaves the API; never log an
-  authenticated clone URL (tokens are redacted in errors). Compare webhook tokens
-  with `safeEqual` (constant-time).
+- **Two per-repo secrets, handled differently:** `access_token` (the PAT) is
+  **encrypted at rest** (AES-256-GCM, `lib/encryption.ts`, key from
+  `ENCRYPTION_KEY`) and **write-only** — responses mask it as `"***"` via
+  `toPublicRepository` (never omit-vs-mask by hand; always map rows through it).
+  `webhook_token` is **shown once** in the create response, then excluded. Never
+  log an authenticated clone URL (tokens are redacted in errors). Compare webhook
+  tokens with `safeEqual` (constant-time).
+- **Repository connection (GP-11):** `services/repo-files.verifyConnection`
+  (`git ls-remote`) checks reachability; `verifyAndStore` decrypts the PAT, runs
+  it, and persists `connection_status` (`unverified`|`ok`|`failed`) + `verified_at`.
+  Auto-runs on create/update when a PAT is set; also `POST /repositories/:id/verify`.
+  The verifier is injectable via `buildApp(env, { verifyConnection })` so tests
+  stay offline (real verifier works against `file://` fixtures). `ENCRYPTION_KEY`
+  follows the same dev/test-default, prod-fail-closed pattern as OIDC.
 - Migrations run under a Postgres advisory lock (`runMigrations`), so parallel
   test files / concurrent app startups don't race on schema creation.
 - **Auth (GP-6):** OIDC resource server. `plugins/auth.ts` is an `fp` global

@@ -5,9 +5,15 @@ import type { JWTVerifyGetKey } from "jose";
 import type { Pool } from "pg";
 
 import type { AppEnv } from "./config/env.js";
+import { createEncryptor, type Encryptor } from "./lib/encryption.js";
 import { authPlugin } from "./plugins/auth.js";
 import { dbPlugin } from "./plugins/db.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
+import {
+  verifyConnection as realVerifyConnection,
+  type RepoSource,
+  type VerifyResult,
+} from "./services/repo-files.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
@@ -16,11 +22,24 @@ import { projectRoutes } from "./routes/projects.js";
 import { repositoryFileRoutes } from "./routes/repository-files.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 
+export type VerifyConnection = (source: RepoSource) => Promise<VerifyResult>;
+
+declare module "fastify" {
+  interface FastifyInstance {
+    /** Encrypts/decrypts repository PATs at rest. */
+    encryptor: Encryptor;
+    /** Checks a repository is reachable (`git ls-remote`). */
+    verifyConnection: VerifyConnection;
+  }
+}
+
 export type BuildAppOptions = {
   /** Inject a Postgres pool (e.g. a stub in tests). Defaults to a real pool. */
   pool?: Pool;
   /** Inject a JWKS resolver (tests). Otherwise built from OIDC discovery. */
   jwks?: JWTVerifyGetKey;
+  /** Inject a connection verifier (tests). Defaults to real `git ls-remote`. */
+  verifyConnection?: VerifyConnection;
 };
 
 /** Pretty logs in dev, structured JSON in prod, silent in tests. */
@@ -54,6 +73,11 @@ export async function buildApp(
   });
   await app.register(sensible);
   await app.register(dbPlugin, { databaseUrl: env.databaseUrl, pool: opts.pool });
+
+  // Credential encryption (throws in prod if ENCRYPTION_KEY is unset) and the
+  // repository connection verifier (overridable in tests to avoid the network).
+  app.decorate("encryptor", createEncryptor(env.encryptionKey));
+  app.decorate("verifyConnection", opts.verifyConnection ?? realVerifyConnection);
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.
   await app.register(authPlugin, {

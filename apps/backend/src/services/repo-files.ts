@@ -171,3 +171,51 @@ export async function getFile(
     return { content, contentType };
   });
 }
+
+export type VerifyErrorKind = "auth_failed" | "not_found" | "network";
+
+export type VerifyResult =
+  | { ok: true; defaultBranchFound: boolean }
+  | { ok: false; error: VerifyErrorKind };
+
+/** Classify a `git` failure into a caller-friendly reason. */
+export function classifyGitError(text: string): VerifyErrorKind {
+  const t = text.toLowerCase();
+  if (
+    /authentication failed|invalid username or password|could not read username|terminal prompts disabled|http 401|http 403|\b401\b|\b403\b/.test(
+      t,
+    )
+  ) {
+    return "auth_failed";
+  }
+  if (
+    /repository not found|not found|does not exist|not appear to be a git|http 404|\b404\b/.test(
+      t,
+    )
+  ) {
+    return "not_found";
+  }
+  return "network";
+}
+
+/**
+ * Check that a repository is reachable with the given credentials via
+ * `git ls-remote`. The ref is compared against the listed heads (never passed
+ * to git), so it cannot be interpreted as a flag.
+ */
+export async function verifyConnection(source: RepoSource): Promise<VerifyResult> {
+  const url = buildAuthenticatedUrl(source.url, source.provider, source.accessToken);
+  try {
+    const { stdout } = await execFileAsync("git", ["ls-remote", "--heads", url], {
+      timeout: CLONE_TIMEOUT_MS,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    const target = `refs/heads/${source.ref}`;
+    const defaultBranchFound = stdout
+      .split("\n")
+      .some((line) => line.split("\t")[1] === target);
+    return { ok: true, defaultBranchFound };
+  } catch (err) {
+    return { ok: false, error: classifyGitError(toErrorText(err)) };
+  }
+}

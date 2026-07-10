@@ -6,7 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { buildAuthenticatedUrl, getFile, listFiles } from "./repo-files.js";
+import {
+  buildAuthenticatedUrl,
+  classifyGitError,
+  getFile,
+  listFiles,
+  verifyConnection,
+} from "./repo-files.js";
 
 const exec = promisify(execFile);
 
@@ -84,6 +90,45 @@ test("getFile rejects path traversal outside the repo", async () => {
         filePath: "../../../../etc/passwd",
       }),
     /traversal|invalid path/i,
+  );
+});
+
+test("verifyConnection reports ok and finds the default branch (fixture)", async () => {
+  const result = await verifyConnection({
+    url: fixtureUrl,
+    provider: "github",
+    ref: "main",
+  });
+  assert.deepEqual(result, { ok: true, defaultBranchFound: true });
+});
+
+test("verifyConnection reports ok but not-found for a missing branch", async () => {
+  const result = await verifyConnection({
+    url: fixtureUrl,
+    provider: "github",
+    ref: "nope",
+  });
+  assert.deepEqual(result, { ok: true, defaultBranchFound: false });
+});
+
+test("verifyConnection returns a structured error for an unreachable repo", async () => {
+  const result = await verifyConnection({
+    url: "file:///tmp/groundplan-does-not-exist-xyz",
+    provider: "github",
+    ref: "main",
+  });
+  assert.equal(result.ok, false);
+});
+
+test("classifyGitError distinguishes auth / not-found / network", () => {
+  assert.equal(
+    classifyGitError("fatal: Authentication failed for 'https://github.com/x'"),
+    "auth_failed",
+  );
+  assert.equal(classifyGitError("remote: Repository not found."), "not_found");
+  assert.equal(
+    classifyGitError("fatal: unable to access ...: Could not resolve host: github.invalid"),
+    "network",
   );
 });
 

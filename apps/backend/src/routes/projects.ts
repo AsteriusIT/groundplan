@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
 import { desc, eq } from "drizzle-orm";
 
-import { projects, publicRepositoryColumns, repositories } from "../db/schema.js";
+import { projects, repositories, toPublicRepository } from "../db/schema.js";
 import { generateToken } from "../lib/tokens.js";
+import { verifyAndStore } from "../services/repository-verification.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -138,11 +139,12 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           .code(404)
           .send({ error: "Not Found", message: "project not found" });
       }
-      return app.db
-        .select(publicRepositoryColumns)
+      const rows = await app.db
+        .select()
         .from(repositories)
         .where(eq(repositories.projectId, id))
         .orderBy(desc(repositories.createdAt));
+      return rows.map(toPublicRepository);
     },
   );
 
@@ -168,7 +170,12 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "project not found" });
       }
 
-      const [row] = await app.db
+      // PAT is stored ENCRYPTED at rest, never in plaintext.
+      const encryptedPat = body.accessToken
+        ? app.encryptor.encrypt(body.accessToken)
+        : null;
+
+      const [inserted] = await app.db
         .insert(repositories)
         .values({
           projectId: id,
@@ -176,15 +183,22 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           url: body.url,
           // Omitted -> DB default ("main").
           defaultBranch: body.defaultBranch,
-          accessToken: body.accessToken,
+          accessToken: encryptedPat,
           webhookToken: generateToken(),
         })
-        // webhook_token is shown ONCE here; it is excluded from list responses.
-        .returning({
-          ...publicRepositoryColumns,
-          webhookToken: repositories.webhookToken,
-        });
-      return reply.code(201).send(row);
+        .returning();
+
+      // Auto-verify the connection when credentials were supplied.
+      let row = inserted!;
+      if (encryptedPat) {
+        row = (await verifyAndStore(app, row)).repository;
+      }
+
+      // webhook_token is shown ONCE here; PAT is masked; excluded from lists.
+      return reply.code(201).send({
+        ...toPublicRepository(row),
+        webhookToken: row.webhookToken,
+      });
     },
   );
 };

@@ -18,6 +18,11 @@ export const repositoryProvider = pgEnum("repository_provider", [
   "gitlab",
 ]);
 
+export const repositoryConnectionStatus = pgEnum(
+  "repository_connection_status",
+  ["unverified", "ok", "failed"],
+);
+
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -35,9 +40,15 @@ export const repositories = pgTable("repositories", {
   provider: repositoryProvider("provider").notNull(),
   url: text("url").notNull(),
   defaultBranch: text("default_branch").notNull().default("main"),
-  // Optional token for cloning private repos. Write-only: it is set via the
-  // API but MUST NOT appear in any response (see publicRepositoryColumns).
+  // Personal access token for cloning private repos. Stored ENCRYPTED at rest
+  // (AES-256-GCM ciphertext, see lib/encryption). Write-only: set via the API,
+  // never returned — responses mask it as "***" (see toPublicRepository).
   accessToken: text("access_token"),
+  // Result of the last `git ls-remote` connection check (GP-11).
+  connectionStatus: repositoryConnectionStatus("connection_status")
+    .notNull()
+    .default("unverified"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
   // Static per-repository token that CI uses to authenticate to the webhook.
   // Generated at creation and shown once; excluded from list responses.
   webhookToken: text("webhook_token")
@@ -48,18 +59,38 @@ export const repositories = pgTable("repositories", {
     .defaultNow(),
 });
 
-/**
- * Column set for repository responses — everything EXCEPT access_token.
- * Use this for every `.select(...)` / `.returning(...)` that leaves the API.
- */
-export const publicRepositoryColumns = {
-  id: repositories.id,
-  projectId: repositories.projectId,
-  provider: repositories.provider,
-  url: repositories.url,
-  defaultBranch: repositories.defaultBranch,
-  createdAt: repositories.createdAt,
+export type RepositoryRow = typeof repositories.$inferSelect;
+
+export type PublicRepository = {
+  id: string;
+  projectId: string;
+  provider: (typeof repositoryProvider.enumValues)[number];
+  url: string;
+  defaultBranch: string;
+  /** "***" when a PAT is stored, otherwise null. Never the token value. */
+  accessToken: "***" | null;
+  connectionStatus: (typeof repositoryConnectionStatus.enumValues)[number];
+  verifiedAt: Date | null;
+  createdAt: Date;
 };
+
+/**
+ * Map a repository row to its API shape. The PAT is masked (never the value),
+ * and the webhook token is omitted (it is shown once at creation only).
+ */
+export function toPublicRepository(row: RepositoryRow): PublicRepository {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    provider: row.provider,
+    url: row.url,
+    defaultBranch: row.defaultBranch,
+    accessToken: row.accessToken ? "***" : null,
+    connectionStatus: row.connectionStatus,
+    verifiedAt: row.verifiedAt,
+    createdAt: row.createdAt,
+  };
+}
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),

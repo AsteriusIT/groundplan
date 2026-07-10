@@ -62,3 +62,15 @@ test("an explicit OIDC_ISSUER_URL is always respected", () => {
     assert.equal(loadEnv().oidcIssuer, "https://custom.example");
   });
 });
+
+test("dev and test default a credential encryption key; production does not", () => {
+  withEnv({ NODE_ENV: "development", ENCRYPTION_KEY: undefined }, () => {
+    assert.ok(loadEnv().encryptionKey.length > 0, "dev should default a key");
+  });
+  withEnv({ NODE_ENV: "test", ENCRYPTION_KEY: undefined }, () => {
+    assert.ok(loadEnv().encryptionKey.length > 0, "test should default a key");
+  });
+  withEnv({ NODE_ENV: "production", ENCRYPTION_KEY: undefined }, () => {
+    assert.equal(loadEnv().encryptionKey, "", "production must require an explicit key");
+  });
+});

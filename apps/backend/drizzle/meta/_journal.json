@@ -36,6 +36,13 @@
       "when": 1783709745583,
       "tag": "0004_users",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783718876642,
+      "tag": "0005_repo_credentials",
+      "breakpoints": true
     }
   ]
 }

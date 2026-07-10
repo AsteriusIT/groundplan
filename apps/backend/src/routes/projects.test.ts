@@ -77,7 +77,10 @@ test("happy path: create project -> add repo -> list -> delete (cascades)", asyn
 });
 
 test("repository access_token is write-only and never returned", async () => {
-  const app = await buildApp(env);
+  // Stub the verifier so creating a repo with a PAT stays offline.
+  const app = await buildApp(env, {
+    verifyConnection: async () => ({ ok: true, defaultBranchFound: true }),
+  });
   const slug = `tok-${Date.now()}`;
   const secret = "super-secret-token-abc123";
   try {
@@ -100,7 +103,8 @@ test("repository access_token is write-only and never returned", async () => {
     assert.equal(repoRes.statusCode, 201);
     const repo = repoRes.json();
     assert.equal(repo.provider, "github");
-    assert.ok(!("accessToken" in repo), "create response leaked accessToken");
+    // Masked, never the value (GP-11).
+    assert.equal(repo.accessToken, "***", "PAT should be masked, not omitted");
     assert.ok(!repoRes.body.includes(secret), "create response leaked token value");
 
     const listRes = await app.inject({
@@ -108,7 +112,7 @@ test("repository access_token is write-only and never returned", async () => {
       url: `/api/v1/projects/${project.id}/repositories`,
     });
     assert.ok(!listRes.body.includes(secret), "list response leaked token value");
-    assert.ok(!("accessToken" in listRes.json()[0]), "list leaked accessToken");
+    assert.equal(listRes.json()[0].accessToken, "***", "list should mask the PAT");
 
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
   } finally {
