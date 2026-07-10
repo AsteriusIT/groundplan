@@ -1,0 +1,87 @@
+# groundplan
+
+> Working name for **InfraCanvas** — _See your infrastructure. Review it. Shape it._
+
+Turn Terraform into living, interactive diagrams — so teams review infrastructure
+changes visually, keep documentation permanently up to date, and see their cloud
+the way they think about it: as networks, permissions, and systems, not thousands
+of lines of HCL.
+
+The platform ingests **Terraform plan JSON produced by your own CI** — it never
+touches your cloud credentials or state backends. Adoption is one pipeline step.
+
+> **Status: scaffold.** This repository currently contains empty base apps — a
+> backend health endpoint and a placeholder frontend. No product features yet.
+
+## Stack
+
+| Layer | Tech |
+| --- | --- |
+| Monorepo | pnpm workspaces |
+| Backend | Fastify 5 + TypeScript (ESM) |
+| Frontend | React 19 + TypeScript + Vite 6 |
+| UI | Tailwind CSS v4 + shadcn/ui |
+
+## Prerequisites
+
+- **Node.js >= 22** (a `.nvmrc` pins 24 — `nvm use`)
+- **pnpm 10** (`corepack enable` will provide it)
+
+## Getting started
+
+```bash
+pnpm install     # install all workspace deps
+pnpm dev         # run backend (:3000) + frontend (:5173) together
+```
+
+Then open <http://localhost:5173>. The landing page pings the backend and shows
+a green dot when the API is reachable.
+
+### Useful commands
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Run backend + frontend in parallel |
+| `pnpm dev:backend` | Backend only (tsx watch) |
+| `pnpm dev:frontend` | Frontend only (Vite) |
+| `pnpm build` | Build every package |
+| `pnpm typecheck` | Type-check every package |
+| `pnpm start` | Run the built backend |
+| `pnpm clean` | Remove build artifacts |
+
+Target one package with `pnpm --filter @groundplan/<name> <script>`.
+
+## Project structure
+
+```
+apps/
+  backend/     @groundplan/backend  — Fastify API, routes under /api/v1
+  frontend/    @groundplan/frontend — React + Vite + Tailwind + shadcn/ui
+packages/      (empty) shared libraries live here
+```
+
+The frontend dev server proxies `/api` → the backend on `:3000`, so app code
+always calls relative `/api/...` paths.
+
+### Configuration
+
+Backend config is read from environment variables (see
+[`apps/backend/.env.example`](apps/backend/.env.example)). Copy it to
+`apps/backend/.env` to override defaults:
+
+```bash
+cp apps/backend/.env.example apps/backend/.env
+```
+
+### Adding UI components
+
+shadcn/ui is configured (`apps/frontend/components.json`). Add components with:
+
+```bash
+cd apps/frontend
+pnpm dlx shadcn@latest add <component>
+```
+
+## Contributing
+
+See [CLAUDE.md](CLAUDE.md) for architecture notes and conventions.
