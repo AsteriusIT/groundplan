@@ -12,7 +12,7 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="flex items-start justify-between gap-4 border-b border-border px-8 py-6">
+    <header className="bg-card flex items-start justify-between gap-4 border-b border-border px-8 py-6">
       <div>
         {eyebrow && (
           <p className="text-muted-foreground font-mono text-[11px] font-medium tracking-[0.14em] uppercase">
