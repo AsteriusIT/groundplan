@@ -13,6 +13,7 @@
     "dev:frontend": "pnpm --filter @groundplan/frontend run dev",
     "build": "pnpm -r run build",
     "start": "pnpm --filter @groundplan/backend run start",
+    "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "clean": "pnpm -r run clean"
   },

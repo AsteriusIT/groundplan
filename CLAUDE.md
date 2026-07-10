@@ -127,6 +127,14 @@ Local dev needs Postgres up first: `docker compose up -d`.
   base color: neutral). Generated components go in `src/components/ui/` and are
   yours to edit.
 - Use the `cn()` helper from `@/lib/utils` for conditional class names.
+- **API access (GP-7):** all HTTP goes through `src/api/client.ts` — never call
+  `fetch` for the API directly from components. Types in `src/api/types.ts`
+  mirror the backend responses field-for-field (note `User.display_name` is
+  snake_case, matching `/me`). Non-2xx throws `ApiError` (status + message);
+  the login story wires `setAuthTokenProvider` / `setOnUnauthorized`. Base URL is
+  `import.meta.env.VITE_API_URL` + `/api/v1` (empty in dev → hits the proxy).
+- Frontend tests use **vitest** (`pnpm --filter @groundplan/frontend test`),
+  `node` environment, mocked `fetch`.
 
 ## Things to know before extending
 
