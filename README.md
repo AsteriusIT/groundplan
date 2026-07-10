@@ -94,6 +94,20 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/v1/me
 `GET /api/v1/me` returns `{id, email, display_name}` and provisions the user on
 first authenticated request (JIT).
 
+**Frontend login** uses the Authorization Code + PKCE flow (`oidc-client-ts`)
+against the same realm. With Keycloak running, just start the app:
+
+```bash
+docker compose --profile auth up -d   # Keycloak on :8085
+pnpm dev                              # backend :3000 + frontend :5173
+```
+
+Open <http://localhost:5173> → you're redirected to `/login` → **Sign in** →
+authenticate as `dev` / `dev` → back on the app, signed in. The OIDC client
+defaults target the dockerized realm (override via `VITE_OIDC_*`, see
+[`apps/frontend/.env.example`](apps/frontend/.env.example)). Access the session
+anywhere via the `useAuth()` hook (`user`, `login()`, `logout()`).
+
 ### CI ingestion webhook
 
 Each repository gets a `webhookToken` (returned **once** in the create-repository

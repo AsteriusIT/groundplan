@@ -133,8 +133,15 @@ Local dev needs Postgres up first: `docker compose up -d`.
   snake_case, matching `/me`). Non-2xx throws `ApiError` (status + message);
   the login story wires `setAuthTokenProvider` / `setOnUnauthorized`. Base URL is
   `import.meta.env.VITE_API_URL` + `/api/v1` (empty in dev → hits the proxy).
-- Frontend tests use **vitest** (`pnpm --filter @groundplan/frontend test`),
-  `node` environment, mocked `fetch`.
+- Frontend tests use **vitest** + Testing Library in a **jsdom** environment
+  (`src/test-setup.ts`); mock `fetch` for client tests.
+- **Login (GP-8):** Authorization Code + PKCE via `oidc-client-ts`. `src/auth/`
+  holds the `UserManager` config (`user-manager.ts`, defaults to the dockerized
+  Keycloak), `AuthProvider` (wires the GP-7 client hooks: token provider +
+  `onUnauthorized`, fetches `/me`), and the `useAuth()` hook (`user`, `login`,
+  `logout`, `isAuthenticated`, `isLoading`). Routes: `/login`, `/callback`, and
+  everything else behind `<RequireAuth>` (redirects to `/login`). New protected
+  pages just render inside the guarded route — don't re-check auth per page.
 
 ## Things to know before extending
 
