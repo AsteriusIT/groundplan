@@ -134,7 +134,18 @@ Local dev needs Postgres up first: `docker compose up -d`.
   the login story wires `setAuthTokenProvider` / `setOnUnauthorized`. Base URL is
   `import.meta.env.VITE_API_URL` + `/api/v1` (empty in dev → hits the proxy).
 - Frontend tests use **vitest** + Testing Library in a **jsdom** environment
-  (`src/test-setup.ts`); mock `fetch` for client tests.
+  (`src/test-setup.ts`, which also polyfills Radix's jsdom needs); mock `fetch`
+  for client tests, and assert accessibility with `vitest-axe`.
+- **Design system (GP-9):** a "blueprint" light theme. All tokens (blueprint
+  palette + Space Grotesk / Inter / JetBrains Mono fonts + `.blueprint-grid`
+  canvas) live in `src/index.css` — take colors/fonts from there, don't hardcode.
+  Fonts: `font-display` (headings/wordmark), default sans (body), `font-mono`
+  (data — dates, slugs, ids). Add shadcn components with
+  `pnpm dlx shadcn@latest add <name>` (run in `apps/frontend`).
+- **App shell (GP-9):** `AppLayout` (sidebar + gridded `<Outlet>` canvas) wraps
+  the authenticated routes under `<RequireAuth>` in `App.tsx`. New authenticated
+  pages: add a `pages/*.tsx`, a `<Route>` inside the layout, and a `NAV` entry in
+  `components/sidebar.tsx`. Reuse `PageHeader` for the title block.
 - **Login (GP-8):** Authorization Code + PKCE via `oidc-client-ts`. `src/auth/`
   holds the `UserManager` config (`user-manager.ts`, defaults to the dockerized
   Keycloak), `AuthProvider` (wires the GP-7 client hooks: token provider +

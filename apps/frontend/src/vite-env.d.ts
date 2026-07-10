@@ -14,3 +14,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// Self-hosted variable fonts (CSS side-effect imports).
+declare module "@fontsource-variable/*";
