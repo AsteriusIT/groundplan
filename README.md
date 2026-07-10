@@ -70,6 +70,31 @@ packages/      (empty) shared libraries live here
 The frontend dev server proxies `/api` → the backend on `:3000`, so app code
 always calls relative `/api/...` paths.
 
+### CI ingestion webhook
+
+Each repository gets a `webhookToken` (returned **once** in the create-repository
+response). CI pipelines push events to the ingestion endpoint:
+
+```bash
+curl -X POST "$GROUNDPLAN_URL/api/v1/webhooks/ci/$REPOSITORY_ID" \
+  -H "X-Groundplan-Token: $GROUNDPLAN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ref":"refs/heads/main","commit_sha":"'"$GITHUB_SHA"'","event":"push","payload":{}}'
+```
+
+Example GitHub Actions step:
+
+```yaml
+- name: Notify Groundplan
+  run: |
+    curl -X POST "${{ vars.GROUNDPLAN_URL }}/api/v1/webhooks/ci/${{ vars.GROUNDPLAN_REPOSITORY_ID }}" \
+      -H "X-Groundplan-Token: ${{ secrets.GROUNDPLAN_TOKEN }}" \
+      -H "Content-Type: application/json" \
+      -d '{"ref":"${{ github.ref }}","commit_sha":"${{ github.sha }}","event":"push","payload":{}}'
+```
+
+Recent events (without payloads): `GET /api/v1/repositories/{id}/events`.
+
 ### Configuration
 
 Backend config is read from environment variables (see

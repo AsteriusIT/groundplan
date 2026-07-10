@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { desc, eq } from "drizzle-orm";
 
 import { projects, publicRepositoryColumns, repositories } from "../db/schema.js";
+import { generateToken } from "../lib/tokens.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -176,8 +177,13 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           // Omitted -> DB default ("main").
           defaultBranch: body.defaultBranch,
           accessToken: body.accessToken,
+          webhookToken: generateToken(),
         })
-        .returning(publicRepositoryColumns);
+        // webhook_token is shown ONCE here; it is excluded from list responses.
+        .returning({
+          ...publicRepositoryColumns,
+          webhookToken: repositories.webhookToken,
+        });
       return reply.code(201).send(row);
     },
   );

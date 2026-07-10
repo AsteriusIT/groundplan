@@ -141,10 +141,18 @@ Local dev needs Postgres up first: `docker compose up -d`.
   which **shallow-clones** the repo to a temp dir per request (no caching yet),
   reads from disk, and always cleans up. Path traversal is blocked; only `https`
   repo URLs are allowed by the routes.
-- **Security:** `repositories.access_token` is **write-only** — set on create,
-  cloned with, but stripped from every response via `publicRepositoryColumns`.
-  Never add `access_token` to a `.select()`/`.returning()` that leaves the API,
-  and never log an authenticated clone URL (tokens are redacted in errors).
+- CI ingestion (GP-5): `POST /api/v1/webhooks/ci/:repositoryId` (auth via the
+  `X-Groundplan-Token` header; 10 MB body limit → 413; 202 with the event id)
+  stores rows in `ingestion_events` (JSONB `payload`, no processing yet).
+  `GET /api/v1/repositories/:id/events` lists the last 20 (no payload).
+- **Two per-repo secrets, handled differently:** `access_token` is **write-only**
+  (never returned; `publicRepositoryColumns`); `webhook_token` is **shown once**
+  in the create-repository response, then excluded from list responses. Never add
+  either to a `.select()`/`.returning()` that leaves the API; never log an
+  authenticated clone URL (tokens are redacted in errors). Compare webhook tokens
+  with `safeEqual` (constant-time).
+- Migrations run under a Postgres advisory lock (`runMigrations`), so parallel
+  test files / concurrent app startups don't race on schema creation.
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,
