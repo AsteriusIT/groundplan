@@ -70,6 +70,30 @@ packages/      (empty) shared libraries live here
 The frontend dev server proxies `/api` → the backend on `:3000`, so app code
 always calls relative `/api/...` paths.
 
+### Authentication (OIDC)
+
+The backend is an OIDC **resource server**: it validates bearer tokens from an
+external IdP (no passwords handled here). Auth activates when `OIDC_ISSUER_URL`
+and `OIDC_AUDIENCE` are set; every route is protected except `/healthz` and
+`/api/v1/webhooks/*`. In production the app refuses to boot without them.
+
+A dockerized Keycloak (realm `groundplan`, user `dev`/`dev`) is provided:
+
+```bash
+docker compose --profile auth up -d            # start Keycloak on :8085
+cp apps/backend/.env.example apps/backend/.env  # sets OIDC_* to match the realm
+pnpm dev:backend                                # backend now enforces auth
+
+# get a token and call the API as the seeded user:
+TOKEN=$(curl -s -X POST http://localhost:8085/realms/groundplan/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=groundplan-frontend -d username=dev -d password=dev \
+  | jq -r .access_token)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/v1/me
+```
+
+`GET /api/v1/me` returns `{id, email, display_name}` and provisions the user on
+first authenticated request (JIT).
+
 ### CI ingestion webhook
 
 Each repository gets a `webhookToken` (returned **once** in the create-repository

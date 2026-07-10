@@ -21,6 +21,10 @@ export type AppEnv = {
   corsOrigin: string;
   /** Postgres connection string. */
   databaseUrl: string;
+  /** OIDC issuer URL (discovery base). Empty string = auth disabled (dev). */
+  oidcIssuer: string;
+  /** Expected `aud` claim of accepted access tokens. */
+  oidcAudience: string;
 };
 
 export function loadEnv(): AppEnv {
@@ -32,5 +36,7 @@ export function loadEnv(): AppEnv {
     port: readInt(process.env.PORT, 3000),
     corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
+    oidcIssuer: process.env.OIDC_ISSUER_URL ?? "",
+    oidcAudience: process.env.OIDC_AUDIENCE ?? "",
   };
 }

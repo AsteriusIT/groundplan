@@ -61,6 +61,16 @@ export const publicRepositoryColumns = {
   createdAt: repositories.createdAt,
 };
 
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  oidcSubject: text("oidc_subject").notNull().unique(),
+  email: text("email"),
+  displayName: text("display_name"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const ingestionEventType = pgEnum("ingestion_event_type", [
   "push",
   "pull_request",
@@ -111,3 +121,4 @@ export const ingestionEventsRelations = relations(ingestionEvents, ({ one }) => 
 export type Project = typeof projects.$inferSelect;
 export type Repository = typeof repositories.$inferSelect;
 export type IngestionEvent = typeof ingestionEvents.$inferSelect;
+export type User = typeof users.$inferSelect;

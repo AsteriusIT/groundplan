@@ -153,6 +153,19 @@ Local dev needs Postgres up first: `docker compose up -d`.
   with `safeEqual` (constant-time).
 - Migrations run under a Postgres advisory lock (`runMigrations`), so parallel
   test files / concurrent app startups don't race on schema creation.
+- **Auth (GP-6):** OIDC resource server. `plugins/auth.ts` is an `fp` global
+  `onRequest` hook that validates bearer JWTs with `jose` (sig/iss/aud/exp),
+  JIT-upserts a `users` row (by `oidc_subject`), and sets `request.authUser`.
+  Exempt: `/healthz`, `/api/v1/health`, `/api/v1/webhooks/*`. `GET /api/v1/me`
+  returns `{id, email, display_name}`.
+  - Enforced only when `OIDC_ISSUER_URL` + `OIDC_AUDIENCE` are set; **production
+    refuses to boot without them** (fail-closed); unconfigured dev/test runs open
+    (keeps route tests simple). So new route tests that need an authed request
+    use `buildTestApp()` + `authHeader()` from `src/test-support.ts` (local
+    JWKS, no network); tests that don't care run unauthenticated via `buildApp`.
+  - Local IdP: `docker compose --profile auth up -d` (Keycloak on :8085, realm
+    in `infra/keycloak/`). New protected routes need no wiring — the global hook
+    already covers them; add to the exempt list only for genuinely public ones.
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,

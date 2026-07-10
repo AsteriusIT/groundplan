@@ -1,14 +1,17 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
+import type { JWTVerifyGetKey } from "jose";
 import type { Pool } from "pg";
 
 import type { AppEnv } from "./config/env.js";
+import { authPlugin } from "./plugins/auth.js";
 import { dbPlugin } from "./plugins/db.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
+import { meRoutes } from "./routes/me.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryFileRoutes } from "./routes/repository-files.js";
 import { repositoryRoutes } from "./routes/repositories.js";
@@ -16,6 +19,8 @@ import { repositoryRoutes } from "./routes/repositories.js";
 export type BuildAppOptions = {
   /** Inject a Postgres pool (e.g. a stub in tests). Defaults to a real pool. */
   pool?: Pool;
+  /** Inject a JWKS resolver (tests). Otherwise built from OIDC discovery. */
+  jwks?: JWTVerifyGetKey;
 };
 
 /** Pretty logs in dev, structured JSON in prod, silent in tests. */
@@ -49,11 +54,20 @@ export async function buildApp(
   });
   await app.register(sensible);
   await app.register(dbPlugin, { databaseUrl: env.databaseUrl, pool: opts.pool });
+  // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
+  // before routes so its onRequest hook guards every protected endpoint.
+  await app.register(authPlugin, {
+    issuer: env.oidcIssuer,
+    audience: env.oidcAudience,
+    nodeEnv: env.nodeEnv,
+    keyResolver: opts.jwks,
+  });
 
   // Readiness probe (with DB check) at the conventional root path.
   await app.register(healthzRoutes);
   // Versioned API routes.
   await app.register(healthRoutes, { prefix: "/api/v1" });
+  await app.register(meRoutes, { prefix: "/api/v1" });
   await app.register(projectRoutes, { prefix: "/api/v1" });
   await app.register(repositoryRoutes, { prefix: "/api/v1" });
   await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
