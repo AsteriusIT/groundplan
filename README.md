@@ -26,16 +26,20 @@ touches your cloud credentials or state backends. Adoption is one pipeline step.
 
 - **Node.js >= 22** (a `.nvmrc` pins 24 — `nvm use`)
 - **pnpm 10** (`corepack enable` will provide it)
+- **Docker** (for the local Postgres database)
 
-## Getting started
+## Run locally
 
 ```bash
-pnpm install     # install all workspace deps
-pnpm dev         # run backend (:3000) + frontend (:5173) together
+pnpm install                                 # install workspace deps
+docker compose up -d                         # start Postgres on :5432
+pnpm --filter @groundplan/backend migrate    # apply DB migrations
+pnpm dev                                      # backend :3000 + frontend :5173
 ```
 
-Then open <http://localhost:5173>. The landing page pings the backend and shows
-a green dot when the API is reachable.
+Open <http://localhost:5173> (the landing page shows a green dot when the API is
+reachable). Verify the API + DB at <http://localhost:3000/healthz> — it returns
+`{"status":"ok","db":"ok"}`. In dev, migrations also auto-apply on backend startup.
 
 ### Useful commands
 
@@ -46,6 +50,9 @@ a green dot when the API is reachable.
 | `pnpm dev:frontend` | Frontend only (Vite) |
 | `pnpm build` | Build every package |
 | `pnpm typecheck` | Type-check every package |
+| `pnpm --filter @groundplan/backend test` | Run backend tests |
+| `pnpm --filter @groundplan/backend migrate` | Apply DB migrations |
+| `pnpm --filter @groundplan/backend db:generate` | Generate a new migration from schema |
 | `pnpm start` | Run the built backend |
 | `pnpm clean` | Remove build artifacts |
 

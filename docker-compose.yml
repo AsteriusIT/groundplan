@@ -1,0 +1,22 @@
+# Local development dependencies. Brings up Postgres for the backend.
+# Usage: docker compose up -d
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: groundplan-postgres
+    environment:
+      POSTGRES_USER: groundplan
+      POSTGRES_PASSWORD: groundplan
+      POSTGRES_DB: groundplan
+    ports:
+      - "5432:5432"
+    volumes:
+      - groundplan_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U groundplan -d groundplan"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  groundplan_pgdata:

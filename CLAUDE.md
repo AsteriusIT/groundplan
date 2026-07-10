@@ -28,11 +28,15 @@ never touches cloud credentials or state backends. We ingest data, not access.
 groundplan/
 ├── apps/
 │   ├── backend/        # Fastify + TypeScript API (ESM, NodeNext)
+│   │   ├── drizzle/            # generated SQL migrations + meta (do not hand-edit)
+│   │   ├── drizzle.config.ts   # drizzle-kit config (schema path, out dir, DATABASE_URL)
 │   │   └── src/
-│   │       ├── index.ts        # entry: loads env, builds app, listens, handles shutdown
-│   │       ├── app.ts          # buildApp(env) factory — plugins + route registration
+│   │       ├── index.ts        # entry: migrate (dev) → build app → listen → shutdown
+│   │       ├── app.ts          # buildApp(env, opts) factory — plugins + route registration
 │   │       ├── config/env.ts   # environment parsing (single source of config truth)
-│   │       └── routes/         # Fastify route plugins (one concern per file)
+│   │       ├── db/             # schema.ts, index/drizzle, migrate.ts + migrate.cli.ts
+│   │       ├── plugins/        # Fastify plugins (e.g. db.ts decorates app.pool / app.db)
+│   │       └── routes/         # route plugins; *.test.ts live next to their route
 │   └── frontend/       # React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
 │       └── src/
 │           ├── main.tsx        # React root
@@ -41,6 +45,7 @@ groundplan/
 │           ├── components/ui/  # shadcn/ui components (generated; edit freely)
 │           └── lib/utils.ts    # cn() class-merge helper
 ├── packages/           # (empty) shared libraries live here, e.g. @groundplan/*
+├── docker-compose.yml  # local Postgres for dev
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json  # shared strict TS options; each app extends this
 └── package.json        # workspace root scripts
@@ -64,11 +69,23 @@ Run from the repo root unless noted. Package manager is **pnpm** (v10, see
 | `pnpm start` | Run the built backend (`node dist/index.js`) |
 | `pnpm clean` | Remove build artifacts |
 
-Filter to one package with `pnpm --filter @groundplan/backend <script>`.
+Backend-only (via `pnpm --filter @groundplan/backend <script>`):
+
+| Command | What it does |
+| --- | --- |
+| `test` | Run tests (`node --test` + tsx, files: `src/**/*.test.ts`) |
+| `migrate` | Apply pending migrations (`tsx src/db/migrate.cli.ts`) |
+| `db:generate` | Generate a new migration from schema diff (drizzle-kit) |
+
+Local dev needs Postgres up first: `docker compose up -d`.
 
 ### Ports & dev wiring
 
-- Backend listens on **:3000**, routes are under **`/api/v1`** (e.g. `GET /api/v1/health`).
+- Backend listens on **:3000**. API routes are under **`/api/v1`** (e.g.
+  `GET /api/v1/health`); the readiness probe **`GET /healthz`** is at the root and
+  returns `{"status":"ok","db":"ok"}` (200) or 503 if Postgres is unreachable.
+- Postgres runs on **:5432** via `docker compose up -d` (`DATABASE_URL` defaults
+  to `postgres://groundplan:groundplan@localhost:5432/groundplan`).
 - Frontend dev server runs on **:5173** and **proxies `/api` → `http://localhost:3000`**
   (see `apps/frontend/vite.config.ts`). So in-app, always call `/api/...` — do
   not hardcode the backend origin.
@@ -89,6 +106,17 @@ Filter to one package with `pnpm --filter @groundplan/backend <script>`.
   `process.env` across the codebase.
 - Each route is a `FastifyPluginAsync` in `src/routes/`, registered in `app.ts`.
 
+**Backend — database**
+- Data layer is **Drizzle ORM** over **node-postgres** (`pg`). The `db` plugin
+  (`src/plugins/db.ts`) owns the pool lifecycle and decorates `app.pool` (raw)
+  and `app.db` (Drizzle). Access the DB through those decorations.
+- `buildApp(env, { pool })` accepts an injected pool so routes can be tested
+  against a stub without a live database (see `routes/healthz.test.ts`).
+- Migrations are **generated** (never hand-written): edit `src/db/schema.ts`,
+  then `pnpm --filter @groundplan/backend db:generate`. Files land in `drizzle/`.
+  `runMigrations()` (`src/db/migrate.ts`) applies them — on startup in dev and
+  via `pnpm migrate`. One `DATABASE_URL` is the only DB config (KISS).
+
 **Frontend**
 - Import via the `@/` alias (maps to `src/`), configured in both
   `tsconfig.json` and `vite.config.ts`.
@@ -102,11 +130,12 @@ Filter to one package with `pnpm --filter @groundplan/backend <script>`.
 
 ## Things to know before extending
 
-- There is **no database, auth, or plan-ingestion yet** — those are the first
-  real features. When adding them, backend business logic should sit behind the
-  route layer (consider `src/services/` + `src/plugins/`), not inside route handlers.
+- Postgres is wired up (GP-2) but the schema is **empty** — there is **no auth
+  or plan-ingestion yet**. When adding features, business logic should sit behind
+  the route layer (consider `src/services/`), not inside route handlers.
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,
   then render diagrams deterministically so CI output is trustworthy.
-- No test runner is wired up yet — add one (e.g. `vitest`) with the first feature.
+- Follow TDD: tests live beside their subject as `*.test.ts` and run via
+  `pnpm --filter @groundplan/backend test` (Node's built-in runner + tsx).
