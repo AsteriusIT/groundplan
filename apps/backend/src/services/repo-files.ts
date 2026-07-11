@@ -150,6 +150,31 @@ export async function listFiles(source: RepoSource): Promise<string[]> {
   });
 }
 
+export type RepoTextFile = { path: string; content: string };
+
+/**
+ * Clone the repo once at `ref`, read the UTF-8 contents of every file matching
+ * `matches`, and capture the cloned HEAD sha. Used by the docs flow (GP-15) so a
+ * whole-repo parse needs a single clone (unlike per-request `getFile`). The temp
+ * clone is always cleaned up.
+ */
+export async function readRepoTextFiles(
+  source: RepoSource,
+  matches: (path: string) => boolean,
+): Promise<{ files: RepoTextFile[]; headSha: string }> {
+  return withClone(source, async (dir) => {
+    const paths = (await walkFiles(dir, dir)).filter(matches);
+    const files: RepoTextFile[] = [];
+    for (const rel of paths) {
+      files.push({ path: rel, content: await fs.readFile(path.join(dir, rel), "utf8") });
+    }
+    const { stdout } = await execFileAsync("git", ["-C", dir, "rev-parse", "HEAD"], {
+      timeout: CLONE_TIMEOUT_MS,
+    });
+    return { files, headSha: stdout.trim() };
+  });
+}
+
 /** Read one file at `ref`. Returns null if it is missing or not a file. */
 export async function getFile(
   source: RepoSource & { filePath: string },

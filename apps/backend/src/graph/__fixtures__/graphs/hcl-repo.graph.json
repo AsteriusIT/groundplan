@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "aws_iam_role.app",
+      "name": "app",
+      "type": "aws_iam_role",
+      "provider": "aws",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "aws_s3_bucket.logs",
+      "name": "logs",
+      "type": "aws_s3_bucket",
+      "provider": "aws",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "data.aws_caller_identity.current",
+      "name": "current",
+      "type": "aws_caller_identity",
+      "provider": "aws",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "module.network",
+      "name": "network",
+      "type": "module",
+      "provider": null,
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "module.network.aws_flow_log.this",
+      "name": "this",
+      "type": "aws_flow_log",
+      "provider": "aws",
+      "module_path": ["network"],
+      "change": null
+    },
+    {
+      "id": "module.network.aws_vpc.this",
+      "name": "this",
+      "type": "aws_vpc",
+      "provider": "aws",
+      "module_path": ["network"],
+      "change": null
+    },
+    {
+      "id": "module.vpc_registry",
+      "name": "vpc_registry",
+      "type": "module",
+      "provider": null,
+      "module_path": [],
+      "change": null
+    }
+  ],
+  "edges": [
+    { "from": "module.network", "to": "module.network.aws_flow_log.this", "kind": "contains" },
+    { "from": "module.network", "to": "module.network.aws_vpc.this", "kind": "contains" },
+    { "from": "aws_iam_role.app", "to": "aws_s3_bucket.logs", "kind": "depends_on" },
+    { "from": "module.network.aws_flow_log.this", "to": "module.network.aws_vpc.this", "kind": "depends_on" }
+  ]
+}

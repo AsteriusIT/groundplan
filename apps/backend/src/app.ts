@@ -14,6 +14,7 @@ import {
   type RepoSource,
   type VerifyResult,
 } from "./services/repo-files.js";
+import { docsRoutes } from "./routes/docs.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
@@ -100,6 +101,7 @@ export async function buildApp(
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
   await app.register(snapshotRoutes, { prefix: "/api/v1" });
   await app.register(pullRoutes, { prefix: "/api/v1" });
+  await app.register(docsRoutes, { prefix: "/api/v1" });
 
   return app;
 }
