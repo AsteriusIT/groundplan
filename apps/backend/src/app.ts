@@ -21,6 +21,7 @@ import { meRoutes } from "./routes/me.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryFileRoutes } from "./routes/repository-files.js";
 import { repositoryRoutes } from "./routes/repositories.js";
+import { snapshotRoutes } from "./routes/snapshots.js";
 
 export type VerifyConnection = (source: RepoSource) => Promise<VerifyResult>;
 
@@ -96,6 +97,7 @@ export async function buildApp(
   await app.register(repositoryRoutes, { prefix: "/api/v1" });
   await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
+  await app.register(snapshotRoutes, { prefix: "/api/v1" });
 
   return app;
 }

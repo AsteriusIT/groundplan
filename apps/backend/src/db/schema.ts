@@ -5,6 +5,7 @@
  */
 import { relations, sql } from "drizzle-orm";
 import {
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -12,6 +13,8 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+
+import type { Graph, GraphStats } from "../graph/graph.js";
 
 export const repositoryProvider = pgEnum("repository_provider", [
   "github",
@@ -130,6 +133,48 @@ export const publicEventColumns = {
   receivedAt: ingestionEvents.receivedAt,
 };
 
+export const graphSnapshotSource = pgEnum("graph_snapshot_source", [
+  "plan",
+  "hcl",
+]);
+
+/**
+ * A versioned, source-agnostic graph of Terraform resources (GP-12). Produced
+ * either from a plan.json (`source=plan`, PR flow) or a static HCL parse
+ * (`source=hcl`, docs flow). Everything in the product renders from `graph`.
+ */
+export const graphSnapshots = pgTable("graph_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  source: graphSnapshotSource("source").notNull(),
+  ref: text("ref").notNull(),
+  commitSha: text("commit_sha").notNull(),
+  /** Set for plan snapshots tied to a pull request; null for docs snapshots. */
+  prNumber: integer("pr_number"),
+  graph: jsonb("graph").$type<Graph>().notNull(),
+  /** Node/edge/change counts (+ optional warnings), computed on insert. */
+  stats: jsonb("stats").$type<GraphStats & Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type GraphSnapshotRow = typeof graphSnapshots.$inferSelect;
+
+/** Snapshot columns for list responses — everything EXCEPT the (large) graph. */
+export const publicSnapshotColumns = {
+  id: graphSnapshots.id,
+  repositoryId: graphSnapshots.repositoryId,
+  source: graphSnapshots.source,
+  ref: graphSnapshots.ref,
+  commitSha: graphSnapshots.commitSha,
+  prNumber: graphSnapshots.prNumber,
+  stats: graphSnapshots.stats,
+  createdAt: graphSnapshots.createdAt,
+};
+
 export const projectsRelations = relations(projects, ({ many }) => ({
   repositories: many(repositories),
 }));
@@ -140,6 +185,14 @@ export const repositoriesRelations = relations(repositories, ({ one, many }) => 
     references: [projects.id],
   }),
   events: many(ingestionEvents),
+  snapshots: many(graphSnapshots),
+}));
+
+export const graphSnapshotsRelations = relations(graphSnapshots, ({ one }) => ({
+  repository: one(repositories, {
+    fields: [graphSnapshots.repositoryId],
+    references: [repositories.id],
+  }),
 }));
 
 export const ingestionEventsRelations = relations(ingestionEvents, ({ one }) => ({

@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://groundplan.dev/schemas/graph.v1.json",
+  "title": "GroundplanGraph",
+  "description": "v1 of the source-agnostic Terraform graph. Everything in the product renders from this shape; nothing renders from raw plan.json or HCL. Frozen: bump `version` to evolve.",
+  "type": "object",
+  "required": ["version", "nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/edge" }
+    }
+  },
+  "definitions": {
+    "node": {
+      "type": "object",
+      "required": ["id", "name", "type", "provider", "module_path", "change"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Terraform address, e.g. module.payments.aws_ecs_service.this"
+        },
+        "name": { "type": "string" },
+        "type": {
+          "type": "string",
+          "description": "Resource type (aws_ecs_service) or the literal \"module\" for synthetic module nodes."
+        },
+        "provider": {
+          "type": ["string", "null"],
+          "description": "Provider name (aws); null for module nodes."
+        },
+        "module_path": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Module names from the root down to this node's parent module."
+        },
+        "change": {
+          "description": "Planned action; null for snapshots not derived from a plan (docs flow).",
+          "enum": ["create", "update", "delete", "noop", null]
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from", "to", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "kind": {
+          "description": "contains = module hierarchy; depends_on = resource dependency.",
+          "enum": ["depends_on", "contains"]
+        }
+      }
+    }
+  }
+}
