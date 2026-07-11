@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "aws_eip.old",
+      "name": "old",
+      "type": "aws_eip",
+      "provider": "aws",
+      "module_path": [],
+      "change": "delete"
+    },
+    {
+      "id": "aws_instance.web",
+      "name": "web",
+      "type": "aws_instance",
+      "provider": "aws",
+      "module_path": [],
+      "change": "update"
+    },
+    {
+      "id": "aws_instance.worker",
+      "name": "worker",
+      "type": "aws_instance",
+      "provider": "aws",
+      "module_path": [],
+      "change": "update"
+    }
+  ],
+  "edges": []
+}

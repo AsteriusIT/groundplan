@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "aws_kms_key.main",
+      "name": "main",
+      "type": "aws_kms_key",
+      "provider": "aws",
+      "module_path": [],
+      "change": "create"
+    },
+    {
+      "id": "module.network",
+      "name": "network",
+      "type": "module",
+      "provider": null,
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "module.network.aws_flow_log.this",
+      "name": "this",
+      "type": "aws_flow_log",
+      "provider": "aws",
+      "module_path": ["network"],
+      "change": "create"
+    },
+    {
+      "id": "module.network.aws_vpc.this",
+      "name": "this",
+      "type": "aws_vpc",
+      "provider": "aws",
+      "module_path": ["network"],
+      "change": "create"
+    },
+    {
+      "id": "module.network.module.subnets",
+      "name": "subnets",
+      "type": "module",
+      "provider": null,
+      "module_path": ["network"],
+      "change": null
+    },
+    {
+      "id": "module.network.module.subnets.aws_subnet.a",
+      "name": "a",
+      "type": "aws_subnet",
+      "provider": "aws",
+      "module_path": ["network", "subnets"],
+      "change": "create"
+    }
+  ],
+  "edges": [
+    { "from": "module.network", "to": "module.network.aws_flow_log.this", "kind": "contains" },
+    { "from": "module.network", "to": "module.network.aws_vpc.this", "kind": "contains" },
+    { "from": "module.network", "to": "module.network.module.subnets", "kind": "contains" },
+    { "from": "module.network.module.subnets", "to": "module.network.module.subnets.aws_subnet.a", "kind": "contains" },
+    { "from": "module.network.aws_flow_log.this", "to": "module.network.aws_vpc.this", "kind": "depends_on" }
+  ]
+}

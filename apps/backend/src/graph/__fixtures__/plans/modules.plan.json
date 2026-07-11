@@ -1,0 +1,97 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "aws_kms_key.main",
+      "mode": "managed",
+      "type": "aws_kms_key",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "module.network.aws_vpc.this",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "this",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "module.network.aws_flow_log.this",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_flow_log",
+      "name": "this",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "module.network.module.subnets.aws_subnet.a",
+      "module_address": "module.network.module.subnets",
+      "mode": "managed",
+      "type": "aws_subnet",
+      "name": "a",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": { "actions": ["create"] }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_kms_key.main",
+          "mode": "managed",
+          "type": "aws_kms_key",
+          "name": "main",
+          "provider_config_key": "aws"
+        }
+      ],
+      "module_calls": {
+        "network": {
+          "source": "./modules/network",
+          "module": {
+            "resources": [
+              {
+                "address": "aws_vpc.this",
+                "mode": "managed",
+                "type": "aws_vpc",
+                "name": "this",
+                "provider_config_key": "aws"
+              },
+              {
+                "address": "aws_flow_log.this",
+                "mode": "managed",
+                "type": "aws_flow_log",
+                "name": "this",
+                "provider_config_key": "aws",
+                "expressions": {
+                  "vpc_id": { "references": ["aws_vpc.this.id", "aws_vpc.this"] }
+                },
+                "depends_on": ["aws_vpc.this"]
+              }
+            ],
+            "module_calls": {
+              "subnets": {
+                "source": "./modules/subnets",
+                "module": {
+                  "resources": [
+                    {
+                      "address": "aws_subnet.a",
+                      "mode": "managed",
+                      "type": "aws_subnet",
+                      "name": "a",
+                      "provider_config_key": "aws"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

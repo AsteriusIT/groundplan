@@ -119,6 +119,9 @@ export const ingestionEvents = pgTable("ingestion_events", {
   commitSha: text("commit_sha").notNull(),
   event: ingestionEventType("event").notNull(),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  // Set when Producer A (plan.json parser, GP-13) fails on this event's payload;
+  // null when the payload was not a plan or parsed cleanly.
+  parseError: text("parse_error"),
   receivedAt: timestamp("received_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -130,6 +133,7 @@ export const publicEventColumns = {
   ref: ingestionEvents.ref,
   commitSha: ingestionEvents.commitSha,
   event: ingestionEvents.event,
+  parseError: ingestionEvents.parseError,
   receivedAt: ingestionEvents.receivedAt,
 };
 

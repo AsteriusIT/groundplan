@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "aws_iam_role.app",
+      "name": "app",
+      "type": "aws_iam_role",
+      "provider": "aws",
+      "module_path": [],
+      "change": "noop"
+    },
+    {
+      "id": "aws_s3_bucket.logs",
+      "name": "logs",
+      "type": "aws_s3_bucket",
+      "provider": "aws",
+      "module_path": [],
+      "change": "create"
+    }
+  ],
+  "edges": [
+    { "from": "aws_iam_role.app", "to": "aws_s3_bucket.logs", "kind": "depends_on" }
+  ]
+}

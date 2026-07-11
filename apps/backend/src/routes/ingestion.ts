@@ -6,6 +6,8 @@ import {
   publicEventColumns,
   repositories,
 } from "../db/schema.js";
+import { isTerraformPlan, parsePlanToGraph } from "../graph/plan-parser.js";
+import { insertGraphSnapshot } from "../services/graph-snapshots.js";
 import { safeEqual } from "../lib/tokens.js";
 
 const UUID_PATTERN =
@@ -29,6 +31,8 @@ const webhookBodySchema = {
     ref: { type: "string", minLength: 1, maxLength: 500 },
     commit_sha: { type: "string", minLength: 1, maxLength: 200 },
     event: { type: "string", enum: ["push", "pull_request"] },
+    // Present for pull_request events; links a plan snapshot to its PR (GP-13).
+    pr_number: { type: "integer", minimum: 1 },
     payload: { type: "object" },
   },
 };
@@ -53,6 +57,7 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
         ref: string;
         commit_sha: string;
         event: "push" | "pull_request";
+        pr_number?: number;
         payload: Record<string, unknown>;
       };
 
@@ -87,6 +92,30 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
           payload: body.payload,
         })
         .returning({ id: ingestionEvents.id });
+
+      // Producer A: if the payload is a Terraform plan, parse it into a
+      // GraphSnapshot inline. Wrapped so ingestion never fails on a parse error —
+      // the event is flagged instead, and the webhook still returns 202.
+      if (row && isTerraformPlan(body.payload)) {
+        try {
+          const graph = parsePlanToGraph(body.payload);
+          await insertGraphSnapshot(app.db, {
+            repositoryId,
+            source: "plan",
+            ref: body.ref,
+            commitSha: body.commit_sha,
+            prNumber: body.pr_number ?? null,
+            graph,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          app.log.error({ err, eventId: row.id }, "plan parse failed");
+          await app.db
+            .update(ingestionEvents)
+            .set({ parseError: message })
+            .where(eq(ingestionEvents.id, row.id));
+        }
+      }
 
       return reply.code(202).send({ id: row?.id });
     },

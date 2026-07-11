@@ -1,0 +1,1 @@
+ALTER TABLE "ingestion_events" ADD COLUMN "parse_error" text;

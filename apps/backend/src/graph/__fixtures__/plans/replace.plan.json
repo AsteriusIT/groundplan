@@ -1,0 +1,57 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "aws_instance.web",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": { "actions": ["delete", "create"] }
+    },
+    {
+      "address": "aws_instance.worker",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "worker",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": { "actions": ["create", "delete"] }
+    },
+    {
+      "address": "aws_eip.old",
+      "mode": "managed",
+      "type": "aws_eip",
+      "name": "old",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": { "actions": ["delete"] }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_instance.web",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "web",
+          "provider_config_key": "aws"
+        },
+        {
+          "address": "aws_instance.worker",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "worker",
+          "provider_config_key": "aws"
+        },
+        {
+          "address": "aws_eip.old",
+          "mode": "managed",
+          "type": "aws_eip",
+          "name": "old",
+          "provider_config_key": "aws"
+        }
+      ]
+    }
+  }
+}
