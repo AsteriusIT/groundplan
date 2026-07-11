@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "azurerm_network_interface.main",
+      "name": "main",
+      "type": "azurerm_network_interface",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "azurerm_subnet.internal",
+      "name": "internal",
+      "type": "azurerm_subnet",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "azurerm_virtual_machine.main",
+      "name": "main",
+      "type": "azurerm_virtual_machine",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "azurerm_virtual_network.main",
+      "name": "main",
+      "type": "azurerm_virtual_network",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "data.azurerm_image.ubuntu",
+      "name": "ubuntu",
+      "type": "azurerm_image",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "module.monitoring",
+      "name": "monitoring",
+      "type": "module",
+      "provider": null,
+      "module_path": [],
+      "change": null
+    },
+    {
+      "id": "module.monitoring.azurerm_monitor_diagnostic_setting.main",
+      "name": "main",
+      "type": "azurerm_monitor_diagnostic_setting",
+      "provider": "azurerm",
+      "module_path": ["monitoring"],
+      "change": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "module.monitoring",
+      "to": "module.monitoring.azurerm_monitor_diagnostic_setting.main",
+      "kind": "contains"
+    },
+    {
+      "from": "azurerm_network_interface.main",
+      "to": "azurerm_subnet.internal",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_subnet.internal",
+      "to": "azurerm_virtual_network.main",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_virtual_machine.main",
+      "to": "azurerm_network_interface.main",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_virtual_machine.main",
+      "to": "data.azurerm_image.ubuntu",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "module.monitoring",
+      "to": "azurerm_virtual_network.main",
+      "kind": "depends_on",
+      "inferred": true
+    }
+  ]
+}

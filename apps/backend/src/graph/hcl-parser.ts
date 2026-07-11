@@ -6,11 +6,24 @@
  * HCL parser choice: a small, dedicated block scanner (below) rather than an
  * external dependency (`@cdktf/hcl2json`, `hcl2json` binary, `python-hcl2`).
  * Rationale: the scope is deliberately narrow — top-level block headers, a
- * module's `source`, and explicit `depends_on`. A focused scanner keeps this
- * offline (no WASM/native download), deterministic, and fully unit-testable,
- * which matters more here than full HCL fidelity. Expressions are NOT evaluated
- * (per GP-15): only explicit `depends_on` produces edges.
+ * module's `source`, and reference-shaped tokens. A focused scanner keeps this
+ * offline (no WASM/native download), deterministic, and fully unit-testable.
+ *
+ * Dependencies (GP-21): explicit `depends_on` PLUS references extracted from
+ * attribute expressions via regex (chosen over full expression evaluation).
+ * Resolution to node ids is done by the shared `dependency-edges` builder (the
+ * same one Producer A uses). References that don't resolve to a parsed block are
+ * dropped and counted in `stats.warnings`. References inside comments/strings
+ * that don't resolve are ignored (best effort, documented limitation).
  */
+import {
+  buildDependencyEdges,
+  buildInstancesByBase,
+  resolveReference,
+  type DependencySource,
+  type EdgeContext,
+  type RawRef,
+} from "./dependency-edges.js";
 import type { Graph, GraphEdge, GraphNode } from "./graph.js";
 
 export type HclFile = { path: string; content: string };
@@ -153,6 +166,15 @@ function extractDependsOn(body: string): string[] {
     .filter(Boolean);
 }
 
+// Dotted identifier chains (with optional [index]) — reference-shaped tokens.
+const REFERENCE_RE =
+  /[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)+/g;
+
+/** Every reference-shaped token in an attribute body (over-extraction is fine). */
+function extractReferences(body: string): string[] {
+  return [...body.matchAll(REFERENCE_RE)].map((m) => m[0]);
+}
+
 /** Provider name from a resource type ("aws_s3_bucket" → "aws"). Heuristic. */
 function providerFromType(type: string): string | null {
   const provider = type.split("_")[0];
@@ -178,18 +200,22 @@ function resolveLocalDir(baseDir: string, source: string): string {
 const compareStrings = (a: string, b: string): number =>
   a < b ? -1 : a > b ? 1 : 0;
 
+type PendingSource = { fromBase: string; prefix: string; body: string };
+
 type Ctx = {
   filesByDir: Map<string, HclFile[]>;
   nodes: Map<string, GraphNode>;
-  edges: Map<string, GraphEdge>;
+  containsEdges: Map<string, GraphEdge>;
   warnings: string[];
   visited: Set<string>;
-  pendingDeps: { from: string; prefix: string; ref: string }[];
+  pendingSources: PendingSource[];
+  /** Resource types seen — used to tell a real (droppable) ref from noise. */
+  resourceTypes: Set<string>;
 };
 
 function addContains(ctx: Ctx, parent: string | null, child: string): void {
   if (!parent) return;
-  ctx.edges.set(`contains ${parent} ${child}`, {
+  ctx.containsEdges.set(`contains ${parent} ${child}`, {
     from: parent,
     to: child,
     kind: "contains",
@@ -225,7 +251,8 @@ function parseModuleDir(
       if (block.type === "resource" || block.type === "data") {
         const [type, name] = block.labels;
         if (!type || !name) continue;
-        const localId = block.type === "data" ? `data.${type}.${name}` : `${type}.${name}`;
+        const localId =
+          block.type === "data" ? `data.${type}.${name}` : `${type}.${name}`;
         const id = prefix + localId;
         ctx.nodes.set(id, {
           id,
@@ -235,10 +262,9 @@ function parseModuleDir(
           module_path: modulePath,
           change: null,
         });
+        if (block.type === "resource") ctx.resourceTypes.add(type);
         addContains(ctx, parentModuleId, id);
-        for (const ref of extractDependsOn(block.body)) {
-          ctx.pendingDeps.push({ from: id, prefix, ref });
-        }
+        ctx.pendingSources.push({ fromBase: id, prefix, body: block.body });
       } else if (block.type === "module") {
         const [name] = block.labels;
         if (!name) continue;
@@ -252,6 +278,8 @@ function parseModuleDir(
           change: null,
         });
         addContains(ctx, parentModuleId, moduleId);
+        // Module inputs can reference resources → edges from the module node.
+        ctx.pendingSources.push({ fromBase: moduleId, prefix, body: block.body });
 
         const source = extractSource(block.body);
         if (source && isLocalSource(source)) {
@@ -266,6 +294,13 @@ function parseModuleDir(
       }
     }
   }
+}
+
+/** Would this reference point at a real block (vs. an attribute name / noise)? */
+function isReferenceable(ref: string, resourceTypes: ReadonlySet<string>): boolean {
+  if (ref.startsWith("module.") || ref.startsWith("data.")) return true;
+  const firstType = (ref.split(".")[0] ?? "").replace(/\[.*\]$/, "");
+  return resourceTypes.has(firstType);
 }
 
 /** Parse a repository's `.tf` files into a GraphSnapshot graph + warnings. */
@@ -283,37 +318,64 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
   const ctx: Ctx = {
     filesByDir,
     nodes: new Map(),
-    edges: new Map(),
+    containsEdges: new Map(),
     warnings: [],
     visited: new Set(),
-    pendingDeps: [],
+    pendingSources: [],
+    resourceTypes: new Set(),
   };
 
   parseModuleDir(ctx, "", "", [], null);
 
-  // Resolve explicit depends_on against the full node set (edges only to known
-  // nodes; anything else — vars, cross-module attrs — is skipped).
-  for (const dep of ctx.pendingDeps) {
-    const target = dep.prefix + dep.ref;
-    if (ctx.nodes.has(target) && target !== dep.from) {
-      ctx.edges.set(`depends_on ${dep.from} ${target}`, {
-        from: dep.from,
-        to: target,
-        kind: "depends_on",
-      });
+  const resourceIds = new Set<string>();
+  const moduleIds = new Set<string>();
+  for (const node of ctx.nodes.values()) {
+    if (node.type === "module") moduleIds.add(node.id);
+    else resourceIds.add(node.id);
+  }
+  const edgeCtx: EdgeContext = {
+    resourceIds,
+    moduleIds,
+    instancesByBase: buildInstancesByBase(resourceIds),
+  };
+
+  // Build dependency sources (explicit + expression-inferred) and count refs
+  // that look real but don't resolve to any parsed block.
+  let unresolved = 0;
+  const sources: DependencySource[] = [];
+  for (const ps of ctx.pendingSources) {
+    const refs: RawRef[] = [];
+    for (const r of extractDependsOn(ps.body)) refs.push({ ref: r, inferred: false });
+    for (const r of extractReferences(ps.body)) refs.push({ ref: r, inferred: true });
+
+    const seen = new Set<string>();
+    for (const { ref } of refs) {
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      if (
+        isReferenceable(ref, ctx.resourceTypes) &&
+        resolveReference(ps.prefix, ref, edgeCtx).length === 0
+      ) {
+        unresolved += 1;
+      }
     }
+    sources.push({ fromBase: ps.fromBase, prefix: ps.prefix, refs });
   }
 
+  const dependsOnEdges = buildDependencyEdges(sources, edgeCtx);
+
   const nodes = [...ctx.nodes.values()].sort((a, b) => compareStrings(a.id, b.id));
-  const edges = [...ctx.edges.values()].sort(
+  const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].sort(
     (a, b) =>
       compareStrings(a.kind, b.kind) ||
       compareStrings(a.from, b.from) ||
       compareStrings(a.to, b.to),
   );
 
-  return {
-    graph: { version: 1, nodes, edges },
-    warnings: [...ctx.warnings].sort(compareStrings),
-  };
+  const warnings = [...ctx.warnings];
+  if (unresolved > 0) {
+    warnings.push(`${unresolved} reference(s) could not be resolved to a resource`);
+  }
+
+  return { graph: { version: 1, nodes, edges }, warnings: warnings.sort(compareStrings) };
 }

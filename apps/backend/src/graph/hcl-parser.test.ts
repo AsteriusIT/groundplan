@@ -34,6 +34,36 @@ test("parses the fixture repo (root + local module) into the expected graph", ()
   assert.deepEqual(graph, readJson("graphs/hcl-repo.graph.json"));
 });
 
+test("infers a connected graph from expressions (docs flow, GP-21)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-expressions"));
+  assert.equal(validateGraph(graph).valid, true);
+  assert.deepEqual(graph, readJson("graphs/hcl-expressions.graph.json"));
+});
+
+test("the vm -> nic -> subnet -> vnet chain is visible via expressions", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-expressions"));
+  const dep = (from: string, to: string) =>
+    graph.edges.some((e) => e.from === from && e.to === to && e.kind === "depends_on");
+  assert.ok(dep("azurerm_virtual_machine.main", "azurerm_network_interface.main"));
+  assert.ok(dep("azurerm_network_interface.main", "azurerm_subnet.internal"));
+  assert.ok(dep("azurerm_subnet.internal", "azurerm_virtual_network.main"));
+  // A data-source reference and a module-input reference are edges too.
+  assert.ok(dep("azurerm_virtual_machine.main", "data.azurerm_image.ubuntu"));
+  assert.ok(dep("module.monitoring", "azurerm_virtual_network.main"));
+  // All expression-derived, so every depends_on edge is inferred.
+  assert.ok(graph.edges.filter((e) => e.kind === "depends_on").every((e) => e.inferred === true));
+});
+
+test("unresolved references are dropped and counted in stats.warnings", () => {
+  const { graph, warnings } = parseHclRepo(readRepo("hcl-expressions"));
+  // azurerm_virtual_network.secondary is referenced but not declared.
+  assert.ok(!graph.nodes.some((n) => n.id.includes("secondary")));
+  assert.ok(
+    warnings.some((w) => /1 reference\(s\) could not be resolved/.test(w)),
+    `expected an unresolved-reference warning, got ${JSON.stringify(warnings)}`,
+  );
+});
+
 test("a registry module source becomes a single leaf node (no recursion)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-repo"));
   const registry = graph.nodes.filter((n) => n.id.startsWith("module.vpc_registry"));

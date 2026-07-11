@@ -61,7 +61,17 @@
   "edges": [
     { "from": "module.network", "to": "module.network.aws_flow_log.this", "kind": "contains" },
     { "from": "module.network", "to": "module.network.aws_vpc.this", "kind": "contains" },
-    { "from": "aws_iam_role.app", "to": "aws_s3_bucket.logs", "kind": "depends_on" },
-    { "from": "module.network.aws_flow_log.this", "to": "module.network.aws_vpc.this", "kind": "depends_on" }
+    {
+      "from": "aws_iam_role.app",
+      "to": "aws_s3_bucket.logs",
+      "kind": "depends_on",
+      "inferred": false
+    },
+    {
+      "from": "module.network.aws_flow_log.this",
+      "to": "module.network.aws_vpc.this",
+      "kind": "depends_on",
+      "inferred": false
+    }
   ]
 }
