@@ -19,6 +19,7 @@ import type { Repository, Snapshot, SnapshotSummary } from "@/api/types";
 import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ExportMenu } from "@/components/export-menu";
 import { GraphCanvas } from "@/components/graph-canvas";
 
 type ListState =
@@ -149,10 +150,18 @@ export function DocsPage() {
             </h1>
           </div>
           {snapshots.length > 0 && (
-            <Button variant="outline" onClick={generate} disabled={generating}>
-              <RefreshCw className={generating ? "size-4 animate-spin" : "size-4"} />
-              {generating ? "Regenerating…" : "Regenerate"}
-            </Button>
+            <div className="flex items-center gap-2">
+              {current && (
+                <ExportMenu
+                  snapshotId={current.id}
+                  filenameBase={`${(repo ? repoName(repo.url) : "diagram").replaceAll("/", "-")}-${shortSha(current.commitSha)}`}
+                />
+              )}
+              <Button variant="outline" onClick={generate} disabled={generating}>
+                <RefreshCw className={generating ? "size-4 animate-spin" : "size-4"} />
+                {generating ? "Regenerating…" : "Regenerate"}
+              </Button>
+            </div>
           )}
         </div>
         {genError && (

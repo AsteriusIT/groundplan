@@ -107,6 +107,34 @@ async function extractErrorMessage(response: Response): Promise<string> {
 
 const encode = encodeURIComponent;
 
+export type ExportFormat = "svg" | "png";
+export type ExportScope = "full" | "changes";
+
+/**
+ * Fetch a rendered snapshot export (GP-37) as a Blob. The export endpoints sit
+ * behind bearer auth, so this goes through the same token-injecting path as the
+ * JSON client rather than a bare <img>/<a> (which would omit the token).
+ */
+export async function getSnapshotExport(
+  id: string,
+  format: ExportFormat,
+  scope: ExportScope = "full",
+): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = tokenProvider();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const query = scope === "changes" ? "?scope=changes" : "";
+  const response = await fetch(
+    `${API_BASE}/snapshots/${encode(id)}/export.${format}${query}`,
+    { headers },
+  );
+  if (response.status === 401) unauthorizedHandler();
+  if (!response.ok) {
+    throw new ApiError(response.status, await extractErrorMessage(response));
+  }
+  return response.blob();
+}
+
 export function listProjects(): Promise<Project[]> {
   return request<Project[]>("/projects");
 }

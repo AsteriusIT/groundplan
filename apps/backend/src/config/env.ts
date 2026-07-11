@@ -2,6 +2,8 @@
  * Central place to read and validate environment configuration.
  * Keep this small and dependency-light; expand as real config appears.
  */
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function readInt(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
@@ -47,6 +49,8 @@ export type AppEnv = {
   oidcAudience: string;
   /** base64-encoded 32-byte key for encrypting repository PATs at rest. */
   encryptionKey: string;
+  /** Directory where rendered snapshot exports (SVG/PNG) are cached (GP-37). */
+  exportCacheDir: string;
 };
 
 export function loadEnv(): AppEnv {
@@ -64,5 +68,7 @@ export function loadEnv(): AppEnv {
     encryptionKey:
       process.env.ENCRYPTION_KEY ??
       (nodeEnv === "production" ? "" : DEV_ENCRYPTION_KEY),
+    exportCacheDir:
+      process.env.EXPORT_CACHE_DIR ?? join(tmpdir(), "groundplan-exports"),
   };
 }

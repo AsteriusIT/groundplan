@@ -15,9 +15,10 @@ import type {
   Snapshot,
   SnapshotSummary,
 } from "@/api/types";
-import { formatDate } from "@/lib/format";
+import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ChangeSummaryPanel } from "@/components/change-summary";
+import { ExportMenu } from "@/components/export-menu";
 import { GraphCanvas } from "@/components/graph-canvas";
 
 type PageState =
@@ -144,22 +145,31 @@ export function PullDetailPage() {
                 ` · ${formatDate(graph.snapshot.createdAt)}`}
             </p>
           </div>
-          {snapshots.length > 1 && (
-            <label className="text-muted-foreground flex items-center gap-2 text-xs">
-              Snapshot
-              <select
-                value={selectedId ?? ""}
-                onChange={(e) => setSelectedId(e.target.value)}
-                className="bg-background rounded-md border border-input px-2 py-1 font-mono text-xs"
-              >
-                {snapshots.map((snap) => (
-                  <option key={snap.id} value={snap.id}>
-                    {shortSha(snap.commitSha)} — {formatDate(snap.createdAt)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          <div className="flex items-center gap-2">
+            {snapshots.length > 1 && (
+              <label className="text-muted-foreground flex items-center gap-2 text-xs">
+                Snapshot
+                <select
+                  value={selectedId ?? ""}
+                  onChange={(e) => setSelectedId(e.target.value)}
+                  className="bg-background rounded-md border border-input px-2 py-1 font-mono text-xs"
+                >
+                  {snapshots.map((snap) => (
+                    <option key={snap.id} value={snap.id}>
+                      {shortSha(snap.commitSha)} — {formatDate(snap.createdAt)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {graph.status === "ready" && (
+              <ExportMenu
+                snapshotId={graph.snapshot.id}
+                filenameBase={`${repoName(repo.url).replaceAll("/", "-")}-${shortSha(graph.snapshot.commitSha)}`}
+                includeChangesScope
+              />
+            )}
+          </div>
         </div>
         {/* GP-36: deterministic change summary at the top of the PR view. */}
         {graph.status === "ready" && (

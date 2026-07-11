@@ -16,6 +16,7 @@ import {
   type VerifyResult,
 } from "./services/repo-files.js";
 import { docsRoutes } from "./routes/docs.js";
+import { exportRoutes } from "./routes/exports.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
@@ -34,6 +35,8 @@ declare module "fastify" {
     encryptor: Encryptor;
     /** Checks a repository is reachable (`git ls-remote`). */
     verifyConnection: VerifyConnection;
+    /** Directory rendered snapshot exports (SVG/PNG) are cached in (GP-37). */
+    exportCacheDir: string;
   }
 }
 
@@ -83,6 +86,7 @@ export async function buildApp(
   // repository connection verifier (overridable in tests to avoid the network).
   app.decorate("encryptor", createEncryptor(env.encryptionKey));
   app.decorate("verifyConnection", opts.verifyConnection ?? realVerifyConnection);
+  app.decorate("exportCacheDir", env.exportCacheDir);
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.
   await app.register(authPlugin, {
@@ -102,6 +106,7 @@ export async function buildApp(
   await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
   await app.register(snapshotRoutes, { prefix: "/api/v1" });
+  await app.register(exportRoutes, { prefix: "/api/v1" });
   await app.register(pullRoutes, { prefix: "/api/v1" });
   await app.register(docsRoutes, { prefix: "/api/v1" });
 
