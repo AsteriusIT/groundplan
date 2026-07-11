@@ -110,9 +110,12 @@ function toggle<T>(set: Set<T>, key: T): Set<T> {
 export function GraphCanvas({
   graph,
   variant = "plan",
+  focusNodeId,
 }: {
   graph: Graph;
   variant?: "plan" | "docs";
+  /** When set/changed, select that node and fly to it (GP-40 compare lists). */
+  focusNodeId?: string | null;
 }) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
@@ -188,6 +191,13 @@ export function GraphCanvas({
     setQuery(""); // close the results dropdown once a result is chosen
     void rfRef.current?.fitView({ nodes: [{ id: node.id }], duration: 500, maxZoom: 1.5 });
   }, []);
+
+  // Fly to a node requested from outside (GP-40 compare summary lists).
+  useEffect(() => {
+    if (!focusNodeId) return;
+    const node = graph.nodes.find((n) => n.id === focusNodeId);
+    if (node) flyTo(node);
+  }, [focusNodeId, graph, flyTo]);
 
   const results = useMemo(() => searchNodes(graph.nodes, query, 10), [graph, query]);
 

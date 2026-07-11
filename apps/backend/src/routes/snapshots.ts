@@ -1,11 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
 
 import {
   graphSnapshots,
   publicSnapshotColumns,
   repositories,
 } from "../db/schema.js";
+import { diffGraphs } from "../graph/diff.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -15,6 +16,16 @@ const idParamsSchema = {
   required: ["id"],
   additionalProperties: false,
   properties: { id: { type: "string", pattern: UUID_PATTERN } },
+};
+
+const diffParamsSchema = {
+  type: "object",
+  required: ["id", "otherId"],
+  additionalProperties: false,
+  properties: {
+    id: { type: "string", pattern: UUID_PATTERN },
+    otherId: { type: "string", pattern: UUID_PATTERN },
+  },
 };
 
 const listQuerySchema = {
@@ -76,6 +87,47 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "snapshot not found" });
       }
       return row;
+    },
+  );
+
+  // Diff two docs snapshots (GP-40): what appeared / disappeared / moved between
+  // base (:id) and target (:otherId). Both must be hcl snapshots of one repo.
+  app.get(
+    "/snapshots/:id/diff/:otherId",
+    { schema: { params: diffParamsSchema } },
+    async (request, reply) => {
+      const { id, otherId } = request.params as { id: string; otherId: string };
+
+      const rows = await app.db
+        .select()
+        .from(graphSnapshots)
+        .where(inArray(graphSnapshots.id, [id, otherId]));
+      const base = rows.find((r) => r.id === id);
+      const target = rows.find((r) => r.id === otherId);
+      if (!base || !target) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "snapshot not found" });
+      }
+
+      if (base.repositoryId !== target.repositoryId) {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message: "snapshots belong to different repositories",
+        });
+      }
+      if (base.source !== "hcl" || target.source !== "hcl") {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message: "diff is only supported between documentation (hcl) snapshots",
+        });
+      }
+
+      return {
+        base: { id: base.id, commitSha: base.commitSha, createdAt: base.createdAt },
+        target: { id: target.id, commitSha: target.commitSha, createdAt: target.createdAt },
+        ...diffGraphs(base.graph, target.graph),
+      };
     },
   );
 };

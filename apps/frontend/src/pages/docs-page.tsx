@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
   FileText,
+  GitCompareArrows,
   Loader2,
   RefreshCw,
   TriangleAlert,
@@ -19,6 +20,7 @@ import type { Repository, Snapshot, SnapshotSummary } from "@/api/types";
 import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { CompareView } from "@/components/compare-view";
 import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
@@ -47,6 +49,12 @@ export function DocsPage() {
   const [visible, setVisible] = useState(PAGE);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+
+  // Compare mode (GP-40): pick two snapshots to diff. Deep-linkable via ?compare.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSel, setCompareSel] = useState<string[]>([]);
+  const seededCompare = useRef(false);
 
   const loadList = useCallback(
     (selectNewest = true) => {
@@ -131,6 +139,71 @@ export function DocsPage() {
   const viewingOld = Boolean(selectedId && latestId && selectedId !== latestId);
   const current = graph.status === "ready" ? graph.snapshot : null;
 
+  // --- Compare mode (GP-40) -------------------------------------------------
+  const canCompare = snapshots.length >= 2;
+  const compareActive = compareMode && compareSel.length === 2;
+
+  // Order the pair by createdAt: older = base, newer = target.
+  const comparePair = (() => {
+    if (compareSel.length !== 2) return null;
+    const picked = compareSel
+      .map((sid) => snapshots.find((s) => s.id === sid))
+      .filter((s): s is SnapshotSummary => Boolean(s));
+    if (picked.length === 2) {
+      const [a, b] = picked as [SnapshotSummary, SnapshotSummary];
+      return a.createdAt <= b.createdAt
+        ? { baseId: a.id, targetId: b.id }
+        : { baseId: b.id, targetId: a.id };
+    }
+    // Deep link before the list loads: assume URL order is base,target.
+    return { baseId: compareSel[0]!, targetId: compareSel[1]! };
+  })();
+
+  const toggleCompareSel = useCallback((sid: string) => {
+    setCompareSel((prev) => {
+      if (prev.includes(sid)) return prev.filter((x) => x !== sid);
+      if (prev.length < 2) return [...prev, sid];
+      return [prev[1]!, sid]; // keep the two most recently picked
+    });
+  }, []);
+
+  const exitCompare = useCallback(() => {
+    setCompareMode(false);
+    setCompareSel([]);
+  }, []);
+
+  const handleCardClick = (sid: string) => {
+    if (compareMode) toggleCompareSel(sid);
+    else setSelectedId(sid);
+  };
+
+  // Seed compare state from ?compare=id1,id2 once.
+  useEffect(() => {
+    if (seededCompare.current) return;
+    seededCompare.current = true;
+    const ids = (searchParams.get("compare") ?? "").split(",").filter(Boolean).slice(0, 2);
+    if (ids.length === 2) {
+      setCompareMode(true);
+      setCompareSel(ids);
+    }
+  }, [searchParams]);
+
+  // Keep the ?compare param in sync with the selection.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (compareMode && compareSel.length === 2) next.set("compare", compareSel.join(","));
+    else next.delete("compare");
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [compareMode, compareSel, searchParams, setSearchParams]);
+
+  const timelineSelected = compareMode
+    ? compareSel
+    : selectedId
+      ? [selectedId]
+      : [];
+
   return (
     <div className="flex h-full flex-col">
       <header className="bg-card border-b border-border px-8 py-5">
@@ -152,6 +225,15 @@ export function DocsPage() {
           </div>
           {snapshots.length > 0 && (
             <div className="flex items-center gap-2">
+              {canCompare && (
+                <Button
+                  variant={compareMode ? "default" : "outline"}
+                  onClick={compareMode ? exitCompare : () => setCompareMode(true)}
+                >
+                  <GitCompareArrows className="size-4" />
+                  {compareMode ? "Exit compare" : "Compare"}
+                </Button>
+              )}
               {repoId && (
                 <ShareDialog repositoryId={repoId} currentSnapshotId={selectedId} />
               )}
@@ -178,9 +260,9 @@ export function DocsPage() {
       {snapshots.length > 0 && (
         <Timeline
           snapshots={snapshots}
-          selectedId={selectedId}
+          selectedIds={timelineSelected}
           visible={visible}
-          onSelect={setSelectedId}
+          onSelect={handleCardClick}
           onShowMore={() => setVisible((v) => v + PAGE)}
         />
       )}
@@ -198,9 +280,33 @@ export function DocsPage() {
           <EmptyState generating={generating} onGenerate={generate} />
         )}
 
-        {snapshots.length > 0 && (
+        {snapshots.length > 0 && compareActive && comparePair && (
+          <CompareView
+            baseId={comparePair.baseId}
+            targetId={comparePair.targetId}
+            onExit={exitCompare}
+          />
+        )}
+
+        {snapshots.length > 0 && !compareActive && (
           <>
-            {viewingOld && (
+            {compareMode && (
+              <div
+                role="status"
+                className="bg-accent absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-3 border-b border-border px-4 py-2 text-xs"
+              >
+                Compare mode — pick {2 - compareSel.length} more snapshot
+                {2 - compareSel.length === 1 ? "" : "s"} from the timeline.
+                <button
+                  type="button"
+                  onClick={exitCompare}
+                  className="font-medium underline underline-offset-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {viewingOld && !compareMode && (
               <div
                 role="status"
                 className="bg-amber-50 absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-3 border-b border-amber-300 px-4 py-2 text-xs text-amber-900"
@@ -238,13 +344,13 @@ export function DocsPage() {
 
 function Timeline({
   snapshots,
-  selectedId,
+  selectedIds,
   visible,
   onSelect,
   onShowMore,
 }: {
   snapshots: SnapshotSummary[];
-  selectedId: string | null;
+  selectedIds: string[];
   visible: number;
   onSelect: (id: string) => void;
   onShowMore: () => void;
@@ -255,7 +361,7 @@ function Timeline({
         <SnapshotCard
           key={snap.id}
           snapshot={snap}
-          selected={snap.id === selectedId}
+          selected={selectedIds.includes(snap.id)}
           onSelect={() => onSelect(snap.id)}
         />
       ))}

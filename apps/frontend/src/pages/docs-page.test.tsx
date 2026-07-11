@@ -10,6 +10,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     listSnapshots: vi.fn(),
     getSnapshot: vi.fn(),
     generateDocs: vi.fn(),
+    diffSnapshots: vi.fn(),
   };
 });
 
@@ -23,18 +24,20 @@ vi.mock("@/components/graph-canvas", () => ({
 
 import {
   ApiError,
+  diffSnapshots,
   generateDocs,
   getRepository,
   getSnapshot,
   listSnapshots,
 } from "@/api/client";
-import type { Repository, Snapshot, SnapshotSummary } from "@/api/types";
+import type { Repository, Snapshot, SnapshotDiff, SnapshotSummary } from "@/api/types";
 import { DocsPage } from "./docs-page";
 
 const getRepositoryMock = vi.mocked(getRepository);
 const listSnapshotsMock = vi.mocked(listSnapshots);
 const getSnapshotMock = vi.mocked(getSnapshot);
 const generateDocsMock = vi.mocked(generateDocs);
+const diffSnapshotsMock = vi.mocked(diffSnapshots);
 
 const repo: Repository = {
   id: "r1",
@@ -109,6 +112,7 @@ beforeEach(() => {
     Promise.resolve(snapshot(id, id === "s3" ? 3 : 1)),
   );
   generateDocsMock.mockReset();
+  diffSnapshotsMock.mockReset();
 });
 
 it("shows the empty state with a generate button when there is no history", async () => {
@@ -181,4 +185,34 @@ it("handles a 409 while regenerating with a friendly message", async () => {
   await screen.findByTestId("canvas");
   fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
   expect(await screen.findByText(/already in progress/i)).toBeInTheDocument();
+});
+
+it("compares two docs snapshots (GP-40)", async () => {
+  listSnapshotsMock.mockResolvedValue([
+    summary("s2", "bbbbbbbb2222", "manual"),
+    summary("s1", "aaaaaaaa1111", "manual"),
+  ]);
+  const diff: SnapshotDiff = {
+    base: { id: "s1", commitSha: "aaaaaaaa1111", createdAt: "2026-01-01T00:00:00.000Z" },
+    target: { id: "s2", commitSha: "bbbbbbbb2222", createdAt: "2026-01-03T00:00:00.000Z" },
+    added: [{ id: "azurerm_subnet.b", name: "b", type: "azurerm_subnet", module_path: [] }],
+    removed: [],
+    moved: [],
+    unchangedCount: 1,
+  };
+  diffSnapshotsMock.mockResolvedValue(diff);
+
+  renderPage();
+  await screen.findByTestId("canvas");
+
+  // Enter compare mode, then pick the two timeline cards.
+  fireEvent.click(screen.getByRole("button", { name: /^compare$/i }));
+  expect(screen.getByText(/Compare mode/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByText("bbbbbbbb"));
+  fireEvent.click(screen.getByText("aaaaaaaa"));
+
+  // The diff summary strip appears; both ids were diffed.
+  expect(await screen.findByText("+1 added")).toBeInTheDocument();
+  const [baseArg, targetArg] = diffSnapshotsMock.mock.calls[0]!;
+  expect(new Set([baseArg, targetArg])).toEqual(new Set(["s1", "s2"]));
 });

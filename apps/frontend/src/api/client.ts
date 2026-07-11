@@ -15,6 +15,7 @@ import type {
   Repository,
   ShareLink,
   Snapshot,
+  SnapshotDiff,
   SnapshotSummary,
   UpdateRepositoryInput,
   User,
@@ -232,6 +233,13 @@ export function listSnapshots(
 
 export function getSnapshot(id: string): Promise<Snapshot> {
   return request<Snapshot>(`/snapshots/${encode(id)}`);
+}
+
+/** Diff two docs snapshots (base → target); 422 for cross-repo/plan pairs (GP-40). */
+export function diffSnapshots(baseId: string, targetId: string): Promise<SnapshotDiff> {
+  return request<SnapshotDiff>(
+    `/snapshots/${encode(baseId)}/diff/${encode(targetId)}`,
+  );
 }
 
 /** Trigger documentation generation of the default branch (GP-15). */

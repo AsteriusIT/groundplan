@@ -145,6 +145,33 @@ export interface Snapshot extends SnapshotSummary {
   summaryMd: string;
 }
 
+// --- Docs snapshot diff (GP-40) --------------------------------------------
+
+export interface DiffNode {
+  id: string;
+  name: string;
+  type: string;
+  module_path: string[];
+}
+
+export interface MovedNode {
+  id: string;
+  name: string;
+  type: string;
+  from_module_path: string[];
+  to_module_path: string[];
+}
+
+/** Result of comparing two docs snapshots (base → target). */
+export interface SnapshotDiff {
+  base: { id: string; commitSha: string; createdAt: string };
+  target: { id: string; commitSha: string; createdAt: string };
+  added: DiffNode[];
+  removed: DiffNode[];
+  moved: MovedNode[];
+  unchangedCount: number;
+}
+
 /** The latest snapshot summary attached to a pull request (no graph). */
 export interface PullSnapshotRef {
   id: string;
