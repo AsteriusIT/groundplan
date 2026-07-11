@@ -10,8 +10,11 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { STATUS_META, type StatusKind } from "@/lib/status";
 import { CATEGORY_META } from "@/lib/resource-category";
+import type { GraphNode } from "@/api/types";
 import { AZURE_GLYPHS, type AzureGlyphKey } from "@/icons/azure-glyphs";
+import type { EdgeRel } from "@/lib/graph-layout";
 import { ResourceIcon } from "@/components/resource-icon";
+import { NodeCard } from "@/components/graph-node";
 import { Chip } from "@/components/ui/chip";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -103,6 +106,59 @@ function Section({
 const STATUS_KINDS: StatusKind[] = ["create", "update", "delete", "impacted"];
 
 const GLYPH_KEYS = Object.keys(AZURE_GLYPHS) as AzureGlyphKey[];
+
+function mockNode(
+  partial: Pick<GraphNode, "type" | "name" | "change"> & Partial<GraphNode>,
+): GraphNode {
+  return {
+    id: `${partial.type}.${partial.name}`,
+    provider: "azurerm",
+    module_path: [],
+    impacted: false,
+    ...partial,
+  };
+}
+
+const NODE_SAMPLES: { label: string; node: GraphNode; selected?: boolean }[] = [
+  {
+    label: "create",
+    node: mockNode({ type: "azurerm_storage_account", name: "assets", change: "create" }),
+  },
+  {
+    label: "update",
+    node: mockNode({ type: "azurerm_mssql_database", name: "shop_db", change: "update" }),
+  },
+  {
+    label: "delete",
+    node: mockNode({ type: "azurerm_public_ip", name: "legacy", change: "delete" }),
+  },
+  {
+    label: "noop",
+    node: mockNode({ type: "azurerm_key_vault", name: "main", change: "noop" }),
+  },
+  {
+    label: "impacted",
+    node: mockNode({
+      type: "azurerm_subnet",
+      name: "internal",
+      change: "noop",
+      impacted: true,
+      impact_distance: 2,
+    }),
+  },
+  {
+    label: "selected",
+    node: mockNode({ type: "azurerm_kubernetes_cluster", name: "prod", change: "update" }),
+    selected: true,
+  },
+];
+
+const EDGE_SAMPLES: { rel: EdgeRel; label: string; stroke: string; dashed?: boolean }[] = [
+  { rel: "new", label: "new dependency", stroke: "text-create" },
+  { rel: "removed", label: "removed", stroke: "text-delete", dashed: true },
+  { rel: "impact", label: "impact-carrying", stroke: "text-impacted" },
+  { rel: "neutral", label: "plain dependency", stroke: "text-edge" },
+];
 
 export function StyleguidePage() {
   return (
@@ -293,6 +349,59 @@ export function StyleguidePage() {
                 <span className="text-muted-foreground font-mono text-xs">
                   unknown → generic cube
                 </span>
+              </div>
+            </div>
+          </Section>
+
+          <Section eyebrow="05 · diagram" title="Nodes & edges">
+            <div className="space-y-3">
+              <h3 className="text-muted-foreground font-mono text-[11px] tracking-[0.08em] uppercase">
+                Node states — hover any card for the lift
+              </h3>
+              <div className="blueprint-grid grid grid-cols-1 gap-x-8 gap-y-6 rounded-md border border-border bg-canvas p-6 sm:grid-cols-2 lg:grid-cols-3">
+                {NODE_SAMPLES.map((sample) => (
+                  <div key={sample.label} className="flex flex-col gap-1.5">
+                    <span className="text-faint font-mono text-[10px] tracking-[0.08em] uppercase">
+                      {sample.label}
+                    </span>
+                    <div className="h-14 w-56">
+                      <NodeCard graphNode={sample.node} selected={sample.selected} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-muted-foreground font-mono text-[11px] tracking-[0.08em] uppercase">
+                Edges — coloured by relationship
+              </h3>
+              <div className="bg-canvas border-border grid grid-cols-2 gap-4 rounded-md border p-4 sm:grid-cols-4">
+                {EDGE_SAMPLES.map((edge) => (
+                  <div key={edge.rel} className="flex flex-col items-center gap-2">
+                    <svg
+                      viewBox="0 0 80 12"
+                      className={cn("h-3 w-20", edge.stroke)}
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M2 6 H66"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
+                        strokeDasharray={edge.dashed ? "6 4" : undefined}
+                      />
+                      <path
+                        d="M66 2 L74 6 L66 10 Z"
+                        fill="currentColor"
+                        stroke="none"
+                      />
+                    </svg>
+                    <span className="text-faint text-center font-mono text-[10px]">
+                      {edge.label}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </Section>

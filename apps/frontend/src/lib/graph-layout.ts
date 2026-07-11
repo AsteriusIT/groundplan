@@ -50,8 +50,24 @@ export type GraphNodeData = {
   graphNode: GraphNode;
   /** True when filters / the selection highlight should visually mute this node. */
   dimmed: boolean;
+  /** True for the currently selected node (drives the accent ring; GP-30). */
+  selected?: boolean;
   [key: string]: unknown;
 };
+
+/**
+ * How an edge relates to the change set (GP-30), driving its colour + arrowhead:
+ * `new` (target created), `removed` (an endpoint deleted), `impact` (carries the
+ * blast radius), `neutral` (plain dependency).
+ */
+export type EdgeRel = "new" | "removed" | "impact" | "neutral";
+
+function edgeRel(from: GraphNode | undefined, to: GraphNode | undefined): EdgeRel {
+  if (from?.change === "delete" || to?.change === "delete") return "removed";
+  if (to?.change === "create") return "new";
+  if (from?.impacted || to?.impacted) return "impact";
+  return "neutral";
+}
 
 export type FlowElements = {
   nodes: FlowNode<GraphNodeData>[];
@@ -209,7 +225,11 @@ export function elkToFlow(
         id: elk.id,
         type: container ? "module" : "resource",
         position: { x: elk.x ?? 0, y: elk.y ?? 0 },
-        data: { graphNode, dimmed: dimmedOf(graphNode) },
+        data: {
+          graphNode,
+          dimmed: dimmedOf(graphNode),
+          selected: selectedId === graphNode.id,
+        },
         style: { width: elk.width, height: elk.height },
         ...(parentId ? { parentId, extent: "parent" as const } : {}),
       });
@@ -224,15 +244,17 @@ export function elkToFlow(
       const dimmed = Boolean(
         selectedId && edge.from !== selectedId && edge.to !== selectedId,
       );
+      // Colour/dash come from the relationship + inferred flag (GP-30), applied
+      // by the RelationshipEdge component — no re-layout on selection.
       return {
         id: `dep-${i}`,
         source: edge.from,
         target: edge.to,
-        data: { inferred: edge.inferred === true },
-        // Inferred (expression-derived) edges are dashed; explicit ones solid.
-        style: {
-          opacity: dimmed ? 0.12 : 1,
-          strokeDasharray: edge.inferred ? "5 4" : undefined,
+        type: "relationship",
+        data: {
+          rel: edgeRel(byId.get(edge.from), byId.get(edge.to)),
+          dimmed,
+          inferred: edge.inferred === true,
         },
       };
     });

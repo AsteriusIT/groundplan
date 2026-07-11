@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
-  Handle,
-  Position,
   ReactFlow,
   type Node as FlowNode,
   type NodeProps,
@@ -18,7 +16,6 @@ import type { Graph, GraphNode } from "@/api/types";
 import {
   ALL_FILTERS,
   categoryOptions,
-  changeClasses,
   elkToFlow,
   moduleOptions,
   toElkGraph,
@@ -28,53 +25,16 @@ import {
 } from "@/lib/graph-layout";
 import { searchNodes } from "@/lib/graph-search";
 import {
-  categorize,
   CATEGORY_META,
   shortType,
   type Category,
 } from "@/lib/resource-category";
 import { cn } from "@/lib/utils";
 import { NodeDetailsPanel } from "@/components/node-details-panel";
-import { ResourceIcon } from "@/components/resource-icon";
+import { ResourceFlowNode } from "@/components/graph-node";
+import { EdgeArrowMarkers, RelationshipEdge } from "@/components/graph-edge";
 
 const elk = new ELK();
-
-function ResourceNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
-  const { graphNode, dimmed } = data;
-  const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
-  return (
-    <div
-      title={graphNode.type}
-      className={cn(
-        "flex h-full w-full flex-col justify-center rounded-md border px-3 py-1.5 shadow-sm transition-opacity",
-        changeClasses(graphNode.change),
-        graphNode.impacted &&
-          "outline-2 outline-offset-2 outline-dashed outline-impacted",
-        dimmed && "opacity-20",
-      )}
-    >
-      <Handle type="target" position={Position.Left} className="!opacity-0" />
-      <div className="flex items-center gap-1.5">
-        <ResourceIcon
-          type={graphNode.type}
-          className={cn("size-3.5 shrink-0", iconClass)}
-        />
-        <p
-          className={cn(
-            "truncate font-mono text-xs font-semibold",
-            graphNode.change === "delete" && "line-through",
-          )}
-        >
-          {shortType(graphNode.type)}
-        </p>
-      </div>
-      <p className="truncate pl-5 font-mono text-[10px] opacity-70">
-        {graphNode.name}
-      </p>
-      <Handle type="source" position={Position.Right} className="!opacity-0" />
-    </div>
-  );
-}
 
 function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   return (
@@ -93,7 +53,8 @@ function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   );
 }
 
-const NODE_TYPES = { resource: ResourceNode, module: ModuleNode };
+const NODE_TYPES = { resource: ResourceFlowNode, module: ModuleNode };
+const EDGE_TYPES = { relationship: RelationshipEdge };
 
 const FILTER_LABELS: Record<FilterKey, string> = {
   create: "Create",
@@ -239,10 +200,12 @@ export function GraphCanvas({
 
   return (
     <div className="relative h-full w-full">
+      <EdgeArrowMarkers />
       <ReactFlow
         nodes={elements.nodes}
         edges={elements.edges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         onInit={(instance) => {
           rfRef.current = instance;
         }}
