@@ -8,11 +8,11 @@
  * the category icon, then the generic cube.
  */
 import { categorize, type Category } from "@/lib/resource-category";
-import type { AzureGlyphKey } from "@/icons/azure-glyphs";
+import type { AzureIconKey } from "@/icons/azure-icons";
 import { AZURERM_ICON_MAP, AZURERM_PREFIX_MAP } from "@/icons/azurerm";
 
 export type IconResolution =
-  | { kind: "azure"; glyph: AzureGlyphKey }
+  | { kind: "azure"; icon: AzureIconKey }
   | { kind: "category"; category: Exclude<Category, "other"> }
   | { kind: "generic" };
 
@@ -25,10 +25,10 @@ const SORTED_PREFIXES = Object.keys(AZURERM_PREFIX_MAP).sort(
 export function resolveResourceIcon(type: string): IconResolution {
   if (type.startsWith("azurerm_")) {
     const exact = AZURERM_ICON_MAP[type];
-    if (exact) return { kind: "azure", glyph: exact };
+    if (exact) return { kind: "azure", icon: exact };
     for (const prefix of SORTED_PREFIXES) {
       if (type === prefix || type.startsWith(`${prefix}_`)) {
-        return { kind: "azure", glyph: AZURERM_PREFIX_MAP[prefix] as AzureGlyphKey };
+        return { kind: "azure", icon: AZURERM_PREFIX_MAP[prefix] as AzureIconKey };
       }
     }
   }

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { STATUS_META, type StatusKind } from "@/lib/status";
 import { CATEGORY_META } from "@/lib/resource-category";
 import type { GraphNode } from "@/api/types";
-import { AZURE_GLYPHS, type AzureGlyphKey } from "@/icons/azure-glyphs";
+import { AZURE_ICON_KEYS, azureIconUrl } from "@/icons/azure-icons";
 import type { EdgeRel } from "@/lib/graph-layout";
 import { ResourceIcon } from "@/components/resource-icon";
 import { NodeCard } from "@/components/graph-node";
@@ -104,8 +104,6 @@ function Section({
 }
 
 const STATUS_KINDS: StatusKind[] = ["create", "update", "delete", "impacted"];
-
-const GLYPH_KEYS = Object.keys(AZURE_GLYPHS) as AzureGlyphKey[];
 
 function mockNode(
   partial: Pick<GraphNode, "type" | "name" | "change"> & Partial<GraphNode>,
@@ -309,30 +307,25 @@ export function StyleguidePage() {
 
           <Section eyebrow="04 · icons" title="Resource icons">
             <p className="text-muted-foreground -mt-2 max-w-xl text-sm">
-              Original blueprint line-glyphs for the common Azure service
-              families (GP-29), tinted by category via <code className="font-mono text-xs">currentColor</code>.
-              Unmapped types fall back to the category icon, then a generic cube.
+              Official Azure Architecture Icons (V24), rendered as-is (GP-29 —
+              see <code className="font-mono text-xs">ICONS.md</code>). Unmapped
+              types fall back to the lucide category icon, then a generic cube.
             </p>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
-              {GLYPH_KEYS.map((glyph) => (
+              {AZURE_ICON_KEYS.map((key) => (
                 <div
-                  key={glyph}
+                  key={key}
                   className="bg-canvas border-border flex flex-col items-center gap-2 rounded-md border p-3"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.7}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-cat-compute size-6"
+                  <img
+                    src={azureIconUrl(key)}
+                    alt=""
                     aria-hidden="true"
-                  >
-                    {AZURE_GLYPHS[glyph]}
-                  </svg>
+                    draggable={false}
+                    className="size-6 object-contain"
+                  />
                   <span className="text-faint text-center font-mono text-[10px] break-all">
-                    {glyph}
+                    {key}
                   </span>
                 </div>
               ))}

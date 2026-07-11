@@ -1,65 +1,60 @@
 # Resource icons (GP-29)
 
 Groundplan draws a per-resource-type icon on every node. This document records
-what those icons are, where they come from, and the licensing decision behind
+what those icons are, where they come from, and the licensing basis for shipping
 them.
 
 ## What ships in the repo
 
-Original, in-house **blueprint line-glyphs** for the common Azure service
-families, authored to a 24×24 grid and inlined as path data in
-[`src/icons/azure-glyphs.tsx`](src/icons/azure-glyphs.tsx). They are drawn with
-`stroke: currentColor` so they tint with the node's category colour, matching the
-lucide category icons and the blueprint theme. Total footprint is a few KB of
-path data (well under the 150 KB budget) — no per-file asset requests, no bundler
-config.
+The **official Microsoft Azure Architecture Icons, set V24**, for the common
+Azure service families. Only the ~30 icons we map are committed, under
+[`src/icons/azure/`](src/icons/azure/) with clean kebab-case filenames (e.g.
+`virtual-network.svg`, `storage-account.svg`). They are the original Microsoft
+SVGs, **unmodified** — renamed only, never edited.
 
-These are **our own artwork**, released under the same licence as this
-repository. They are not Microsoft's icons.
+- Source: <https://learn.microsoft.com/en-us/azure/architecture/icons/> (the
+  `Azure_Public_Service_Icons_V24` download).
+- Total footprint ~128 KB of SVG; Vite emits each as its own hashed asset, so
+  only the committed icons ship.
 
-## Why not Microsoft's official Azure Architecture Icons?
+## Licensing
 
-The Azure Architecture Icons are Microsoft's official set and are the natural
-choice for a diagram tool. However, their
-[Terms of Use](https://learn.microsoft.com/en-us/azure/architecture/icons/)
-permit using the icons **within** architecture diagrams and documentation but
-**do not permit redistributing the icon files themselves** (for example,
-committing the SVGs into a source repository or shipping them as an icon
-library). Vendoring ~40 of the official SVGs into this repo would be exactly that
-kind of redistribution.
+Microsoft's [Azure architecture icon terms](https://learn.microsoft.com/en-us/azure/architecture/icons/)
+permit using the icons **to create architecture diagrams, including diagrams
+displayed in a web application**, provided the icons are **not modified**
+(no recolouring, no changes to proportions, no added effects). Groundplan renders
+infrastructure architecture diagrams, which is exactly this use, and it renders
+each icon **as-is via an `<img>`** — so the SVG is never recoloured or altered.
+The project owner reviewed and accepted this use.
 
-The ticket asked us to *read and respect the usage guidelines*. Respecting them
-means we do **not** vendor the proprietary set here. Instead we ship
-licence-clean originals and keep the official set as an optional, local drop-in.
-
-- Official set + terms: <https://learn.microsoft.com/en-us/azure/architecture/icons/>
+Do **not** edit the SVGs in `src/icons/azure/`, and do not repurpose them as a
+standalone icon library outside the diagram views.
 
 ## The mapping mechanism (provider-generic)
 
-The interesting engineering is the resolution chain, and it is provider-generic —
-Azure is just the first (demo) provider.
+Azure is the first (demo) provider; the mechanism is provider-generic.
 
 - [`src/icons/azurerm.ts`](src/icons/azurerm.ts) — `AZURERM_ICON_MAP` (exact
-  `azurerm_*` type → glyph, ~40 types covering the example repo) and
-  `AZURERM_PREFIX_MAP` (type-prefix → glyph heuristic).
+  `azurerm_*` type → icon, ~40 types) and `AZURERM_PREFIX_MAP` (type-prefix →
+  icon heuristic).
 - [`src/icons/resource-icon.ts`](src/icons/resource-icon.ts) —
   `resolveResourceIcon(type)`, a pure, unit-tested function implementing the
-  chain: **exact type → type-prefix heuristic → category icon (GP-24) → generic
-  cube.** Only `azurerm_*` types try the Azure glyphs; any other provider falls
-  back to its category icon.
+  chain **exact type → type-prefix heuristic → category icon (GP-24) → generic
+  cube.** Only `azurerm_*` types try the Azure icons; any other provider falls
+  back to its lucide category icon, then a cube.
+- [`src/icons/azure-icons.ts`](src/icons/azure-icons.ts) — resolves an icon key
+  to its bundled asset URL (`import.meta.glob` over `./azure/*.svg`).
 - [`src/components/resource-icon.tsx`](src/components/resource-icon.tsx) — the
   `<ResourceIcon type=… />` renderer.
 
-Adding AWS/GCP later is a new `aws.ts` / `google.ts` map plus a branch in the
-resolver — the icon assets are the only thing that changes.
+Adding AWS/GCP later is a new `aws.ts` / `google.ts` map (pointing at that
+provider's official icon set) plus a branch in the resolver.
 
-## Swapping in the official Azure set (optional, local)
+## Fallbacks
 
-If you want the official coloured Azure icons in a local build (respecting the
-terms — do not commit them):
+- **Unmapped `azurerm_*` type** → nearest family via the prefix heuristic, else
+  the lucide category icon (compute/network/data/…), else a cube.
+- **Non-Azure provider** (`aws_*`, `google_*`) → lucide category icon, else cube.
 
-1. Download the official set from the link above.
-2. Drop the SVGs into an (git-ignored) `src/icons/azure/official/` folder.
-3. Point `AZURERM_ICON_MAP` values at those filenames and swap `ResourceIcon`'s
-   glyph branch to load them. The mapping and resolution chain stay exactly as
-   they are.
+The lucide fallbacks are colour-tinted by category token; only the official Azure
+icons are rendered unmodified.
