@@ -203,6 +203,19 @@ export function getSnapshot(id: string): Promise<Snapshot> {
   return request<Snapshot>(`/snapshots/${encode(id)}`);
 }
 
+/** Trigger documentation generation of the default branch (GP-15). */
+export function generateDocs(repositoryId: string): Promise<{ id: string }> {
+  return request<{ id: string }>(
+    `/repositories/${encode(repositoryId)}/docs/generate`,
+    { method: "POST" },
+  );
+}
+
+/** Latest docs (source=hcl) snapshot including its graph. 404 if none yet. */
+export function getLatestDocs(repositoryId: string): Promise<Snapshot> {
+  return request<Snapshot>(`/repositories/${encode(repositoryId)}/docs/latest`);
+}
+
 export function getMe(): Promise<User> {
   return request<User>("/me");
 }

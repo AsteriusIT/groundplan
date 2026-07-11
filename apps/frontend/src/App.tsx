@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/app-layout";
 import { RequireAuth } from "@/components/require-auth";
 import { CallbackPage } from "@/pages/callback-page";
 import { DashboardPage } from "@/pages/dashboard-page";
+import { DocsPage } from "@/pages/docs-page";
 import { LoginPage } from "@/pages/login-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
@@ -34,6 +35,10 @@ function App() {
         <Route
           path="/projects/:id/repos/:repoId/pulls/:number"
           element={<PullDetailPage />}
+        />
+        <Route
+          path="/projects/:id/repos/:repoId/docs"
+          element={<DocsPage />}
         />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/settings" element={<SettingsPage />} />

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ChevronLeft,
+  FileText,
   GitBranch,
   GitPullRequest,
   KeyRound,
@@ -213,6 +214,12 @@ function RepositoryRow({
             <Link to={`/projects/${repo.projectId}/repos/${repo.id}/pulls`}>
               <GitPullRequest className="size-3.5" />
               Pull requests
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link to={`/projects/${repo.projectId}/repos/${repo.id}/docs`}>
+              <FileText className="size-3.5" />
+              Docs
             </Link>
           </Button>
           <Button
