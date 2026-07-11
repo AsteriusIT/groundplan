@@ -1,0 +1,39 @@
+# Edge reverse proxy for the production stack.
+#
+# Caddy terminates TLS with automatic HTTPS (Let's Encrypt / ZeroSSL) for the
+# two subdomains below. Requirements for certs to issue:
+#   * public DNS A/AAAA records for both domains point at this host
+#   * ports 80 and 443 are reachable from the internet
+#   * ACME_EMAIL is set (used for expiry notices)
+#
+# Per-subdomain certs use the HTTP/TLS-ALPN challenge — no DNS API token
+# needed. (A single wildcard *.groundplan.asterius.fr cert would require the
+# DNS-01 challenge and a Caddy build with your DNS provider plugin.)
+#
+# Domains come from the environment so the same file works across deployments.
+
+{
+	email {$ACME_EMAIL}
+}
+
+# --- App: SPA + API on one origin -----------------------------------------
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	# API traffic goes to the Fastify backend; everything else is the SPA.
+	@api path /api/*
+	handle @api {
+		reverse_proxy backend:3000
+	}
+	handle {
+		reverse_proxy frontend:80
+	}
+}
+
+# --- Auth: Keycloak --------------------------------------------------------
+{$AUTH_DOMAIN} {
+	encode zstd gzip
+	# Caddy sets X-Forwarded-{For,Proto,Host}; Keycloak trusts them via
+	# KC_PROXY_HEADERS=xforwarded so it emits correct https issuer URLs.
+	reverse_proxy keycloak:8080
+}

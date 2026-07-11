@@ -1,0 +1,32 @@
+# Build & push the production images to the container registry.
+#
+# Run this where the source lives (your machine or CI) — NOT on the deploy
+# host. It builds the same images docker-compose.prod.yml pulls.
+#
+#   docker login rg.fr-par.scw.cloud
+#   docker compose --env-file .env.prod -f docker-compose.build.yml build
+#   docker compose --env-file .env.prod -f docker-compose.build.yml push
+#
+# REGISTRY / IMAGE_TAG (from .env.prod) select where images are tagged/pushed.
+# The frontend bakes VITE_OIDC_ISSUER at build time, so AUTH_DOMAIN must match
+# the target deployment.
+
+name: groundplan-build
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-backend:${IMAGE_TAG:-latest}
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        # Baked into the bundle at build time (Vite inlines VITE_*).
+        VITE_API_URL: "" # empty → SPA calls /api on its own origin
+        VITE_OIDC_ISSUER: https://${AUTH_DOMAIN:?set AUTH_DOMAIN in .env.prod}/realms/groundplan
+        VITE_OIDC_CLIENT_ID: groundplan-frontend
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-frontend:${IMAGE_TAG:-latest}

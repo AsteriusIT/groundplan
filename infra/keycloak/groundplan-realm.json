@@ -10,7 +10,10 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
-      "redirectUris": ["http://localhost:5173/*"],
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "https://app.groundplan.qcs.ovh/*"
+      ],
       "webOrigins": ["*"],
       "protocolMappers": [
         {

@@ -1,0 +1,164 @@
+# Production stack — fully self-contained (no external dependencies).
+#
+#   Caddy (TLS edge)
+#     ├── ${APP_DOMAIN}  ── /api/* → backend ─┐        SPA otherwise → frontend
+#     └── ${AUTH_DOMAIN} ── keycloak          │
+#                                             ▼
+#   backend ── app-postgres          keycloak ── kc-postgres
+#   (migrate one-shot applies schema before backend starts)
+#
+# Usage (on the deploy host — no source checkout needed):
+#   cp .env.prod.example .env.prod && edit it
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+#
+# The backend/frontend images are PULLED from the container registry; build and
+# push them with docker-compose.build.yml (see docs/deployment.md). Registry and
+# tag are overridable via REGISTRY / IMAGE_TAG in .env.prod.
+#
+# Only Caddy publishes ports; every other service is reachable solely on the
+# internal network. Secrets come from .env.prod (never committed).
+
+name: groundplan
+
+# Common backend env, shared by the API and the one-shot migrator (which run the
+# same image, just a different command).
+x-backend-env: &backend-env
+  NODE_ENV: production
+  DATABASE_URL: postgres://${POSTGRES_USER:-groundplan}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}@app-postgres:5432/${POSTGRES_DB:-groundplan}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env.prod (openssl rand -base64 32)}
+
+services:
+  # --- Edge: TLS termination + routing ------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env.prod}
+      AUTH_DOMAIN: ${AUTH_DOMAIN:?set AUTH_DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # issued certificates (persist to avoid ACME rate limits)
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  # --- Frontend: static SPA (nginx) ---------------------------------------
+  frontend:
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+
+  # --- Backend: Fastify API -----------------------------------------------
+  backend:
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    init: true # reap `git` child processes from repo clones
+    environment:
+      <<: *backend-env
+      HOST: 0.0.0.0
+      PORT: "3000"
+      CORS_ORIGIN: https://${APP_DOMAIN}
+      PUBLIC_BASE_URL: https://${APP_DOMAIN}
+      OIDC_ISSUER_URL: https://${AUTH_DOMAIN}/realms/groundplan
+      OIDC_AUDIENCE: groundplan-api
+    depends_on:
+      app-postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # --- Migrate: one-shot schema apply, then exit --------------------------
+  migrate:
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-backend:${IMAGE_TAG:-latest}
+    command: ["node", "dist/db/migrate.cli.js"]
+    restart: "no"
+    environment:
+      <<: *backend-env
+    depends_on:
+      app-postgres:
+        condition: service_healthy
+
+  # --- App database --------------------------------------------------------
+  app-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-groundplan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-groundplan}
+    volumes:
+      - app_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-groundplan} -d ${POSTGRES_DB:-groundplan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Identity provider (Keycloak) ---------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://kc-postgres:5432/${KC_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KC_DB_USERNAME:-keycloak}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?set KC_DB_PASSWORD in .env.prod}
+      # Public URL Keycloak advertises (issuer, redirects). TLS ends at Caddy,
+      # so run HTTP internally but trust the forwarded proto/host headers.
+      KC_HOSTNAME: https://${AUTH_DOMAIN:?set AUTH_DOMAIN in .env.prod}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env.prod}
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    depends_on:
+      kc-postgres:
+        condition: service_healthy
+    healthcheck:
+      # Keycloak 26 exposes health on the management port (9000); the image has
+      # no curl, so probe it with bash's /dev/tcp.
+      test:
+        - "CMD-SHELL"
+        - "exec 3<>/dev/tcp/127.0.0.1/9000; echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; cat <&3 | grep -q 'UP'"
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 90s
+
+  # --- Keycloak database ---------------------------------------------------
+  kc-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${KC_DB_USERNAME:-keycloak}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?set KC_DB_PASSWORD in .env.prod}
+      POSTGRES_DB: ${KC_DB_NAME:-keycloak}
+    volumes:
+      - kc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KC_DB_USERNAME:-keycloak} -d ${KC_DB_NAME:-keycloak}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  caddy_data:
+  caddy_config:
+  app_pgdata:
+  kc_pgdata:
