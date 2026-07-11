@@ -21,6 +21,7 @@ const updateRepositorySchema = {
   properties: {
     accessToken: { type: "string", minLength: 1, maxLength: 500 },
     defaultBranch: { type: "string", minLength: 1, maxLength: 200 },
+    prCommentsEnabled: { type: "boolean" },
   },
 };
 
@@ -60,6 +61,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
       const body = request.body as {
         accessToken?: string;
         defaultBranch?: string;
+        prCommentsEnabled?: boolean;
       };
 
       const existing = await loadRepository(app, id);
@@ -70,22 +72,27 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const changingCredentials = body.accessToken !== undefined;
+      const changingBranch = body.defaultBranch !== undefined;
       const [updated] = await app.db
         .update(repositories)
         .set({
           ...(changingCredentials
             ? { accessToken: app.encryptor.encrypt(body.accessToken as string) }
             : {}),
-          ...(body.defaultBranch !== undefined
-            ? { defaultBranch: body.defaultBranch }
+          ...(changingBranch ? { defaultBranch: body.defaultBranch } : {}),
+          ...(body.prCommentsEnabled !== undefined
+            ? { prCommentsEnabled: body.prCommentsEnabled }
             : {}),
         })
         .where(eq(repositories.id, id))
         .returning();
 
       let row = updated ?? existing;
-      // Re-verify whenever credentials (or the branch we check) changed.
-      row = (await verifyAndStore(app, row)).repository;
+      // Re-verify only when credentials or the checked branch changed — toggling
+      // a flag like PR comments should not trigger a network `git ls-remote`.
+      if (changingCredentials || changingBranch) {
+        row = (await verifyAndStore(app, row)).repository;
+      }
       return toPublicRepository(row);
     },
   );

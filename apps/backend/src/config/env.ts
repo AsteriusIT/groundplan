@@ -51,6 +51,13 @@ export type AppEnv = {
   encryptionKey: string;
   /** Directory where rendered snapshot exports (SVG/PNG) are cached (GP-37). */
   exportCacheDir: string;
+  /**
+   * Public origin (scheme + host) where this deployment is reachable, e.g.
+   * `https://groundplan.example.com`. Used to build absolute, login-free URLs
+   * in GitHub PR comments (GP-38): the embedded PNG and the "view diagram" link.
+   * Empty = omit the image + link (comment carries stats + summary only).
+   */
+  publicBaseUrl: string;
 };
 
 export function loadEnv(): AppEnv {
@@ -70,5 +77,6 @@ export function loadEnv(): AppEnv {
       (nodeEnv === "production" ? "" : DEV_ENCRYPTION_KEY),
     exportCacheDir:
       process.env.EXPORT_CACHE_DIR ?? join(tmpdir(), "groundplan-exports"),
+    publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, ""),
   };
 }

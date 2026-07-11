@@ -27,6 +27,10 @@ export interface Repository {
   accessToken: "***" | null;
   connectionStatus: ConnectionStatus;
   verifiedAt: string | null;
+  /** GP-38: whether PR plan snapshots post a GitHub comment. */
+  prCommentsEnabled: boolean;
+  /** GP-38: last PR-comment error to surface in settings, or null. */
+  lastCommentError: string | null;
   createdAt: string;
 }
 
@@ -39,6 +43,8 @@ export interface UpdateRepositoryInput {
   /** New PAT (write-only). Replaces the stored one and re-verifies. */
   accessToken?: string;
   defaultBranch?: string;
+  /** GP-38: toggle GitHub PR comments for this repository. */
+  prCommentsEnabled?: boolean;
 }
 
 /** Result of POST /repositories/:id/verify. */

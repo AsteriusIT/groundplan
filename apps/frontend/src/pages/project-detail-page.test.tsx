@@ -10,6 +10,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     listRepositories: vi.fn(),
     createRepository: vi.fn(),
     verifyRepository: vi.fn(),
+    updateRepository: vi.fn(),
   };
 });
 
@@ -18,6 +19,7 @@ import {
   createRepository,
   getProject,
   listRepositories,
+  updateRepository,
   verifyRepository,
 } from "@/api/client";
 import type { CreatedRepository, Project, Repository } from "@/api/types";
@@ -27,6 +29,7 @@ const getProjectMock = vi.mocked(getProject);
 const listRepositoriesMock = vi.mocked(listRepositories);
 const createRepositoryMock = vi.mocked(createRepository);
 const verifyRepositoryMock = vi.mocked(verifyRepository);
+const updateRepositoryMock = vi.mocked(updateRepository);
 
 const project: Project = {
   id: "p1",
@@ -45,6 +48,8 @@ function repo(over: Partial<Repository> = {}): Repository {
     accessToken: null,
     connectionStatus: "ok",
     verifiedAt: "2026-01-03T00:00:00.000Z",
+    prCommentsEnabled: false,
+    lastCommentError: null,
     createdAt: "2026-01-02T00:00:00.000Z",
     ...over,
   };
@@ -65,6 +70,7 @@ beforeEach(() => {
   listRepositoriesMock.mockReset();
   createRepositoryMock.mockReset();
   verifyRepositoryMock.mockReset();
+  updateRepositoryMock.mockReset();
   getProjectMock.mockResolvedValue(project);
 });
 
@@ -155,4 +161,30 @@ it("re-verifies a repository and reflects the new status", async () => {
   fireEvent.click(screen.getByRole("button", { name: /^verify$/i }));
 
   expect(await screen.findByText("Connected")).toBeInTheDocument();
+});
+
+it("toggles GitHub PR comments for a repository (GP-38)", async () => {
+  listRepositoriesMock.mockResolvedValue([repo({ prCommentsEnabled: false })]);
+  updateRepositoryMock.mockResolvedValue(repo({ prCommentsEnabled: true }));
+
+  renderPage();
+
+  const toggle = await screen.findByRole("checkbox", {
+    name: /comment on github pull requests/i,
+  });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+
+  expect(updateRepositoryMock).toHaveBeenCalledWith("r1", { prCommentsEnabled: true });
+  expect(await screen.findByRole("checkbox", { name: /comment on github pull requests/i })).toBeChecked();
+});
+
+it("surfaces the last PR comment error", async () => {
+  listRepositoriesMock.mockResolvedValue([
+    repo({ prCommentsEnabled: true, lastCommentError: "GitHub API 403: forbidden" }),
+  ]);
+
+  renderPage();
+
+  expect(await screen.findByText(/Last PR comment failed/i)).toBeInTheDocument();
 });

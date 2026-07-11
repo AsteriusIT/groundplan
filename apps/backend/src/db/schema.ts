@@ -5,6 +5,7 @@
  */
 import { relations, sql } from "drizzle-orm";
 import {
+  boolean,
   integer,
   jsonb,
   pgEnum,
@@ -58,6 +59,12 @@ export const repositories = pgTable("repositories", {
   webhookToken: text("webhook_token")
     .notNull()
     .default(sql`gen_random_uuid()::text`),
+  // GP-38: when true, a PR plan snapshot posts/updates a GitHub PR comment.
+  // Off by default — no GitHub calls happen until a user opts in per repo.
+  prCommentsEnabled: boolean("pr_comments_enabled").notNull().default(false),
+  // Last error from posting a PR comment (bad PAT scope, rate limit, …), shown
+  // in repo settings. Non-fatal: ingestion never fails on a comment error.
+  lastCommentError: text("last_comment_error"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -75,6 +82,10 @@ export type PublicRepository = {
   accessToken: "***" | null;
   connectionStatus: (typeof repositoryConnectionStatus.enumValues)[number];
   verifiedAt: Date | null;
+  /** GP-38: whether PR plan snapshots post a GitHub comment. */
+  prCommentsEnabled: boolean;
+  /** GP-38: last PR-comment error surfaced in settings, or null. */
+  lastCommentError: string | null;
   createdAt: Date;
 };
 
@@ -92,6 +103,8 @@ export function toPublicRepository(row: RepositoryRow): PublicRepository {
     accessToken: row.accessToken ? "***" : null,
     connectionStatus: row.connectionStatus,
     verifiedAt: row.verifiedAt,
+    prCommentsEnabled: row.prCommentsEnabled,
+    lastCommentError: row.lastCommentError,
     createdAt: row.createdAt,
   };
 }

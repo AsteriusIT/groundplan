@@ -18,6 +18,7 @@ import {
   deleteRepository,
   getProject,
   listRepositories,
+  updateRepository,
   verifyRepository,
   webhookUrl,
 } from "@/api/client";
@@ -164,6 +165,20 @@ function RepositoryRow({
   const [showCi, setShowCi] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
+  const [togglingComments, setTogglingComments] = useState(false);
+
+  async function handleTogglePrComments(next: boolean) {
+    setTogglingComments(true);
+    setVerifyMessage(null);
+    try {
+      const updated = await updateRepository(repo.id, { prCommentsEnabled: next });
+      onChanged(updated);
+    } catch {
+      setVerifyMessage("Could not update the PR comment setting.");
+    } finally {
+      setTogglingComments(false);
+    }
+  }
 
   async function handleVerify() {
     setVerifying(true);
@@ -269,6 +284,29 @@ function RepositoryRow({
           {verifyMessage}
         </p>
       )}
+
+      {/* GP-38: opt in to GitHub PR comments; surface the last comment error. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
+        <label className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            className="accent-primary size-3.5"
+            checked={repo.prCommentsEnabled}
+            disabled={togglingComments}
+            onChange={(e) => handleTogglePrComments(e.target.checked)}
+          />
+          Comment on GitHub pull requests
+        </label>
+        {repo.lastCommentError && (
+          <span
+            className="text-destructive inline-flex items-center gap-1 font-mono text-[11px]"
+            title={repo.lastCommentError}
+          >
+            <TriangleAlert className="size-3" />
+            Last PR comment failed
+          </span>
+        )}
+      </div>
 
       {showCi && (
         <div className="border-t border-border p-4">

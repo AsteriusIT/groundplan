@@ -63,6 +63,37 @@ export async function createShareLink(
   return row as ShareTokenRow;
 }
 
+/**
+ * Reuse or create a pinned (`snapshot`) share link for a snapshot. Used by the
+ * PR comment (GP-38) so a public image URL exists without minting a fresh token
+ * on every push. Returns the token string.
+ */
+export async function ensureSnapshotShareLink(
+  db: NodePgDatabase,
+  repositoryId: string,
+  snapshotId: string,
+): Promise<string> {
+  const [existing] = await db
+    .select({ token: shareTokens.token })
+    .from(shareTokens)
+    .where(
+      and(
+        eq(shareTokens.snapshotId, snapshotId),
+        eq(shareTokens.kind, "snapshot"),
+        isNull(shareTokens.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (existing) return existing.token;
+
+  const row = await createShareLink(db, {
+    repositoryId,
+    kind: "snapshot",
+    snapshotId,
+  });
+  return row.token;
+}
+
 /** Active (non-revoked) links for a repository, newest first. */
 export async function listShareLinks(
   db: NodePgDatabase,
