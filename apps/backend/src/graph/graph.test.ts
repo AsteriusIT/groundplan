@@ -65,9 +65,10 @@ test("validateGraph rejects an edge with an unknown kind", () => {
   assert.equal(res.valid, false);
 });
 
-test("validateGraph accepts v2 but rejects an unknown version", () => {
+test("validateGraph accepts v2 and v3 but rejects an unknown version", () => {
   assert.equal(validateGraph({ ...validGraph, version: 2 }).valid, true);
-  assert.equal(validateGraph({ ...validGraph, version: 3 }).valid, false);
+  assert.equal(validateGraph({ ...validGraph, version: 3 }).valid, true);
+  assert.equal(validateGraph({ ...validGraph, version: 4 }).valid, false);
 });
 
 test("computeGraphStats counts nodes, edges and changes", () => {

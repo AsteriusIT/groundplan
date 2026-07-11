@@ -8,8 +8,8 @@
   "additionalProperties": false,
   "properties": {
     "version": {
-      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22). Both stay valid.",
-      "enum": [1, 2]
+      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32). All stay valid.",
+      "enum": [1, 2, 3]
     },
     "nodes": {
       "type": "array",
@@ -57,6 +57,24 @@
           "type": "integer",
           "minimum": 1,
           "description": "v2: hop distance to the nearest changed node."
+        },
+        "attribute_diff": {
+          "type": "array",
+          "description": "v3: masked per-attribute before/after diff for a changed node (GP-32). Sensitive values are masked; nested changes collapse to a marker.",
+          "items": {
+            "type": "object",
+            "required": ["key", "before", "after"],
+            "additionalProperties": false,
+            "properties": {
+              "key": { "type": "string" },
+              "before": { "type": ["string", "null"] },
+              "after": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "attribute_diff_truncated": {
+          "type": "boolean",
+          "description": "v3: true when the changed-attribute list exceeded 20 and was capped."
         }
       }
     },

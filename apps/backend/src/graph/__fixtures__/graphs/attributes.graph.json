@@ -1,0 +1,91 @@
+{
+  "version": 3,
+  "nodes": [
+    {
+      "id": "azurerm_mssql_database.shop_db",
+      "name": "shop_db",
+      "type": "azurerm_mssql_database",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "update",
+      "attribute_diff": [
+        {
+          "key": "sku_name",
+          "before": "S0",
+          "after": "P1"
+        },
+        {
+          "key": "tags",
+          "before": "{…}",
+          "after": "{…}"
+        },
+        {
+          "key": "zone_redundant",
+          "before": "false",
+          "after": "true"
+        }
+      ]
+    },
+    {
+      "id": "azurerm_mssql_server.main",
+      "name": "main",
+      "type": "azurerm_mssql_server",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "update",
+      "attribute_diff": [
+        {
+          "key": "administrator_login_password",
+          "before": "(sensitive)",
+          "after": "(sensitive)"
+        }
+      ]
+    },
+    {
+      "id": "azurerm_public_ip.legacy",
+      "name": "legacy",
+      "type": "azurerm_public_ip",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "delete",
+      "attribute_diff": [
+        {
+          "key": "allocation_method",
+          "before": "Static",
+          "after": null
+        },
+        {
+          "key": "ip_address",
+          "before": "20.1.2.3",
+          "after": null
+        }
+      ]
+    },
+    {
+      "id": "azurerm_storage_account.assets",
+      "name": "assets",
+      "type": "azurerm_storage_account",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create",
+      "attribute_diff": [
+        {
+          "key": "account_tier",
+          "before": null,
+          "after": "Standard"
+        },
+        {
+          "key": "id",
+          "before": null,
+          "after": "(known after apply)"
+        },
+        {
+          "key": "primary_access_key",
+          "before": null,
+          "after": "(known after apply)"
+        }
+      ]
+    }
+  ],
+  "edges": []
+}

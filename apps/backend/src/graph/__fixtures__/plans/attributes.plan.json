@@ -1,0 +1,78 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_mssql_database.shop_db",
+      "mode": "managed",
+      "type": "azurerm_mssql_database",
+      "name": "shop_db",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "sku_name": "S0",
+          "max_size_gb": 2,
+          "zone_redundant": false,
+          "tags": { "env": "prod" }
+        },
+        "after": {
+          "sku_name": "P1",
+          "max_size_gb": 2,
+          "zone_redundant": true,
+          "tags": { "env": "staging" }
+        }
+      }
+    },
+    {
+      "address": "azurerm_mssql_server.main",
+      "mode": "managed",
+      "type": "azurerm_mssql_server",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "administrator_login_password": "oldpw-PLAINTEXT",
+          "version": "12.0"
+        },
+        "after": {
+          "administrator_login_password": "newpw-PLAINTEXT",
+          "version": "12.0"
+        },
+        "before_sensitive": { "administrator_login_password": true },
+        "after_sensitive": { "administrator_login_password": true }
+      }
+    },
+    {
+      "address": "azurerm_storage_account.assets",
+      "mode": "managed",
+      "type": "azurerm_storage_account",
+      "name": "assets",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": { "account_tier": "Standard" },
+        "after_unknown": { "primary_access_key": true, "id": true }
+      }
+    },
+    {
+      "address": "azurerm_public_ip.legacy",
+      "mode": "managed",
+      "type": "azurerm_public_ip",
+      "name": "legacy",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["delete"],
+        "before": { "allocation_method": "Static", "ip_address": "20.1.2.3" },
+        "after": null
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": []
+    }
+  }
+}

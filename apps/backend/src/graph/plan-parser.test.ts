@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { computeGraphStats, validateGraph, type Graph } from "./graph.js";
+import { computeGraphStats, validateGraph, type Graph, type GraphNode } from "./graph.js";
 import { isTerraformPlan, parsePlanToGraph } from "./plan-parser.js";
 
 function readJson(rel: string): unknown {
@@ -11,7 +11,7 @@ function readJson(rel: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-for (const name of ["simple", "modules", "replace", "plan-expressions"]) {
+for (const name of ["simple", "modules", "replace", "plan-expressions", "attributes"]) {
   test(`parses the ${name} plan into the expected golden graph`, () => {
     const plan = readJson(`plans/${name}.plan.json`);
     const expected = readJson(`graphs/${name}.graph.json`);
@@ -124,4 +124,111 @@ test("an invalid graph would be caught by validation (empty address)", () => {
   });
   // The parser is faithful (produces the empty id); validation is the gate.
   assert.equal(validateGraph(graph).valid, false);
+});
+
+// --- Attribute diff (GP-32) ---------------------------------------------------
+
+function attrNode(id: string): GraphNode | undefined {
+  return parsePlanToGraph(readJson("plans/attributes.plan.json")).nodes.find(
+    (n) => n.id === id,
+  );
+}
+
+test("a plan carrying attribute diffs is emitted at schema version 3", () => {
+  const graph = parsePlanToGraph(readJson("plans/attributes.plan.json"));
+  assert.equal(graph.version, 3);
+  assert.equal(validateGraph(graph).valid, true);
+});
+
+test("plans with no before/after stay at version 2 (backward compatible)", () => {
+  const graph = parsePlanToGraph(readJson("plans/replace.plan.json"));
+  assert.equal(graph.version, 2);
+  assert.ok(!graph.nodes.some((n) => n.attribute_diff !== undefined));
+});
+
+test("shop-db update yields exactly the changed attributes with before/after", () => {
+  assert.deepEqual(attrNode("azurerm_mssql_database.shop_db")?.attribute_diff, [
+    { key: "sku_name", before: "S0", after: "P1" },
+    { key: "tags", before: "{…}", after: "{…}" }, // nested change → marker only
+    { key: "zone_redundant", before: "false", after: "true" },
+  ]);
+});
+
+test("sensitive attributes never store plaintext anywhere in the graph", () => {
+  const graph = parsePlanToGraph(readJson("plans/attributes.plan.json"));
+  const server = graph.nodes.find((n) => n.id === "azurerm_mssql_server.main");
+  assert.deepEqual(server?.attribute_diff, [
+    { key: "administrator_login_password", before: "(sensitive)", after: "(sensitive)" },
+  ]);
+  // Hard guarantee: no plaintext secret survives serialization (unchanged
+  // non-sensitive "version" is also correctly excluded, so it can't leak).
+  assert.ok(!JSON.stringify(graph).includes("PLAINTEXT"));
+});
+
+test("known-after-apply attributes render as (known after apply) on create", () => {
+  const assets = attrNode("azurerm_storage_account.assets");
+  assert.deepEqual(assets?.attribute_diff, [
+    { key: "account_tier", before: null, after: "Standard" },
+    { key: "id", before: null, after: "(known after apply)" },
+    { key: "primary_access_key", before: null, after: "(known after apply)" },
+  ]);
+});
+
+test("delete rows carry the old value with a null after", () => {
+  assert.deepEqual(attrNode("azurerm_public_ip.legacy")?.attribute_diff, [
+    { key: "allocation_method", before: "Static", after: null },
+    { key: "ip_address", before: "20.1.2.3", after: null },
+  ]);
+});
+
+test("a change with >20 attributes caps the diff and flags truncation", () => {
+  const before: Record<string, number> = {};
+  const after: Record<string, number> = {};
+  for (let i = 0; i < 30; i++) {
+    const k = `attr_${String(i).padStart(2, "0")}`;
+    before[k] = i;
+    after[k] = i + 1;
+  }
+  const graph = parsePlanToGraph({
+    format_version: "1.2",
+    resource_changes: [
+      {
+        address: "aws_instance.big",
+        mode: "managed",
+        type: "aws_instance",
+        name: "big",
+        provider_name: "registry.terraform.io/hashicorp/aws",
+        change: { actions: ["update"], before, after },
+      },
+    ],
+  });
+  const node = graph.nodes.find((n) => n.id === "aws_instance.big");
+  assert.equal(node?.attribute_diff?.length, 20);
+  assert.equal(node?.attribute_diff_truncated, true);
+  assert.equal(graph.version, 3);
+});
+
+test("attribute_diff_truncated is omitted when nothing was capped", () => {
+  const node = attrNode("azurerm_mssql_database.shop_db");
+  assert.equal(node?.attribute_diff_truncated, undefined);
+});
+
+test("validateGraph accepts both a hand-written v1 node and a v3 node", () => {
+  const v1Node: GraphNode = {
+    id: "aws_s3_bucket.a",
+    name: "a",
+    type: "aws_s3_bucket",
+    provider: "aws",
+    module_path: [],
+    change: "create",
+  };
+  assert.equal(validateGraph({ version: 1, nodes: [v1Node], edges: [] }).valid, true);
+
+  const v3Node: GraphNode = {
+    ...v1Node,
+    change: "update",
+    attribute_diff: [{ key: "sku_name", before: "S0", after: "P1" }],
+    attribute_diff_truncated: false,
+  };
+  assert.equal(validateGraph({ version: 3, nodes: [v3Node], edges: [] }).valid, true);
 });

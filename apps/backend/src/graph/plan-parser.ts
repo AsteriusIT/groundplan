@@ -16,6 +16,7 @@
  *    unresolved (vars, locals) is silently skipped. The resolution itself lives
  *    in the shared `dependency-edges` builder (reused by Producer B).
  */
+import { computeAttributeDiff, type PlanResourceChange } from "./attribute-diff.js";
 import {
   buildDependencyEdges,
   buildInstancesByBase,
@@ -25,7 +26,7 @@ import {
 import type { ChangeKind, Graph, GraphEdge, GraphNode } from "./graph.js";
 import { propagateImpact } from "./impact.js";
 
-type PlanChange = { actions?: unknown };
+type PlanChange = PlanResourceChange & { actions?: unknown };
 type ResourceChange = {
   address?: unknown;
   module_address?: unknown;
@@ -195,15 +196,28 @@ export function parsePlanToGraph(plan: unknown): Graph {
       ? (rc.change.actions.filter((a) => typeof a === "string") as string[])
       : [];
     const moduleAddress = asString(rc.module_address);
+    const change = actionsToChange(actions);
 
-    nodesById.set(id, {
+    const node: GraphNode = {
       id,
       name: asString(rc.name),
       type: asString(rc.type),
       provider: shortProvider(rc.provider_name),
       module_path: moduleAddress ? moduleParts(moduleAddress) : [],
-      change: actionsToChange(actions),
-    });
+      change,
+    };
+
+    // Masked before/after attribute diff for changed managed resources (GP-32).
+    // Appended last so node key order stays stable for byte-stable output.
+    if (change !== "noop") {
+      const { rows, truncated } = computeAttributeDiff(rc.change, change);
+      if (rows.length > 0) {
+        node.attribute_diff = rows;
+        if (truncated) node.attribute_diff_truncated = true;
+      }
+    }
+
+    nodesById.set(id, node);
 
     // Synthetic module nodes + contains edges for the module hierarchy.
     if (moduleAddress) {
@@ -254,5 +268,13 @@ export function parsePlanToGraph(plan: unknown): Graph {
   const edges = [...containsEdges.values(), ...dependsOnEdges].sort(sortEdges);
 
   // Blast radius: mark unchanged dependents of the change set (GP-22). Emits v2.
-  return propagateImpact({ version: 1, nodes, edges });
+  const withImpact = propagateImpact({ version: 1, nodes, edges });
+  // v3 only when at least one node carries an attribute diff (GP-32); otherwise
+  // the graph is byte-identical to a v2 snapshot for backward compatibility.
+  const version: Graph["version"] = withImpact.nodes.some(
+    (n) => n.attribute_diff !== undefined,
+  )
+    ? 3
+    : 2;
+  return { ...withImpact, version };
 }

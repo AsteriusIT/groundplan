@@ -12,6 +12,8 @@ import { fileURLToPath } from "node:url";
 
 import { Ajv, type ValidateFunction } from "ajv";
 
+import type { AttributeDiffRow } from "./attribute-diff.js";
+
 export type ChangeKind = "create" | "update" | "delete" | "noop";
 export type EdgeKind = "depends_on" | "contains";
 
@@ -31,6 +33,13 @@ export type GraphNode = {
   impacted?: boolean;
   /** v2: hop distance to the nearest changed node (1 = direct dependent). */
   impact_distance?: number;
+  /**
+   * v3: masked per-attribute before/after diff for a changed node (GP-32).
+   * Sensitive values are `(sensitive)`; nested changes collapse to `{…}`.
+   */
+  attribute_diff?: AttributeDiffRow[];
+  /** v3: true when the changed-attribute list exceeded 20 and was capped. */
+  attribute_diff_truncated?: boolean;
 };
 
 export type GraphEdge = {
@@ -46,8 +55,11 @@ export type GraphEdge = {
 };
 
 export type Graph = {
-  /** 1 = docs (hcl) snapshots; 2 adds optional impact fields on nodes (GP-22). */
-  version: 1 | 2;
+  /**
+   * 1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22);
+   * 3 adds optional node attribute-diff fields (GP-32). All stay valid.
+   */
+  version: 1 | 2 | 3;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };
