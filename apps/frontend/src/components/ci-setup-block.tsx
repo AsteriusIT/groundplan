@@ -70,7 +70,7 @@ export function CiSetupBlock({
 }) {
   const snippet = ciWorkflowSnippet(webhookUrl);
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <Field
         label="Webhook URL"
         value={webhookUrl}

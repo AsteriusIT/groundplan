@@ -116,7 +116,7 @@ export function AttachRepositoryDialog({
                 Wire up your CI to send Terraform plans to Groundplan.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="min-w-0 space-y-4">
               <div className="flex items-center gap-2">
                 <ConnectionStatusBadge status={created.connectionStatus} />
                 {connectionIssue && (
