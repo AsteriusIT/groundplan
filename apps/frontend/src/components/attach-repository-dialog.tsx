@@ -105,7 +105,9 @@ export function AttachRepositoryDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      {/* The CI-setup step (webhook URL + workflow snippet) needs more room
+          than the attach form, so widen the dialog once a repo is created. */}
+      <DialogContent className={cn("sm:max-w-xl", created && "sm:max-w-3xl")}>
         {created ? (
           <>
             <DialogHeader>
