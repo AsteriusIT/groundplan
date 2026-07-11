@@ -1,14 +1,90 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import { desc, eq } from "drizzle-orm";
 
 import {
   ingestionEvents,
   publicEventColumns,
+  pullRequests,
   repositories,
 } from "../db/schema.js";
 import { isTerraformPlan, parsePlanToGraph } from "../graph/plan-parser.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
 import { safeEqual } from "../lib/tokens.js";
+
+type WebhookBody = {
+  ref: string;
+  commit_sha: string;
+  event: "push" | "pull_request";
+  pr_number?: number;
+  pr_title?: string;
+  pr_state?: "open" | "closed";
+  payload: Record<string, unknown>;
+};
+
+/**
+ * Producer A: if the payload is a Terraform plan, parse it into a GraphSnapshot.
+ * Wrapped so ingestion never fails on a parse error — the event is flagged with
+ * the message instead, and the caller still returns 202.
+ */
+async function ingestPlan(
+  app: FastifyInstance,
+  repositoryId: string,
+  body: WebhookBody,
+  eventId: string,
+): Promise<void> {
+  if (!isTerraformPlan(body.payload)) return;
+  try {
+    const graph = parsePlanToGraph(body.payload);
+    await insertGraphSnapshot(app.db, {
+      repositoryId,
+      source: "plan",
+      ref: body.ref,
+      commitSha: body.commit_sha,
+      prNumber: body.pr_number ?? null,
+      graph,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    app.log.error({ err, eventId }, "plan parse failed");
+    await app.db
+      .update(ingestionEvents)
+      .set({ parseError: message })
+      .where(eq(ingestionEvents.id, eventId));
+  }
+}
+
+/**
+ * Upsert the PullRequest (GP-14) for a pull_request webhook. Title/state are
+ * only overwritten when supplied, so a later plan-only webhook for the same PR
+ * doesn't wipe metadata sent by an earlier call.
+ */
+async function upsertPullRequest(
+  app: FastifyInstance,
+  repositoryId: string,
+  body: WebhookBody,
+): Promise<void> {
+  if (body.event !== "pull_request" || body.pr_number === undefined) return;
+  await app.db
+    .insert(pullRequests)
+    .values({
+      repositoryId,
+      number: body.pr_number,
+      title: body.pr_title ?? null,
+      state: body.pr_state ?? "open",
+      sourceRef: body.ref,
+      latestCommitSha: body.commit_sha,
+    })
+    .onConflictDoUpdate({
+      target: [pullRequests.repositoryId, pullRequests.number],
+      set: {
+        sourceRef: body.ref,
+        latestCommitSha: body.commit_sha,
+        updatedAt: new Date(),
+        ...(body.pr_title !== undefined ? { title: body.pr_title } : {}),
+        ...(body.pr_state !== undefined ? { state: body.pr_state } : {}),
+      },
+    });
+}
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -31,10 +107,20 @@ const webhookBodySchema = {
     ref: { type: "string", minLength: 1, maxLength: 500 },
     commit_sha: { type: "string", minLength: 1, maxLength: 200 },
     event: { type: "string", enum: ["push", "pull_request"] },
-    // Present for pull_request events; links a plan snapshot to its PR (GP-13).
+    // Present for pull_request events; links a plan snapshot to its PR (GP-13)
+    // and identifies the PullRequest to upsert (GP-14). Required below for PRs.
     pr_number: { type: "integer", minimum: 1 },
+    pr_title: { type: "string", maxLength: 500 },
+    pr_state: { type: "string", enum: ["open", "closed"] },
     payload: { type: "object" },
   },
+  // pr_number is mandatory for pull_request events.
+  allOf: [
+    {
+      if: { properties: { event: { const: "pull_request" } } },
+      then: { required: ["pr_number"] },
+    },
+  ],
 };
 
 const idParamsSchema = {
@@ -53,13 +139,7 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const { repositoryId } = request.params as { repositoryId: string };
-      const body = request.body as {
-        ref: string;
-        commit_sha: string;
-        event: "push" | "pull_request";
-        pr_number?: number;
-        payload: Record<string, unknown>;
-      };
+      const body = request.body as WebhookBody;
 
       const [repo] = await app.db
         .select({
@@ -93,29 +173,8 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
         })
         .returning({ id: ingestionEvents.id });
 
-      // Producer A: if the payload is a Terraform plan, parse it into a
-      // GraphSnapshot inline. Wrapped so ingestion never fails on a parse error —
-      // the event is flagged instead, and the webhook still returns 202.
-      if (row && isTerraformPlan(body.payload)) {
-        try {
-          const graph = parsePlanToGraph(body.payload);
-          await insertGraphSnapshot(app.db, {
-            repositoryId,
-            source: "plan",
-            ref: body.ref,
-            commitSha: body.commit_sha,
-            prNumber: body.pr_number ?? null,
-            graph,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          app.log.error({ err, eventId: row.id }, "plan parse failed");
-          await app.db
-            .update(ingestionEvents)
-            .set({ parseError: message })
-            .where(eq(ingestionEvents.id, row.id));
-        }
-      }
+      if (row) await ingestPlan(app, repositoryId, body, row.id);
+      await upsertPullRequest(app, repositoryId, body);
 
       return reply.code(202).send({ id: row?.id });
     },

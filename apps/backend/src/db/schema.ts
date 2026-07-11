@@ -11,6 +11,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -179,6 +180,37 @@ export const publicSnapshotColumns = {
   createdAt: graphSnapshots.createdAt,
 };
 
+export const pullRequestState = pgEnum("pull_request_state", ["open", "closed"]);
+
+/**
+ * A pull request (GP-14), fed exclusively by the CI webhook — Groundplan does
+ * not call the git provider API. Upserted per repo+number; plan snapshots link
+ * to it by `pr_number`.
+ */
+export const pullRequests = pgTable(
+  "pull_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title"),
+    state: pullRequestState("state").notNull().default("open"),
+    sourceRef: text("source_ref").notNull(),
+    latestCommitSha: text("latest_commit_sha").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [unique("pull_requests_repository_number_unique").on(t.repositoryId, t.number)],
+);
+
+export type PullRequestRow = typeof pullRequests.$inferSelect;
+
 export const projectsRelations = relations(projects, ({ many }) => ({
   repositories: many(repositories),
 }));
@@ -190,11 +222,19 @@ export const repositoriesRelations = relations(repositories, ({ one, many }) => 
   }),
   events: many(ingestionEvents),
   snapshots: many(graphSnapshots),
+  pullRequests: many(pullRequests),
 }));
 
 export const graphSnapshotsRelations = relations(graphSnapshots, ({ one }) => ({
   repository: one(repositories, {
     fields: [graphSnapshots.repositoryId],
+    references: [repositories.id],
+  }),
+}));
+
+export const pullRequestsRelations = relations(pullRequests, ({ one }) => ({
+  repository: one(repositories, {
+    fields: [pullRequests.repositoryId],
     references: [repositories.id],
   }),
 }));

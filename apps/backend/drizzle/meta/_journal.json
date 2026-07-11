@@ -57,6 +57,13 @@
       "when": 1783760968691,
       "tag": "0007_pretty_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783761224464,
+      "tag": "0008_magenta_tarot",
+      "breakpoints": true
     }
   ]
 }

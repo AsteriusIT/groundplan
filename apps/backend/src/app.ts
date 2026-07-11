@@ -19,6 +19,7 @@ import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
 import { meRoutes } from "./routes/me.js";
 import { projectRoutes } from "./routes/projects.js";
+import { pullRoutes } from "./routes/pulls.js";
 import { repositoryFileRoutes } from "./routes/repository-files.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { snapshotRoutes } from "./routes/snapshots.js";
@@ -98,6 +99,7 @@ export async function buildApp(
   await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
   await app.register(snapshotRoutes, { prefix: "/api/v1" });
+  await app.register(pullRoutes, { prefix: "/api/v1" });
 
   return app;
 }
