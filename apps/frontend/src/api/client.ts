@@ -8,7 +8,11 @@ import type {
   CreateProjectInput,
   CreateRepositoryInput,
   Project,
+  PullDetail,
+  PullSummary,
   Repository,
+  Snapshot,
+  SnapshotSummary,
   UpdateRepositoryInput,
   User,
   VerifyResult,
@@ -165,6 +169,38 @@ export function webhookUrl(repositoryId: string): string {
   const origin =
     API_ROOT || (typeof window !== "undefined" ? window.location.origin : "");
   return `${origin}/api/v1/webhooks/ci/${repositoryId}`;
+}
+
+// --- Pull requests & graph snapshots (GP-12 / GP-14 / GP-17 / GP-18) --------
+
+export function listPulls(repositoryId: string): Promise<PullSummary[]> {
+  return request<PullSummary[]>(`/repositories/${encode(repositoryId)}/pulls`);
+}
+
+export function getPull(
+  repositoryId: string,
+  number: number,
+): Promise<PullDetail> {
+  return request<PullDetail>(
+    `/repositories/${encode(repositoryId)}/pulls/${number}`,
+  );
+}
+
+export function listSnapshots(
+  repositoryId: string,
+  opts: { source?: "plan" | "hcl"; prNumber?: number } = {},
+): Promise<SnapshotSummary[]> {
+  const params = new URLSearchParams();
+  if (opts.source) params.set("source", opts.source);
+  if (opts.prNumber !== undefined) params.set("pr_number", String(opts.prNumber));
+  const query = params.toString();
+  return request<SnapshotSummary[]>(
+    `/repositories/${encode(repositoryId)}/snapshots${query ? `?${query}` : ""}`,
+  );
+}
+
+export function getSnapshot(id: string): Promise<Snapshot> {
+  return request<Snapshot>(`/snapshots/${encode(id)}`);
 }
 
 export function getMe(): Promise<User> {

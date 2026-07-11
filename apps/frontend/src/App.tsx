@@ -7,6 +7,8 @@ import { DashboardPage } from "@/pages/dashboard-page";
 import { LoginPage } from "@/pages/login-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
+import { PullDetailPage } from "@/pages/pull-detail-page";
+import { PullsPage } from "@/pages/pulls-page";
 import { SettingsPage } from "@/pages/settings-page";
 
 function App() {
@@ -25,6 +27,14 @@ function App() {
         <Route index element={<Navigate to="/projects" replace />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        <Route
+          path="/projects/:id/repos/:repoId/pulls"
+          element={<PullsPage />}
+        />
+        <Route
+          path="/projects/:id/repos/:repoId/pulls/:number"
+          element={<PullDetailPage />}
+        />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

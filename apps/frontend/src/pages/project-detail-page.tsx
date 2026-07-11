@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   ChevronLeft,
   GitBranch,
+  GitPullRequest,
   KeyRound,
   Plug,
   Plus,
@@ -207,7 +208,13 @@ function RepositoryRow({
 
         <ConnectionStatusBadge status={repo.connectionStatus} />
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button variant="outline" size="sm" asChild>
+            <Link to={`/projects/${repo.projectId}/repos/${repo.id}/pulls`}>
+              <GitPullRequest className="size-3.5" />
+              Pull requests
+            </Link>
+          </Button>
           <Button
             variant="outline"
             size="sm"
