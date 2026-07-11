@@ -1,12 +1,18 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
+
+// Isolate clone temp dirs to this test process so the clone-cleanup assertions
+// (which count gp-clone-* in os.tmpdir()) don't race with clones from other
+// concurrently-running test files in the shared /tmp.
+process.env.TMPDIR = mkdtempSync(path.join(os.tmpdir(), "gp-test-tmp-"));
 
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";

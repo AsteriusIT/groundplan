@@ -154,15 +154,35 @@ export type RepoTextFile = { path: string; content: string };
 
 /**
  * Clone the repo once at `ref`, read the UTF-8 contents of every file matching
- * `matches`, and capture the cloned HEAD sha. Used by the docs flow (GP-15) so a
- * whole-repo parse needs a single clone (unlike per-request `getFile`). The temp
- * clone is always cleaned up.
+ * `matches`, and capture the resulting HEAD sha. Used by the docs flow (GP-15) so
+ * a whole-repo parse needs a single clone (unlike per-request `getFile`).
+ *
+ * When `checkoutSha` is given (auto-docs on merge, GP-23), the exact commit is
+ * fetched and checked out so the snapshot matches the pushed sha — not just the
+ * branch tip. If that commit can't be fetched, the cloned tip is used instead.
+ * The temp clone is always cleaned up.
  */
 export async function readRepoTextFiles(
   source: RepoSource,
   matches: (path: string) => boolean,
+  checkoutSha?: string,
 ): Promise<{ files: RepoTextFile[]; headSha: string }> {
   return withClone(source, async (dir) => {
+    if (checkoutSha) {
+      ensureValidRef(checkoutSha);
+      try {
+        await execFileAsync(
+          "git",
+          ["-C", dir, "fetch", "--depth", "1", "origin", checkoutSha],
+          { timeout: CLONE_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+        );
+        await execFileAsync("git", ["-C", dir, "checkout", "--force", checkoutSha], {
+          timeout: CLONE_TIMEOUT_MS,
+        });
+      } catch {
+        // Commit unreachable/shallow — fall back to the cloned branch tip.
+      }
+    }
     const paths = (await walkFiles(dir, dir)).filter(matches);
     const files: RepoTextFile[] = [];
     for (const rel of paths) {

@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import type { AppEnv } from "./config/env.js";
 import { createEncryptor, type Encryptor } from "./lib/encryption.js";
 import { authPlugin } from "./plugins/auth.js";
+import { backgroundPlugin } from "./plugins/background.js";
 import { dbPlugin } from "./plugins/db.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import {
@@ -75,6 +76,7 @@ export async function buildApp(
     origin: env.corsOrigin === "*" ? true : env.corsOrigin.split(","),
   });
   await app.register(sensible);
+  await app.register(backgroundPlugin);
   await app.register(dbPlugin, { databaseUrl: env.databaseUrl, pool: opts.pool });
 
   // Credential encryption (throws in prod if ENCRYPTION_KEY is unset) and the

@@ -1,10 +1,15 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+
+// Isolate clone temp dirs to this process so the clone-cleanup assertions don't
+// race with clones from other concurrently-running test files in shared /tmp.
+process.env.TMPDIR = mkdtempSync(path.join(os.tmpdir(), "gp-test-tmp-"));
 
 import {
   buildAuthenticatedUrl,

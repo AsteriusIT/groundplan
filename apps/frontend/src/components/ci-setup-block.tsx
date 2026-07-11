@@ -3,9 +3,14 @@ import { CopyButton } from "@/components/copy-button";
 /** A ready-to-paste GitHub Actions workflow that feeds plan.json to Groundplan. */
 export function ciWorkflowSnippet(webhookUrl: string): string {
   return `name: Groundplan
-on: pull_request
+on:
+  pull_request:
+  push:
+    branches: [main]
 jobs:
+  # On a pull request: send the plan so Groundplan can draw the impact diagram.
   plan:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +29,18 @@ jobs:
               --argjson pr \${{ github.event.pull_request.number }} \\
               --slurpfile plan plan.json \\
               '{ref:$ref, commit_sha:$sha, event:"pull_request", pr_number:$pr, payload:$plan[0]}')"
+  # On a merge to main: refresh the living documentation of the default branch.
+  docs:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh Groundplan documentation
+        run: |
+          curl -sf -X POST "${webhookUrl}" \\
+            -H "X-Groundplan-Token: \${{ secrets.GROUNDPLAN_WEBHOOK_TOKEN }}" \\
+            -H "Content-Type: application/json" \\
+            -d "$(jq -n --arg ref "$GITHUB_REF" --arg sha "$GITHUB_SHA" \\
+              '{ref:$ref, commit_sha:$sha, event:"push", payload:{}}')"
 `;
 }
 
