@@ -7,9 +7,9 @@ vi.mock("@/api/client", async (importOriginal) => {
   return {
     ...actual,
     getRepository: vi.fn(),
-    getLatestDocs: vi.fn(),
-    generateDocs: vi.fn(),
+    listSnapshots: vi.fn(),
     getSnapshot: vi.fn(),
+    generateDocs: vi.fn(),
   };
 });
 
@@ -24,17 +24,17 @@ vi.mock("@/components/graph-canvas", () => ({
 import {
   ApiError,
   generateDocs,
-  getLatestDocs,
   getRepository,
   getSnapshot,
+  listSnapshots,
 } from "@/api/client";
-import type { Repository, Snapshot } from "@/api/types";
+import type { Repository, Snapshot, SnapshotSummary } from "@/api/types";
 import { DocsPage } from "./docs-page";
 
 const getRepositoryMock = vi.mocked(getRepository);
-const getLatestDocsMock = vi.mocked(getLatestDocs);
-const generateDocsMock = vi.mocked(generateDocs);
+const listSnapshotsMock = vi.mocked(listSnapshots);
 const getSnapshotMock = vi.mocked(getSnapshot);
+const generateDocsMock = vi.mocked(generateDocs);
 
 const repo: Repository = {
   id: "r1",
@@ -48,30 +48,44 @@ const repo: Repository = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
-function snapshot(over: Partial<Snapshot> = {}): Snapshot {
+const baseStats = {
+  nodes: 1,
+  edges: 0,
+  changes: { create: 0, update: 0, delete: 0, noop: 0, unchanged: 1 },
+};
+
+function summary(
+  id: string,
+  commitSha: string,
+  trigger: "manual" | "auto",
+): SnapshotSummary {
   return {
-    id: "s1",
+    id,
     repositoryId: "r1",
     source: "hcl",
     ref: "main",
-    commitSha: "abcdef1234567",
+    commitSha,
     prNumber: null,
     createdAt: "2026-01-03T00:00:00.000Z",
-    stats: {
-      nodes: 2,
-      edges: 0,
-      changes: { create: 0, update: 0, delete: 0, noop: 0, unchanged: 2 },
-      warnings: [],
-    },
+    stats: { ...baseStats, trigger },
+  };
+}
+
+function snapshot(id: string, nodeCount: number): Snapshot {
+  return {
+    ...summary(id, `${id}sha`, "manual"),
     graph: {
       version: 1,
-      nodes: [
-        { id: "aws_s3.a", name: "a", type: "aws_s3", provider: "aws", module_path: [], change: null },
-        { id: "module.net", name: "net", type: "module", provider: null, module_path: [], change: null },
-      ],
+      nodes: Array.from({ length: nodeCount }, (_, i) => ({
+        id: `n${i}`,
+        name: `n${i}`,
+        type: "aws_s3_bucket",
+        provider: "aws",
+        module_path: [],
+        change: null,
+      })),
       edges: [],
     },
-    ...over,
   };
 }
 
@@ -87,13 +101,15 @@ function renderPage() {
 
 beforeEach(() => {
   getRepositoryMock.mockReset().mockResolvedValue(repo);
-  getLatestDocsMock.mockReset();
+  listSnapshotsMock.mockReset();
+  getSnapshotMock.mockReset().mockImplementation((id: string) =>
+    Promise.resolve(snapshot(id, id === "s3" ? 3 : 1)),
+  );
   generateDocsMock.mockReset();
-  getSnapshotMock.mockReset();
 });
 
-it("shows the empty state with a generate button when there are no docs", async () => {
-  getLatestDocsMock.mockRejectedValue(new ApiError(404, "no documentation snapshot yet"));
+it("shows the empty state with a generate button when there is no history", async () => {
+  listSnapshotsMock.mockResolvedValue([]);
   renderPage();
   expect(await screen.findByText("Document this repository")).toBeInTheDocument();
   expect(
@@ -101,58 +117,65 @@ it("shows the empty state with a generate button when there are no docs", async 
   ).toBeInTheDocument();
 });
 
-it("generates documentation and renders the neutral diagram", async () => {
-  getLatestDocsMock.mockRejectedValue(new ApiError(404, "none"));
-  generateDocsMock.mockResolvedValue({ id: "s1" });
-  getSnapshotMock.mockResolvedValue(snapshot());
-
+it("lists every docs snapshot with its trigger and renders the latest", async () => {
+  listSnapshotsMock.mockResolvedValue([
+    summary("s3", "cccccccc3333", "auto"),
+    summary("s2", "bbbbbbbb2222", "manual"),
+    summary("s1", "aaaaaaaa1111", "manual"),
+  ]);
   renderPage();
-  fireEvent.click(
-    await screen.findByRole("button", { name: /generate documentation/i }),
-  );
 
-  const canvas = await screen.findByTestId("canvas");
-  expect(canvas).toHaveTextContent("2 nodes");
-  expect(canvas).toHaveAttribute("data-variant", "docs");
-  // Header shows the commit sha of the generated snapshot.
-  expect(screen.getByText(/abcdef12/)).toBeInTheDocument();
+  // Three cards, newest (s3) selected → its 3-node graph rendered.
+  expect(await screen.findByText("cccccccc")).toBeInTheDocument();
+  expect(screen.getByText("bbbbbbbb")).toBeInTheDocument();
+  expect(screen.getByText("aaaaaaaa")).toBeInTheDocument();
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("3 nodes");
+  // Trigger badges (auto for the latest, manual for the others).
+  expect(screen.getByText("auto")).toBeInTheDocument();
+  expect(screen.getAllByText("manual").length).toBe(2);
 });
 
-it("renders an existing docs snapshot on load", async () => {
-  getLatestDocsMock.mockResolvedValue(snapshot());
-  renderPage();
-  expect(await screen.findByTestId("canvas")).toHaveTextContent("2 nodes");
-  expect(
-    screen.getByRole("button", { name: /regenerate/i }),
-  ).toBeInTheDocument();
-});
-
-it("shows warnings when the snapshot has skipped files", async () => {
-  getLatestDocsMock.mockResolvedValue(
-    snapshot({
-      stats: {
-        nodes: 2,
-        edges: 0,
-        changes: { create: 0, update: 0, delete: 0, noop: 0, unchanged: 2 },
-        warnings: ["skipped broken.tf: unbalanced braces"],
-      },
-    }),
-  );
+it("clicking an older snapshot loads it and shows the not-latest banner", async () => {
+  listSnapshotsMock.mockResolvedValue([
+    summary("s3", "cccccccc3333", "auto"),
+    summary("s1", "aaaaaaaa1111", "manual"),
+  ]);
   renderPage();
   await screen.findByTestId("canvas");
-  expect(screen.getByText(/1 file skipped/i)).toBeInTheDocument();
+
+  fireEvent.click(await screen.findByText("aaaaaaaa"));
+
+  expect(await screen.findByText(/not the latest/i)).toBeInTheDocument();
+  expect(screen.getByTestId("canvas")).toHaveTextContent("1 nodes");
+
+  // Back to latest restores the newest and hides the banner.
+  fireEvent.click(screen.getByRole("button", { name: /back to latest/i }));
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("3 nodes");
+  expect(screen.queryByText(/not the latest/i)).not.toBeInTheDocument();
 });
 
-it("handles a 409 (generation already running) with a friendly message", async () => {
-  getLatestDocsMock.mockRejectedValue(new ApiError(404, "none"));
-  generateDocsMock.mockRejectedValue(new ApiError(409, "already running"));
+it("regenerating creates a new latest and jumps to it", async () => {
+  listSnapshotsMock
+    .mockResolvedValueOnce([summary("s1", "aaaaaaaa1111", "manual")])
+    .mockResolvedValueOnce([
+      summary("s4", "dddddddd4444", "manual"),
+      summary("s1", "aaaaaaaa1111", "manual"),
+    ]);
+  generateDocsMock.mockResolvedValue({ id: "s4" });
 
   renderPage();
-  fireEvent.click(
-    await screen.findByRole("button", { name: /generate documentation/i }),
-  );
+  await screen.findByTestId("canvas");
+  fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
 
-  expect(
-    await screen.findByText(/already in progress/i),
-  ).toBeInTheDocument();
+  expect(await screen.findByText("dddddddd")).toBeInTheDocument();
+  expect(getSnapshotMock).toHaveBeenCalledWith("s4");
+});
+
+it("handles a 409 while regenerating with a friendly message", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "aaaaaaaa1111", "manual")]);
+  generateDocsMock.mockRejectedValue(new ApiError(409, "locked"));
+  renderPage();
+  await screen.findByTestId("canvas");
+  fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+  expect(await screen.findByText(/already in progress/i)).toBeInTheDocument();
 });
