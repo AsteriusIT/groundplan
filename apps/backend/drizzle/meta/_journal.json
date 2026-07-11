@@ -71,6 +71,13 @@
       "when": 1783780079021,
       "tag": "0009_whole_pestilence",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783781150178,
+      "tag": "0010_spicy_corsair",
+      "breakpoints": true
     }
   ]
 }

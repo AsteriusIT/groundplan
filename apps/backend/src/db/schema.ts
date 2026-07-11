@@ -185,6 +185,41 @@ export const publicSnapshotColumns = {
   createdAt: graphSnapshots.createdAt,
 };
 
+export const shareTokenKind = pgEnum("share_token_kind", [
+  "docs_latest",
+  "snapshot",
+]);
+
+/**
+ * A public, read-only share link for a docs snapshot (GP-39). `docs_latest`
+ * always resolves to the newest docs snapshot of the repository; `snapshot`
+ * pins one specific snapshot. The `token` is a URL-safe secret shown to the
+ * creator so they can hand out the link; the public routes look it up (and
+ * refuse revoked ones). `expires_at` is reserved — enforcement is a later story.
+ */
+export const shareTokens = pgTable("share_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  token: text("token").notNull().unique(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  kind: shareTokenKind("kind").notNull(),
+  /** Set when kind = "snapshot" (pinned); null for docs_latest. */
+  snapshotId: uuid("snapshot_id").references(() => graphSnapshots.id, {
+    onDelete: "cascade",
+  }),
+  createdBy: uuid("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
+
+export type ShareTokenRow = typeof shareTokens.$inferSelect;
+
 export const pullRequestState = pgEnum("pull_request_state", ["open", "closed"]);
 
 /**
@@ -228,6 +263,18 @@ export const repositoriesRelations = relations(repositories, ({ one, many }) => 
   events: many(ingestionEvents),
   snapshots: many(graphSnapshots),
   pullRequests: many(pullRequests),
+  shareTokens: many(shareTokens),
+}));
+
+export const shareTokensRelations = relations(shareTokens, ({ one }) => ({
+  repository: one(repositories, {
+    fields: [shareTokens.repositoryId],
+    references: [repositories.id],
+  }),
+  snapshot: one(graphSnapshots, {
+    fields: [shareTokens.snapshotId],
+    references: [graphSnapshots.id],
+  }),
 }));
 
 export const graphSnapshotsRelations = relations(graphSnapshots, ({ one }) => ({

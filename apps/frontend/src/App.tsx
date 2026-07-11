@@ -12,6 +12,7 @@ import { ProjectsPage } from "@/pages/projects-page";
 import { PullDetailPage } from "@/pages/pull-detail-page";
 import { PullsPage } from "@/pages/pulls-page";
 import { SettingsPage } from "@/pages/settings-page";
+import { SharePage } from "@/pages/share-page";
 
 // Dev-only design-system reference (GP-28). Lazy + DEV-gated so the styleguide
 // chunk never ships in the production bundle.
@@ -28,6 +29,8 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/callback" element={<CallbackPage />} />
+      {/* Public, no-auth read-only share page (GP-39). */}
+      <Route path="/share/:token" element={<SharePage />} />
 
       {StyleguidePage && (
         <Route

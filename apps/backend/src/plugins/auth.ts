@@ -25,6 +25,8 @@ function isExempt(routeUrl: string | undefined): boolean {
   if (routeUrl === "/healthz") return true;
   if (routeUrl === "/api/v1/health") return true;
   if (routeUrl.startsWith("/api/v1/webhooks/")) return true;
+  // Public share links (GP-39): tokenized, no bearer token.
+  if (routeUrl.startsWith("/api/v1/public/")) return true;
   return false;
 }
 

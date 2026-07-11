@@ -7,10 +7,13 @@ import type {
   CreatedRepository,
   CreateProjectInput,
   CreateRepositoryInput,
+  CreateShareLinkInput,
   Project,
+  PublicSnapshotView,
   PullDetail,
   PullSummary,
   Repository,
+  ShareLink,
   Snapshot,
   SnapshotSummary,
   UpdateRepositoryInput,
@@ -246,4 +249,46 @@ export function getLatestDocs(repositoryId: string): Promise<Snapshot> {
 
 export function getMe(): Promise<User> {
   return request<User>("/me");
+}
+
+// --- Public share links (GP-39) --------------------------------------------
+
+export function listShareLinks(repositoryId: string): Promise<ShareLink[]> {
+  return request<ShareLink[]>(`/repositories/${encode(repositoryId)}/share-links`);
+}
+
+export function createShareLink(
+  repositoryId: string,
+  input: CreateShareLinkInput,
+): Promise<ShareLink> {
+  return request<ShareLink>(`/repositories/${encode(repositoryId)}/share-links`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function revokeShareLink(id: string): Promise<void> {
+  return request<void>(`/share-links/${encode(id)}`, { method: "DELETE" });
+}
+
+/** Fetch a public snapshot by share token (no auth). 404 if unknown/revoked. */
+export function getPublicSnapshot(token: string): Promise<PublicSnapshotView> {
+  return request<PublicSnapshotView>(`/public/${encode(token)}`);
+}
+
+/** Absolute-from-origin URL of a public export image (embeddable, no auth). */
+export function publicExportUrl(
+  token: string,
+  format: ExportFormat,
+  scope: ExportScope = "full",
+): string {
+  const query = scope === "changes" ? "?scope=changes" : "";
+  return `${API_BASE}/public/${encode(token)}/export.${format}${query}`;
+}
+
+/** The in-app URL of the read-only public share page for a token. */
+export function shareUrl(token: string): string {
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : API_ROOT;
+  return `${origin}/share/${encode(token)}`;
 }

@@ -164,6 +164,42 @@ export interface PullDetail extends PullSummary {
   parseError: string | null;
 }
 
+// --- Public share links (GP-39) --------------------------------------------
+
+export type ShareKind = "docs_latest" | "snapshot";
+
+/** A share link as returned to its authenticated owner (includes the token). */
+export interface ShareLink {
+  id: string;
+  token: string;
+  kind: ShareKind;
+  /** Set for a pinned (`snapshot`) link; null for `docs_latest`. */
+  snapshotId: string | null;
+  createdAt: string;
+}
+
+export interface CreateShareLinkInput {
+  kind: ShareKind;
+  /** Required when kind = "snapshot". */
+  snapshotId?: string;
+}
+
+/** The credential-free snapshot payload served on public routes. */
+export interface PublicSnapshotView {
+  kind: ShareKind;
+  repository: { name: string; provider: Provider };
+  snapshot: {
+    id: string;
+    source: SnapshotSource;
+    ref: string;
+    commitSha: string;
+    createdAt: string;
+    stats: GraphStats;
+    summaryMd: string;
+    graph: Graph;
+  };
+}
+
 export interface CreateProjectInput {
   name: string;
   slug: string;

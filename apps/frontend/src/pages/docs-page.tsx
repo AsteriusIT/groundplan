@@ -20,6 +20,7 @@ import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ExportMenu } from "@/components/export-menu";
+import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
 
 type ListState =
@@ -151,6 +152,9 @@ export function DocsPage() {
           </div>
           {snapshots.length > 0 && (
             <div className="flex items-center gap-2">
+              {repoId && (
+                <ShareDialog repositoryId={repoId} currentSnapshotId={selectedId} />
+              )}
               {current && (
                 <ExportMenu
                   snapshotId={current.id}
