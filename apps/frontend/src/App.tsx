@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "@/components/app-layout";
@@ -12,11 +13,32 @@ import { PullDetailPage } from "@/pages/pull-detail-page";
 import { PullsPage } from "@/pages/pulls-page";
 import { SettingsPage } from "@/pages/settings-page";
 
+// Dev-only design-system reference (GP-28). Lazy + DEV-gated so the styleguide
+// chunk never ships in the production bundle.
+const StyleguidePage = import.meta.env.DEV
+  ? lazy(() =>
+      import("@/pages/styleguide-page").then((m) => ({
+        default: m.StyleguidePage,
+      })),
+    )
+  : null;
+
 function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/callback" element={<CallbackPage />} />
+
+      {StyleguidePage && (
+        <Route
+          path="/styleguide"
+          element={
+            <Suspense fallback={null}>
+              <StyleguidePage />
+            </Suspense>
+          }
+        />
+      )}
 
       <Route
         element={

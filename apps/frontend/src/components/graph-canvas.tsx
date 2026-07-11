@@ -100,11 +100,11 @@ const FILTER_LABELS: Record<FilterKey, string> = {
 };
 
 const FILTER_SWATCH: Record<FilterKey, string> = {
-  create: "bg-emerald-400",
-  update: "bg-amber-400",
-  delete: "bg-destructive/70",
-  noop: "bg-border",
-  impacted: "bg-violet-500",
+  create: "bg-create",
+  update: "bg-update",
+  delete: "bg-delete",
+  noop: "bg-edge",
+  impacted: "bg-impacted",
 };
 
 function CheckRow({

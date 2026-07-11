@@ -109,16 +109,16 @@ it("shows category and module filters, a counter and reset (both variants)", asy
 it("opens the details panel on node click and closes it on pane click", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   fireEvent.click(await screen.findByText("node:main"));
-  expect(screen.getByText("Address")).toBeInTheDocument();
+  expect(screen.getByText("Terraform address")).toBeInTheDocument();
   expect(screen.getByText("azurerm_virtual_network.main")).toBeInTheDocument();
   fireEvent.click(screen.getByTestId("pane"));
-  expect(screen.queryByText("Address")).not.toBeInTheDocument();
+  expect(screen.queryByText("Terraform address")).not.toBeInTheDocument();
 });
 
 it("shows the impact chip in the panel for an impacted node", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   fireEvent.click(await screen.findByText("node:data"));
-  expect(screen.getByText(/impacted · distance 2/)).toBeInTheDocument();
+  expect(screen.getByText(/impacted · d2/)).toBeInTheDocument();
 });
 
 it("'/' focuses the search box; searching + Enter flies to and selects a node", async () => {
@@ -132,7 +132,7 @@ it("'/' focuses the search box; searching + Enter flies to and selects a node", 
   // "vnet" fuzzily matches azurerm_virtual_network; Enter selects the first hit.
   fireEvent.change(search, { target: { value: "vnet" } });
   fireEvent.keyDown(search, { key: "Enter" });
-  expect(screen.getByText("Address")).toBeInTheDocument();
+  expect(screen.getByText("Terraform address")).toBeInTheDocument();
   expect(screen.getByText("azurerm_virtual_network.main")).toBeInTheDocument();
 });
 

@@ -2,9 +2,12 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
+// Self-hosted fonts (no runtime Google Fonts → no FOUT/FOIT). GP-28.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/space-grotesk";
-import "@fontsource-variable/jetbrains-mono";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource/ibm-plex-mono/600.css";
 
 import { AuthProvider } from "@/auth/auth-provider";
 import App from "./App.tsx";

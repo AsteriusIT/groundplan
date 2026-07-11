@@ -13,6 +13,10 @@ import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 import type { ChangeKind, Graph, GraphNode } from "@/api/types";
 import { categorize, type Category } from "@/lib/resource-category";
 
+// changeLabel now lives with the shared status metadata (GP-28); re-exported here
+// so existing importers (node-details-panel, …) keep working.
+export { changeLabel } from "@/lib/status";
+
 const RESOURCE_WIDTH = 220;
 const RESOURCE_HEIGHT = 56;
 const MODULE_LEAF_WIDTH = 200;
@@ -236,25 +240,14 @@ export function elkToFlow(
   return { nodes, edges };
 }
 
-/** Border/background/text classes for a node's change kind. */
+/** Border/background/text classes for a node's change kind (GP-28 tokens). */
 export const CHANGE_STYLES: Record<ChangeKind | "none", string> = {
-  create: "border-emerald-400 bg-emerald-50 text-emerald-900",
-  update: "border-amber-400 bg-amber-50 text-amber-900",
-  delete: "border-destructive/60 bg-destructive/5 text-destructive border-dashed",
-  noop: "border-border bg-card text-foreground",
-  none: "border-border bg-card text-foreground",
+  create: "border-create bg-create-soft text-ink",
+  update: "border-update bg-update-soft text-ink",
+  delete: "border-delete bg-delete-soft text-ink border-dashed",
+  noop: "border-border bg-panel text-ink",
+  none: "border-border bg-panel text-ink",
 };
-
-const CHANGE_LABELS: Record<ChangeKind, string> = {
-  create: "Create",
-  update: "Update",
-  delete: "Delete",
-  noop: "No change",
-};
-
-export function changeLabel(change: ChangeKind | null): string {
-  return change ? CHANGE_LABELS[change] : "—";
-}
 
 export function changeClasses(change: ChangeKind | null): string {
   return CHANGE_STYLES[change ?? "none"];

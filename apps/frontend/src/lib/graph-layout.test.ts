@@ -149,6 +149,6 @@ it("filtering out a change dims those resources", () => {
 
 it("changeClasses marks deletes as dashed and destructive", () => {
   expect(changeClasses("delete")).toMatch(/dashed/);
-  expect(changeClasses("create")).toMatch(/emerald/);
+  expect(changeClasses("create")).toMatch(/create/);
   expect(changeClasses(null)).toMatch(/border-border/);
 });

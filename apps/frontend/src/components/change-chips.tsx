@@ -14,22 +14,19 @@ export function ChangeChips({
 }) {
   const c = changes ?? { create: 0, update: 0, delete: 0, noop: 0, unchanged: 0 };
   const chips: { key: string; text: string; n: number; color: string }[] = [
-    { key: "create", text: `+${c.create}`, n: c.create, color: "text-emerald-700" },
-    { key: "update", text: `~${c.update}`, n: c.update, color: "text-amber-700" },
-    { key: "delete", text: `−${c.delete}`, n: c.delete, color: "text-destructive" },
+    { key: "create", text: `+${c.create}`, n: c.create, color: "text-create" },
+    { key: "update", text: `~${c.update}`, n: c.update, color: "text-update" },
+    { key: "delete", text: `−${c.delete}`, n: c.delete, color: "text-delete" },
   ];
   return (
     <span className={cn("inline-flex items-center gap-2 font-mono text-xs", className)}>
       {chips.map((chip) => (
-        <span
-          key={chip.key}
-          className={cn(chip.n > 0 ? chip.color : "text-muted-foreground/50")}
-        >
+        <span key={chip.key} className={cn(chip.n > 0 ? chip.color : "text-faint")}>
           {chip.text}
         </span>
       ))}
       {impacted !== undefined && impacted > 0 && (
-        <span className="text-violet-600">· !{impacted} impacted</span>
+        <span className="text-impacted">· !{impacted} impacted</span>
       )}
     </span>
   );

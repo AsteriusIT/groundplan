@@ -136,12 +136,21 @@ Local dev needs Postgres up first: `docker compose up -d`.
 - Frontend tests use **vitest** + Testing Library in a **jsdom** environment
   (`src/test-setup.ts`, which also polyfills Radix's jsdom needs); mock `fetch`
   for client tests, and assert accessibility with `vitest-axe`.
-- **Design system (GP-9):** a "blueprint" light theme. All tokens (blueprint
-  palette + Space Grotesk / Inter / JetBrains Mono fonts + `.blueprint-grid`
-  canvas) live in `src/index.css` — take colors/fonts from there, don't hardcode.
-  Fonts: `font-display` (headings/wordmark), default sans (body), `font-mono`
-  (data — dates, slugs, ids). Add shadcn components with
-  `pnpm dlx shadcn@latest add <name>` (run in `apps/frontend`).
+- **Design system (GP-9, extended GP-28):** a "blueprint" light theme. All tokens
+  (the full mockup palette — surfaces, ink scale, `create`/`update`/`delete`/
+  `impacted` status + soft tints, `cat-*` category hues — plus Space Grotesk /
+  Inter / IBM Plex Mono fonts + `.blueprint-grid` canvas) live in `src/index.css`
+  and are the single source of colour truth. **Never hardcode a colour** in a
+  component (no `#hex`, no raw `bg-emerald-500`) — use the semantic Tailwind
+  utilities the tokens generate (`bg-create-soft`, `text-impacted`, …); the
+  `design-tokens.test.ts` guard enforces this for the design-v3 surface. Shared
+  primitives live in `components/ui/`: `Chip`, `StatusBadge` (circular +/~/−/!),
+  `SidePanel` (+ Header/Body/Section); change/status metadata is centralised in
+  `lib/status.ts`. Fonts: `font-display` (headings/wordmark), default sans (body),
+  `font-mono` (data — addresses, types, shas). A dev-only `/styleguide` route
+  (registered only when `import.meta.env.DEV`) renders every token + primitive.
+  Add shadcn components with `pnpm dlx shadcn@latest add <name>` (run in
+  `apps/frontend`).
 - **App shell (GP-9):** `AppLayout` (sidebar + gridded `<Outlet>` canvas) wraps
   the authenticated routes under `<RequireAuth>` in `App.tsx`. New authenticated
   pages: add a `pages/*.tsx`, a `<Route>` inside the layout, and a `NAV` entry in

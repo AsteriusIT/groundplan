@@ -4,45 +4,76 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Groundplan design tokens — "blueprint" light theme.
- * Drafting paper + blueprint ink. One accent (blueprint blue); everything
- * else stays quiet. See GP-9.
+ * Groundplan design tokens — "blueprint" light theme (GP-9, extended to the
+ * full mockup palette in GP-28). Drafting paper + blueprint ink. One accent
+ * (blueprint blue); status colours (create/update/delete/impacted) are the only
+ * other saturated hues, and everything else stays quiet.
  *
- *   paper     #F5F8FC   drafting-paper background
- *   surface   #FFFFFF   cards / title-block panel
- *   ink       #0E2038   text
- *   blueprint #2B57C4   primary actions, active nav, links
- *   grid      #CBD8EC   hairline borders
- *   muted     #5E6E88   secondary text
+ * This file is the SINGLE source of colour truth. Components never hardcode a
+ * colour (no `#hex`, no raw `bg-emerald-500`); they use the semantic tokens
+ * below via Tailwind utilities (`bg-create-soft`, `text-impacted`, …). The
+ * `design-tokens.test.ts` guard enforces this for the design-v3 surface.
  */
 :root {
   --radius: 0.1875rem; /* 3px — crisp, technical, not rounded */
 
-  --background: #f5f8fc;
-  --foreground: #0e2038;
-  --card: #ffffff;
-  --card-foreground: #0e2038;
+  /* — surfaces — */
+  --background: #f4f7fb; /* drafting-paper background */
+  --canvas: #fbfdff; /* the diagram canvas, a shade brighter than the app */
+  --card: #ffffff; /* panels / cards / title-block */
+  --panel: #ffffff;
   --popover: #ffffff;
-  --popover-foreground: #0e2038;
-  --primary: #2b57c4;
+
+  /* — ink — */
+  --foreground: #182a42; /* primary text */
+  --ink: #182a42;
+  --card-foreground: #182a42;
+  --popover-foreground: #182a42;
+  --muted-foreground: #5d7391; /* secondary text */
+  --faint: #93a6bf; /* tertiary text — names, hints */
+
+  /* — accent (blueprint blue) — */
+  --primary: #2e6be6;
   --primary-foreground: #ffffff;
-  --secondary: #e8eef7;
+  --accent-soft: #eaf1fe; /* pale blue fill for accent chips / addresses */
+  --secondary: #eaf1fe;
   --secondary-foreground: #16345c;
   --muted: #eaf0f8;
-  --muted-foreground: #5e6e88;
-  --accent: #e1eaf8;
+  --accent: #eaf1fe;
   --accent-foreground: #16345c;
-  --destructive: #c0392b;
-  --border: #cbd8ec;
-  --input: #cbd8ec;
-  --ring: #2b57c4;
+  --ring: #2e6be6;
 
-  /* blueprint canvas grid */
-  --grid-line: #e4ebf6;
+  /* — lines — */
+  --border: #e3e9f2;
+  --border-strong: #cdd8e8;
+  --input: #cdd8e8;
+  --grid-line: #e2eaf5; /* fine blueprint grid */
+  --grid-strong: #d3dff0; /* bold blueprint grid (every 5th line) */
+  --edge: #a6b8d0; /* neutral diagram edge */
+
+  /* — status — */
+  --create: #189a5c;
+  --create-soft: #e8f7ef;
+  --update: #c77e10;
+  --update-soft: #fbf3e4;
+  --delete: #d8503f;
+  --delete-soft: #fdf1ef;
+  --destructive: #d8503f;
+  --impacted: #7b5bd6;
+  --impacted-soft: #f1edfc;
+
+  /* — resource categories (GP-24) — tokenised so nothing picks a raw hue — */
+  --cat-compute: #2563c9;
+  --cat-network: #0e8f9e;
+  --cat-data: #4f46c7;
+  --cat-security: #c23a63;
+  --cat-identity: #b5760f;
+  --cat-observability: #a032b8;
+  --cat-other: #5d7391;
 
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", monospace;
 }
 
 @theme inline {
@@ -52,9 +83,12 @@
   --radius-xl: calc(var(--radius) + 4px);
 
   --color-background: var(--background);
+  --color-canvas: var(--canvas);
   --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-panel: var(--panel);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -63,13 +97,35 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-grid-line: var(--grid-line);
+  --color-grid-strong: var(--grid-strong);
+  --color-edge: var(--edge);
+
+  --color-create: var(--create);
+  --color-create-soft: var(--create-soft);
+  --color-update: var(--update);
+  --color-update-soft: var(--update-soft);
+  --color-delete: var(--delete);
+  --color-delete-soft: var(--delete-soft);
+  --color-impacted: var(--impacted);
+  --color-impacted-soft: var(--impacted-soft);
+
+  --color-cat-compute: var(--cat-compute);
+  --color-cat-network: var(--cat-network);
+  --color-cat-data: var(--cat-data);
+  --color-cat-security: var(--cat-security);
+  --color-cat-identity: var(--cat-identity);
+  --color-cat-observability: var(--cat-observability);
+  --color-cat-other: var(--cat-other);
 
   --font-sans: var(--font-sans);
   --font-display: var(--font-display);
@@ -85,16 +141,34 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+  /* Quality floor: honour reduced-motion for everyone. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 /*
- * Signature: faint blueprint grid, like drawing on gridded drafting paper.
- * Kept very subtle so content stays legible.
+ * Signature: the blueprint grid — gridded drafting paper. A fine 24px hairline
+ * grid with a bolder line every 120px (every 5th), both from tokens. Kept subtle
+ * so content stays legible.
  */
 .blueprint-grid {
   background-image:
     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-  background-size: 26px 26px;
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-strong) 1px, transparent 1px);
+  background-size:
+    24px 24px,
+    24px 24px,
+    120px 120px,
+    120px 120px;
   background-position: -1px -1px;
 }

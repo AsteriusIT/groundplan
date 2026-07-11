@@ -95,17 +95,19 @@ const SORTED_PREFIXES = Object.keys(PREFIX_TO_CATEGORY).sort(
   (a, b) => b.length - a.length,
 );
 
+// Category accent colours are tokens (GP-28) — see --cat-* in index.css — so no
+// component picks a raw hue.
 export const CATEGORY_META: Record<
   Category,
   { label: string; icon: LucideIcon; className: string }
 > = {
-  compute: { label: "Compute", icon: Cpu, className: "text-sky-600" },
-  network: { label: "Network", icon: Network, className: "text-cyan-600" },
-  data: { label: "Data", icon: Database, className: "text-indigo-600" },
-  security: { label: "Security", icon: ShieldCheck, className: "text-rose-600" },
-  identity: { label: "Identity", icon: KeyRound, className: "text-amber-600" },
-  observability: { label: "Observability", icon: Activity, className: "text-fuchsia-600" },
-  other: { label: "Other", icon: Box, className: "text-muted-foreground" },
+  compute: { label: "Compute", icon: Cpu, className: "text-cat-compute" },
+  network: { label: "Network", icon: Network, className: "text-cat-network" },
+  data: { label: "Data", icon: Database, className: "text-cat-data" },
+  security: { label: "Security", icon: ShieldCheck, className: "text-cat-security" },
+  identity: { label: "Identity", icon: KeyRound, className: "text-cat-identity" },
+  observability: { label: "Observability", icon: Activity, className: "text-cat-observability" },
+  other: { label: "Other", icon: Box, className: "text-cat-other" },
 };
 
 /** Categorise a resource type; unknown / non-prefixed types → "other". */
