@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
-  Controls,
+  BackgroundVariant,
   ReactFlow,
   type Node as FlowNode,
   type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { Loader2, RotateCcw, Search } from "lucide-react";
+import { Loader2, Maximize2, Minus, Plus, RotateCcw, Search } from "lucide-react";
 
 import "@xyflow/react/dist/style.css";
 
@@ -37,18 +37,18 @@ import { EdgeArrowMarkers, RelationshipEdge } from "@/components/graph-edge";
 const elk = new ELK();
 
 function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
+  // A near-transparent dashed boundary with a floating mono label, like the
+  // mockup's module containers (GP-31).
   return (
     <div
       className={cn(
-        "border-primary/40 bg-primary/5 h-full w-full rounded-md border border-dashed transition-opacity",
-        data.dimmed && "opacity-30",
+        "border-border-strong bg-accent-soft/25 relative h-full w-full rounded-lg border border-dashed transition-opacity",
+        data.dimmed && "opacity-40",
       )}
     >
-      <div className="border-primary/20 border-b px-2 py-1">
-        <span className="text-primary/80 font-mono text-[10px] font-medium">
-          module.{data.graphNode.name}
-        </span>
-      </div>
+      <span className="bg-canvas text-muted-foreground absolute -top-2.5 left-3 px-1.5 font-mono text-[10px] font-medium tracking-wide">
+        module.{data.graphNode.name}
+      </span>
     </div>
   );
 }
@@ -124,6 +124,7 @@ export function GraphCanvas({
   const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [query, setQuery] = useState("");
+  const [zoom, setZoom] = useState(1);
 
   const rfRef = useRef<ReactFlowInstance<FlowNode<GraphNodeData>> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -208,7 +209,9 @@ export function GraphCanvas({
         edgeTypes={EDGE_TYPES}
         onInit={(instance) => {
           rfRef.current = instance;
+          setZoom(instance.getZoom());
         }}
+        onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeClick={(_, node) =>
           setSelected((node.data as GraphNodeData).graphNode)
         }
@@ -219,9 +222,68 @@ export function GraphCanvas({
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <Background />
-        <Controls showInteractive={false} />
+        {/* Blueprint grid: a fine 24px grid with a bold line every 120px. */}
+        <Background
+          id="fine"
+          variant={BackgroundVariant.Lines}
+          gap={24}
+          lineWidth={1}
+          color="var(--grid-line)"
+        />
+        <Background
+          id="bold"
+          variant={BackgroundVariant.Lines}
+          gap={120}
+          lineWidth={1}
+          color="var(--grid-strong)"
+        />
       </ReactFlow>
+
+      {/* Floating zoom toolbar (top-right). */}
+      <div className="bg-card/90 absolute top-3 right-3 z-10 flex flex-col overflow-hidden rounded-md border border-border shadow-sm backdrop-blur">
+        <ToolbarButton label="Zoom in" onClick={() => rfRef.current?.zoomIn()}>
+          <Plus className="size-4" />
+        </ToolbarButton>
+        <ToolbarButton
+          label="Zoom out"
+          onClick={() => rfRef.current?.zoomOut()}
+          className="border-t border-border"
+        >
+          <Minus className="size-4" />
+        </ToolbarButton>
+        <ToolbarButton
+          label="Fit view"
+          onClick={() => rfRef.current?.fitView({ duration: 300 })}
+          className="border-t border-border"
+        >
+          <Maximize2 className="size-4" />
+        </ToolbarButton>
+      </div>
+
+      {/* Zoom % + interaction hints (bottom-right). */}
+      <div className="bg-card/90 text-muted-foreground absolute right-3 bottom-3 z-10 flex items-center gap-2 rounded-md border border-border px-2.5 py-1 shadow-sm backdrop-blur">
+        <span className="text-ink font-mono text-xs tabular-nums">
+          {Math.round(zoom * 100)}%
+        </span>
+        <span className="text-faint hidden text-[10px] sm:inline">
+          scroll to zoom · drag to pan
+        </span>
+      </div>
+
+      {/* Status legend (bottom-left). */}
+      {variant === "plan" && (
+        <div className="bg-card/90 absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-1.5 shadow-sm backdrop-blur">
+          {ALL_FILTERS.map((key) => (
+            <span
+              key={key}
+              className="text-muted-foreground inline-flex items-center gap-1.5 font-mono text-[10px]"
+            >
+              <span className={cn("size-2 rounded-full", FILTER_SWATCH[key])} />
+              {FILTER_LABELS[key]}
+            </span>
+          ))}
+        </div>
+      )}
 
       {laying && (
         <div
@@ -365,5 +427,32 @@ function FilterSection({
       </p>
       <ul className="space-y-0.5">{children}</ul>
     </div>
+  );
+}
+
+function ToolbarButton({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        "text-muted-foreground hover:bg-accent hover:text-foreground grid size-8 place-items-center transition-colors",
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }

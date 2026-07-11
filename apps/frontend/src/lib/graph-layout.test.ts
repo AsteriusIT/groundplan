@@ -34,11 +34,12 @@ it("toElkGraph nests contained nodes and keeps only depends_on as edges", () => 
   expect(module?.children?.map((c) => c.id)).toEqual(["module.net.aws_vpc.v"]);
   // The nested resource is not also a root.
   expect(elk.children?.some((c) => c.id === "module.net.aws_vpc.v")).toBe(false);
-  // Only the depends_on edge becomes an ELK edge (contains → nesting).
+  // Only the depends_on edge becomes an ELK edge (contains → nesting), reversed
+  // into impact-flow direction (dependency → dependent) so roots land left.
   expect(elk.edges).toHaveLength(1);
   expect(elk.edges?.[0]).toMatchObject({
-    sources: ["aws_s3.a"],
-    targets: ["aws_s3.b"],
+    sources: ["aws_s3.b"],
+    targets: ["aws_s3.a"],
   });
 });
 
@@ -87,8 +88,9 @@ it("elkToFlow yields nested React Flow nodes with positions and edges", () => {
   // With all filters on and no selection, nothing is dimmed.
   expect(nodes.every((n) => n.data.dimmed === false)).toBe(true);
 
+  // Drawn in impact-flow direction (dependency → dependent).
   expect(edges).toHaveLength(1);
-  expect(edges[0]).toMatchObject({ source: "aws_s3.a", target: "aws_s3.b" });
+  expect(edges[0]).toMatchObject({ source: "aws_s3.b", target: "aws_s3.a" });
 });
 
 it("nodePassesFilters gates resources by change; modules & docs nodes always pass", () => {

@@ -51,6 +51,7 @@ vi.mock("@xyflow/react", () => ({
     </div>
   ),
   Background: () => null,
+  BackgroundVariant: { Dots: "dots", Lines: "lines", Cross: "cross" },
   Controls: () => null,
   Handle: () => null,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },

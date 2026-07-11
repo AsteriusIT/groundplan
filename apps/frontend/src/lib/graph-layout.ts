@@ -33,13 +33,19 @@ export interface ElkGraphNode {
   edges?: { id: string; sources: string[]; targets: string[] }[];
 }
 
+// Layered, left→right. We lay out in impact-flow direction (a dependency points
+// at its dependents), so roots (vpc/vnet-level) land on the left and leaves /
+// services / deletes on the right — "impact flows along arrows" (GP-31). Layer
+// and node spacing are generous enough for edge labels to sit without overlap.
 export const ELK_ROOT_OPTIONS: Record<string, string> = {
   "elk.algorithm": "layered",
   "elk.direction": "RIGHT",
   "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "64",
-  "elk.spacing.nodeNode": "28",
-  "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "96",
+  "elk.layered.spacing.edgeNodeBetweenLayers": "24",
+  "elk.spacing.nodeNode": "40",
+  "elk.spacing.edgeNode": "24",
+  "elk.padding": "[top=28,left=28,bottom=28,right=28]",
 };
 
 const ELK_MODULE_OPTIONS: Record<string, string> = {
@@ -181,12 +187,14 @@ export function toElkGraph(graph: Graph): ElkGraphNode {
     }
   }
 
+  // Reverse the dependency for layout (dependency → dependent) so roots sit on
+  // the left and impact reads left→right (GP-31).
   const edges = graph.edges
     .filter((edge) => edge.kind === "depends_on")
     .map((edge, i) => ({
       id: `dep-${i}`,
-      sources: [edge.from],
-      targets: [edge.to],
+      sources: [edge.to],
+      targets: [edge.from],
     }));
 
   return { id: "root", layoutOptions: ELK_ROOT_OPTIONS, children: roots, edges };
@@ -245,11 +253,13 @@ export function elkToFlow(
         selectedId && edge.from !== selectedId && edge.to !== selectedId,
       );
       // Colour/dash come from the relationship + inferred flag (GP-30), applied
-      // by the RelationshipEdge component — no re-layout on selection.
+      // by the RelationshipEdge component — no re-layout on selection. Drawn in
+      // impact-flow direction (dependency → dependent) to match the layout
+      // (GP-31); the relationship is still computed from the true dependency.
       return {
         id: `dep-${i}`,
-        source: edge.from,
-        target: edge.to,
+        source: edge.to,
+        target: edge.from,
         type: "relationship",
         data: {
           rel: edgeRel(byId.get(edge.from), byId.get(edge.to)),
