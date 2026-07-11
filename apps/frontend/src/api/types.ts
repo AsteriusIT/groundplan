@@ -60,6 +60,15 @@ export type EdgeKind = "depends_on" | "contains";
 export type SnapshotSource = "plan" | "hcl";
 export type PullRequestState = "open" | "closed";
 
+/** v3: one masked before/after attribute change on a node (GP-32). */
+export interface AttributeDiffRow {
+  key: string;
+  /** null for a create (attribute added); "(sensitive)" when masked. */
+  before: string | null;
+  /** null for a delete; "(sensitive)" / "(known after apply)" as applicable. */
+  after: string | null;
+}
+
 export interface GraphNode {
   id: string;
   name: string;
@@ -71,6 +80,10 @@ export interface GraphNode {
   impacted?: boolean;
   /** v2: hop distance to the nearest changed node (1 = direct dependent). */
   impact_distance?: number;
+  /** v3: masked per-attribute before/after diff for a changed node (GP-32). */
+  attribute_diff?: AttributeDiffRow[];
+  /** v3: true when the changed-attribute list exceeded 20 and was capped. */
+  attribute_diff_truncated?: boolean;
 }
 
 export interface GraphEdge {
@@ -82,7 +95,7 @@ export interface GraphEdge {
 }
 
 export interface Graph {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   nodes: GraphNode[];
   edges: GraphEdge[];
 }

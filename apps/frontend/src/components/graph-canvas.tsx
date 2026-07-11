@@ -404,8 +404,10 @@ export function GraphCanvas({
 
       {selected && (
         <NodeDetailsPanel
+          graph={graph}
           node={selected}
           onClose={() => setSelected(null)}
+          onSelect={flyTo}
           showChange={variant === "plan"}
         />
       )}
