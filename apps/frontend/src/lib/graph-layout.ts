@@ -12,6 +12,7 @@ import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
 import type { ChangeKind, Graph, GraphNode } from "@/api/types";
 import { categorize, type Category } from "@/lib/resource-category";
+import { hubEdgeRevealed, isHubEdge } from "@/lib/hub";
 
 // changeLabel now lives with the shared status metadata (GP-28); re-exported here
 // so existing importers (node-details-panel, …) keep working.
@@ -58,6 +59,10 @@ export type GraphNodeData = {
   dimmed: boolean;
   /** True for the currently selected node (drives the accent ring; GP-30). */
   selected?: boolean;
+  /** True when this node is a hub (high-degree / fan-out type; GP-35). */
+  isHub?: boolean;
+  /** Number of this hub's edges currently hidden — drives the counter chip. */
+  hubHiddenCount?: number;
   [key: string]: unknown;
 };
 
@@ -98,6 +103,10 @@ export type ViewState = {
   activeModules?: ReadonlySet<string>;
   /** Currently selected node id, or null. Drives the neighbourhood highlight. */
   selectedId: string | null;
+  /** Hub node ids (GP-35). Their edges are hidden unless revealed. */
+  hubs?: ReadonlySet<string>;
+  /** When true, draw every hub edge (the "Show hub connections" toggle). */
+  showHubEdges?: boolean;
 };
 
 const isModule = (node: GraphNode) => node.type === "module";
@@ -152,8 +161,10 @@ export function neighborhood(graph: Graph, selectedId: string): Set<string> {
   return set;
 }
 
-/** Build the nested ELK input graph (no positions yet). */
-export function toElkGraph(graph: Graph): ElkGraphNode {
+/** Build the nested ELK input graph (no positions yet). Hub edges are excluded
+ * from the layout so the graph lays out cleanly without the hub's edge wall
+ * (GP-35); revealed hub edges are drawn over the resulting layout. */
+export function toElkGraph(graph: Graph, hubs?: ReadonlySet<string>): ElkGraphNode {
   const parentOf = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
@@ -188,9 +199,10 @@ export function toElkGraph(graph: Graph): ElkGraphNode {
   }
 
   // Reverse the dependency for layout (dependency → dependent) so roots sit on
-  // the left and impact reads left→right (GP-31).
+  // the left and impact reads left→right (GP-31). Hub edges (GP-35) are left out
+  // entirely so the hub node doesn't drag its whole neighbourhood together.
   const edges = graph.edges
-    .filter((edge) => edge.kind === "depends_on")
+    .filter((edge) => edge.kind === "depends_on" && !(hubs && isHubEdge(edge, hubs)))
     .map((edge, i) => ({
       id: `dep-${i}`,
       sources: [edge.to],
@@ -205,6 +217,8 @@ const DEFAULT_VIEW: ViewState = {
   selectedId: null,
 };
 
+const EMPTY_HUBS: ReadonlySet<string> = new Set<string>();
+
 /** Map a laid-out ELK graph back to React Flow nodes + edges, applying filters. */
 export function elkToFlow(
   layout: ElkGraphNode,
@@ -212,8 +226,23 @@ export function elkToFlow(
   view: ViewState = DEFAULT_VIEW,
 ): FlowElements {
   const { activeFilters, activeCategories, activeModules, selectedId } = view;
+  const hubs = view.hubs ?? EMPTY_HUBS;
+  const showHubEdges = view.showHubEdges ?? false;
   const neighbors = selectedId ? neighborhood(graph, selectedId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  // Count each hub's currently-hidden edges so the node can show a counter chip
+  // (GP-35). A hub edge is hidden unless revealed by the toggle or the selection.
+  const hubHiddenCount = new Map<string, number>();
+  for (const edge of graph.edges) {
+    if (!isHubEdge(edge, hubs)) continue;
+    if (hubEdgeRevealed(edge, selectedId, showHubEdges)) continue;
+    for (const endpoint of [edge.from, edge.to]) {
+      if (hubs.has(endpoint)) {
+        hubHiddenCount.set(endpoint, (hubHiddenCount.get(endpoint) ?? 0) + 1);
+      }
+    }
+  }
 
   const dimmedOf = (node: GraphNode): boolean => {
     if (isModule(node)) return false; // containers stay lit
@@ -237,6 +266,8 @@ export function elkToFlow(
           graphNode,
           dimmed: dimmedOf(graphNode),
           selected: selectedId === graphNode.id,
+          isHub: hubs.has(graphNode.id),
+          hubHiddenCount: hubHiddenCount.get(graphNode.id) ?? 0,
         },
         style: { width: elk.width, height: elk.height },
         ...(parentId ? { parentId, extent: "parent" as const } : {}),
@@ -248,6 +279,9 @@ export function elkToFlow(
 
   const edges: FlowEdge[] = graph.edges
     .filter((edge) => edge.kind === "depends_on")
+    // Drop hub edges that are currently hidden (GP-35); revealed ones are drawn
+    // over the layout (which was computed without them).
+    .filter((edge) => !isHubEdge(edge, hubs) || hubEdgeRevealed(edge, selectedId, showHubEdges))
     .map((edge, i) => {
       const dimmed = Boolean(
         selectedId && edge.from !== selectedId && edge.to !== selectedId,

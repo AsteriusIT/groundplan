@@ -142,3 +142,31 @@ it("hides the change filters on the docs variant", async () => {
   await screen.findByText("node:main");
   expect(screen.queryByRole("checkbox", { name: "Create" })).not.toBeInTheDocument();
 });
+
+// --- Hub-edge taming (GP-35) ------------------------------------------------
+
+const hubGraph: Graph = {
+  version: 1,
+  nodes: [
+    { id: "rg", name: "rg", type: "azurerm_resource_group", provider: "azurerm", module_path: [], change: null },
+    { id: "vm", name: "vm", type: "azurerm_linux_virtual_machine", provider: "azurerm", module_path: [], change: null },
+  ],
+  edges: [{ from: "vm", to: "rg", kind: "depends_on" }],
+};
+
+it("offers a 'Show hub connections' toggle only when hubs are present", async () => {
+  render(<GraphCanvas graph={hubGraph} variant="docs" />);
+  await screen.findByText("node:rg");
+  const toggle = screen.getByRole("checkbox", { name: /show hub connections/i });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  expect(toggle).toBeChecked();
+});
+
+it("hides the hub toggle when there are no hubs", async () => {
+  render(<GraphCanvas graph={graph} variant="docs" />);
+  await screen.findByText("node:main");
+  expect(
+    screen.queryByRole("checkbox", { name: /show hub connections/i }),
+  ).not.toBeInTheDocument();
+});

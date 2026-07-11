@@ -8,7 +8,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { Loader2, Maximize2, Minus, Plus, RotateCcw, Search } from "lucide-react";
+import { Loader2, Maximize2, Minus, Plus, RotateCcw, Search, Waypoints } from "lucide-react";
 
 import "@xyflow/react/dist/style.css";
 
@@ -24,6 +24,7 @@ import {
   type GraphNodeData,
 } from "@/lib/graph-layout";
 import { searchNodes } from "@/lib/graph-search";
+import { detectHubs } from "@/lib/hub";
 import {
   CATEGORY_META,
   shortType,
@@ -119,6 +120,7 @@ export function GraphCanvas({
 }) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
+  const hubs = useMemo(() => detectHubs(graph), [graph]);
 
   const [layout, setLayout] = useState<ElkGraphNode | null>(null);
   const [laying, setLaying] = useState(true);
@@ -126,6 +128,7 @@ export function GraphCanvas({
   const [activeCategories, setActiveCategories] = useState(() => new Set(categoryOpts));
   const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [showHubEdges, setShowHubEdges] = useState(false);
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
 
@@ -137,11 +140,12 @@ export function GraphCanvas({
     setLaying(true);
     setSelected(null);
     setQuery("");
+    setShowHubEdges(false);
     setActiveFilters(new Set(ALL_FILTERS));
     setActiveCategories(new Set(categoryOptions(graph)));
     setActiveModules(new Set(moduleOptions(graph)));
     elk
-      .layout(toElkGraph(graph))
+      .layout(toElkGraph(graph, detectHubs(graph)))
       .then((result) => {
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
@@ -178,9 +182,11 @@ export function GraphCanvas({
             activeCategories,
             activeModules,
             selectedId: selected?.id ?? null,
+            hubs,
+            showHubEdges,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hubs, showHubEdges],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
@@ -206,6 +212,7 @@ export function GraphCanvas({
     setActiveCategories(new Set(categoryOpts));
     setActiveModules(new Set(moduleOpts));
     setSelected(null);
+    setShowHubEdges(false);
     setQuery("");
   };
 
@@ -394,6 +401,19 @@ export function GraphCanvas({
                 <span className="truncate">{mod}</span>
               </CheckRow>
             ))}
+          </FilterSection>
+        )}
+
+        {/* GP-35: hub edges are hidden by default; this restores them all. */}
+        {hubs.size > 0 && (
+          <FilterSection title="Connections">
+            <CheckRow
+              checked={showHubEdges}
+              onToggle={() => setShowHubEdges((v) => !v)}
+            >
+              <Waypoints className="text-muted-foreground size-3" />
+              Show hub connections
+            </CheckRow>
           </FilterSection>
         )}
 

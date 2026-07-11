@@ -18,6 +18,7 @@ import {
   type Node as FlowNode,
   type NodeProps,
 } from "@xyflow/react";
+import { Waypoints } from "lucide-react";
 
 import type { GraphNode } from "@/api/types";
 import { changeClasses } from "@/lib/graph-layout";
@@ -32,10 +33,16 @@ export function NodeCard({
   graphNode,
   selected = false,
   dimmed = false,
+  isHub = false,
+  hubHiddenCount = 0,
 }: {
   graphNode: GraphNode;
   selected?: boolean;
   dimmed?: boolean;
+  /** GP-35: this node is a hub; a subtle indicator / counter chip is shown. */
+  isHub?: boolean;
+  /** GP-35: number of this hub's edges hidden right now (0 = all revealed). */
+  hubHiddenCount?: number;
 }) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
@@ -72,7 +79,7 @@ export function NodeCard({
         className={cn("size-4 shrink-0", iconClass)}
       />
 
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p
           className={cn(
             "text-ink truncate font-mono text-xs font-semibold",
@@ -85,6 +92,21 @@ export function NodeCard({
           {graphNode.name}
         </p>
       </div>
+
+      {/* GP-35: hub indicator + hidden-connection counter chip. */}
+      {isHub && (
+        <span
+          className="bg-muted text-muted-foreground inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10px]"
+          title={
+            hubHiddenCount > 0
+              ? `${hubHiddenCount} hidden connection${hubHiddenCount === 1 ? "" : "s"} — select to reveal`
+              : "hub — connections shown"
+          }
+        >
+          <Waypoints className="size-3" />
+          {hubHiddenCount > 0 && <span>{hubHiddenCount}</span>}
+        </span>
+      )}
 
       {status ? (
         <StatusBadge kind={status} size="sm" className="absolute -top-2 -right-2" />
@@ -110,6 +132,8 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         graphNode={data.graphNode}
         selected={data.selected === true}
         dimmed={data.dimmed}
+        isHub={data.isHub === true}
+        hubHiddenCount={data.hubHiddenCount ?? 0}
       />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>

@@ -154,3 +154,69 @@ it("changeClasses marks deletes as dashed and destructive", () => {
   expect(changeClasses("create")).toMatch(/create/);
   expect(changeClasses(null)).toMatch(/border-border/);
 });
+
+// --- Hub-edge taming (GP-35) ------------------------------------------------
+
+const hubGraph: Graph = {
+  version: 1,
+  nodes: [
+    { id: "rg", name: "rg", type: "azurerm_resource_group", provider: "azurerm", module_path: [], change: null },
+    { id: "vm", name: "vm", type: "azurerm_linux_virtual_machine", provider: "azurerm", module_path: [], change: null },
+    { id: "subnet", name: "subnet", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null },
+  ],
+  edges: [
+    { from: "vm", to: "rg", kind: "depends_on" }, // hub edge (rg is a hub)
+    { from: "subnet", to: "rg", kind: "depends_on" }, // hub edge
+    { from: "vm", to: "subnet", kind: "depends_on" }, // plain edge
+  ],
+};
+const hubs = new Set(["rg"]);
+const flatLayout: ElkGraphNode = {
+  id: "root",
+  children: [
+    { id: "rg", x: 0, y: 0, width: 220, height: 56 },
+    { id: "vm", x: 300, y: 0, width: 220, height: 56 },
+    { id: "subnet", x: 600, y: 0, width: 220, height: 56 },
+  ],
+};
+
+it("toElkGraph omits hub edges from the layout", () => {
+  const elk = toElkGraph(hubGraph, hubs);
+  // Only the vm→subnet plain edge survives for layout.
+  expect(elk.edges).toHaveLength(1);
+});
+
+it("elkToFlow hides hub edges by default and counts them on the hub", () => {
+  const { edges, nodes } = elkToFlow(flatLayout, hubGraph, {
+    activeFilters: allFilters,
+    selectedId: null,
+    hubs,
+  });
+  // Only the plain vm→subnet edge is drawn.
+  expect(edges).toHaveLength(1);
+  const rg = nodes.find((n) => n.id === "rg");
+  expect(rg?.data.isHub).toBe(true);
+  expect(rg?.data.hubHiddenCount).toBe(2); // both rg edges hidden
+});
+
+it("selecting a node reveals its edge to the hub", () => {
+  const { edges } = elkToFlow(flatLayout, hubGraph, {
+    activeFilters: allFilters,
+    selectedId: "vm",
+    hubs,
+  });
+  // vm→rg (revealed by selection) + vm→subnet = 2. subnet→rg stays hidden.
+  const ids = edges.map((e) => `${e.source}->${e.target}`).sort();
+  expect(ids).toContain("rg->vm"); // drawn dependency→dependent direction
+});
+
+it("the toggle reveals every hub edge", () => {
+  const { edges, nodes } = elkToFlow(flatLayout, hubGraph, {
+    activeFilters: allFilters,
+    selectedId: null,
+    hubs,
+    showHubEdges: true,
+  });
+  expect(edges).toHaveLength(3); // all edges drawn
+  expect(nodes.find((n) => n.id === "rg")?.data.hubHiddenCount).toBe(0);
+});
