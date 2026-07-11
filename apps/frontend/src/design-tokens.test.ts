@@ -26,6 +26,8 @@ const GOVERNED = [
   "components/ui/side-panel.tsx",
   "components/change-chips.tsx",
   "components/node-details-panel.tsx",
+  "components/graph-canvas.tsx",
+  "components/resource-icon.tsx",
   "lib/status.ts",
   "lib/graph-layout.ts",
   "lib/resource-category.ts",

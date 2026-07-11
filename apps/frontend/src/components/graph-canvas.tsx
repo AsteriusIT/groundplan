@@ -35,12 +35,13 @@ import {
 } from "@/lib/resource-category";
 import { cn } from "@/lib/utils";
 import { NodeDetailsPanel } from "@/components/node-details-panel";
+import { ResourceIcon } from "@/components/resource-icon";
 
 const elk = new ELK();
 
 function ResourceNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   const { graphNode, dimmed } = data;
-  const { icon: Icon, className: iconClass } = CATEGORY_META[categorize(graphNode.type)];
+  const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
   return (
     <div
       title={graphNode.type}
@@ -48,13 +49,16 @@ function ResourceNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
         "flex h-full w-full flex-col justify-center rounded-md border px-3 py-1.5 shadow-sm transition-opacity",
         changeClasses(graphNode.change),
         graphNode.impacted &&
-          "outline-2 outline-offset-2 outline-dashed outline-violet-500",
+          "outline-2 outline-offset-2 outline-dashed outline-impacted",
         dimmed && "opacity-20",
       )}
     >
       <Handle type="target" position={Position.Left} className="!opacity-0" />
       <div className="flex items-center gap-1.5">
-        <Icon className={cn("size-3.5 shrink-0", iconClass)} />
+        <ResourceIcon
+          type={graphNode.type}
+          className={cn("size-3.5 shrink-0", iconClass)}
+        />
         <p
           className={cn(
             "truncate font-mono text-xs font-semibold",

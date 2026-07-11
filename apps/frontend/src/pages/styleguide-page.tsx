@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { STATUS_META, type StatusKind } from "@/lib/status";
 import { CATEGORY_META } from "@/lib/resource-category";
+import { AZURE_GLYPHS, type AzureGlyphKey } from "@/icons/azure-glyphs";
+import { ResourceIcon } from "@/components/resource-icon";
 import { Chip } from "@/components/ui/chip";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -99,6 +101,8 @@ function Section({
 }
 
 const STATUS_KINDS: StatusKind[] = ["create", "update", "delete", "impacted"];
+
+const GLYPH_KEYS = Object.keys(AZURE_GLYPHS) as AzureGlyphKey[];
 
 export function StyleguidePage() {
   return (
@@ -243,6 +247,52 @@ export function StyleguidePage() {
                     </SidePanelSection>
                   </SidePanelBody>
                 </SidePanel>
+              </div>
+            </div>
+          </Section>
+
+          <Section eyebrow="04 · icons" title="Resource icons">
+            <p className="text-muted-foreground -mt-2 max-w-xl text-sm">
+              Original blueprint line-glyphs for the common Azure service
+              families (GP-29), tinted by category via <code className="font-mono text-xs">currentColor</code>.
+              Unmapped types fall back to the category icon, then a generic cube.
+            </p>
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+              {GLYPH_KEYS.map((glyph) => (
+                <div
+                  key={glyph}
+                  className="bg-canvas border-border flex flex-col items-center gap-2 rounded-md border p-3"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.7}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-cat-compute size-6"
+                    aria-hidden="true"
+                  >
+                    {AZURE_GLYPHS[glyph]}
+                  </svg>
+                  <span className="text-faint text-center font-mono text-[10px] break-all">
+                    {glyph}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="flex items-center gap-2">
+                <ResourceIcon type="aws_instance" className="text-cat-compute size-5" />
+                <span className="text-muted-foreground font-mono text-xs">
+                  aws_instance → category
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ResourceIcon type="mystery_thing" className="text-cat-other size-5" />
+                <span className="text-muted-foreground font-mono text-xs">
+                  unknown → generic cube
+                </span>
               </div>
             </div>
           </Section>
