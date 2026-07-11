@@ -46,7 +46,9 @@ export function NodeCard({
     <div
       title={graphNode.type}
       className={cn(
-        "relative flex h-full w-full items-center gap-2 overflow-hidden rounded-[7px] border-[1.5px] py-1.5 pr-3 pl-4 shadow-sm transition-shadow hover:shadow-md",
+        // No overflow-hidden here: the status badge intentionally overhangs the
+        // top-right corner and must not be clipped (GP-30).
+        "relative flex h-full w-full items-center gap-2 rounded-[7px] border-[1.5px] py-1.5 pr-3 pl-4 shadow-sm transition-shadow hover:shadow-md",
         changeClasses(graphNode.change),
         selected && "ring-primary ring-offset-background ring-2 ring-offset-1",
         impacted &&
