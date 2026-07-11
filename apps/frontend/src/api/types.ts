@@ -5,6 +5,11 @@
 
 export type Provider = "github" | "gitlab";
 
+export type ConnectionStatus = "unverified" | "ok" | "failed";
+
+/** Structured reason a connection check failed (GP-11). */
+export type VerifyErrorKind = "auth_failed" | "not_found" | "network";
+
 export interface Project {
   id: string;
   name: string;
@@ -18,6 +23,10 @@ export interface Repository {
   provider: Provider;
   url: string;
   defaultBranch: string;
+  /** "***" when a PAT is stored, else null. Never the token value. */
+  accessToken: "***" | null;
+  connectionStatus: ConnectionStatus;
+  verifiedAt: string | null;
   createdAt: string;
 }
 
@@ -25,6 +34,17 @@ export interface Repository {
 export interface CreatedRepository extends Repository {
   webhookToken: string;
 }
+
+export interface UpdateRepositoryInput {
+  /** New PAT (write-only). Replaces the stored one and re-verifies. */
+  accessToken?: string;
+  defaultBranch?: string;
+}
+
+/** Result of POST /repositories/:id/verify. */
+export type VerifyResult =
+  | { ok: true; default_branch_found: boolean }
+  | { ok: false; error: VerifyErrorKind };
 
 /** The current user, as returned by GET /me (note: snake_case display_name). */
 export interface User {

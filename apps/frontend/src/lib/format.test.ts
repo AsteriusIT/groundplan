@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { initials, slugify } from "./format";
+import { initials, repoName, slugify } from "./format";
 
 it("slugify produces backend-safe slugs", () => {
   expect(slugify("Production Platform")).toBe("production-platform");
@@ -14,4 +14,13 @@ it("initials derive up to two letters from name or email", () => {
   expect(initials(null, "grace.hopper@example.com")).toBe("GH");
   expect(initials(null, null)).toBe("?");
   expect(initials("Cher", null)).toBe("C");
+});
+
+it("repoName reduces a repo URL to owner/repo", () => {
+  expect(repoName("https://github.com/acme/repo")).toBe("acme/repo");
+  expect(repoName("https://github.com/acme/repo.git")).toBe("acme/repo");
+  expect(repoName("https://gitlab.com/group/sub/repo.git")).toBe("group/sub/repo");
+  expect(repoName("git@github.com:acme/repo.git")).toBe("acme/repo");
+  // Falls back to the raw input when it can't be parsed.
+  expect(repoName("not a url")).toBe("not a url");
 });

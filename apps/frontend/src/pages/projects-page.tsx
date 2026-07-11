@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Boxes, Plus, TriangleAlert } from "lucide-react";
 
 import { ApiError, listProjects } from "@/api/client";
@@ -98,21 +99,23 @@ export function ProjectsPage() {
 
 function ProjectCard({ project }: { project: Project }) {
   return (
-    <Card className="group hover:border-primary relative gap-0 overflow-hidden transition-colors">
-      <span
-        aria-hidden="true"
-        className="border-grid-line group-hover:border-primary/60 pointer-events-none absolute top-2 right-2 size-2.5 border-t border-r transition-colors"
-      />
-      <CardHeader>
-        <CardTitle className="font-display text-base">{project.name}</CardTitle>
-        <CardDescription className="font-mono text-xs">
-          {project.slug}
-        </CardDescription>
-      </CardHeader>
-      <div className="text-muted-foreground mt-4 border-t border-border px-6 pt-3 font-mono text-xs">
-        Created {formatDate(project.createdAt)}
-      </div>
-    </Card>
+    <Link to={`/projects/${project.id}`} className="group block">
+      <Card className="hover:border-primary relative gap-0 overflow-hidden transition-colors">
+        <span
+          aria-hidden="true"
+          className="border-grid-line group-hover:border-primary/60 pointer-events-none absolute top-2 right-2 size-2.5 border-t border-r transition-colors"
+        />
+        <CardHeader>
+          <CardTitle className="font-display text-base">{project.name}</CardTitle>
+          <CardDescription className="font-mono text-xs">
+            {project.slug}
+          </CardDescription>
+        </CardHeader>
+        <div className="text-muted-foreground mt-4 border-t border-border px-6 pt-3 font-mono text-xs">
+          Created {formatDate(project.createdAt)}
+        </div>
+      </Card>
+    </Link>
   );
 }
 

@@ -5,6 +5,7 @@ import { RequireAuth } from "@/components/require-auth";
 import { CallbackPage } from "@/pages/callback-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { LoginPage } from "@/pages/login-page";
+import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
 import { SettingsPage } from "@/pages/settings-page";
 
@@ -23,6 +24,7 @@ function App() {
       >
         <Route index element={<Navigate to="/projects" replace />} />
         <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

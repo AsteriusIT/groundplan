@@ -9,10 +9,13 @@ import type {
   CreateRepositoryInput,
   Project,
   Repository,
+  UpdateRepositoryInput,
   User,
+  VerifyResult,
 } from "./types";
 
-const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api/v1`;
+const API_ROOT = import.meta.env.VITE_API_URL ?? "";
+const API_BASE = `${API_ROOT}/api/v1`;
 
 /** Thrown for any non-2xx response; carries the HTTP status and server message. */
 export class ApiError extends Error {
@@ -128,6 +131,40 @@ export function createRepository(
     `/projects/${encode(projectId)}/repositories`,
     { method: "POST", body: input },
   );
+}
+
+export function getRepository(id: string): Promise<Repository> {
+  return request<Repository>(`/repositories/${encode(id)}`);
+}
+
+export function updateRepository(
+  id: string,
+  input: UpdateRepositoryInput,
+): Promise<Repository> {
+  return request<Repository>(`/repositories/${encode(id)}`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+export function verifyRepository(id: string): Promise<VerifyResult> {
+  return request<VerifyResult>(`/repositories/${encode(id)}/verify`, {
+    method: "POST",
+  });
+}
+
+export function deleteRepository(id: string): Promise<void> {
+  return request<void>(`/repositories/${encode(id)}`, { method: "DELETE" });
+}
+
+/**
+ * Absolute URL CI posts plan.json to (GP-5). Uses the configured API origin, or
+ * the current origin in dev — so the copy-paste snippet is always usable.
+ */
+export function webhookUrl(repositoryId: string): string {
+  const origin =
+    API_ROOT || (typeof window !== "undefined" ? window.location.origin : "");
+  return `${origin}/api/v1/webhooks/ci/${repositoryId}`;
 }
 
 export function getMe(): Promise<User> {

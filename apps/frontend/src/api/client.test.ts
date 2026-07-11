@@ -5,10 +5,14 @@ import {
   createProject,
   createRepository,
   deleteProject,
+  deleteRepository,
   getMe,
   listProjects,
   setAuthTokenProvider,
   setOnUnauthorized,
+  updateRepository,
+  verifyRepository,
+  webhookUrl,
 } from "./client";
 
 const fetchMock = vi.fn();
@@ -149,4 +153,38 @@ it("returns undefined for 204 responses (deleteProject)", async () => {
   const { url, init } = firstCall();
   expect(url).toContain("/api/v1/projects/p1");
   expect(init.method).toBe("DELETE");
+});
+
+it("updateRepository PATCHes the repository", async () => {
+  fetchMock.mockResolvedValue(jsonResponse(200, { id: "r1" }));
+
+  await updateRepository("r1", { accessToken: "new-tok" });
+
+  const { url, init } = firstCall();
+  expect(url).toContain("/api/v1/repositories/r1");
+  expect(init.method).toBe("PATCH");
+  expect(JSON.parse(init.body ?? "{}")).toEqual({ accessToken: "new-tok" });
+});
+
+it("verifyRepository POSTs to the verify endpoint", async () => {
+  fetchMock.mockResolvedValue(jsonResponse(200, { ok: false, error: "auth_failed" }));
+
+  const result = await verifyRepository("r1");
+
+  expect(result).toEqual({ ok: false, error: "auth_failed" });
+  const { url, init } = firstCall();
+  expect(url).toContain("/api/v1/repositories/r1/verify");
+  expect(init.method).toBe("POST");
+});
+
+it("deleteRepository DELETEs and resolves to undefined", async () => {
+  fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+  await expect(deleteRepository("r1")).resolves.toBeUndefined();
+  expect(firstCall().init.method).toBe("DELETE");
+});
+
+it("webhookUrl builds an absolute CI webhook URL", () => {
+  expect(webhookUrl("r1")).toMatch(/\/api\/v1\/webhooks\/ci\/r1$/);
+  expect(webhookUrl("r1")).toMatch(/^https?:\/\//);
 });

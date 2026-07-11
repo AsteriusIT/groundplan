@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { axe } from "vitest-axe";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -13,6 +14,11 @@ import { ProjectsPage } from "./projects-page";
 
 const listProjectsMock = vi.mocked(listProjects);
 const createProjectMock = vi.mocked(createProject);
+
+/** Project cards are links, so the page needs a router in tests. */
+function renderPage(ui = <ProjectsPage />) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 function project(over: Partial<Project> = {}): Project {
   return {
@@ -31,13 +37,13 @@ beforeEach(() => {
 
 it("shows a loading state", () => {
   listProjectsMock.mockReturnValue(new Promise<Project[]>(() => {}));
-  render(<ProjectsPage />);
+  renderPage();
   expect(screen.getByText("Loading projects…")).toBeInTheDocument();
 });
 
 it("shows the empty state with a create action", async () => {
   listProjectsMock.mockResolvedValue([]);
-  render(<ProjectsPage />);
+  renderPage();
   expect(await screen.findByText("No projects yet")).toBeInTheDocument();
   expect(
     screen.getByRole("button", { name: /create your first project/i }),
@@ -49,7 +55,7 @@ it("renders the project list", async () => {
     project({ id: "1", name: "Alpha", slug: "alpha" }),
     project({ id: "2", name: "Beta", slug: "beta" }),
   ]);
-  render(<ProjectsPage />);
+  renderPage();
   expect(await screen.findByText("Alpha")).toBeInTheDocument();
   expect(screen.getByText("Beta")).toBeInTheDocument();
   expect(screen.getByText("alpha")).toBeInTheDocument();
@@ -57,7 +63,7 @@ it("renders the project list", async () => {
 
 it("shows an error state with the server message, then retries", async () => {
   listProjectsMock.mockRejectedValueOnce(new ApiError(500, "Server exploded"));
-  render(<ProjectsPage />);
+  renderPage();
   expect(await screen.findByText("Server exploded")).toBeInTheDocument();
   expect(screen.getByRole("alert")).toBeInTheDocument();
 
@@ -71,7 +77,7 @@ it("adds a created project to the list without refetching", async () => {
   createProjectMock.mockResolvedValue(
     project({ id: "new", name: "Fresh Estate", slug: "fresh-estate" }),
   );
-  render(<ProjectsPage />);
+  renderPage();
 
   fireEvent.click(
     await screen.findByRole("button", { name: /create your first project/i }),
@@ -92,9 +98,11 @@ it("adds a created project to the list without refetching", async () => {
 it("has no accessibility violations in the list state", async () => {
   listProjectsMock.mockResolvedValue([project({ name: "Alpha", slug: "alpha" })]);
   const { container } = render(
-    <main>
-      <ProjectsPage />
-    </main>,
+    <MemoryRouter>
+      <main>
+        <ProjectsPage />
+      </main>
+    </MemoryRouter>,
   );
   await screen.findByText("Alpha");
   const results = await axe(container);
