@@ -112,7 +112,10 @@ function PullRow({
         </p>
       </div>
       {pull.latestSnapshot ? (
-        <ChangeChips changes={pull.latestSnapshot.stats.changes} />
+        <ChangeChips
+          changes={pull.latestSnapshot.stats.changes}
+          impacted={pull.latestSnapshot.stats.impactedCount}
+        />
       ) : (
         <span className="text-muted-foreground font-mono text-xs">no diagram</span>
       )}

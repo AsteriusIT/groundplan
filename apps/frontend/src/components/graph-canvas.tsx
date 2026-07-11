@@ -9,44 +9,56 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { Eye, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import "@xyflow/react/dist/style.css";
 
 import type { Graph, GraphNode } from "@/api/types";
 import {
+  ALL_FILTERS,
   changeClasses,
   elkToFlow,
   toElkGraph,
   type ElkGraphNode,
+  type FilterKey,
   type GraphNodeData,
 } from "@/lib/graph-layout";
+import { categorize, CATEGORY_META, shortType } from "@/lib/resource-category";
 import { cn } from "@/lib/utils";
-import { GraphLegend } from "@/components/graph-legend";
 import { NodeDetailsPanel } from "@/components/node-details-panel";
 
 const elk = new ELK();
 
 function ResourceNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   const { graphNode, dimmed } = data;
+  const category = categorize(graphNode.type);
+  const { icon: Icon, className: iconClass } = CATEGORY_META[category];
   return (
     <div
+      title={graphNode.type}
       className={cn(
         "flex h-full w-full flex-col justify-center rounded-md border px-3 py-1.5 shadow-sm transition-opacity",
         changeClasses(graphNode.change),
-        dimmed && "opacity-30",
+        graphNode.impacted &&
+          "outline-2 outline-offset-2 outline-dashed outline-violet-500",
+        dimmed && "opacity-20",
       )}
     >
       <Handle type="target" position={Position.Left} className="!opacity-0" />
-      <p
-        className={cn(
-          "truncate font-mono text-xs font-medium",
-          graphNode.change === "delete" && "line-through",
-        )}
-      >
+      <div className="flex items-center gap-1.5">
+        <Icon className={cn("size-3.5 shrink-0", iconClass)} />
+        <p
+          className={cn(
+            "truncate font-mono text-xs font-semibold",
+            graphNode.change === "delete" && "line-through",
+          )}
+        >
+          {shortType(graphNode.type)}
+        </p>
+      </div>
+      <p className="truncate pl-5 font-mono text-[10px] opacity-70">
         {graphNode.name}
       </p>
-      <p className="truncate font-mono text-[10px] opacity-70">{graphNode.type}</p>
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>
   );
@@ -54,7 +66,12 @@ function ResourceNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
 
 function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   return (
-    <div className="border-primary/40 bg-primary/5 h-full w-full rounded-md border border-dashed">
+    <div
+      className={cn(
+        "border-primary/40 bg-primary/5 h-full w-full rounded-md border border-dashed transition-opacity",
+        data.dimmed && "opacity-30",
+      )}
+    >
       <div className="border-primary/20 border-b px-2 py-1">
         <span className="text-primary/80 font-mono text-[10px] font-medium">
           module.{data.graphNode.name}
@@ -66,35 +83,60 @@ function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
 
 const NODE_TYPES = { resource: ResourceNode, module: ModuleNode };
 
-function ChangesOnlyToggle({
-  checked,
-  onChange,
+const FILTER_LABELS: Record<FilterKey, string> = {
+  create: "Create",
+  update: "Update",
+  delete: "Delete",
+  noop: "No change",
+  impacted: "Impacted",
+};
+
+const FILTER_SWATCH: Record<FilterKey, string> = {
+  create: "bg-emerald-400",
+  update: "bg-amber-400",
+  delete: "bg-destructive/70",
+  noop: "bg-border",
+  impacted: "bg-violet-500",
+};
+
+/** Change/impact filter checkboxes — doubles as the colour legend (GP-24). */
+function ChangeFilters({
+  active,
+  onToggle,
 }: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
+  active: ReadonlySet<FilterKey>;
+  onToggle: (key: FilterKey) => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-pressed={checked}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "bg-card/90 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs backdrop-blur transition-colors",
-        checked
-          ? "border-primary text-primary"
-          : "border-border text-muted-foreground hover:text-foreground",
-      )}
-    >
-      <Eye className="size-3.5" />
-      Changes only
-    </button>
+    <div className="bg-card/90 rounded-md border border-border px-3 py-2 backdrop-blur">
+      <p className="text-muted-foreground mb-1.5 font-mono text-[10px] tracking-wide uppercase">
+        Filter
+      </p>
+      <ul className="space-y-0.5">
+        {ALL_FILTERS.map((key) => (
+          <li key={key}>
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                checked={active.has(key)}
+                onChange={() => onToggle(key)}
+                className="accent-primary size-3.5"
+              />
+              <span className={cn("size-2.5 rounded-xs", FILTER_SWATCH[key])} />
+              {FILTER_LABELS[key]}
+            </label>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
 /**
- * Shared graph canvas (GP-17 / GP-18): renders a GraphSnapshot as an ELK-laid-out
- * React Flow diagram with module nesting and depends_on edges. `variant="docs"`
- * hides the change legend/filter (docs snapshots are all neutral).
+ * Shared graph canvas (GP-17 / GP-24): an ELK-laid-out React Flow diagram with
+ * type-first labels, category icons, module nesting, change coloring, impact
+ * highlighting, filters and a selection neighbourhood highlight. `variant="docs"`
+ * hides the change filters (docs snapshots have no change data).
  */
 export function GraphCanvas({
   graph,
@@ -105,7 +147,9 @@ export function GraphCanvas({
 }) {
   const [layout, setLayout] = useState<ElkGraphNode | null>(null);
   const [laying, setLaying] = useState(true);
-  const [changesOnly, setChangesOnly] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Set<FilterKey>>(
+    () => new Set(ALL_FILTERS),
+  );
   const [selected, setSelected] = useState<GraphNode | null>(null);
 
   useEffect(() => {
@@ -129,9 +173,23 @@ export function GraphCanvas({
   }, [graph]);
 
   const elements = useMemo(
-    () => (layout ? elkToFlow(layout, graph, { changesOnly }) : { nodes: [], edges: [] }),
-    [layout, graph, changesOnly],
+    () =>
+      layout
+        ? elkToFlow(layout, graph, {
+            activeFilters,
+            selectedId: selected?.id ?? null,
+          })
+        : { nodes: [], edges: [] },
+    [layout, graph, activeFilters, selected],
   );
+
+  const toggleFilter = (key: FilterKey) =>
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   return (
     <div className="relative h-full w-full">
@@ -166,9 +224,8 @@ export function GraphCanvas({
       )}
 
       {variant === "plan" && (
-        <div className="absolute top-3 left-3 z-10 flex items-start gap-2">
-          <GraphLegend />
-          <ChangesOnlyToggle checked={changesOnly} onChange={setChangesOnly} />
+        <div className="absolute top-3 left-3 z-10">
+          <ChangeFilters active={activeFilters} onToggle={toggleFilter} />
         </div>
       )}
 

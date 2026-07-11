@@ -62,10 +62,10 @@ import type { Graph } from "@/api/types";
 import { GraphCanvas } from "./graph-canvas";
 
 const graph: Graph = {
-  version: 1,
+  version: 2,
   nodes: [
     { id: "aws_s3.a", name: "alpha", type: "aws_s3", provider: "aws", module_path: [], change: "create" },
-    { id: "aws_s3.b", name: "beta", type: "aws_s3", provider: "aws", module_path: [], change: "noop" },
+    { id: "aws_s3.b", name: "beta", type: "aws_s3", provider: "aws", module_path: [], change: "noop", impacted: true, impact_distance: 2 },
   ],
   edges: [],
 };
@@ -74,30 +74,27 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-it("shows the legend and a changes-only toggle on the plan view", async () => {
+it("shows change/impact filter checkboxes on the plan view", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   expect(await screen.findByText("node:alpha")).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: /changes only/i }),
-  ).toHaveAttribute("aria-pressed", "false");
-  // Legend colour key entries.
-  expect(screen.getByText("Create")).toBeInTheDocument();
-  expect(screen.getByText("Delete")).toBeInTheDocument();
+  for (const label of ["Create", "Update", "Delete", "No change", "Impacted"]) {
+    expect(screen.getByRole("checkbox", { name: label })).toBeChecked();
+  }
 });
 
-it("toggles the changes-only filter", async () => {
+it("toggles a filter checkbox", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   await screen.findByText("node:alpha");
-  const toggle = screen.getByRole("button", { name: /changes only/i });
-  fireEvent.click(toggle);
-  expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const create = screen.getByRole("checkbox", { name: "Create" });
+  fireEvent.click(create);
+  expect(create).not.toBeChecked();
 });
 
 it("opens the details panel on node click and closes it on pane click", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   fireEvent.click(await screen.findByText("node:alpha"));
 
-  // Panel shows fields drawn only from the snapshot node.
+  // Panel shows fields drawn only from the snapshot node (full type).
   expect(screen.getByText("Address")).toBeInTheDocument();
   expect(screen.getByText("aws_s3.a")).toBeInTheDocument();
 
@@ -105,10 +102,14 @@ it("opens the details panel on node click and closes it on pane click", async ()
   expect(screen.queryByText("Address")).not.toBeInTheDocument();
 });
 
-it("hides the change legend and filter on the docs variant", async () => {
+it("shows the impact chip in the panel for an impacted node", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" />);
+  fireEvent.click(await screen.findByText("node:beta"));
+  expect(screen.getByText(/impacted · distance 2/)).toBeInTheDocument();
+});
+
+it("hides the change filters on the docs variant", async () => {
   render(<GraphCanvas graph={graph} variant="docs" />);
   await screen.findByText("node:alpha");
-  expect(
-    screen.queryByRole("button", { name: /changes only/i }),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("checkbox", { name: "Create" })).not.toBeInTheDocument();
 });

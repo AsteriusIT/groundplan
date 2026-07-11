@@ -67,16 +67,22 @@ export interface GraphNode {
   provider: string | null;
   module_path: string[];
   change: ChangeKind | null;
+  /** v2: unchanged node that (transitively) depends on a changed one (GP-22). */
+  impacted?: boolean;
+  /** v2: hop distance to the nearest changed node (1 = direct dependent). */
+  impact_distance?: number;
 }
 
 export interface GraphEdge {
   from: string;
   to: string;
   kind: EdgeKind;
+  /** depends_on only: true when inferred from an expression reference (GP-20). */
+  inferred?: boolean;
 }
 
 export interface Graph {
-  version: 1;
+  version: 1 | 2;
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
@@ -84,6 +90,10 @@ export interface Graph {
 export interface GraphStats {
   nodes: number;
   edges: number;
+  /** Expression-inferred depends_on edges (GP-20). */
+  inferredEdges?: number;
+  /** Unchanged nodes impacted by the change set (GP-22). */
+  impactedCount?: number;
   changes: {
     create: number;
     update: number;
@@ -93,6 +103,8 @@ export interface GraphStats {
   };
   /** Present on docs (hcl) snapshots — skipped files etc. */
   warnings?: string[];
+  /** Docs snapshots: how it was produced (GP-23/GP-26). */
+  trigger?: "manual" | "auto";
 }
 
 /** Snapshot list item — metadata + stats, never the graph body. */

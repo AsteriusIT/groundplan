@@ -1,12 +1,15 @@
 import type { GraphStats } from "@/api/types";
 import { cn } from "@/lib/utils";
 
-/** Compact +create ~update −delete summary from a snapshot's stats. */
+/** Compact +create ~update −delete (· !impacted) summary from a snapshot's stats. */
 export function ChangeChips({
   changes,
+  impacted,
   className,
 }: {
   changes: GraphStats["changes"] | undefined;
+  /** Unchanged-but-impacted count (GP-22/GP-24). Shown as `!n` when > 0. */
+  impacted?: number;
   className?: string;
 }) {
   const c = changes ?? { create: 0, update: 0, delete: 0, noop: 0, unchanged: 0 };
@@ -25,6 +28,9 @@ export function ChangeChips({
           {chip.text}
         </span>
       ))}
+      {impacted !== undefined && impacted > 0 && (
+        <span className="text-violet-600">· !{impacted} impacted</span>
+      )}
     </span>
   );
 }

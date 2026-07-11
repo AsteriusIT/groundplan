@@ -4,7 +4,9 @@
  * itself lives in the GraphCanvas component) so the mapping is unit-testable.
  *
  * `contains` edges become node nesting (module = container / group node);
- * `depends_on` edges become drawn edges between resources.
+ * `depends_on` edges become drawn edges between resources. Filters + neighbourhood
+ * highlight (GP-24) are applied here as per-node/edge `dimmed` flags — a pure
+ * data transform the node components render via CSS (no re-layout).
  */
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
@@ -41,7 +43,7 @@ const ELK_MODULE_OPTIONS: Record<string, string> = {
 
 export type GraphNodeData = {
   graphNode: GraphNode;
-  /** True when the "changes only" filter should visually mute this node. */
+  /** True when filters / the selection highlight should visually mute this node. */
   dimmed: boolean;
   [key: string]: unknown;
 };
@@ -51,7 +53,47 @@ export type FlowElements = {
   edges: FlowEdge[];
 };
 
+/** Change/impact filter keys (GP-24). */
+export type FilterKey = "create" | "update" | "delete" | "noop" | "impacted";
+export const ALL_FILTERS: FilterKey[] = [
+  "create",
+  "update",
+  "delete",
+  "noop",
+  "impacted",
+];
+
+export type ViewState = {
+  activeFilters: ReadonlySet<FilterKey>;
+  /** Currently selected node id, or null. Drives the neighbourhood highlight. */
+  selectedId: string | null;
+};
+
 const isModule = (node: GraphNode) => node.type === "module";
+
+/**
+ * Does a node pass the active change/impact filters? Modules and docs-flow
+ * resources (no change data) always pass — filters only apply to plan changes.
+ */
+export function nodePassesFilters(
+  node: GraphNode,
+  active: ReadonlySet<FilterKey>,
+): boolean {
+  if (isModule(node) || node.change === null) return true;
+  if (active.has(node.change)) return true;
+  if (node.impacted && active.has("impacted")) return true;
+  return false;
+}
+
+/** The selected node plus every node sharing an edge with it. */
+export function neighborhood(graph: Graph, selectedId: string): Set<string> {
+  const set = new Set<string>([selectedId]);
+  for (const edge of graph.edges) {
+    if (edge.from === selectedId) set.add(edge.to);
+    else if (edge.to === selectedId) set.add(edge.from);
+  }
+  return set;
+}
 
 /** Build the nested ELK input graph (no positions yet). */
 export function toElkGraph(graph: Graph): ElkGraphNode {
@@ -79,7 +121,6 @@ export function toElkGraph(graph: Graph): ElkGraphNode {
     else roots.push(elk);
   }
 
-  // A module with no children is a leaf (registry/empty module) — size it.
   for (const elk of elkById.values()) {
     if (elk.children && elk.children.length === 0) {
       delete elk.children;
@@ -100,16 +141,29 @@ export function toElkGraph(graph: Graph): ElkGraphNode {
   return { id: "root", layoutOptions: ELK_ROOT_OPTIONS, children: roots, edges };
 }
 
-/** Map a laid-out ELK graph back to React Flow nodes + edges. */
+const DEFAULT_VIEW: ViewState = {
+  activeFilters: new Set(ALL_FILTERS),
+  selectedId: null,
+};
+
+/** Map a laid-out ELK graph back to React Flow nodes + edges, applying filters. */
 export function elkToFlow(
   layout: ElkGraphNode,
   graph: Graph,
-  options: { changesOnly?: boolean } = {},
+  view: ViewState = DEFAULT_VIEW,
 ): FlowElements {
-  const changesOnly = options.changesOnly ?? false;
+  const { activeFilters, selectedId } = view;
+  const neighbors = selectedId ? neighborhood(graph, selectedId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const nodes: FlowNode<GraphNodeData>[] = [];
 
+  const dimmedOf = (node: GraphNode): boolean => {
+    if (isModule(node)) return false; // containers stay lit
+    if (!nodePassesFilters(node, activeFilters)) return true;
+    if (neighbors && !neighbors.has(node.id)) return true;
+    return false;
+  };
+
+  const nodes: FlowNode<GraphNodeData>[] = [];
   const walk = (elk: ElkGraphNode, parentId?: string) => {
     const graphNode = byId.get(elk.id);
     if (graphNode) {
@@ -118,13 +172,9 @@ export function elkToFlow(
         id: elk.id,
         type: container ? "module" : "resource",
         position: { x: elk.x ?? 0, y: elk.y ?? 0 },
-        data: {
-          graphNode,
-          dimmed: changesOnly && graphNode.change === "noop",
-        },
+        data: { graphNode, dimmed: dimmedOf(graphNode) },
         style: { width: elk.width, height: elk.height },
         ...(parentId ? { parentId, extent: "parent" as const } : {}),
-        ...(container ? { selectable: true } : {}),
       });
     }
     for (const child of elk.children ?? []) walk(child, elk.id);
@@ -133,12 +183,22 @@ export function elkToFlow(
 
   const edges: FlowEdge[] = graph.edges
     .filter((edge) => edge.kind === "depends_on")
-    .map((edge, i) => ({
-      id: `dep-${i}`,
-      source: edge.from,
-      target: edge.to,
-      animated: false,
-    }));
+    .map((edge, i) => {
+      const dimmed = Boolean(
+        selectedId && edge.from !== selectedId && edge.to !== selectedId,
+      );
+      return {
+        id: `dep-${i}`,
+        source: edge.from,
+        target: edge.to,
+        data: { inferred: edge.inferred === true },
+        // Inferred (expression-derived) edges are dashed; explicit ones solid.
+        style: {
+          opacity: dimmed ? 0.12 : 1,
+          strokeDasharray: edge.inferred ? "5 4" : undefined,
+        },
+      };
+    });
 
   return { nodes, edges };
 }

@@ -76,6 +76,18 @@ export function NodeDetailsPanel({
             </dd>
           </div>
         )}
+        {showChange && node.impacted && (
+          <div>
+            <dt className="text-muted-foreground font-mono text-[11px] tracking-wide uppercase">
+              Impact
+            </dt>
+            <dd className="mt-1">
+              <span className="inline-flex rounded-sm border border-violet-400 bg-violet-50 px-2 py-0.5 font-mono text-xs text-violet-700">
+                impacted · distance {node.impact_distance ?? 1}
+              </span>
+            </dd>
+          </div>
+        )}
       </dl>
     </aside>
   );
