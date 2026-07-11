@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "nodes": [
     {
       "id": "aws_iam_role.app",
@@ -7,7 +7,9 @@
       "type": "aws_iam_role",
       "provider": "aws",
       "module_path": [],
-      "change": "noop"
+      "change": "noop",
+      "impacted": true,
+      "impact_distance": 1
     },
     {
       "id": "aws_s3_bucket.logs",

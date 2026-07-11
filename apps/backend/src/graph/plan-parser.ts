@@ -23,6 +23,7 @@ import {
   type RawRef,
 } from "./dependency-edges.js";
 import type { ChangeKind, Graph, GraphEdge, GraphNode } from "./graph.js";
+import { propagateImpact } from "./impact.js";
 
 type PlanChange = { actions?: unknown };
 type ResourceChange = {
@@ -252,5 +253,6 @@ export function parsePlanToGraph(plan: unknown): Graph {
   const nodes = [...nodesById.values()].sort((a, b) => compareStrings(a.id, b.id));
   const edges = [...containsEdges.values(), ...dependsOnEdges].sort(sortEdges);
 
-  return { version: 1, nodes, edges };
+  // Blast radius: mark unchanged dependents of the change set (GP-22). Emits v2.
+  return propagateImpact({ version: 1, nodes, edges });
 }

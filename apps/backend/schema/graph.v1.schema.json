@@ -7,7 +7,10 @@
   "required": ["version", "nodes", "edges"],
   "additionalProperties": false,
   "properties": {
-    "version": { "const": 1 },
+    "version": {
+      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22). Both stay valid.",
+      "enum": [1, 2]
+    },
     "nodes": {
       "type": "array",
       "items": { "$ref": "#/definitions/node" }
@@ -45,6 +48,15 @@
         "change": {
           "description": "Planned action; null for snapshots not derived from a plan (docs flow).",
           "enum": ["create", "update", "delete", "noop", null]
+        },
+        "impacted": {
+          "type": "boolean",
+          "description": "v2: unchanged node that (transitively) depends on a changed node (GP-22)."
+        },
+        "impact_distance": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "v2: hop distance to the nearest changed node."
         }
       }
     },

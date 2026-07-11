@@ -27,6 +27,10 @@ export type GraphNode = {
   module_path: string[];
   /** Planned action; null for snapshots not derived from a plan. */
   change: ChangeKind | null;
+  /** v2: an unchanged node that (transitively) depends on a changed one (GP-22). */
+  impacted?: boolean;
+  /** v2: hop distance to the nearest changed node (1 = direct dependent). */
+  impact_distance?: number;
 };
 
 export type GraphEdge = {
@@ -42,7 +46,8 @@ export type GraphEdge = {
 };
 
 export type Graph = {
-  version: 1;
+  /** 1 = docs (hcl) snapshots; 2 adds optional impact fields on nodes (GP-22). */
+  version: 1 | 2;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };
@@ -52,6 +57,8 @@ export type GraphStats = {
   edges: number;
   /** How many of the `depends_on` edges were expression-inferred (GP-20). */
   inferredEdges: number;
+  /** How many unchanged nodes are impacted by the change set (GP-22). */
+  impactedCount: number;
   changes: {
     create: number;
     update: number;
@@ -113,10 +120,12 @@ export function computeGraphStats(graph: Graph): GraphStats {
     else changes[node.change] += 1;
   }
   const inferredEdges = graph.edges.filter((e) => e.inferred === true).length;
+  const impactedCount = graph.nodes.filter((n) => n.impacted === true).length;
   return {
     nodes: graph.nodes.length,
     edges: graph.edges.length,
     inferredEdges,
+    impactedCount,
     changes,
   };
 }
