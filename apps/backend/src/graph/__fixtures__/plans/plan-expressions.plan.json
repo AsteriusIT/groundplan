@@ -1,0 +1,141 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_virtual_network.main",
+      "mode": "managed",
+      "type": "azurerm_virtual_network",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_subnet.internal",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "internal",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_network_interface.main",
+      "mode": "managed",
+      "type": "azurerm_network_interface",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_virtual_machine.main",
+      "mode": "managed",
+      "type": "azurerm_virtual_machine",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_subnet.extra[0]",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "extra",
+      "index": 0,
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_subnet.extra[1]",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "extra",
+      "index": 1,
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_route_table.rt",
+      "mode": "managed",
+      "type": "azurerm_route_table",
+      "name": "rt",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "azurerm_virtual_network.main",
+          "mode": "managed",
+          "type": "azurerm_virtual_network",
+          "name": "main",
+          "expressions": {
+            "address_space": { "references": ["var.vnet_cidr"] }
+          }
+        },
+        {
+          "address": "azurerm_subnet.internal",
+          "mode": "managed",
+          "type": "azurerm_subnet",
+          "name": "internal",
+          "expressions": {
+            "virtual_network_name": {
+              "references": [
+                "azurerm_virtual_network.main.name",
+                "azurerm_virtual_network.main"
+              ]
+            },
+            "address_prefixes": { "references": ["var.subnet_prefix"] }
+          }
+        },
+        {
+          "address": "azurerm_network_interface.main",
+          "mode": "managed",
+          "type": "azurerm_network_interface",
+          "name": "main",
+          "expressions": {
+            "ip_configuration": {
+              "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_virtual_machine.main",
+          "mode": "managed",
+          "type": "azurerm_virtual_machine",
+          "name": "main",
+          "depends_on": ["azurerm_network_interface.main"],
+          "expressions": {
+            "network_interface_ids": {
+              "references": [
+                "azurerm_network_interface.main.id",
+                "azurerm_network_interface.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "azurerm_subnet.extra",
+          "mode": "managed",
+          "type": "azurerm_subnet",
+          "name": "extra",
+          "count_expression": { "references": ["var.extra_count"] },
+          "expressions": {
+            "virtual_network_name": {
+              "references": ["azurerm_virtual_network.main.name", "azurerm_virtual_network.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_route_table.rt",
+          "mode": "managed",
+          "type": "azurerm_route_table",
+          "name": "rt",
+          "expressions": {
+            "subnet_id": { "references": ["azurerm_subnet.extra"] }
+          }
+        }
+      ]
+    }
+  }
+}

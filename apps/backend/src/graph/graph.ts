@@ -33,6 +33,12 @@ export type GraphEdge = {
   from: string;
   to: string;
   kind: EdgeKind;
+  /**
+   * For `depends_on` edges: true when derived from an expression reference
+   * (GP-20/GP-21), false when declared with an explicit `depends_on`. Omitted
+   * for `contains` edges.
+   */
+  inferred?: boolean;
 };
 
 export type Graph = {
@@ -44,6 +50,8 @@ export type Graph = {
 export type GraphStats = {
   nodes: number;
   edges: number;
+  /** How many of the `depends_on` edges were expression-inferred (GP-20). */
+  inferredEdges: number;
   changes: {
     create: number;
     update: number;
@@ -104,5 +112,11 @@ export function computeGraphStats(graph: Graph): GraphStats {
     if (node.change === null) changes.unchanged += 1;
     else changes[node.change] += 1;
   }
-  return { nodes: graph.nodes.length, edges: graph.edges.length, changes };
+  const inferredEdges = graph.edges.filter((e) => e.inferred === true).length;
+  return {
+    nodes: graph.nodes.length,
+    edges: graph.edges.length,
+    inferredEdges,
+    changes,
+  };
 }

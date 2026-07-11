@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "azurerm_network_interface.main",
+      "name": "main",
+      "type": "azurerm_network_interface",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create"
+    },
+    {
+      "id": "azurerm_route_table.rt",
+      "name": "rt",
+      "type": "azurerm_route_table",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create"
+    },
+    {
+      "id": "azurerm_subnet.extra[0]",
+      "name": "extra",
+      "type": "azurerm_subnet",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create"
+    },
+    {
+      "id": "azurerm_subnet.extra[1]",
+      "name": "extra",
+      "type": "azurerm_subnet",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create"
+    },
+    {
+      "id": "azurerm_subnet.internal",
+      "name": "internal",
+      "type": "azurerm_subnet",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create"
+    },
+    {
+      "id": "azurerm_virtual_machine.main",
+      "name": "main",
+      "type": "azurerm_virtual_machine",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create"
+    },
+    {
+      "id": "azurerm_virtual_network.main",
+      "name": "main",
+      "type": "azurerm_virtual_network",
+      "provider": "azurerm",
+      "module_path": [],
+      "change": "create"
+    }
+  ],
+  "edges": [
+    {
+      "from": "azurerm_network_interface.main",
+      "to": "azurerm_subnet.internal",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_route_table.rt",
+      "to": "azurerm_subnet.extra[0]",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_route_table.rt",
+      "to": "azurerm_subnet.extra[1]",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_subnet.extra[0]",
+      "to": "azurerm_virtual_network.main",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_subnet.extra[1]",
+      "to": "azurerm_virtual_network.main",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_subnet.internal",
+      "to": "azurerm_virtual_network.main",
+      "kind": "depends_on",
+      "inferred": true
+    },
+    {
+      "from": "azurerm_virtual_machine.main",
+      "to": "azurerm_network_interface.main",
+      "kind": "depends_on",
+      "inferred": false
+    }
+  ]
+}

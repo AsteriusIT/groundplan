@@ -55,6 +55,11 @@
     { "from": "module.network", "to": "module.network.aws_vpc.this", "kind": "contains" },
     { "from": "module.network", "to": "module.network.module.subnets", "kind": "contains" },
     { "from": "module.network.module.subnets", "to": "module.network.module.subnets.aws_subnet.a", "kind": "contains" },
-    { "from": "module.network.aws_flow_log.this", "to": "module.network.aws_vpc.this", "kind": "depends_on" }
+    {
+      "from": "module.network.aws_flow_log.this",
+      "to": "module.network.aws_vpc.this",
+      "kind": "depends_on",
+      "inferred": false
+    }
   ]
 }

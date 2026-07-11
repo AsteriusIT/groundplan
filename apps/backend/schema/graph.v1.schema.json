@@ -58,6 +58,10 @@
         "kind": {
           "description": "contains = module hierarchy; depends_on = resource dependency.",
           "enum": ["depends_on", "contains"]
+        },
+        "inferred": {
+          "type": "boolean",
+          "description": "depends_on only: true when inferred from an expression reference, false when explicitly declared (GP-20/GP-21)."
         }
       }
     }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { validateGraph, type Graph } from "./graph.js";
+import { computeGraphStats, validateGraph, type Graph } from "./graph.js";
 import { isTerraformPlan, parsePlanToGraph } from "./plan-parser.js";
 
 function readJson(rel: string): unknown {
@@ -11,7 +11,7 @@ function readJson(rel: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-for (const name of ["simple", "modules", "replace"]) {
+for (const name of ["simple", "modules", "replace", "plan-expressions"]) {
   test(`parses the ${name} plan into the expected golden graph`, () => {
     const plan = readJson(`plans/${name}.plan.json`);
     const expected = readJson(`graphs/${name}.graph.json`);
@@ -24,6 +24,52 @@ for (const name of ["simple", "modules", "replace"]) {
     assert.equal(JSON.stringify(graph), JSON.stringify(parsePlanToGraph(plan)));
   });
 }
+
+test("expression references connect the previously floating chain (GP-20)", () => {
+  const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
+  const has = (from: string, to: string) =>
+    graph.edges.some((e) => e.from === from && e.to === to && e.kind === "depends_on");
+  // vm -> nic -> subnet -> vnet is now a connected chain.
+  assert.ok(has("azurerm_virtual_machine.main", "azurerm_network_interface.main"));
+  assert.ok(has("azurerm_network_interface.main", "azurerm_subnet.internal"));
+  assert.ok(has("azurerm_subnet.internal", "azurerm_virtual_network.main"));
+});
+
+test("explicit depends_on wins over an inferred edge to the same target", () => {
+  const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
+  const vmEdge = graph.edges.find(
+    (e) => e.from === "azurerm_virtual_machine.main" && e.to === "azurerm_network_interface.main",
+  );
+  assert.equal(vmEdge?.inferred, false);
+  const nicEdge = graph.edges.find(
+    (e) => e.from === "azurerm_network_interface.main" && e.to === "azurerm_subnet.internal",
+  );
+  assert.equal(nicEdge?.inferred, true);
+});
+
+test("a reference to a count resource fans out to all its instances", () => {
+  const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
+  const targets = graph.edges
+    .filter((e) => e.from === "azurerm_route_table.rt")
+    .map((e) => e.to)
+    .sort();
+  assert.deepEqual(targets, ["azurerm_subnet.extra[0]", "azurerm_subnet.extra[1]"]);
+});
+
+test("var. references never produce edges; no self-edges or duplicates", () => {
+  const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
+  assert.ok(!graph.edges.some((e) => e.to.startsWith("var.") || e.from.startsWith("var.")));
+  assert.ok(!graph.edges.some((e) => e.from === e.to), "no self-edges");
+  const keys = graph.edges.map((e) => `${e.kind} ${e.from} ${e.to}`);
+  assert.equal(new Set(keys).size, keys.length, "no duplicate edges");
+});
+
+test("stats expose edge count and inferred-edge count", () => {
+  const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
+  const stats = computeGraphStats(graph);
+  assert.equal(stats.edges, 7);
+  assert.equal(stats.inferredEdges, 6); // all but the explicit vm -> nic edge
+});
 
 test("data resources are excluded from the plan graph", () => {
   const plan = readJson("plans/simple.plan.json");

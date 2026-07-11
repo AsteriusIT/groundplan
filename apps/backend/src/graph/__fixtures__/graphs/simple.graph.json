@@ -19,6 +19,11 @@
     }
   ],
   "edges": [
-    { "from": "aws_iam_role.app", "to": "aws_s3_bucket.logs", "kind": "depends_on" }
+    {
+      "from": "aws_iam_role.app",
+      "to": "aws_s3_bucket.logs",
+      "kind": "depends_on",
+      "inferred": true
+    }
   ]
 }
