@@ -89,6 +89,7 @@ const snapshot: Snapshot = {
     edges: 1,
     changes: { create: 1, update: 0, delete: 0, noop: 0, unchanged: 0 },
   },
+  summaryMd: "**+1 created** (1 resource)\n\n**Created**\n- Data: 1 (s3)",
   graph: {
     version: 1,
     nodes: [
@@ -140,6 +141,9 @@ it("renders the header and the diagram for the latest snapshot", async () => {
   // ref → default branch + short sha in the meta line.
   expect(screen.getByText(/refs\/heads\/feat → main/)).toBeInTheDocument();
   expect(await screen.findByTestId("canvas")).toHaveTextContent("1 nodes");
+  // GP-36: the deterministic change summary is shown at the top of the view.
+  expect(await screen.findByText("Change summary")).toBeInTheDocument();
+  expect(screen.getByText(/Data: 1 \(s3\)/)).toBeInTheDocument();
 });
 
 it("shows the empty state with the parse error when there is no snapshot", async () => {

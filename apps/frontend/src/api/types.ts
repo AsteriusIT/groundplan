@@ -135,6 +135,8 @@ export interface SnapshotSummary {
 /** Full snapshot including the graph. */
 export interface Snapshot extends SnapshotSummary {
   graph: Graph;
+  /** Deterministic rule-based Markdown change summary (GP-36). */
+  summaryMd: string;
 }
 
 /** The latest snapshot summary attached to a pull request (no graph). */

@@ -6,6 +6,7 @@ import {
   computeGraphStats,
   type Graph,
 } from "../graph/graph.js";
+import { summarize } from "../graph/summarize.js";
 
 export type SnapshotSource = "plan" | "hcl";
 
@@ -32,6 +33,7 @@ export async function insertGraphSnapshot(
 ): Promise<GraphSnapshotRow> {
   assertValidGraph(input.graph);
   const stats = { ...computeGraphStats(input.graph), ...input.extraStats };
+  const summaryMd = summarize(input.graph);
 
   const [row] = await db
     .insert(graphSnapshots)
@@ -43,6 +45,7 @@ export async function insertGraphSnapshot(
       prNumber: input.prNumber ?? null,
       graph: input.graph,
       stats,
+      summaryMd,
     })
     .returning();
 

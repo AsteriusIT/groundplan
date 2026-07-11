@@ -74,6 +74,7 @@ function summary(
 function snapshot(id: string, nodeCount: number): Snapshot {
   return {
     ...summary(id, `${id}sha`, "manual"),
+    summaryMd: "No changes.",
     graph: {
       version: 1,
       nodes: Array.from({ length: nodeCount }, (_, i) => ({

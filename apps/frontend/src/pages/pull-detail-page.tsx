@@ -17,6 +17,7 @@ import type {
 } from "@/api/types";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { ChangeSummaryPanel } from "@/components/change-summary";
 import { GraphCanvas } from "@/components/graph-canvas";
 
 type PageState =
@@ -160,6 +161,10 @@ export function PullDetailPage() {
             </label>
           )}
         </div>
+        {/* GP-36: deterministic change summary at the top of the PR view. */}
+        {graph.status === "ready" && (
+          <ChangeSummaryPanel markdown={graph.snapshot.summaryMd} />
+        )}
       </header>
 
       <div className="blueprint-grid relative min-h-0 flex-1">

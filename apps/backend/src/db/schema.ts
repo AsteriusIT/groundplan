@@ -161,6 +161,11 @@ export const graphSnapshots = pgTable("graph_snapshots", {
   graph: jsonb("graph").$type<Graph>().notNull(),
   /** Node/edge/change counts (+ optional warnings), computed on insert. */
   stats: jsonb("stats").$type<GraphStats & Record<string, unknown>>().notNull(),
+  /**
+   * Deterministic, rule-based Markdown change summary (GP-36), computed on
+   * insert. Rendered at the top of the PR view and by the PR comment (GP-38).
+   */
+  summaryMd: text("summary_md").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

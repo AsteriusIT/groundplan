@@ -61,6 +61,8 @@ test("insertGraphSnapshot computes stats and stores the snapshot", async () => {
     assert.equal(row.prNumber, 7);
     assert.equal(row.stats.nodes, 1);
     assert.equal(row.stats.changes.create, 1);
+    // GP-36: a deterministic summary is computed and stored on insert.
+    assert.match(row.summaryMd, /\*\*\+1 created\*\* \(1 resource\)/);
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {
     await app.close();

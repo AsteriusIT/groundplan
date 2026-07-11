@@ -1,0 +1,1 @@
+ALTER TABLE "graph_snapshots" ADD COLUMN "summary_md" text DEFAULT '' NOT NULL;
