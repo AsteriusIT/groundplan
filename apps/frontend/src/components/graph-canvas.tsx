@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -7,23 +7,32 @@ import {
   ReactFlow,
   type Node as FlowNode,
   type NodeProps,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { Loader2 } from "lucide-react";
+import { Loader2, RotateCcw, Search } from "lucide-react";
 
 import "@xyflow/react/dist/style.css";
 
 import type { Graph, GraphNode } from "@/api/types";
 import {
   ALL_FILTERS,
+  categoryOptions,
   changeClasses,
   elkToFlow,
+  moduleOptions,
   toElkGraph,
   type ElkGraphNode,
   type FilterKey,
   type GraphNodeData,
 } from "@/lib/graph-layout";
-import { categorize, CATEGORY_META, shortType } from "@/lib/resource-category";
+import { searchNodes } from "@/lib/graph-search";
+import {
+  categorize,
+  CATEGORY_META,
+  shortType,
+  type Category,
+} from "@/lib/resource-category";
 import { cn } from "@/lib/utils";
 import { NodeDetailsPanel } from "@/components/node-details-panel";
 
@@ -31,8 +40,7 @@ const elk = new ELK();
 
 function ResourceNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   const { graphNode, dimmed } = data;
-  const category = categorize(graphNode.type);
-  const { icon: Icon, className: iconClass } = CATEGORY_META[category];
+  const { icon: Icon, className: iconClass } = CATEGORY_META[categorize(graphNode.type)];
   return (
     <div
       title={graphNode.type}
@@ -99,44 +107,40 @@ const FILTER_SWATCH: Record<FilterKey, string> = {
   impacted: "bg-violet-500",
 };
 
-/** Change/impact filter checkboxes — doubles as the colour legend (GP-24). */
-function ChangeFilters({
-  active,
+function CheckRow({
+  checked,
   onToggle,
+  children,
 }: {
-  active: ReadonlySet<FilterKey>;
-  onToggle: (key: FilterKey) => void;
+  checked: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="bg-card/90 rounded-md border border-border px-3 py-2 backdrop-blur">
-      <p className="text-muted-foreground mb-1.5 font-mono text-[10px] tracking-wide uppercase">
-        Filter
-      </p>
-      <ul className="space-y-0.5">
-        {ALL_FILTERS.map((key) => (
-          <li key={key}>
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-              <input
-                type="checkbox"
-                checked={active.has(key)}
-                onChange={() => onToggle(key)}
-                className="accent-primary size-3.5"
-              />
-              <span className={cn("size-2.5 rounded-xs", FILTER_SWATCH[key])} />
-              {FILTER_LABELS[key]}
-            </label>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="accent-primary size-3.5"
+      />
+      {children}
+    </label>
   );
 }
 
+function toggle<T>(set: Set<T>, key: T): Set<T> {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
+}
+
 /**
- * Shared graph canvas (GP-17 / GP-24): an ELK-laid-out React Flow diagram with
- * type-first labels, category icons, module nesting, change coloring, impact
- * highlighting, filters and a selection neighbourhood highlight. `variant="docs"`
- * hides the change filters (docs snapshots have no change data).
+ * Shared graph canvas (GP-17 / GP-24 / GP-25): an ELK-laid-out React Flow diagram
+ * with type-first labels, category icons, module nesting, change/impact colouring,
+ * search (fly-to), change/category/module filters and a selection highlight.
+ * `variant="docs"` hides the change filters (docs snapshots have no change data).
  */
 export function GraphCanvas({
   graph,
@@ -145,17 +149,28 @@ export function GraphCanvas({
   graph: Graph;
   variant?: "plan" | "docs";
 }) {
+  const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
+  const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
+
   const [layout, setLayout] = useState<ElkGraphNode | null>(null);
   const [laying, setLaying] = useState(true);
-  const [activeFilters, setActiveFilters] = useState<Set<FilterKey>>(
-    () => new Set(ALL_FILTERS),
-  );
+  const [activeFilters, setActiveFilters] = useState(() => new Set(ALL_FILTERS));
+  const [activeCategories, setActiveCategories] = useState(() => new Set(categoryOpts));
+  const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [query, setQuery] = useState("");
+
+  const rfRef = useRef<ReactFlowInstance<FlowNode<GraphNodeData>> | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLaying(true);
     setSelected(null);
+    setQuery("");
+    setActiveFilters(new Set(ALL_FILTERS));
+    setActiveCategories(new Set(categoryOptions(graph)));
+    setActiveModules(new Set(moduleOptions(graph)));
     elk
       .layout(toElkGraph(graph))
       .then((result) => {
@@ -172,24 +187,51 @@ export function GraphCanvas({
     };
   }, [graph]);
 
+  // `/` focuses the search box (unless already typing in a field).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const elements = useMemo(
     () =>
       layout
         ? elkToFlow(layout, graph, {
             activeFilters,
+            activeCategories,
+            activeModules,
             selectedId: selected?.id ?? null,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, selected],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected],
   );
 
-  const toggleFilter = (key: FilterKey) =>
-    setActiveFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
+  const shown = resourceNodes.filter((n) => !n.data.dimmed).length;
+
+  const flyTo = useCallback((node: GraphNode) => {
+    setSelected(node);
+    setQuery(""); // close the results dropdown once a result is chosen
+    void rfRef.current?.fitView({ nodes: [{ id: node.id }], duration: 500, maxZoom: 1.5 });
+  }, []);
+
+  const results = useMemo(() => searchNodes(graph.nodes, query, 10), [graph, query]);
+
+  const reset = () => {
+    setActiveFilters(new Set(ALL_FILTERS));
+    setActiveCategories(new Set(categoryOpts));
+    setActiveModules(new Set(moduleOpts));
+    setSelected(null);
+    setQuery("");
+  };
 
   return (
     <div className="relative h-full w-full">
@@ -197,6 +239,9 @@ export function GraphCanvas({
         nodes={elements.nodes}
         edges={elements.edges}
         nodeTypes={NODE_TYPES}
+        onInit={(instance) => {
+          rfRef.current = instance;
+        }}
         onNodeClick={(_, node) =>
           setSelected((node.data as GraphNodeData).graphNode)
         }
@@ -223,11 +268,110 @@ export function GraphCanvas({
         </div>
       )}
 
-      {variant === "plan" && (
-        <div className="absolute top-3 left-3 z-10">
-          <ChangeFilters active={activeFilters} onToggle={toggleFilter} />
+      {/* Search box + results (top centre). */}
+      <div className="absolute top-3 left-1/2 z-10 w-72 -translate-x-1/2">
+        <div className="bg-card/95 flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 shadow-sm backdrop-blur">
+          <Search className="text-muted-foreground size-3.5 shrink-0" />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && results[0]) flyTo(results[0]);
+              if (e.key === "Escape") setQuery("");
+            }}
+            placeholder="Search resources…  ( / )"
+            aria-label="Search resources"
+            className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-xs outline-none"
+          />
         </div>
-      )}
+        {query && results.length > 0 && (
+          <ul className="bg-card mt-1 max-h-64 overflow-auto rounded-md border border-border shadow-lg">
+            {results.map((node) => (
+              <li key={node.id}>
+                <button
+                  type="button"
+                  onClick={() => flyTo(node)}
+                  className="hover:bg-accent flex w-full flex-col items-start px-2.5 py-1.5 text-left"
+                >
+                  <span className="font-mono text-xs font-medium">
+                    {shortType(node.type)}
+                  </span>
+                  <span className="text-muted-foreground truncate font-mono text-[10px]">
+                    {node.id}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Filters + counter (top left). */}
+      <div className="bg-card/90 absolute top-3 left-3 z-10 max-h-[calc(100%-1.5rem)] w-44 overflow-auto rounded-md border border-border p-3 backdrop-blur">
+        {variant === "plan" && (
+          <FilterSection title="Change">
+            {ALL_FILTERS.map((key) => (
+              <CheckRow
+                key={key}
+                checked={activeFilters.has(key)}
+                onToggle={() => setActiveFilters((s) => toggle(s, key))}
+              >
+                <span className={cn("size-2.5 rounded-xs", FILTER_SWATCH[key])} />
+                {FILTER_LABELS[key]}
+              </CheckRow>
+            ))}
+          </FilterSection>
+        )}
+
+        {categoryOpts.length > 0 && (
+          <FilterSection title="Category">
+            {categoryOpts.map((cat) => {
+              const meta = CATEGORY_META[cat];
+              return (
+                <CheckRow
+                  key={cat}
+                  checked={activeCategories.has(cat)}
+                  onToggle={() =>
+                    setActiveCategories((s) => toggle<Category>(s, cat))
+                  }
+                >
+                  <meta.icon className={cn("size-3", meta.className)} />
+                  {meta.label}
+                </CheckRow>
+              );
+            })}
+          </FilterSection>
+        )}
+
+        {moduleOpts.length > 0 && (
+          <FilterSection title="Module">
+            {moduleOpts.map((mod) => (
+              <CheckRow
+                key={mod}
+                checked={activeModules.has(mod)}
+                onToggle={() => setActiveModules((s) => toggle(s, mod))}
+              >
+                <span className="truncate">{mod}</span>
+              </CheckRow>
+            ))}
+          </FilterSection>
+        )}
+
+        <div className="mt-3 flex items-center justify-between border-t border-border pt-2">
+          <span className="text-muted-foreground font-mono text-[10px]">
+            {shown} of {resourceNodes.length} shown
+          </span>
+          <button
+            type="button"
+            onClick={reset}
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-[10px]"
+          >
+            <RotateCcw className="size-3" />
+            Reset
+          </button>
+        </div>
+      </div>
 
       {selected && (
         <NodeDetailsPanel
@@ -236,6 +380,23 @@ export function GraphCanvas({
           showChange={variant === "plan"}
         />
       )}
+    </div>
+  );
+}
+
+function FilterSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-2 last:mb-0">
+      <p className="text-muted-foreground mb-1 font-mono text-[10px] tracking-wide uppercase">
+        {title}
+      </p>
+      <ul className="space-y-0.5">{children}</ul>
     </div>
   );
 }

@@ -11,6 +11,7 @@
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
 import type { ChangeKind, Graph, GraphNode } from "@/api/types";
+import { categorize, type Category } from "@/lib/resource-category";
 
 const RESOURCE_WIDTH = 220;
 const RESOURCE_HEIGHT = 56;
@@ -65,11 +66,41 @@ export const ALL_FILTERS: FilterKey[] = [
 
 export type ViewState = {
   activeFilters: ReadonlySet<FilterKey>;
+  /** Active resource categories (GP-25). Undefined = all pass. */
+  activeCategories?: ReadonlySet<Category>;
+  /** Active module keys (module_path[0] or "root"; GP-25). Undefined = all pass. */
+  activeModules?: ReadonlySet<string>;
   /** Currently selected node id, or null. Drives the neighbourhood highlight. */
   selectedId: string | null;
 };
 
 const isModule = (node: GraphNode) => node.type === "module";
+
+/** The module a node is filtered under: its top-level module, or "root". */
+export function moduleKeyOf(node: GraphNode): string {
+  return node.module_path[0] ?? "root";
+}
+
+/** Top-level module names present, plus "root" if any resource sits at root. */
+export function moduleOptions(graph: Graph): string[] {
+  const set = new Set<string>();
+  for (const node of graph.nodes) {
+    if (isModule(node) && node.module_path.length === 0) set.add(node.name);
+  }
+  if (graph.nodes.some((n) => !isModule(n) && n.module_path.length === 0)) {
+    set.add("root");
+  }
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/** Resource categories present in the graph. */
+export function categoryOptions(graph: Graph): Category[] {
+  const set = new Set<Category>();
+  for (const node of graph.nodes) {
+    if (!isModule(node)) set.add(categorize(node.type));
+  }
+  return [...set];
+}
 
 /**
  * Does a node pass the active change/impact filters? Modules and docs-flow
@@ -152,13 +183,15 @@ export function elkToFlow(
   graph: Graph,
   view: ViewState = DEFAULT_VIEW,
 ): FlowElements {
-  const { activeFilters, selectedId } = view;
+  const { activeFilters, activeCategories, activeModules, selectedId } = view;
   const neighbors = selectedId ? neighborhood(graph, selectedId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
   const dimmedOf = (node: GraphNode): boolean => {
     if (isModule(node)) return false; // containers stay lit
     if (!nodePassesFilters(node, activeFilters)) return true;
+    if (activeCategories && !activeCategories.has(categorize(node.type))) return true;
+    if (activeModules && !activeModules.has(moduleKeyOf(node))) return true;
     if (neighbors && !neighbors.has(node.id)) return true;
     return false;
   };
