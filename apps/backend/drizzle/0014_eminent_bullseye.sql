@@ -1,0 +1,1 @@
+ALTER TABLE "annotations" ADD COLUMN "missing_anchors" jsonb DEFAULT '[]'::jsonb NOT NULL;

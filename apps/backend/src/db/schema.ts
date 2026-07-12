@@ -300,6 +300,15 @@ export const annotations = pgTable("annotations", {
   /** Markdown body — notes only. */
   body: text("body"),
   status: annotationStatus("status").notNull().default("resolved"),
+  /**
+   * Anchors whose Terraform address no longer exists in the latest snapshot
+   * (GP-57). Empty when `status` is `resolved`; populated by reconciliation so
+   * the orphan-review UI (GP-59) can show what was lost.
+   */
+  missingAnchors: jsonb("missing_anchors")
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   createdBy: uuid("created_by").references(() => users.id, {
     onDelete: "set null",
   }),
@@ -321,6 +330,8 @@ export type PublicAnnotation = {
   label: string | null;
   body: string | null;
   status: (typeof annotationStatus.enumValues)[number];
+  /** Anchors gone missing in the latest snapshot; empty when resolved (GP-57). */
+  missingAnchors: string[];
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -336,6 +347,7 @@ export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
     label: row.label,
     body: row.body,
     status: row.status,
+    missingAnchors: row.missingAnchors,
     createdBy: row.createdBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

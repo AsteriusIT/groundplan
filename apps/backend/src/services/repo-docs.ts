@@ -8,6 +8,7 @@ import {
   type RepositoryRow,
 } from "../db/schema.js";
 import { parseHclRepo } from "../graph/hcl-parser.js";
+import { reconcileRepositoryAnnotations } from "./annotation-reconcile.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
 import { readRepoTextFiles } from "./repo-files.js";
 
@@ -63,7 +64,7 @@ export async function generateDocsSnapshot(
 
     const { graph, warnings } = parseHclRepo(files);
 
-    return await insertGraphSnapshot(app.db, {
+    const snapshot = await insertGraphSnapshot(app.db, {
       repositoryId: repo.id,
       source: "hcl",
       ref: repo.defaultBranch,
@@ -72,6 +73,13 @@ export async function generateDocsSnapshot(
       graph,
       extraStats: { warnings, trigger: opts.trigger ?? "manual" },
     });
+
+    // Reconcile the annotation layer against the new snapshot (ADR #4 / GP-57):
+    // a deterministic, synchronous post-step, so every docs generation (manual,
+    // regenerate, on-merge) keeps annotation status in sync with the graph.
+    await reconcileRepositoryAnnotations(app.db, repo.id, graph);
+
+    return snapshot;
   } finally {
     generating.delete(repo.id);
   }
