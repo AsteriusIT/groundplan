@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft,
   FileText,
@@ -32,6 +32,7 @@ import {
   ConnectionStatusBadge,
   connectionErrorMessage,
 } from "@/components/connection-status";
+import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { EditPatDialog } from "@/components/edit-pat-dialog";
 
 type LoadState =
@@ -42,6 +43,12 @@ type LoadState =
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<LoadState>({ status: "loading" });
+
+  const navigate = useNavigate();
+
+  const handleProjectDeleted = useCallback(() => {
+    navigate("/projects");
+  }, [navigate]);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -97,17 +104,31 @@ export function ProjectDetailPage() {
         title={state.status === "ready" ? state.project.name : "Project"}
         description="Repositories connected to this project."
         actions={
-          hasRepos && state.status === "ready" ? (
-            <AttachRepositoryDialog
-              projectId={state.project.id}
-              onAttached={handleAttached}
-              trigger={
-                <Button>
-                  <Plus className="size-4" />
-                  Attach repository
-                </Button>
-              }
-            />
+          state.status === "ready" ? (
+            <div className="flex items-center gap-2">
+              {hasRepos && (
+                <AttachRepositoryDialog
+                  projectId={state.project.id}
+                  onAttached={handleAttached}
+                  trigger={
+                    <Button>
+                      <Plus className="size-4" />
+                      Attach repository
+                    </Button>
+                  }
+                />
+              )}
+              <DeleteProjectDialog
+                project={state.project}
+                onDeleted={handleProjectDeleted}
+                trigger={
+                  <Button variant="outline">
+                    <Trash2 className="size-4" />
+                    Delete project
+                  </Button>
+                }
+              />
+            </div>
           ) : undefined
         }
       />

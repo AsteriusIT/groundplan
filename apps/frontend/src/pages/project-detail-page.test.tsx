@@ -11,12 +11,14 @@ vi.mock("@/api/client", async (importOriginal) => {
     createRepository: vi.fn(),
     verifyRepository: vi.fn(),
     updateRepository: vi.fn(),
+    deleteProject: vi.fn(),
   };
 });
 
 import {
   ApiError,
   createRepository,
+  deleteProject,
   getProject,
   listRepositories,
   updateRepository,
@@ -30,6 +32,7 @@ const listRepositoriesMock = vi.mocked(listRepositories);
 const createRepositoryMock = vi.mocked(createRepository);
 const verifyRepositoryMock = vi.mocked(verifyRepository);
 const updateRepositoryMock = vi.mocked(updateRepository);
+const deleteProjectMock = vi.mocked(deleteProject);
 
 const project: Project = {
   id: "p1",
@@ -71,6 +74,7 @@ beforeEach(() => {
   createRepositoryMock.mockReset();
   verifyRepositoryMock.mockReset();
   updateRepositoryMock.mockReset();
+  deleteProjectMock.mockReset();
   getProjectMock.mockResolvedValue(project);
 });
 
@@ -187,4 +191,29 @@ it("surfaces the last PR comment error", async () => {
   renderPage();
 
   expect(await screen.findByText(/Last PR comment failed/i)).toBeInTheDocument();
+});
+
+it("deletes the project and navigates to the projects list", async () => {
+  listRepositoriesMock.mockResolvedValue([]);
+  deleteProjectMock.mockResolvedValue(undefined);
+  render(
+    <MemoryRouter initialEntries={["/projects/p1"]}>
+      <Routes>
+        <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        <Route path="/projects" element={<div>Projects list page</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  // Only the header trigger exists before the dialog opens.
+  fireEvent.click(await screen.findByRole("button", { name: "Delete project" }));
+
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText(/type the project name/i), {
+    target: { value: "Prod Platform" },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete project" }));
+
+  expect(await screen.findByText("Projects list page")).toBeInTheDocument();
+  expect(deleteProjectMock).toHaveBeenCalledWith("p1");
 });
