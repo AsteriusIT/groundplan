@@ -3,8 +3,10 @@ import {
   Background,
   BackgroundVariant,
   ReactFlow,
+  SelectionMode,
   type Edge as FlowEdge,
   type Node as FlowNode,
+  type NodeChange,
   type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react";
@@ -385,10 +387,25 @@ export function GraphCanvas({
     [renderableAnns],
   );
 
-  const flowNodes = useMemo(
-    () => [...overlayNodes, ...elements.nodes, ...notePins],
-    [overlayNodes, elements.nodes, notePins],
-  );
+  // Nodes picked as link endpoints / group members (annotate mode).
+  const pickedSet = useMemo(() => new Set(tool.picks), [tool.picks]);
+  const groupSelecting = annotate && tool.tool === "group";
+
+  const flowNodes = useMemo(() => {
+    // Colour picked resources and, for the group tool, make them box-selectable
+    // (rubber-band drag). Overlay/module/container nodes are never selectable.
+    const mapped = elements.nodes.map((node) => {
+      if (node.type !== "resource") return { ...node, selectable: false };
+      const picked = pickedSet.has(node.id);
+      return {
+        ...node,
+        selectable: groupSelecting,
+        selected: groupSelecting ? picked : false,
+        data: { ...node.data, picked },
+      };
+    });
+    return [...overlayNodes, ...mapped, ...notePins];
+  }, [overlayNodes, elements.nodes, notePins, pickedSet, groupSelecting]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
     [elements.edges, annEdges],
@@ -415,6 +432,11 @@ export function GraphCanvas({
     resetTool();
   };
 
+  const resourceNodeIds = useMemo(
+    () => new Set(resourceNodes.map((n) => n.id)),
+    [resourceNodes],
+  );
+
   const handleNodeClick = useCallback(
     (_: unknown, node: FlowNode<GraphNodeData>) => {
       // A note pin selects its underlying resource (opens the panel + notes).
@@ -426,14 +448,34 @@ export function GraphCanvas({
       if (node.type === "annotationGroup") return;
       const graphNode = node.data.graphNode;
       if (!graphNode) return;
-      // In annotate mode the link/group tools consume clicks to pick nodes.
-      if (annotate && (tool.tool === "link" || tool.tool === "group")) {
+      // The link tool picks source then target on click. The group tool instead
+      // uses React Flow's box/shift selection (see onNodesChange), so a plain
+      // click there is handled by the selection layer, not here.
+      if (annotate && tool.tool === "link") {
         dispatchTool({ type: "pick", id: graphNode.id });
         return;
       }
+      if (groupSelecting) return;
       setSelected(graphNode);
     },
-    [annotate, tool.tool, graph],
+    [annotate, tool.tool, groupSelecting, graph],
+  );
+
+  // Rubber-band / shift-click selection drives the group tool's picks. Only
+  // real resource selections matter — overlay/module nodes are ignored.
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      if (!groupSelecting) return;
+      const selections = changes.flatMap((c) =>
+        c.type === "select" && resourceNodeIds.has(c.id)
+          ? [{ id: c.id, selected: c.selected }]
+          : [],
+      );
+      if (selections.length > 0) {
+        dispatchTool({ type: "applySelection", changes: selections });
+      }
+    },
+    [groupSelecting, resourceNodeIds],
   );
 
   const flyTo = useCallback((node: GraphNode) => {
@@ -474,9 +516,16 @@ export function GraphCanvas({
         }}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeClick={handleNodeClick}
+        onNodesChange={handleNodesChange}
         onPaneClick={() => setSelected(null)}
         nodesDraggable={false}
         nodesConnectable={false}
+        // Group tool: left-drag draws a selection box; middle/right-drag pans.
+        // Otherwise the canvas pans on left-drag as usual and nothing is selectable.
+        elementsSelectable={groupSelecting}
+        selectionOnDrag={groupSelecting}
+        selectionMode={SelectionMode.Partial}
+        panOnDrag={groupSelecting ? [1, 2] : true}
         minZoom={0.1}
         defaultViewport={DEFAULT_VIEWPORT}
         proOptions={{ hideAttribution: true }}
@@ -740,7 +789,9 @@ export function GraphCanvas({
           {tool.tool === "group" && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground px-1 text-xs">
-                {tool.picks.length} selected
+                {tool.picks.length === 0
+                  ? "Drag a box (or shift-click) to select resources"
+                  : `${tool.picks.length} selected`}
               </span>
               {tool.picks.length >= 2 && (
                 <LabelForm

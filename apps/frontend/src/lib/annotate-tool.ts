@@ -16,6 +16,7 @@ export const INITIAL_TOOL: ToolState = { tool: "select", picks: [] };
 export type ToolAction =
   | { type: "setTool"; tool: AnnotateTool }
   | { type: "pick"; id: string }
+  | { type: "applySelection"; changes: { id: string; selected: boolean }[] }
   | { type: "reset" };
 
 export function reduceTool(state: ToolState, action: ToolAction): ToolState {
@@ -24,6 +25,17 @@ export function reduceTool(state: ToolState, action: ToolAction): ToolState {
       return { tool: action.tool, picks: [] };
     case "reset":
       return { tool: state.tool, picks: [] };
+    case "applySelection": {
+      // Rubber-band / marquee selection feeds the group tool: apply each node's
+      // selected flag (React Flow emits a change per node touched by the box).
+      if (state.tool !== "group") return state;
+      const picks = new Set(state.picks);
+      for (const change of action.changes) {
+        if (change.selected) picks.add(change.id);
+        else picks.delete(change.id);
+      }
+      return { ...state, picks: Array.from(picks) };
+    }
     case "pick": {
       if (state.tool === "link") {
         // Two distinct nodes in click order; a repeat click is ignored.

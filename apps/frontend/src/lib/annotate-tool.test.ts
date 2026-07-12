@@ -38,4 +38,33 @@ describe("reduceTool", () => {
     state = reduceTool(state, { type: "reset" });
     expect(state).toEqual({ tool: "link", picks: [] });
   });
+
+  it("applies a batch of selection changes for the group tool (marquee)", () => {
+    let state = reduceTool(INITIAL_TOOL, { type: "setTool", tool: "group" });
+    state = reduceTool(state, {
+      type: "applySelection",
+      changes: [
+        { id: "a", selected: true },
+        { id: "b", selected: true },
+      ],
+    });
+    expect(state.picks).toEqual(["a", "b"]);
+    // A later selection deselects b and adds c.
+    state = reduceTool(state, {
+      type: "applySelection",
+      changes: [
+        { id: "b", selected: false },
+        { id: "c", selected: true },
+      ],
+    });
+    expect(state.picks).toEqual(["a", "c"]);
+  });
+
+  it("ignores selection changes unless the group tool is active", () => {
+    const state = reduceTool(
+      { tool: "link", picks: ["a"] },
+      { type: "applySelection", changes: [{ id: "b", selected: true }] },
+    );
+    expect(state.picks).toEqual(["a"]);
+  });
 });

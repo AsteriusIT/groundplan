@@ -33,12 +33,14 @@ vi.mock("@xyflow/react", () => ({
   ReactFlow: ({
     nodes,
     onNodeClick,
+    onNodesChange,
     onPaneClick,
   }: {
     // Loosened so annotation overlay nodes (which carry no real graphNode)
     // render without crashing; falls back to the node id for a label.
     nodes: { id: string; data: { graphNode?: { name?: string } } }[];
     onNodeClick?: (e: unknown, n: unknown) => void;
+    onNodesChange?: (changes: { type: string; id: string; selected: boolean }[]) => void;
     onPaneClick?: () => void;
   }) => (
     <div>
@@ -46,14 +48,25 @@ vi.mock("@xyflow/react", () => ({
         pane
       </button>
       {nodes.map((n) => (
-        <button key={n.id} type="button" onClick={(e) => onNodeClick?.(e, n)}>
-          node:{n.data.graphNode?.name || n.id}
-        </button>
+        <span key={n.id}>
+          <button type="button" onClick={(e) => onNodeClick?.(e, n)}>
+            node:{n.data.graphNode?.name || n.id}
+          </button>
+          {/* Stand-in for a box/shift selection touching this node. */}
+          <button
+            type="button"
+            data-testid={`rf-select:${n.id}`}
+            onClick={() => onNodesChange?.([{ type: "select", id: n.id, selected: true }])}
+          >
+            select:{n.data.graphNode?.name || n.id}
+          </button>
+        </span>
       ))}
     </div>
   ),
   Background: () => null,
   BackgroundVariant: { Dots: "dots", Lines: "lines", Cross: "cross" },
+  SelectionMode: { Partial: "partial", Full: "full" },
   Controls: () => null,
   Handle: () => null,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
@@ -260,7 +273,7 @@ it("creates a link by picking two nodes and labeling them", async () => {
   });
 });
 
-it("creates a group from a multi-node selection", async () => {
+it("creates a group from a box/multi selection", async () => {
   const onCreate = vi.fn();
   render(
     <GraphCanvas
@@ -273,8 +286,12 @@ it("creates a group from a multi-node selection", async () => {
   );
   await screen.findByText("node:main");
   fireEvent.click(screen.getByRole("button", { name: "Group" }));
-  fireEvent.click(screen.getByText("node:main"));
-  fireEvent.click(screen.getByText("node:data"));
+  // Prompt tells the user how to select.
+  expect(screen.getByText(/drag a box/i)).toBeInTheDocument();
+  // A selection box (or shift-click) touching two resources.
+  fireEvent.click(screen.getByTestId("rf-select:azurerm_virtual_network.main"));
+  fireEvent.click(screen.getByTestId("rf-select:aws_s3_bucket.data"));
+  expect(screen.getByText(/2 selected/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Group label"), {
     target: { value: "data lake" },
   });
@@ -284,6 +301,15 @@ it("creates a group from a multi-node selection", async () => {
     anchors: ["azurerm_virtual_network.main", "aws_s3_bucket.data"],
     label: "data lake",
   });
+});
+
+it("ignores selection of non-resource nodes for grouping", async () => {
+  render(<GraphCanvas graph={graph} variant="docs" annotate annotations={[]} />);
+  await screen.findByText("node:main");
+  fireEvent.click(screen.getByRole("button", { name: "Group" }));
+  // module.net is a container node, not a groupable resource.
+  fireEvent.click(screen.getByTestId("rf-select:module.net"));
+  expect(screen.getByText(/drag a box/i)).toBeInTheDocument(); // still 0 selected
 });
 
 it("adds a note to a selected node in annotate mode", async () => {

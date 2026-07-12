@@ -32,6 +32,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 export function NodeCard({
   graphNode,
   selected = false,
+  picked = false,
   dimmed = false,
   isHub = false,
   hubHiddenCount = 0,
@@ -39,6 +40,8 @@ export function NodeCard({
 }: {
   graphNode: GraphNode;
   selected?: boolean;
+  /** GP-58: picked as a link endpoint / group member in annotate mode. */
+  picked?: boolean;
   dimmed?: boolean;
   /** GP-35: this node is a hub; a subtle indicator / counter chip is shown. */
   isHub?: boolean;
@@ -60,14 +63,29 @@ export function NodeCard({
         // top-right corner and must not be clipped (GP-30).
         "relative flex h-full w-full items-center gap-2 rounded-[7px] border-[1.5px] py-1.5 pr-3 pl-4 shadow-sm transition-shadow hover:shadow-md",
         changeClasses(graphNode.change),
-        selected && "ring-primary ring-offset-background ring-2 ring-offset-1",
+        // A picked node (annotate mode) gets the strongest, filled treatment so
+        // link endpoints / group members read at a glance (GP-58).
+        picked && "ring-primary ring-offset-background bg-primary/10 ring-[3px] ring-offset-1",
+        selected && !picked && "ring-primary ring-offset-background ring-2 ring-offset-1",
         impacted &&
           !selected &&
+          !picked &&
           "outline-impacted outline-2 outline-offset-2 outline-dashed",
-        exposed && !selected && "ring-exposed ring-offset-background ring-2 ring-offset-1",
+        exposed &&
+          !selected &&
+          !picked &&
+          "ring-exposed ring-offset-background ring-2 ring-offset-1",
         dimmed && "opacity-20",
       )}
     >
+      {picked && (
+        <span
+          aria-hidden="true"
+          className="bg-primary text-primary-foreground absolute -top-2 -left-2 grid size-4 place-items-center rounded-full text-[9px] shadow-sm"
+        >
+          ✓
+        </span>
+      )}
       {status && (
         <span
           aria-hidden="true"
@@ -148,6 +166,7 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
       <NodeCard
         graphNode={data.graphNode}
         selected={data.selected === true}
+        picked={data.picked === true}
         dimmed={data.dimmed}
         isHub={data.isHub === true}
         hubHiddenCount={data.hubHiddenCount ?? 0}

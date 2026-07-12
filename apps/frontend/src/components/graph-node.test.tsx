@@ -44,3 +44,14 @@ it("shows no exposure badge when the node is not exposed", () => {
   render(<NodeCard graphNode={{ ...rg, type: "azurerm_network_security_group" }} />);
   expect(screen.queryByLabelText(/internet-exposed/i)).not.toBeInTheDocument();
 });
+
+it("marks a picked node (annotate selection) with a check badge + tint (GP-58)", () => {
+  const { container } = render(<NodeCard graphNode={rg} picked />);
+  expect(screen.getByText("✓")).toBeInTheDocument();
+  expect(container.querySelector(".bg-primary\\/10")).toBeTruthy();
+});
+
+it("shows no pick badge on an unpicked node", () => {
+  render(<NodeCard graphNode={rg} />);
+  expect(screen.queryByText("✓")).not.toBeInTheDocument();
+});
