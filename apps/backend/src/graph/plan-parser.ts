@@ -21,11 +21,14 @@ import { deriveContainment } from "./containment.js";
 import {
   buildDependencyEdges,
   buildInstancesByBase,
+  resolveReference,
   type DependencySource,
+  type EdgeContext,
   type RawRef,
 } from "./dependency-edges.js";
-import type { ChangeKind, Graph, GraphEdge, GraphNode } from "./graph.js";
+import type { ChangeKind, Graph, GraphEdge, GraphNode, NsgRule } from "./graph.js";
 import { propagateImpact } from "./impact.js";
+import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 type PlanChange = PlanResourceChange & { actions?: unknown };
 type ResourceChange = {
@@ -180,6 +183,90 @@ const sortEdges = (a: GraphEdge, b: GraphEdge): number =>
   compareStrings(a.from, b.from) ||
   compareStrings(a.to, b.to);
 
+/** Join a value that may be a scalar or a string[] into one string. */
+function joinValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(String).join(",");
+  return typeof value === "string" ? value : "";
+}
+
+/** Resolve an association resource's refs to the (NSG, subnet/NIC) it links. */
+function associationTargets(
+  source: DependencySource,
+  edgeCtx: EdgeContext,
+  nodesById: ReadonlyMap<string, GraphNode>,
+): { nsgId: string; targetId: string } | null {
+  const resolved = source.refs.flatMap((r) =>
+    resolveReference(source.prefix, r.ref, edgeCtx),
+  );
+  const nsgId = resolved.find(
+    (rid) => nodesById.get(rid)?.type === "azurerm_network_security_group",
+  );
+  const targetId = resolved.find((rid) => {
+    const t = nodesById.get(rid)?.type;
+    return t === "azurerm_subnet" || t === "azurerm_network_interface";
+  });
+  return nsgId && targetId ? { nsgId, targetId } : null;
+}
+
+/** Map a plan `after.security_rule[]` entry to an NsgRule (raw values). */
+function planRule(raw: unknown): NsgRule | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.name !== "string") return null;
+  const ports = r.destination_port_range ?? r.destination_port_ranges;
+  const source = joinValue(r.source_address_prefix ?? r.source_address_prefixes);
+  return {
+    name: r.name,
+    priority: typeof r.priority === "number" ? r.priority : Number(r.priority) || 0,
+    direction: asString(r.direction),
+    access: asString(r.access),
+    protocol: asString(r.protocol),
+    ports: normalizePorts(ports),
+    source: source || "*",
+    destination: joinValue(r.destination_address_prefix) || "*",
+  };
+}
+
+/**
+ * Collect per-NSG rules (from `change.after.security_rule`) and NSG↔subnet/NIC
+ * associations (resolved from the association resources' config references).
+ */
+function extractPlanNsg(
+  changes: readonly unknown[],
+  sources: readonly DependencySource[],
+  edgeCtx: EdgeContext,
+  nodesById: ReadonlyMap<string, GraphNode>,
+): Map<string, ExtractedNsg> {
+  const extracted = new Map<string, ExtractedNsg>();
+  const nsgOf = (id: string): ExtractedNsg => {
+    let e = extracted.get(id);
+    if (!e) {
+      e = { rules: [], associatedIds: [] };
+      extracted.set(id, e);
+    }
+    return e;
+  };
+
+  for (const raw of changes) {
+    const rc = raw as ResourceChange;
+    if (rc.type !== "azurerm_network_security_group") continue;
+    const after = (rc.change?.after ?? {}) as Record<string, unknown>;
+    const inline = Array.isArray(after.security_rule) ? after.security_rule : [];
+    for (const r of inline) {
+      const nr = planRule(r);
+      if (nr) nsgOf(asString(rc.address)).rules.push(nr);
+    }
+  }
+
+  for (const source of sources) {
+    if (!source.fromBase.includes("_security_group_association")) continue;
+    const assoc = associationTargets(source, edgeCtx, nodesById);
+    if (assoc) nsgOf(assoc.nsgId).associatedIds.push(assoc.targetId);
+  }
+
+  return extracted;
+}
+
 /** Parse a Terraform plan into a GraphSnapshot graph (deterministic ordering). */
 export function parsePlanToGraph(plan: unknown): Graph {
   const p = (plan ?? {}) as { resource_changes?: unknown; configuration?: unknown };
@@ -270,15 +357,26 @@ export function parsePlanToGraph(plan: unknown): Graph {
   // vnet/subnet parent. Mutates the node objects still held in nodesById.
   deriveContainment([...nodesById.values()], sources, edgeCtx);
 
+  // NSG payload (GP-43): rules + internet_exposed + associations on NSG nodes.
+  attachNsg(
+    [...nodesById.values()],
+    extractPlanNsg(changes, sources, edgeCtx, nodesById),
+  );
+
   const nodes = [...nodesById.values()].sort((a, b) => compareStrings(a.id, b.id));
   const edges = [...containsEdges.values(), ...dependsOnEdges].sort(sortEdges);
 
   // Blast radius: mark unchanged dependents of the change set (GP-22). Emits v2.
   const withImpact = propagateImpact({ version: 1, nodes, edges });
-  // Highest applicable version wins: v4 (containment) > v3 (attribute diff, GP-32)
-  // > v2. Non-network snapshots stay byte-identical to their prior version.
+  // Highest applicable version wins: v4 (containment or NSG payload, GP-42/43) >
+  // v3 (attribute diff, GP-32) > v2. Non-network/-NSG snapshots stay
+  // byte-identical to their prior version.
+  const isV4 = (n: GraphNode): boolean =>
+    n.parent_id !== undefined ||
+    n.rules !== undefined ||
+    n.internet_exposed !== undefined;
   let version: Graph["version"] = 2;
   if (withImpact.nodes.some((n) => n.attribute_diff !== undefined)) version = 3;
-  if (withImpact.nodes.some((n) => n.parent_id !== undefined)) version = 4;
+  if (withImpact.nodes.some(isV4)) version = 4;
   return { ...withImpact, version };
 }

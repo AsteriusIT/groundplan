@@ -65,6 +65,27 @@ test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (G
   assert.equal(byId.get("azurerm_route_table.rt")?.parent_id, undefined);
 });
 
+test("attaches NSG rules, internet_exposed, and associations from a plan (GP-43)", () => {
+  const graph = parsePlanToGraph(readJson("plans/nsg.plan.json"));
+  assert.equal(graph.version, 4);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const open = byId.get("azurerm_network_security_group.open")!;
+  assert.equal(open.rules?.length, 2);
+  assert.deepEqual(open.rules?.[0], {
+    name: "allow-https",
+    priority: 100,
+    direction: "Inbound",
+    access: "Allow",
+    protocol: "Tcp",
+    ports: "443",
+    source: "Internet",
+    destination: "*",
+  });
+  assert.equal(open.internet_exposed, true);
+  assert.deepEqual(open.associated_ids, ["azurerm_subnet.web"]);
+  assert.equal(byId.get("azurerm_network_security_group.closed")!.internet_exposed, false);
+});
+
 test("a reference to a count resource fans out to all its instances", () => {
   const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
   const targets = graph.edges

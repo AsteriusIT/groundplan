@@ -70,6 +70,26 @@ test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (G
   assert.equal(byId.get("azurerm_virtual_machine.main")?.parent_id, undefined);
 });
 
+test("attaches NSG rules, internet_exposed, and associations from HCL (GP-43)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-nsg"));
+  assert.equal(graph.version, 4);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const open = byId.get("azurerm_network_security_group.open")!;
+  assert.equal(open.rules?.length, 2);
+  assert.deepEqual(open.rules?.[0], {
+    name: "allow-https",
+    priority: 100,
+    direction: "Inbound",
+    access: "Allow",
+    protocol: "Tcp",
+    ports: "443",
+    source: "Internet",
+    destination: "*",
+  });
+  assert.equal(open.internet_exposed, true);
+  assert.deepEqual(open.associated_ids, ["azurerm_subnet.web"]);
+});
+
 test("unresolved references are dropped and counted in stats.warnings", () => {
   const { graph, warnings } = parseHclRepo(readRepo("hcl-expressions"));
   // azurerm_virtual_network.secondary is referenced but not declared.

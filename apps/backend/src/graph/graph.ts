@@ -17,6 +17,21 @@ import type { AttributeDiffRow } from "./attribute-diff.js";
 export type ChangeKind = "create" | "update" | "delete" | "noop";
 export type EdgeKind = "depends_on" | "contains";
 
+/**
+ * v4: one NSG security rule (GP-43). Values are raw as written in the source;
+ * only `ports` is normalized (`"80"`, `"80-443"`, `"*"`).
+ */
+export type NsgRule = {
+  name: string;
+  priority: number;
+  direction: string; // Inbound | Outbound (raw)
+  access: string; // Allow | Deny (raw)
+  protocol: string; // raw
+  ports: string; // "80" | "80-443" | "*"
+  source: string; // raw source address prefix
+  destination: string; // raw destination address prefix
+};
+
 export type GraphNode = {
   /** Terraform address, e.g. `module.payments.aws_ecs_service.this`. */
   id: string;
@@ -46,6 +61,12 @@ export type GraphNode = {
    * edges — this is network containment (GP-42).
    */
   parent_id?: string;
+  /** v4: security rules on an azurerm_network_security_group node (GP-43). */
+  rules?: NsgRule[];
+  /** v4: true iff this NSG has an inbound Allow rule from an internet source. */
+  internet_exposed?: boolean;
+  /** v4: node ids of the subnets/NICs this NSG is associated with (GP-43/45). */
+  associated_ids?: string[];
 };
 
 export type GraphEdge = {

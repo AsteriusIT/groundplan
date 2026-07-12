@@ -25,7 +25,8 @@ import {
   type EdgeContext,
   type RawRef,
 } from "./dependency-edges.js";
-import type { Graph, GraphEdge, GraphNode } from "./graph.js";
+import type { Graph, GraphEdge, GraphNode, NsgRule } from "./graph.js";
+import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 export type HclFile = { path: string; content: string };
 export type HclParseResult = { graph: Graph; warnings: string[] };
@@ -176,6 +177,37 @@ function extractReferences(body: string): string[] {
   return [...body.matchAll(REFERENCE_RE)].map((m) => m[0]);
 }
 
+/** Read a scalar attribute (`key = "v"` or `key = 123`) from a block body. */
+function readAttr(body: string, key: string): string | undefined {
+  const m = new RegExp(String.raw`(?:^|\n)\s*${key}\s*=\s*(?:"([^"]*)"|(\d+))`).exec(body);
+  if (!m) return undefined;
+  return m[1] ?? m[2];
+}
+
+/** Inline `security_rule { … }` blocks within an NSG body → NsgRule[]. */
+function scanSecurityRules(body: string): NsgRule[] {
+  return scanTopLevelBlocks(body)
+    .filter((b) => b.type === "security_rule")
+    .map((b) => hclRule(b.body))
+    .filter((r): r is NsgRule => r !== null);
+}
+
+/** Parse one `security_rule { … }` block body into an NsgRule (raw values). */
+function hclRule(body: string): NsgRule | null {
+  const name = readAttr(body, "name");
+  if (!name) return null;
+  return {
+    name,
+    priority: Number(readAttr(body, "priority") ?? 0),
+    direction: readAttr(body, "direction") ?? "",
+    access: readAttr(body, "access") ?? "",
+    protocol: readAttr(body, "protocol") ?? "",
+    ports: normalizePorts(readAttr(body, "destination_port_range")),
+    source: readAttr(body, "source_address_prefix") ?? "*",
+    destination: readAttr(body, "destination_address_prefix") ?? "*",
+  };
+}
+
 /** Provider name from a resource type ("aws_s3_bucket" → "aws"). Heuristic. */
 function providerFromType(type: string): string | null {
   const provider = type.split("_")[0];
@@ -212,6 +244,8 @@ type Ctx = {
   pendingSources: PendingSource[];
   /** Resource types seen — used to tell a real (droppable) ref from noise. */
   resourceTypes: Set<string>;
+  /** NSG node id → its inline security rules (GP-43). */
+  nsgRules: Map<string, NsgRule[]>;
 };
 
 function addContains(ctx: Ctx, parent: string | null, child: string): void {
@@ -264,6 +298,10 @@ function parseModuleDir(
           change: null,
         });
         if (block.type === "resource") ctx.resourceTypes.add(type);
+        if (type === "azurerm_network_security_group") {
+          const rules = scanSecurityRules(block.body);
+          if (rules.length > 0) ctx.nsgRules.set(id, rules);
+        }
         addContains(ctx, parentModuleId, id);
         ctx.pendingSources.push({ fromBase: id, prefix, body: block.body });
       } else if (block.type === "module") {
@@ -304,6 +342,45 @@ function isReferenceable(ref: string, resourceTypes: ReadonlySet<string>): boole
   return resourceTypes.has(firstType);
 }
 
+/** Resolve an association block body's refs to the (NSG, subnet/NIC) it links. */
+function hclAssociationTargets(
+  ps: PendingSource,
+  ctx: Ctx,
+  edgeCtx: EdgeContext,
+): { nsgId: string; targetId: string } | null {
+  const resolved = extractReferences(ps.body).flatMap((ref) =>
+    resolveReference(ps.prefix, ref, edgeCtx),
+  );
+  const nsgId = resolved.find(
+    (rid) => ctx.nodes.get(rid)?.type === "azurerm_network_security_group",
+  );
+  const targetId = resolved.find((rid) => {
+    const t = ctx.nodes.get(rid)?.type;
+    return t === "azurerm_subnet" || t === "azurerm_network_interface";
+  });
+  return nsgId && targetId ? { nsgId, targetId } : null;
+}
+
+/** Collect per-NSG inline rules + subnet/NIC associations for the docs producer. */
+function extractHclNsg(ctx: Ctx, edgeCtx: EdgeContext): Map<string, ExtractedNsg> {
+  const extracted = new Map<string, ExtractedNsg>();
+  const nsgOf = (id: string): ExtractedNsg => {
+    let e = extracted.get(id);
+    if (!e) {
+      e = { rules: [], associatedIds: [] };
+      extracted.set(id, e);
+    }
+    return e;
+  };
+  for (const [id, rules] of ctx.nsgRules) nsgOf(id).rules.push(...rules);
+  for (const ps of ctx.pendingSources) {
+    if (!ps.fromBase.includes("_security_group_association")) continue;
+    const assoc = hclAssociationTargets(ps, ctx, edgeCtx);
+    if (assoc) nsgOf(assoc.nsgId).associatedIds.push(assoc.targetId);
+  }
+  return extracted;
+}
+
 /** Parse a repository's `.tf` files into a GraphSnapshot graph + warnings. */
 export function parseHclRepo(files: HclFile[]): HclParseResult {
   const filesByDir = new Map<string, HclFile[]>();
@@ -324,6 +401,7 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
     visited: new Set(),
     pendingSources: [],
     resourceTypes: new Set(),
+    nsgRules: new Map(),
   };
 
   parseModuleDir(ctx, "", "", [], null);
@@ -369,6 +447,9 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
   // vnet/subnet parent. Mutates the node objects still held in ctx.nodes.
   deriveContainment([...ctx.nodes.values()], sources, edgeCtx);
 
+  // NSG payload (GP-43): rules + internet_exposed + associations on NSG nodes.
+  attachNsg([...ctx.nodes.values()], extractHclNsg(ctx, edgeCtx));
+
   const nodes = [...ctx.nodes.values()].sort((a, b) => compareStrings(a.id, b.id));
   const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].sort(
     (a, b) =>
@@ -382,7 +463,11 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
     warnings.push(`${unresolved} reference(s) could not be resolved to a resource`);
   }
 
-  // v4 when any node carries containment; else v1 (docs snapshots stay v1).
-  const version: Graph["version"] = nodes.some((n) => n.parent_id !== undefined) ? 4 : 1;
+  // v4 when any node carries containment or NSG payload; else v1 (docs stay v1).
+  const isV4 = (n: GraphNode): boolean =>
+    n.parent_id !== undefined ||
+    n.rules !== undefined ||
+    n.internet_exposed !== undefined;
+  const version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
   return { graph: { version, nodes, edges }, warnings: warnings.sort(compareStrings) };
 }

@@ -79,6 +79,34 @@
         "parent_id": {
           "type": ["string", "null"],
           "description": "v4: id of the containing node (vnet⊃subnet⊃resource). Absent/null when no single unambiguous parent resolves. Distinct from module `contains` edges (GP-42)."
+        },
+        "rules": {
+          "type": "array",
+          "description": "v4: NSG security rules, on azurerm_network_security_group nodes (GP-43).",
+          "items": {
+            "type": "object",
+            "required": ["name", "priority", "direction", "access", "protocol", "ports", "source", "destination"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "priority": { "type": "integer" },
+              "direction": { "type": "string" },
+              "access": { "type": "string" },
+              "protocol": { "type": "string" },
+              "ports": { "type": "string" },
+              "source": { "type": "string" },
+              "destination": { "type": "string" }
+            }
+          }
+        },
+        "internet_exposed": {
+          "type": "boolean",
+          "description": "v4: NSG has an inbound Allow from an internet source (GP-43)."
+        },
+        "associated_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "v4: subnet/NIC node ids this NSG is attached to (GP-43)."
         }
       }
     },

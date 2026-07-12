@@ -1,0 +1,100 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_subnet.web",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_network_security_group.open",
+      "mode": "managed",
+      "type": "azurerm_network_security_group",
+      "name": "open",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "security_rule": [
+            {
+              "name": "allow-https",
+              "priority": 100,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "destination_port_range": "443",
+              "source_address_prefix": "Internet",
+              "destination_address_prefix": "*"
+            },
+            {
+              "name": "allow-internal",
+              "priority": 200,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "destination_port_range": "22",
+              "source_address_prefix": "10.0.0.0/8",
+              "destination_address_prefix": "*"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "azurerm_network_security_group.closed",
+      "mode": "managed",
+      "type": "azurerm_network_security_group",
+      "name": "closed",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "security_rule": [
+            {
+              "name": "deny-all",
+              "priority": 4096,
+              "direction": "Inbound",
+              "access": "Deny",
+              "protocol": "*",
+              "destination_port_range": "*",
+              "source_address_prefix": "*",
+              "destination_address_prefix": "*"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "azurerm_subnet_network_security_group_association.web",
+      "mode": "managed",
+      "type": "azurerm_subnet_network_security_group_association",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "azurerm_subnet_network_security_group_association.web",
+          "mode": "managed",
+          "type": "azurerm_subnet_network_security_group_association",
+          "name": "web",
+          "expressions": {
+            "subnet_id": {
+              "references": ["azurerm_subnet.web.id", "azurerm_subnet.web"]
+            },
+            "network_security_group_id": {
+              "references": ["azurerm_network_security_group.open.id", "azurerm_network_security_group.open"]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
