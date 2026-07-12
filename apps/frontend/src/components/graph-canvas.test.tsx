@@ -35,7 +35,9 @@ vi.mock("@xyflow/react", () => ({
     onNodeClick,
     onPaneClick,
   }: {
-    nodes: { id: string; data: { graphNode: { name: string } } }[];
+    // Loosened so annotation overlay nodes (which carry no real graphNode)
+    // render without crashing; falls back to the node id for a label.
+    nodes: { id: string; data: { graphNode?: { name?: string } } }[];
     onNodeClick?: (e: unknown, n: unknown) => void;
     onPaneClick?: () => void;
   }) => (
@@ -45,7 +47,7 @@ vi.mock("@xyflow/react", () => ({
       </button>
       {nodes.map((n) => (
         <button key={n.id} type="button" onClick={(e) => onNodeClick?.(e, n)}>
-          node:{n.data.graphNode.name}
+          node:{n.data.graphNode?.name || n.id}
         </button>
       ))}
     </div>
@@ -169,4 +171,174 @@ it("hides the hub toggle when there are no hubs", async () => {
   expect(
     screen.queryByRole("checkbox", { name: /show hub connections/i }),
   ).not.toBeInTheDocument();
+});
+
+// --- Annotate mode (GP-58) --------------------------------------------------
+
+const NOTE = {
+  id: "note-1",
+  repositoryId: "r",
+  type: "note" as const,
+  anchors: ["aws_s3_bucket.data"],
+  label: null,
+  body: "owned by payments",
+  status: "resolved" as const,
+  missingAnchors: [] as string[],
+  createdBy: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+it("does not add tools or a note editor unless annotate is enabled", async () => {
+  render(<GraphCanvas graph={graph} variant="docs" annotations={[]} />);
+  await screen.findByText("node:main");
+  expect(screen.queryByRole("button", { name: "Link" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("node:main"));
+  expect(screen.queryByLabelText("New note")).not.toBeInTheDocument();
+});
+
+it("does not change the laid-out resource nodes when annotations are present", async () => {
+  const { unmount } = render(<GraphCanvas graph={graph} variant="docs" />);
+  await screen.findByText("node:main");
+  const withoutAnn = screen
+    .getAllByText(/^node:/)
+    .map((el) => el.textContent)
+    .sort();
+  unmount();
+
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[
+        {
+          ...NOTE,
+          id: "link-1",
+          type: "link",
+          anchors: ["azurerm_virtual_network.main", "aws_s3_bucket.data"],
+          body: null,
+          label: "reads",
+        },
+      ]}
+    />,
+  );
+  await screen.findByText("node:main");
+  // The same resource/module nodes are laid out; only extra overlay (ann-*)
+  // nodes appear — the generated layout is untouched.
+  const resourceNodes = screen
+    .getAllByText(/^node:/)
+    .map((el) => el.textContent)
+    .filter((t) => !t?.includes("ann-"))
+    .sort();
+  expect(resourceNodes).toEqual(withoutAnn);
+});
+
+it("creates a link by picking two nodes and labeling them", async () => {
+  const onCreate = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[]}
+      onCreateAnnotation={onCreate}
+    />,
+  );
+  await screen.findByText("node:main");
+  fireEvent.click(screen.getByRole("button", { name: "Link" }));
+  fireEvent.click(screen.getByText("node:main"));
+  fireEvent.click(screen.getByText("node:data"));
+  fireEvent.change(screen.getByLabelText("Link label"), {
+    target: { value: "replicates to" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add link" }));
+  expect(onCreate).toHaveBeenCalledWith({
+    type: "link",
+    anchors: ["azurerm_virtual_network.main", "aws_s3_bucket.data"],
+    label: "replicates to",
+  });
+});
+
+it("creates a group from a multi-node selection", async () => {
+  const onCreate = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[]}
+      onCreateAnnotation={onCreate}
+    />,
+  );
+  await screen.findByText("node:main");
+  fireEvent.click(screen.getByRole("button", { name: "Group" }));
+  fireEvent.click(screen.getByText("node:main"));
+  fireEvent.click(screen.getByText("node:data"));
+  fireEvent.change(screen.getByLabelText("Group label"), {
+    target: { value: "data lake" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create group" }));
+  expect(onCreate).toHaveBeenCalledWith({
+    type: "group",
+    anchors: ["azurerm_virtual_network.main", "aws_s3_bucket.data"],
+    label: "data lake",
+  });
+});
+
+it("adds a note to a selected node in annotate mode", async () => {
+  const onCreate = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[]}
+      onCreateAnnotation={onCreate}
+    />,
+  );
+  await screen.findByText("node:data");
+  fireEvent.click(screen.getByText("node:data"));
+  fireEvent.change(screen.getByLabelText("New note"), {
+    target: { value: "holds raw events" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /add note/i }));
+  expect(onCreate).toHaveBeenCalledWith({
+    type: "note",
+    anchors: ["aws_s3_bucket.data"],
+    body: "holds raw events",
+  });
+});
+
+it("shows existing notes read-only in view mode (no editor)", async () => {
+  render(<GraphCanvas graph={graph} variant="docs" annotations={[NOTE]} />);
+  fireEvent.click(await screen.findByText("node:data"));
+  expect(screen.getByText(/owned by payments/)).toBeInTheDocument();
+  expect(screen.queryByLabelText("New note")).not.toBeInTheDocument();
+});
+
+it("lists a link with a delete control in annotate mode", async () => {
+  const onDelete = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[
+        {
+          ...NOTE,
+          id: "link-1",
+          type: "link",
+          anchors: ["azurerm_virtual_network.main", "aws_s3_bucket.data"],
+          body: null,
+          label: "reads",
+        },
+      ]}
+      onDeleteAnnotation={onDelete}
+    />,
+  );
+  await screen.findByText("node:main");
+  expect(screen.getByText("reads")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /delete annotation/i }));
+  expect(onDelete).toHaveBeenCalledWith("link-1");
 });

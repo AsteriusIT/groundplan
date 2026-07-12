@@ -1,18 +1,53 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
   ReactFlow,
+  type Edge as FlowEdge,
   type Node as FlowNode,
   type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { Loader2, Maximize2, Minus, Plus, RotateCcw, Search, Waypoints } from "lucide-react";
+import {
+  Group,
+  Link2,
+  Loader2,
+  Maximize2,
+  Minus,
+  MousePointer2,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+  Waypoints,
+  X,
+} from "lucide-react";
 
 import "@xyflow/react/dist/style.css";
 
-import type { Graph, GraphNode } from "@/api/types";
+import type {
+  Annotation,
+  CreateAnnotationInput,
+  Graph,
+  GraphNode,
+  UpdateAnnotationInput,
+} from "@/api/types";
+import {
+  absoluteNodeBoxes,
+  annotationLinkEdges,
+  groupFrames,
+  notedNodeIds,
+  notesForNode,
+  renderableAnnotations,
+} from "@/lib/annotations";
+import {
+  INITIAL_TOOL,
+  linkIsReady,
+  reduceTool,
+  type AnnotateTool,
+} from "@/lib/annotate-tool";
+import { NotePanel } from "@/components/note-editor";
 import {
   ALL_FILTERS,
   categoryOptions,
@@ -38,6 +73,20 @@ import { EdgeArrowMarkers, RelationshipEdge } from "@/components/graph-edge";
 
 const elk = new ELK();
 
+/**
+ * A placeholder graphNode for annotation overlay nodes (group frames / note
+ * pins), which carry their own `data` (label / count / nodeId) and never read
+ * `graphNode`. Satisfies the shared GraphNodeData shape without a real node.
+ */
+const OVERLAY_STUB = {
+  id: "",
+  name: "",
+  type: "",
+  provider: null,
+  module_path: [],
+  change: null,
+} as GraphNode;
+
 function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   // A near-transparent dashed boundary with a floating mono label, like the
   // mockup's module containers (GP-31).
@@ -55,10 +104,39 @@ function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   );
 }
 
+/**
+ * A group annotation (GP-58): a soft accent-toned frame with a floating label,
+ * drawn behind its members. `pointer-events-none` so it never steals clicks from
+ * the resources it surrounds — it is decoration, not an ELK container.
+ */
+function AnnotationGroupNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
+  return (
+    <div className="border-primary/50 bg-primary/5 pointer-events-none h-full w-full rounded-xl border border-dashed">
+      <span className="bg-canvas text-primary absolute -top-2.5 left-3 px-1.5 font-mono text-[10px] font-medium tracking-wide">
+        {String(data.label ?? "group")}
+      </span>
+    </div>
+  );
+}
+
+/** A note indicator pinned to a resource's corner (GP-58). */
+function AnnotationNotePin({ data }: NodeProps<FlowNode<GraphNodeData>>) {
+  return (
+    <div
+      title="Has a note"
+      className="bg-primary text-primary-foreground grid size-4 place-items-center rounded-full text-[9px] shadow-sm"
+    >
+      {String(data.count ?? 1)}
+    </div>
+  );
+}
+
 const NODE_TYPES = {
   resource: ResourceFlowNode,
   module: ModuleNode,
   container: NetworkContainerNode,
+  annotationGroup: AnnotationGroupNode,
+  annotationNote: AnnotationNotePin,
 };
 const EDGE_TYPES = { relationship: RelationshipEdge };
 
@@ -126,6 +204,11 @@ export function GraphCanvas({
   variant = "plan",
   focusNodeId,
   containerIds,
+  annotations,
+  annotate = false,
+  onCreateAnnotation,
+  onUpdateAnnotation,
+  onDeleteAnnotation,
 }: {
   graph: Graph;
   variant?: "plan" | "docs";
@@ -133,6 +216,14 @@ export function GraphCanvas({
   focusNodeId?: string | null;
   /** vnet/subnet ids to render as containers even when empty (GP-44 network view). */
   containerIds?: ReadonlySet<string>;
+  /** GP-58: the annotation layer. Rendered as an overlay in every mode; when
+   * absent the canvas behaves exactly as before (no annotate affordances). */
+  annotations?: Annotation[];
+  /** GP-58: enable editing (tools + note editor). Off = read-only overlay. */
+  annotate?: boolean;
+  onCreateAnnotation?: (input: CreateAnnotationInput) => void;
+  onUpdateAnnotation?: (id: string, input: UpdateAnnotationInput) => void;
+  onDeleteAnnotation?: (id: string) => void;
 }) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
@@ -213,6 +304,138 @@ export function GraphCanvas({
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
   const shown = resourceNodes.filter((n) => !n.data.dimmed).length;
 
+  // --- Annotation overlay (GP-58) -------------------------------------------
+  const [tool, dispatchTool] = useReducer(reduceTool, INITIAL_TOOL);
+  const [labelDraft, setLabelDraft] = useState("");
+
+  const anns = useMemo(() => annotations ?? [], [annotations]);
+  const nodeIds = useMemo(() => new Set(graph.nodes.map((n) => n.id)), [graph]);
+  const renderableAnns = useMemo(
+    () => renderableAnnotations(anns, nodeIds),
+    [anns, nodeIds],
+  );
+  const notedIds = useMemo(() => notedNodeIds(renderableAnns), [renderableAnns]);
+
+  // Leaving annotate mode drops any half-finished tool interaction.
+  useEffect(() => {
+    if (!annotate) {
+      dispatchTool({ type: "setTool", tool: "select" });
+      setLabelDraft("");
+    }
+  }, [annotate]);
+
+  // Overlay geometry is derived from the *laid-out* nodes and never fed back to
+  // ELK — so the generated layout is identical with and without annotations.
+  const boxes = useMemo(() => absoluteNodeBoxes(elements.nodes), [elements.nodes]);
+  const frames = useMemo(
+    () => groupFrames(renderableAnns, boxes),
+    [renderableAnns, boxes],
+  );
+
+  const overlayNodes = useMemo<FlowNode<GraphNodeData>[]>(() => {
+    const out: FlowNode<GraphNodeData>[] = [];
+    // Group frames first so they paint behind the resources they surround.
+    for (const f of frames) {
+      out.push({
+        id: `ann-group-${f.id}`,
+        type: "annotationGroup",
+        position: { x: f.x, y: f.y },
+        data: { graphNode: OVERLAY_STUB, dimmed: false, label: f.label },
+        style: { width: f.width, height: f.height },
+        selectable: false,
+        draggable: false,
+        zIndex: 0,
+      });
+    }
+    return out;
+  }, [frames]);
+
+  const notePins = useMemo<FlowNode<GraphNodeData>[]>(() => {
+    const out: FlowNode<GraphNodeData>[] = [];
+    for (const [id, box] of boxes) {
+      if (!notedIds.has(id)) continue;
+      out.push({
+        id: `ann-note-${id}`,
+        type: "annotationNote",
+        position: { x: box.x + box.width - 10, y: box.y - 8 },
+        data: {
+          graphNode: OVERLAY_STUB,
+          dimmed: false,
+          nodeId: id,
+          count: notesForNode(renderableAnns, id).length,
+        },
+        draggable: false,
+        zIndex: 5,
+      });
+    }
+    return out;
+  }, [boxes, notedIds, renderableAnns]);
+
+  const annEdges = useMemo<FlowEdge[]>(
+    () =>
+      annotationLinkEdges(renderableAnns).map((e) => ({
+        id: `ann-link-${e.id}`,
+        source: e.source,
+        target: e.target,
+        type: "relationship",
+        data: { annotation: true, label: e.label },
+        selectable: false,
+        zIndex: 1,
+      })),
+    [renderableAnns],
+  );
+
+  const flowNodes = useMemo(
+    () => [...overlayNodes, ...elements.nodes, ...notePins],
+    [overlayNodes, elements.nodes, notePins],
+  );
+  const flowEdges = useMemo(
+    () => [...elements.edges, ...annEdges],
+    [elements.edges, annEdges],
+  );
+
+  const selectedNotes = useMemo(
+    () => (selected ? notesForNode(renderableAnns, selected.id) : []),
+    [selected, renderableAnns],
+  );
+
+  const setTool = (t: AnnotateTool) => dispatchTool({ type: "setTool", tool: t });
+  const resetTool = () => {
+    setLabelDraft("");
+    dispatchTool({ type: "reset" });
+  };
+  const createLink = () => {
+    if (!labelDraft.trim()) return;
+    onCreateAnnotation?.({ type: "link", anchors: tool.picks, label: labelDraft.trim() });
+    resetTool();
+  };
+  const createGroup = () => {
+    if (!labelDraft.trim()) return;
+    onCreateAnnotation?.({ type: "group", anchors: tool.picks, label: labelDraft.trim() });
+    resetTool();
+  };
+
+  const handleNodeClick = useCallback(
+    (_: unknown, node: FlowNode<GraphNodeData>) => {
+      // A note pin selects its underlying resource (opens the panel + notes).
+      if (node.type === "annotationNote") {
+        const target = graph.nodes.find((n) => n.id === (node.data.nodeId as string));
+        if (target) setSelected(target);
+        return;
+      }
+      if (node.type === "annotationGroup") return;
+      const graphNode = node.data.graphNode;
+      if (!graphNode) return;
+      // In annotate mode the link/group tools consume clicks to pick nodes.
+      if (annotate && (tool.tool === "link" || tool.tool === "group")) {
+        dispatchTool({ type: "pick", id: graphNode.id });
+        return;
+      }
+      setSelected(graphNode);
+    },
+    [annotate, tool.tool, graph],
+  );
+
   const flyTo = useCallback((node: GraphNode) => {
     setSelected(node);
     setQuery(""); // close the results dropdown once a result is chosen
@@ -241,8 +464,8 @@ export function GraphCanvas({
     <div className="bg-canvas relative h-full w-full">
       <EdgeArrowMarkers />
       <ReactFlow
-        nodes={elements.nodes}
-        edges={elements.edges}
+        nodes={flowNodes}
+        edges={flowEdges}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         onInit={(instance) => {
@@ -250,9 +473,7 @@ export function GraphCanvas({
           setZoom(instance.getZoom());
         }}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
-        onNodeClick={(_, node) =>
-          setSelected((node.data as GraphNodeData).graphNode)
-        }
+        onNodeClick={handleNodeClick}
         onPaneClick={() => setSelected(null)}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -460,9 +681,254 @@ export function GraphCanvas({
           onClose={() => setSelected(null)}
           onSelect={flyTo}
           showChange={variant === "plan"}
+          footer={
+            annotations !== undefined && (annotate || selectedNotes.length > 0) ? (
+              <NotePanel
+                notes={selectedNotes}
+                readOnly={!annotate}
+                onCreate={(body) =>
+                  onCreateAnnotation?.({ type: "note", anchors: [selected.id], body })
+                }
+                onUpdate={(id, body) => onUpdateAnnotation?.(id, { body })}
+                onDelete={(id) => onDeleteAnnotation?.(id)}
+              />
+            ) : undefined
+          }
         />
       )}
+
+      {/* Annotate tools (GP-58): view ⇄ annotate is toggled in the docs toolbar;
+          here we only render the tool palette + contextual actions. */}
+      {annotate && (
+        <div className="bg-card/95 absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border border-border px-2 py-1.5 shadow-sm backdrop-blur">
+          <div role="group" aria-label="Annotate tools" className="flex items-center gap-1">
+            <ToolButton label="Select" active={tool.tool === "select"} onClick={() => setTool("select")}>
+              <MousePointer2 className="size-4" />
+            </ToolButton>
+            <ToolButton label="Link" active={tool.tool === "link"} onClick={() => setTool("link")}>
+              <Link2 className="size-4" />
+            </ToolButton>
+            <ToolButton label="Group" active={tool.tool === "group"} onClick={() => setTool("group")}>
+              <Group className="size-4" />
+            </ToolButton>
+          </div>
+
+          {tool.tool === "select" && (
+            <span className="text-muted-foreground px-1 text-xs">
+              Click a resource to note it
+            </span>
+          )}
+
+          {tool.tool === "link" &&
+            (linkIsReady(tool) ? (
+              <LabelForm
+                label="Link label"
+                submitLabel="Add link"
+                value={labelDraft}
+                onChange={setLabelDraft}
+                onSubmit={createLink}
+                onCancel={resetTool}
+              />
+            ) : (
+              <span className="text-muted-foreground px-1 text-xs">
+                {tool.picks.length === 0
+                  ? "Click the source resource"
+                  : "Click the target resource"}
+              </span>
+            ))}
+
+          {tool.tool === "group" && (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground px-1 text-xs">
+                {tool.picks.length} selected
+              </span>
+              {tool.picks.length >= 2 && (
+                <LabelForm
+                  label="Group label"
+                  submitLabel="Create group"
+                  value={labelDraft}
+                  onChange={setLabelDraft}
+                  onSubmit={createGroup}
+                  onCancel={resetTool}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Links & groups list (GP-58): relabel or delete. Notes are managed on
+          their node via the details panel. */}
+      {annotate && renderableAnns.some((a) => a.type !== "note") && (
+        <div className="bg-card/95 absolute top-14 right-3 z-10 max-h-[calc(100%-8rem)] w-56 overflow-auto rounded-md border border-border p-2 shadow-sm backdrop-blur">
+          <p className="text-muted-foreground mb-1.5 font-mono text-[10px] tracking-wide uppercase">
+            Links &amp; groups
+          </p>
+          <ul className="space-y-1">
+            {renderableAnns
+              .filter((a) => a.type !== "note")
+              .map((a) => (
+                <AnnotationRow
+                  key={a.id}
+                  annotation={a}
+                  onRelabel={(label) => onUpdateAnnotation?.(a.id, { label })}
+                  onDelete={() => onDeleteAnnotation?.(a.id)}
+                />
+              ))}
+          </ul>
+        </div>
+      )}
     </div>
+  );
+}
+
+function ToolButton({
+  label,
+  active,
+  onClick,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        "grid size-8 place-items-center rounded transition-colors",
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LabelForm({
+  label,
+  submitLabel,
+  value,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  label: string;
+  submitLabel: string;
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        aria-label={label}
+        value={value}
+        autoFocus
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onSubmit();
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder={`${label}…`}
+        className="border-border w-32 rounded border bg-transparent px-1.5 py-0.5 text-xs outline-none"
+      />
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={!value.trim()}
+        className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs disabled:opacity-40"
+      >
+        {submitLabel}
+      </button>
+      <button
+        type="button"
+        aria-label="Cancel"
+        onClick={onCancel}
+        className="text-muted-foreground hover:text-foreground grid size-6 place-items-center rounded"
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function AnnotationRow({
+  annotation,
+  onRelabel,
+  onDelete,
+}: {
+  annotation: Annotation;
+  onRelabel: (label: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(annotation.label ?? "");
+  const Icon = annotation.type === "link" ? Link2 : Group;
+
+  if (editing) {
+    return (
+      <li className="flex items-center gap-1">
+        <input
+          aria-label="Edit label"
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && draft.trim()) {
+              onRelabel(draft.trim());
+              setEditing(false);
+            }
+            if (e.key === "Escape") setEditing(false);
+          }}
+          className="border-border min-w-0 flex-1 rounded border bg-transparent px-1.5 py-0.5 text-xs outline-none"
+        />
+        <button
+          type="button"
+          aria-label="Save label"
+          onClick={() => {
+            if (draft.trim()) onRelabel(draft.trim());
+            setEditing(false);
+          }}
+          className="text-muted-foreground hover:text-foreground grid size-6 place-items-center rounded"
+        >
+          <Plus className="size-3.5 rotate-45" />
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="group hover:bg-accent flex items-center gap-1.5 rounded px-1 py-0.5">
+      <Icon className="text-primary size-3.5 shrink-0" />
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(annotation.label ?? "");
+          setEditing(true);
+        }}
+        className="text-ink min-w-0 flex-1 truncate text-left text-xs"
+        title="Rename"
+      >
+        {annotation.label || "(untitled)"}
+      </button>
+      <button
+        type="button"
+        aria-label="Delete annotation"
+        onClick={onDelete}
+        className="text-muted-foreground hover:text-destructive grid size-6 shrink-0 place-items-center rounded"
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </li>
   );
 }
 

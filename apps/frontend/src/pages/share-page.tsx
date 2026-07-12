@@ -98,7 +98,11 @@ export function SharePage() {
           </div>
         )}
         {state.status === "ready" && (
-          <GraphCanvas graph={state.view.snapshot.graph} variant="docs" />
+          <GraphCanvas
+            graph={state.view.snapshot.graph}
+            variant="docs"
+            annotations={state.view.annotations}
+          />
         )}
       </div>
     </div>

@@ -22,6 +22,7 @@ const getPublicSnapshotMock = vi.mocked(getPublicSnapshot);
 const view: PublicSnapshotView = {
   kind: "docs_latest",
   repository: { name: "acme/infra", provider: "github" },
+  annotations: [],
   snapshot: {
     id: "s1",
     source: "hcl",

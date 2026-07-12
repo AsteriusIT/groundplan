@@ -11,18 +11,31 @@ import {
 
 import {
   ApiError,
+  createAnnotation,
+  deleteAnnotation,
   generateDocs,
   getRepository,
   getSnapshot,
+  listAnnotations,
   listSnapshots,
+  updateAnnotation,
 } from "@/api/client";
-import type { GraphNode, Repository, Snapshot, SnapshotSummary } from "@/api/types";
+import type {
+  Annotation,
+  CreateAnnotationInput,
+  GraphNode,
+  Repository,
+  Snapshot,
+  SnapshotSummary,
+  UpdateAnnotationInput,
+} from "@/api/types";
 import { repoName } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { CompareView } from "@/components/compare-view";
 import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { AnnotateToggle, useAnnotateMode } from "@/components/annotate-toolbar";
 import { IamTable } from "@/components/iam-table";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { SnapshotSelect } from "@/components/snapshot-select";
@@ -52,6 +65,10 @@ export function DocsPage() {
   const [visible, setVisible] = useState(PAGE);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+
+  // Annotation layer (GP-58). Loaded per repo, applied optimistically.
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const { annotate } = useAnnotateMode();
 
   // Compare mode (GP-40): pick two snapshots to diff. Deep-linkable via ?compare.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -89,6 +106,49 @@ export function DocsPage() {
   useEffect(() => {
     loadList();
   }, [loadList]);
+
+  const reloadAnnotations = useCallback(() => {
+    if (!repoId) return;
+    listAnnotations(repoId).then(setAnnotations).catch(() => {});
+  }, [repoId]);
+
+  useEffect(() => {
+    reloadAnnotations();
+  }, [reloadAnnotations]);
+
+  // Optimistic annotation edits (GP-58): apply locally, then reconcile with the
+  // server response; on failure, refetch to snap back to the truth.
+  const handleCreateAnnotation = useCallback(
+    (input: CreateAnnotationInput) => {
+      if (!repoId) return;
+      createAnnotation(repoId, input)
+        .then((created) => setAnnotations((prev) => [created, ...prev]))
+        .catch(reloadAnnotations);
+    },
+    [repoId, reloadAnnotations],
+  );
+
+  const handleUpdateAnnotation = useCallback(
+    (id: string, input: UpdateAnnotationInput) => {
+      setAnnotations((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, ...input } : a)),
+      );
+      updateAnnotation(id, input)
+        .then((updated) =>
+          setAnnotations((prev) => prev.map((a) => (a.id === id ? updated : a))),
+        )
+        .catch(reloadAnnotations);
+    },
+    [reloadAnnotations],
+  );
+
+  const handleDeleteAnnotation = useCallback(
+    (id: string) => {
+      setAnnotations((prev) => prev.filter((a) => a.id !== id));
+      deleteAnnotation(id).catch(reloadAnnotations);
+    },
+    [reloadAnnotations],
+  );
 
   useEffect(() => {
     if (!selectedId) {
@@ -253,6 +313,7 @@ export function DocsPage() {
                   {compareMode ? "Exit compare" : "Compare"}
                 </Button>
               )}
+              {current && !compareMode && view === "infra" && <AnnotateToggle />}
               {repoId && (
                 <ShareDialog repositoryId={repoId} currentSnapshotId={selectedId} />
               )}
@@ -371,6 +432,11 @@ export function DocsPage() {
                     variant="docs"
                     containerIds={network?.containerIds}
                     focusNodeId={focusNodeId}
+                    annotations={view === "infra" ? annotations : undefined}
+                    annotate={annotate && view === "infra"}
+                    onCreateAnnotation={handleCreateAnnotation}
+                    onUpdateAnnotation={handleUpdateAnnotation}
+                    onDeleteAnnotation={handleDeleteAnnotation}
                   />
                 )}
               </>

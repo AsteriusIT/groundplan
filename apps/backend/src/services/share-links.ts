@@ -10,9 +10,12 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import {
+  annotations,
   graphSnapshots,
   repositories,
   shareTokens,
+  toPublicAnnotation,
+  type AnnotationRow,
   type GraphSnapshotRow,
   type ShareTokenRow,
 } from "../db/schema.js";
@@ -130,6 +133,9 @@ export interface ResolvedShare {
   snapshot: GraphSnapshotRow;
   repoUrl: string;
   repoProvider: string;
+  /** The repository's annotation layer (GP-58); filtered to renderable ones on
+   * output, so public viewers see notes/links/groups but never orphans. */
+  annotations: AnnotationRow[];
 }
 
 /**
@@ -174,15 +180,33 @@ export async function resolveShareToken(
   }
   if (!snapshot) return null;
 
-  return { token: share, snapshot, repoUrl: repo.url, repoProvider: repo.provider };
+  const repoAnnotations = await db
+    .select()
+    .from(annotations)
+    .where(eq(annotations.repositoryId, share.repositoryId));
+
+  return {
+    token: share,
+    snapshot,
+    repoUrl: repo.url,
+    repoProvider: repo.provider,
+    annotations: repoAnnotations,
+  };
 }
 
 /** The minimal, credential-free snapshot payload served on public routes. */
 export function toPublicSnapshotView(resolved: ResolvedShare) {
   const { snapshot } = resolved;
+  // Only annotations whose every anchor exists in this snapshot are shown —
+  // viewers see notes/links/groups that render, never orphans (GP-58/GP-59).
+  const nodeIds = new Set(snapshot.graph.nodes.map((n) => n.id));
+  const publicAnnotations = resolved.annotations
+    .filter((a) => a.anchors.every((anchor) => nodeIds.has(anchor)))
+    .map(toPublicAnnotation);
   return {
     kind: resolved.token.kind,
     repository: { name: repoLabel(resolved.repoUrl), provider: resolved.repoProvider },
+    annotations: publicAnnotations,
     snapshot: {
       id: snapshot.id,
       source: snapshot.source,

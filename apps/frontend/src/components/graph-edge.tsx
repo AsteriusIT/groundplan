@@ -31,6 +31,8 @@ type EdgeData = {
   inferred?: boolean;
   /** Optional relationship label (e.g. a port or kind); absent for plain deps. */
   label?: string;
+  /** GP-58: a human annotation link — dashed, accent-toned, no arrowhead. */
+  annotation?: boolean;
 };
 
 export function RelationshipEdge({
@@ -44,7 +46,8 @@ export function RelationshipEdge({
 }: EdgeProps) {
   const d = (data ?? {}) as EdgeData;
   const rel = d.rel ?? "neutral";
-  const dashed = rel === "removed" || d.inferred === true;
+  const annotation = d.annotation === true;
+  const dashed = annotation || rel === "removed" || d.inferred === true;
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -58,10 +61,12 @@ export function RelationshipEdge({
     <>
       <path
         d={edgePath}
-        markerEnd={d.dimmed ? undefined : MARKER[rel]}
+        // Annotation links carry no arrowhead — they are human relationships,
+        // not generated dependencies (GP-58).
+        markerEnd={annotation || d.dimmed ? undefined : MARKER[rel]}
         className={cn(
           "react-flow__edge-path",
-          STROKE[rel],
+          annotation ? "stroke-primary" : STROKE[rel],
           dashed && "[stroke-dasharray:6_4]",
         )}
         style={{ strokeWidth: 1.5, opacity: d.dimmed ? 0.12 : 1 }}
@@ -72,7 +77,12 @@ export function RelationshipEdge({
             style={{
               transform: `translate(-50%,-50%) translate(${labelX}px,${labelY}px)`,
             }}
-            className="bg-panel border-border-strong text-muted-foreground pointer-events-none absolute rounded-full border px-1.5 py-0.5 font-mono text-[9px] leading-none"
+            className={cn(
+              "pointer-events-none absolute rounded-full border px-1.5 py-0.5 font-mono text-[9px] leading-none",
+              annotation
+                ? "bg-primary/10 border-primary/40 text-primary"
+                : "bg-panel border-border-strong text-muted-foreground",
+            )}
           >
             {d.label}
           </div>

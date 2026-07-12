@@ -1,0 +1,109 @@
+import { describe, expect, it } from "vitest";
+
+import type { Annotation } from "@/api/types";
+import {
+  absoluteNodeBoxes,
+  annotationLinkEdges,
+  groupFrames,
+  notedNodeIds,
+  notesForNode,
+  renderableAnnotations,
+} from "./annotations";
+
+function ann(partial: Partial<Annotation> & Pick<Annotation, "type" | "anchors">): Annotation {
+  return {
+    id: partial.id ?? Math.random().toString(36).slice(2),
+    repositoryId: "r",
+    label: null,
+    body: null,
+    status: "resolved",
+    missingAnchors: [],
+    createdBy: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...partial,
+  };
+}
+
+describe("renderableAnnotations", () => {
+  it("keeps only annotations whose every anchor exists in the graph", () => {
+    const present = ann({ id: "ok", type: "link", anchors: ["a", "b"] });
+    const orphan = ann({ id: "gone", type: "note", anchors: ["missing"] });
+    const result = renderableAnnotations([present, orphan], new Set(["a", "b"]));
+    expect(result.map((a) => a.id)).toEqual(["ok"]);
+  });
+});
+
+describe("notesForNode", () => {
+  it("returns notes anchored to the node, ignoring links and groups", () => {
+    const note = ann({ id: "n", type: "note", anchors: ["a"], body: "hi" });
+    const other = ann({ id: "n2", type: "note", anchors: ["b"] });
+    const link = ann({ id: "l", type: "link", anchors: ["a", "b"] });
+    expect(notesForNode([note, other, link], "a").map((a) => a.id)).toEqual(["n"]);
+  });
+});
+
+describe("notedNodeIds", () => {
+  it("collects the anchor of every note", () => {
+    const a = ann({ id: "n1", type: "note", anchors: ["a"] });
+    const b = ann({ id: "n2", type: "note", anchors: ["b"] });
+    const link = ann({ id: "l", type: "link", anchors: ["a", "c"] });
+    expect(notedNodeIds([a, b, link])).toEqual(new Set(["a", "b"]));
+  });
+});
+
+describe("annotationLinkEdges", () => {
+  it("maps link annotations to labeled source→target edge descriptors", () => {
+    const link = ann({ id: "l1", type: "link", anchors: ["a", "b"], label: "reads" });
+    const note = ann({ id: "n", type: "note", anchors: ["a"] });
+    expect(annotationLinkEdges([link, note])).toEqual([
+      { id: "l1", source: "a", target: "b", label: "reads" },
+    ]);
+  });
+});
+
+describe("absoluteNodeBoxes", () => {
+  it("returns positions unchanged for flat nodes", () => {
+    const boxes = absoluteNodeBoxes([
+      { id: "a", position: { x: 10, y: 20 }, style: { width: 100, height: 40 } },
+    ]);
+    expect(boxes.get("a")).toEqual({ x: 10, y: 20, width: 100, height: 40 });
+  });
+
+  it("resolves a child's absolute position through its parent", () => {
+    const boxes = absoluteNodeBoxes([
+      { id: "mod", position: { x: 100, y: 100 }, style: { width: 400, height: 300 } },
+      { id: "child", parentId: "mod", position: { x: 20, y: 30 }, style: { width: 50, height: 20 } },
+    ]);
+    expect(boxes.get("child")).toEqual({ x: 120, y: 130, width: 50, height: 20 });
+  });
+});
+
+describe("groupFrames", () => {
+  const positions = new Map([
+    ["a", { x: 0, y: 0, width: 100, height: 40 }],
+    ["b", { x: 200, y: 100, width: 100, height: 40 }],
+  ]);
+
+  it("computes a padded bounding box around a group's members", () => {
+    const group = ann({ id: "g", type: "group", anchors: ["a", "b"], label: "lake" });
+    const [frame] = groupFrames([group], positions);
+    // Bounding box is (0,0)-(300,140); padded outward by 24 on every side.
+    expect(frame).toEqual({
+      id: "g",
+      label: "lake",
+      x: -24,
+      y: -24,
+      width: 300 + 48,
+      height: 140 + 48,
+    });
+  });
+
+  it("ignores members with no known position and skips empty groups", () => {
+    const group = ann({ id: "g", type: "group", anchors: ["a", "ghost"], label: "x" });
+    const [frame] = groupFrames([group], positions);
+    expect(frame?.width).toBe(100 + 48); // only "a" contributes
+    const empty = ann({ id: "e", type: "group", anchors: ["ghost", "phantom"], label: "y" });
+    expect(groupFrames([empty], positions)).toEqual([]);
+  });
+});

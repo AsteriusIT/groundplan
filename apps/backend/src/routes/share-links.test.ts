@@ -94,6 +94,49 @@ test("docs_latest link resolves to the newest docs snapshot, no auth required", 
   }
 });
 
+test("public view includes renderable annotations but hides orphans (GP-58)", async () => {
+  const app = await buildApp(env);
+  try {
+    const { projectId, repoId } = await createRepo(app);
+    await insertGraphSnapshot(app.db, {
+      repositoryId: repoId,
+      source: "hcl",
+      ref: "main",
+      commitSha: "cccccccc",
+      graph: docsGraph("a"), // node id: azurerm_subnet.a
+    });
+
+    // One note anchored to a present node, one to a vanished node.
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/repositories/${repoId}/annotations`,
+      payload: { type: "note", anchors: ["azurerm_subnet.a"], body: "kept" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/repositories/${repoId}/annotations`,
+      payload: { type: "note", anchors: ["azurerm_subnet.gone"], body: "orphan" },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/repositories/${repoId}/share-links`,
+      payload: { kind: "docs_latest" },
+    });
+    const { token } = created.json();
+
+    const view = await app.inject({ method: "GET", url: `/api/v1/public/${token}` });
+    assert.equal(view.statusCode, 200);
+    const anns = view.json().annotations;
+    assert.equal(anns.length, 1, "only the renderable annotation is public");
+    assert.equal(anns[0].body, "kept");
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
 test("a pinned snapshot link keeps its snapshot across regenerations", async () => {
   const app = await buildApp(env);
   try {

@@ -265,6 +265,8 @@ export interface CreateShareLinkInput {
 export interface PublicSnapshotView {
   kind: ShareKind;
   repository: { name: string; provider: Provider };
+  /** GP-58: renderable annotations shown read-only on the shared diagram. */
+  annotations: Annotation[];
   snapshot: {
     id: string;
     source: SnapshotSource;
@@ -275,6 +277,45 @@ export interface PublicSnapshotView {
     summaryMd: string;
     graph: Graph;
   };
+}
+
+// --- Annotations (GP-56..GP-59) --------------------------------------------
+
+export type AnnotationType = "note" | "link" | "group";
+export type AnnotationStatus = "resolved" | "orphaned";
+
+/**
+ * A human annotation, anchored to Terraform addresses (graph node ids). A `note`
+ * has 1 anchor + markdown `body`; a `link` has exactly 2 anchors + `label`; a
+ * `group` has 2+ anchors + `label`. `status` is owned by reconciliation (GP-57):
+ * when an anchor's address vanishes from the latest snapshot the annotation is
+ * `orphaned` and `missingAnchors` records what was lost (surfaced in GP-59).
+ */
+export interface Annotation {
+  id: string;
+  repositoryId: string;
+  type: AnnotationType;
+  anchors: string[];
+  label: string | null;
+  body: string | null;
+  status: AnnotationStatus;
+  missingAnchors: string[];
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAnnotationInput {
+  type: AnnotationType;
+  anchors: string[];
+  label?: string;
+  body?: string;
+}
+
+export interface UpdateAnnotationInput {
+  anchors?: string[];
+  label?: string;
+  body?: string;
 }
 
 export interface CreateProjectInput {

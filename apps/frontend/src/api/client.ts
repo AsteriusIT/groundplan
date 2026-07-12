@@ -6,6 +6,8 @@
 import { getConfig } from "@/config";
 
 import type {
+  Annotation,
+  CreateAnnotationInput,
   CreatedRepository,
   CreateProjectInput,
   CreateRepositoryInput,
@@ -19,6 +21,7 @@ import type {
   Snapshot,
   SnapshotDiff,
   SnapshotSummary,
+  UpdateAnnotationInput,
   UpdateRepositoryInput,
   User,
   VerifyResult,
@@ -266,6 +269,38 @@ export function getLatestDocs(repositoryId: string): Promise<Snapshot> {
 
 export function getMe(): Promise<User> {
   return request<User>("/me");
+}
+
+// --- Annotations (GP-56..GP-59) --------------------------------------------
+
+export function listAnnotations(repositoryId: string): Promise<Annotation[]> {
+  return request<Annotation[]>(
+    `/repositories/${encode(repositoryId)}/annotations`,
+  );
+}
+
+export function createAnnotation(
+  repositoryId: string,
+  input: CreateAnnotationInput,
+): Promise<Annotation> {
+  return request<Annotation>(
+    `/repositories/${encode(repositoryId)}/annotations`,
+    { method: "POST", body: input },
+  );
+}
+
+export function updateAnnotation(
+  id: string,
+  input: UpdateAnnotationInput,
+): Promise<Annotation> {
+  return request<Annotation>(`/annotations/${encode(id)}`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+export function deleteAnnotation(id: string): Promise<void> {
+  return request<void>(`/annotations/${encode(id)}`, { method: "DELETE" });
 }
 
 // --- Public share links (GP-39) --------------------------------------------
