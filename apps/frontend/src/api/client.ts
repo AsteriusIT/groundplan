@@ -1,8 +1,10 @@
 /**
  * The single place where HTTP happens. A thin, typed wrapper over `fetch`:
- * base URL from env, JSON handling, bearer-token injection, and a single
- * ApiError for non-2xx responses.
+ * base URL from runtime config, JSON handling, bearer-token injection, and a
+ * single ApiError for non-2xx responses.
  */
+import { getConfig } from "@/config";
+
 import type {
   CreatedRepository,
   CreateProjectInput,
@@ -22,8 +24,15 @@ import type {
   VerifyResult,
 } from "./types";
 
-const API_ROOT = import.meta.env.VITE_API_URL ?? "";
-const API_BASE = `${API_ROOT}/api/v1`;
+/** API origin from runtime config (`""` = same-origin). Read lazily so the
+ * value reflects `config.json` loaded at startup, not import-time defaults. */
+function apiRoot(): string {
+  return getConfig().apiUrl;
+}
+/** `${origin}/api/v1` — the base every request path is appended to. */
+function apiBase(): string {
+  return `${apiRoot()}/api/v1`;
+}
 
 /** Thrown for any non-2xx response; carries the HTTP status and server message. */
 export class ApiError extends Error {
@@ -71,7 +80,7 @@ async function request<T>(
     body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${apiBase()}${path}`, {
     method: options.method ?? "GET",
     headers,
     body,
@@ -129,7 +138,7 @@ export async function getSnapshotExport(
   if (token) headers.Authorization = `Bearer ${token}`;
   const query = scope === "changes" ? "?scope=changes" : "";
   const response = await fetch(
-    `${API_BASE}/snapshots/${encode(id)}/export.${format}${query}`,
+    `${apiBase()}/snapshots/${encode(id)}/export.${format}${query}`,
     { headers },
   );
   if (response.status === 401) unauthorizedHandler();
@@ -199,7 +208,7 @@ export function deleteRepository(id: string): Promise<void> {
  */
 export function webhookUrl(repositoryId: string): string {
   const origin =
-    API_ROOT || (typeof window !== "undefined" ? window.location.origin : "");
+    apiRoot() || (typeof window !== "undefined" ? window.location.origin : "");
   return `${origin}/api/v1/webhooks/ci/${repositoryId}`;
 }
 
@@ -291,12 +300,12 @@ export function publicExportUrl(
   scope: ExportScope = "full",
 ): string {
   const query = scope === "changes" ? "?scope=changes" : "";
-  return `${API_BASE}/public/${encode(token)}/export.${format}${query}`;
+  return `${apiBase()}/public/${encode(token)}/export.${format}${query}`;
 }
 
 /** The in-app URL of the read-only public share page for a token. */
 export function shareUrl(token: string): string {
   const origin =
-    typeof window !== "undefined" ? window.location.origin : API_ROOT;
+    typeof window !== "undefined" ? window.location.origin : apiRoot();
   return `${origin}/share/${encode(token)}`;
 }

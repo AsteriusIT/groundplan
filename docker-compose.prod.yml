@@ -57,6 +57,13 @@ services:
   frontend:
     image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    volumes:
+      # Runtime config (API base + OIDC), fetched by the SPA at startup. Edit
+      # ./frontend-config.json per deployment — it overrides the default baked
+      # into the image. Create it before `up` (cp frontend-config.json.example
+      # frontend-config.json); a missing bind source makes Docker create a
+      # directory, which breaks nginx. See frontend-config.json.example.
+      - ./frontend-config.json:/usr/share/nginx/html/config.json:ro
     depends_on:
       backend:
         condition: service_started
@@ -109,7 +116,7 @@ services:
 
   # --- Identity provider (Keycloak) ---------------------------------------
   keycloak:
-    image: quay.io/keycloak/keycloak:26.1
+    image: quay.io/keycloak/keycloak:26.7.0
     restart: unless-stopped
     command: ["start", "--import-realm"]
     environment:

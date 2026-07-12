@@ -9,10 +9,10 @@ external managed services are required.
 
 ```
                  Caddy  (:80 / :443, automatic HTTPS)
-                 ├── app.groundplan.asterius.fr
+                 ├── app.groundplan.qcs.ovh
                  │     ├── /api/*  → backend:3000
                  │     └── /*      → frontend:80   (nginx, static SPA)
-                 └── auth.groundplan.asterius.fr → keycloak:8080
+                 └── auth.groundplan.qcs.ovh → keycloak:8080
                                                      │
    backend:3000 ── app-postgres:5432                └── kc-postgres:5432
    (migrate one-shot applies the schema before backend starts)
@@ -55,8 +55,9 @@ docker compose --env-file .env.prod -f docker-compose.build.yml push
 ```
 
 `REGISTRY` / `IMAGE_TAG` (in `.env.prod`) control where images are tagged and
-pushed. The frontend bakes `VITE_OIDC_ISSUER` at build time, so `AUTH_DOMAIN`
-must match the target deployment when you build.
+pushed. The frontend image is environment-agnostic — it reads its runtime config
+from a mounted `config.json` (see [Frontend runtime config](#frontend-runtime-config)),
+so it isn't rebuilt per environment.
 
 ## First deploy
 
@@ -65,10 +66,16 @@ On the deploy host:
 ```bash
 cp .env.prod.example .env.prod
 # fill in every CHANGE ME value — passwords + ENCRYPTION_KEY (+ REGISTRY if not Scaleway)
+cp frontend-config.json.example frontend-config.json
+# set "oidcIssuer" to https://<AUTH_DOMAIN>/realms/groundplan (apiUrl stays "")
 docker login rg.fr-par.scw.cloud   # if the registry is private
 docker compose --env-file .env.prod -f docker-compose.prod.yml pull
 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
 ```
+
+> Create `frontend-config.json` **before** `up`: the compose file bind-mounts it,
+> and if the source is missing Docker creates a directory in its place, which
+> breaks the frontend.
 
 Startup order is handled automatically: each Postgres becomes healthy → the
 `migrate` job applies the schema and exits → the backend boots → Caddy starts
@@ -90,18 +97,34 @@ compose file from the domains — you don't set them directly:
 | Backend `OIDC_ISSUER_URL`    | `https://${AUTH_DOMAIN}/realms/groundplan`          |
 | Backend `CORS_ORIGIN`        | `https://${APP_DOMAIN}`                             |
 | Backend `PUBLIC_BASE_URL`    | `https://${APP_DOMAIN}`                             |
-| Frontend `VITE_OIDC_ISSUER`  | `https://${AUTH_DOMAIN}/realms/groundplan` (build)  |
 
-`VITE_*` values are **baked into the frontend bundle at build time**. If you
-change `APP_DOMAIN` or `AUTH_DOMAIN`, rebuild and push the frontend image
-(`docker compose -f docker-compose.build.yml build frontend && … push frontend`),
-then `pull` + `up -d` on the host.
+### Frontend runtime config
+
+The frontend is configured at **runtime**, not build time. It fetches
+`/config.json` on startup, and `docker-compose.prod.yml` mounts your
+`./frontend-config.json` (on the deploy host) over the default baked into the
+image. Create it from `frontend-config.json.example` and set the OIDC issuer to
+match `AUTH_DOMAIN`:
+
+```json
+{
+  "apiUrl": "",
+  "oidcIssuer": "https://<AUTH_DOMAIN>/realms/groundplan",
+  "oidcClientId": "groundplan-frontend"
+}
+```
+
+`apiUrl` stays empty — the SPA calls `/api` on its own origin, which Caddy routes
+to the backend. To change the issuer later, edit `frontend-config.json` and
+restart just the frontend
+(`docker compose --env-file .env.prod -f docker-compose.prod.yml up -d frontend`);
+no image rebuild is needed.
 
 ## Keycloak realm
 
 The `groundplan` realm is imported on first boot from
 `infra/keycloak/groundplan-realm.json`. Its `groundplan-frontend` client allows
-the callback `https://app.groundplan.asterius.fr/callback`.
+the callback `https://app.groundplan.qcs.ovh/callback`.
 
 - **If you use a different `APP_DOMAIN`,** add `https://<your-app-domain>/*` to
   the client's redirect URIs (realm file, or the admin console at

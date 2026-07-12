@@ -3,10 +3,12 @@
 # Multi-stage build for the React/Vite SPA (@groundplan/frontend).
 #
 # Build context is the REPO ROOT (pnpm workspace manifests live there).
-# Vite inlines VITE_* env at BUILD time, so the OIDC issuer / API base are
-# baked in via build args (passed from docker-compose.prod.yml). The output
-# is static files served by nginx; the Caddy edge terminates TLS and routes
-# /api to the backend, so this image ships no server logic.
+# Runtime configuration (API base + OIDC settings) is NOT baked into the bundle:
+# the SPA fetches /config.json at startup. The image ships a default config.json
+# (from apps/frontend/public/), and production mounts its own over it — so one
+# image is portable across environments. The output is static files served by
+# nginx; the Caddy edge terminates TLS and routes /api to the backend, so this
+# image ships no server logic.
 
 # ---- build ----------------------------------------------------------------
 FROM node:22-bookworm-slim AS build
@@ -21,15 +23,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 COPY apps/frontend/ apps/frontend/
 
-# Public config, inlined into the bundle at build time. VITE_OIDC_REDIRECT_URI
-# is intentionally left unset so the app derives `${window.location.origin}
-# /callback` at runtime (works for any host the SPA is served from).
-ARG VITE_API_URL=""
-ARG VITE_OIDC_ISSUER
-ARG VITE_OIDC_CLIENT_ID=groundplan-frontend
-ENV VITE_API_URL=$VITE_API_URL \
-    VITE_OIDC_ISSUER=$VITE_OIDC_ISSUER \
-    VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
+# No build-time config: nothing environment-specific is inlined. The bundled
+# apps/frontend/public/config.json becomes the image's default /config.json
+# (production mounts its own over it, see docker-compose.prod.yml).
 RUN pnpm --filter @groundplan/frontend build
 
 # ---- runtime --------------------------------------------------------------

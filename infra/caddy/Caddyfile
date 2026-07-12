@@ -7,7 +7,7 @@
 #   * ACME_EMAIL is set (used for expiry notices)
 #
 # Per-subdomain certs use the HTTP/TLS-ALPN challenge — no DNS API token
-# needed. (A single wildcard *.groundplan.asterius.fr cert would require the
+# needed. (A single wildcard *.groundplan.qcs.ovh cert would require the
 # DNS-01 challenge and a Caddy build with your DNS provider plugin.)
 #
 # Domains come from the environment so the same file works across deployments.

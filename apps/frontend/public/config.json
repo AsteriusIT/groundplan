@@ -1,0 +1,5 @@
+{
+  "apiUrl": "",
+  "oidcIssuer": "http://localhost:8085/realms/groundplan",
+  "oidcClientId": "groundplan-frontend"
+}
