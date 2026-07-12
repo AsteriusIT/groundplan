@@ -95,6 +95,35 @@ export function notesForNode(annotations: Annotation[], nodeId: string): Annotat
   return annotations.filter((a) => a.type === "note" && a.anchors[0] === nodeId);
 }
 
+/** An orphaned annotation and precisely which of its anchors are missing. */
+export type Orphan = { annotation: Annotation; missing: string[] };
+
+/**
+ * Annotations with at least one anchor missing from the displayed graph (GP-59).
+ * Computed against the *current* snapshot's node ids, so re-anchoring to a
+ * present address clears the orphan immediately, no regeneration required.
+ */
+export function orphanedAnnotations(
+  annotations: Annotation[],
+  nodeIds: ReadonlySet<string>,
+): Orphan[] {
+  const out: Orphan[] = [];
+  for (const annotation of annotations) {
+    const missing = annotation.anchors.filter((a) => !nodeIds.has(a));
+    if (missing.length > 0) out.push({ annotation, missing });
+  }
+  return out;
+}
+
+/** Replace a missing anchor with a chosen address, preserving anchor order. */
+export function reanchor(
+  anchors: string[],
+  missing: string,
+  replacement: string,
+): string[] {
+  return anchors.map((a) => (a === missing ? replacement : a));
+}
+
 /** Node ids that carry at least one note — used to badge them on the canvas. */
 export function notedNodeIds(annotations: Annotation[]): Set<string> {
   const ids = new Set<string>();

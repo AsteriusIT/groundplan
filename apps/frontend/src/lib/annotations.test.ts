@@ -7,6 +7,8 @@ import {
   groupFrames,
   notedNodeIds,
   notesForNode,
+  orphanedAnnotations,
+  reanchor,
   renderableAnnotations,
 } from "./annotations";
 
@@ -40,6 +42,29 @@ describe("notesForNode", () => {
     const other = ann({ id: "n2", type: "note", anchors: ["b"] });
     const link = ann({ id: "l", type: "link", anchors: ["a", "b"] });
     expect(notesForNode([note, other, link], "a").map((a) => a.id)).toEqual(["n"]);
+  });
+});
+
+describe("orphanedAnnotations", () => {
+  it("returns annotations with any missing anchor, computed against the graph", () => {
+    const note = ann({ id: "n", type: "note", anchors: ["gone"] });
+    const link = ann({ id: "l", type: "link", anchors: ["a", "vanished"] });
+    const ok = ann({ id: "ok", type: "note", anchors: ["a"] });
+    const orphans = orphanedAnnotations([note, link, ok], new Set(["a"]));
+    expect(orphans).toEqual([
+      { annotation: note, missing: ["gone"] },
+      { annotation: link, missing: ["vanished"] },
+    ]);
+  });
+});
+
+describe("reanchor", () => {
+  it("replaces the missing anchor with the chosen address", () => {
+    expect(reanchor(["a", "gone"], "gone", "renamed")).toEqual(["a", "renamed"]);
+  });
+  it("leaves other anchors untouched", () => {
+    expect(reanchor(["gone"], "gone", "x")).toEqual(["x"]);
+    expect(reanchor(["a", "b"], "missing", "x")).toEqual(["a", "b"]);
   });
 });
 

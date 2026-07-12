@@ -36,6 +36,8 @@ import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { AnnotateToggle, useAnnotateMode } from "@/components/annotate-toolbar";
+import { OrphanReview } from "@/components/orphan-review";
+import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { SnapshotSelect } from "@/components/snapshot-select";
@@ -201,6 +203,20 @@ export function DocsPage() {
   const latestId = snapshots[0]?.id ?? null;
   const viewingOld = Boolean(selectedId && latestId && selectedId !== latestId);
   const current = graph.status === "ready" ? graph.snapshot : null;
+
+  // Orphaned annotations relative to the displayed snapshot (GP-59): an anchor
+  // whose address is no longer a node. Computed client-side so a re-anchor clears
+  // it immediately.
+  const orphans = useMemo(
+    () =>
+      current
+        ? orphanedAnnotations(
+            annotations,
+            new Set(current.graph.nodes.map((n) => n.id)),
+          )
+        : [],
+    [annotations, current],
+  );
 
   // Network view (GP-44): project the current snapshot when ?view=network.
   const { view, setView } = useGraphView();
@@ -384,6 +400,15 @@ export function DocsPage() {
             Back to latest
           </button>
         </div>
+      )}
+
+      {current && !compareMode && (
+        <OrphanReview
+          orphans={orphans}
+          graph={current.graph}
+          onReanchor={(annId, anchors) => handleUpdateAnnotation(annId, { anchors })}
+          onDelete={handleDeleteAnnotation}
+        />
       )}
 
       <div className="relative min-h-0 flex-1">
