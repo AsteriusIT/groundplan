@@ -193,7 +193,7 @@ export function PullDetailPage() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <div className="blueprint-grid relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1">
           {!pull.latestSnapshot && graph.status !== "ready" ? (
             <NoSnapshot parseError={pull.parseError} />
           ) : graph.status === "error" ? (

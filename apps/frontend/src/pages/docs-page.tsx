@@ -283,7 +283,7 @@ export function DocsPage() {
         />
       )}
 
-      <div className="blueprint-grid relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {list.status === "loading" && <Centered>Loading documentation…</Centered>}
 
         {list.status === "error" && (

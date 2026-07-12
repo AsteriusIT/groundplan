@@ -62,6 +62,14 @@ const NODE_TYPES = {
 };
 const EDGE_TYPES = { relationship: RelationshipEdge };
 
+/**
+ * Default viewport: 100% zoom, not fit-to-diagram (a large plan should not be
+ * shrunk to illegibility on load). The small offset keeps the top-left of the
+ * graph clear of the floating filter panel / search overlays. Re-applied on each
+ * relayout so switching views also starts at 100% rather than a stale zoom.
+ */
+const DEFAULT_VIEWPORT = { x: 220, y: 72, zoom: 1 } as const;
+
 const FILTER_LABELS: Record<FilterKey, string> = {
   create: "Create",
   update: "Update",
@@ -158,6 +166,10 @@ export function GraphCanvas({
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
           setLaying(false);
+          // Start every (re)layout at 100% rather than inheriting a stale
+          // zoom/pan — so view switches don't leave the diagram tiny or off-screen.
+          rfRef.current?.setViewport(DEFAULT_VIEWPORT);
+          setZoom(1);
         }
       })
       .catch(() => {
@@ -226,7 +238,7 @@ export function GraphCanvas({
   };
 
   return (
-    <div className="relative h-full w-full">
+    <div className="bg-canvas relative h-full w-full">
       <EdgeArrowMarkers />
       <ReactFlow
         nodes={elements.nodes}
@@ -245,7 +257,7 @@ export function GraphCanvas({
         nodesDraggable={false}
         nodesConnectable={false}
         minZoom={0.1}
-        fitView
+        defaultViewport={DEFAULT_VIEWPORT}
         proOptions={{ hideAttribution: true }}
       >
         {/* Blueprint grid: a fine 24px grid with a bold line every 120px. */}

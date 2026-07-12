@@ -95,19 +95,22 @@ const SORTED_PREFIXES = Object.keys(PREFIX_TO_CATEGORY).sort(
   (a, b) => b.length - a.length,
 );
 
-// Category accent colours are tokens (GP-28) — see --cat-* in index.css — so no
-// component picks a raw hue.
+// Category no longer drives colour: the icon *shape* + the type-first label carry
+// the category, and colour is reserved for the plan diff (create/update/delete).
+// So every category renders its icon in one quiet neutral ink (`text-muted-
+// foreground`); official vendor icons (rendered as <img>) keep their own colour.
+const CATEGORY_ICON_CLASS = "text-muted-foreground";
 export const CATEGORY_META: Record<
   Category,
   { label: string; icon: LucideIcon; className: string }
 > = {
-  compute: { label: "Compute", icon: Cpu, className: "text-cat-compute" },
-  network: { label: "Network", icon: Network, className: "text-cat-network" },
-  data: { label: "Data", icon: Database, className: "text-cat-data" },
-  security: { label: "Security", icon: ShieldCheck, className: "text-cat-security" },
-  identity: { label: "Identity", icon: KeyRound, className: "text-cat-identity" },
-  observability: { label: "Observability", icon: Activity, className: "text-cat-observability" },
-  other: { label: "Other", icon: Box, className: "text-cat-other" },
+  compute: { label: "Compute", icon: Cpu, className: CATEGORY_ICON_CLASS },
+  network: { label: "Network", icon: Network, className: CATEGORY_ICON_CLASS },
+  data: { label: "Data", icon: Database, className: CATEGORY_ICON_CLASS },
+  security: { label: "Security", icon: ShieldCheck, className: CATEGORY_ICON_CLASS },
+  identity: { label: "Identity", icon: KeyRound, className: CATEGORY_ICON_CLASS },
+  observability: { label: "Observability", icon: Activity, className: CATEGORY_ICON_CLASS },
+  other: { label: "Other", icon: Box, className: CATEGORY_ICON_CLASS },
 };
 
 /** Categorise a resource type; unknown / non-prefixed types → "other". */
