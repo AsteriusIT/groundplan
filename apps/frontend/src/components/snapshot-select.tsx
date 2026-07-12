@@ -64,7 +64,7 @@ export function SnapshotSelect({
             .map((id) => shortSha(snapshots.find((s) => s.id === id)?.commitSha ?? id))
             .join(" ⇄ ")
     : selected
-      ? `${shortSha(selected.commitSha)} · ${(selected.stats.trigger ?? "manual").toUpperCase()} · ${formatDate(selected.createdAt)}`
+      ? `${shortSha(selected.commitSha)}${selected.stats.trigger ? ` · ${selected.stats.trigger.toUpperCase()}` : ""} · ${formatDate(selected.createdAt)}`
       : "Select snapshot";
 
   return (
@@ -93,7 +93,7 @@ export function SnapshotSelect({
       >
         {snapshots.slice(0, visible).map((snap) => {
           const isSelected = selectedIds.includes(snap.id);
-          const trigger = snap.stats.trigger ?? "manual";
+          const trigger = snap.stats.trigger;
           return (
             <button
               key={snap.id}
@@ -113,16 +113,18 @@ export function SnapshotSelect({
               <span className="font-mono text-xs font-medium">
                 {shortSha(snap.commitSha)}
               </span>
-              <span
-                className={cn(
-                  "rounded-xs px-1.5 py-0.5 font-mono text-[9px] uppercase",
-                  trigger === "auto"
-                    ? "bg-primary/10 text-primary"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {trigger}
-              </span>
+              {trigger && (
+                <span
+                  className={cn(
+                    "rounded-xs px-1.5 py-0.5 font-mono text-[9px] uppercase",
+                    trigger === "auto"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {trigger}
+                </span>
+              )}
               <span className="text-muted-foreground ml-auto font-mono text-[10px]">
                 {formatDate(snap.createdAt)}
               </span>

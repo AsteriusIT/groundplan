@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { ChangeSummarySidebar } from "@/components/change-summary";
 import { ExportMenu } from "@/components/export-menu";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { SnapshotSelect } from "@/components/snapshot-select";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { networkProjection } from "@/lib/graph-layout";
 
@@ -158,29 +159,6 @@ export function PullDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {graph.status === "ready" && <ViewSwitcher />}
-            {network && network.hiddenCount > 0 && (
-              <span className="text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono text-[11px]">
-                {network.hiddenCount} resource{network.hiddenCount === 1 ? "" : "s"} not in
-                network view
-              </span>
-            )}
-            {snapshots.length > 1 && (
-              <label className="text-muted-foreground flex items-center gap-2 text-xs">
-                Snapshot
-                <select
-                  value={selectedId ?? ""}
-                  onChange={(e) => setSelectedId(e.target.value)}
-                  className="bg-background rounded-md border border-input px-2 py-1 font-mono text-xs"
-                >
-                  {snapshots.map((snap) => (
-                    <option key={snap.id} value={snap.id}>
-                      {shortSha(snap.commitSha)} — {formatDate(snap.createdAt)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             {graph.status === "ready" && (
               <ExportMenu
                 snapshotId={graph.snapshot.id}
@@ -191,6 +169,30 @@ export function PullDetailPage() {
           </div>
         </div>
       </header>
+
+      {(graph.status === "ready" || snapshots.length > 1) && (
+        <div className="bg-card border-border flex items-center justify-between gap-4 border-b px-8 py-2.5">
+          <div className="flex items-center gap-3">
+            {graph.status === "ready" && <ViewSwitcher />}
+            {network && network.hiddenCount > 0 && (
+              <span className="text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono text-[11px]">
+                {network.hiddenCount} resource{network.hiddenCount === 1 ? "" : "s"} not in
+                network view
+              </span>
+            )}
+          </div>
+          {snapshots.length > 1 && (
+            <SnapshotSelect
+              snapshots={snapshots}
+              selectedIds={selectedId ? [selectedId] : []}
+              visible={snapshots.length}
+              compareMode={false}
+              onSelect={(sid) => setSelectedId(sid)}
+              onShowMore={() => {}}
+            />
+          )}
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 flex-1">

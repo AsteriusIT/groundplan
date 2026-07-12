@@ -170,5 +170,7 @@ it("offers a snapshot dropdown when the PR has more than one", async () => {
   renderPage();
 
   await screen.findByTestId("canvas");
-  expect(screen.getByRole("combobox")).toBeInTheDocument();
+  // Both snapshots are rows in the history dropdown.
+  expect(screen.getByRole("menuitem", { name: /newsha22/i })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: /oldsha11/i })).toBeInTheDocument();
 });
