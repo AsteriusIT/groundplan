@@ -11,6 +11,11 @@ import { insertGraphSnapshot } from "./graph-snapshots.js";
 import { buildCommentBody, COMMENT_MARKER, postPrComment } from "./pr-comment.js";
 import { parseGitHubRepo, type GitHubClient, type GitHubComment } from "./github.js";
 import { GitLabApiError, type GitLabClient, type GitLabNote } from "./gitlab.js";
+import {
+  AzureDevOpsApiError,
+  type AdoThread,
+  type AzureDevOpsClient,
+} from "./azure-devops.js";
 
 // --- Pure helpers -----------------------------------------------------------
 
@@ -115,6 +120,38 @@ function fakeGitLab() {
     },
   };
   return { client, calls, notes };
+}
+
+function fakeAzureDevOps() {
+  const threads = new Map<number, AdoThread[]>(); // keyed by PR id
+  const calls = { list: 0, create: 0, update: 0 };
+  let nextThreadId = 900;
+  let nextCommentId = 8000;
+  const client: AzureDevOpsClient = {
+    async listThreads(_base, _project, _repo, prId) {
+      calls.list += 1;
+      return [...(threads.get(prId) ?? [])];
+    },
+    async createThread(_base, _project, _repo, prId, content) {
+      calls.create += 1;
+      const thread = {
+        id: nextThreadId++,
+        comments: [{ id: nextCommentId++, content }],
+      };
+      threads.set(prId, [...(threads.get(prId) ?? []), thread]);
+      return thread;
+    },
+    async updateComment(_base, _project, _repo, _prId, threadId, commentId, content) {
+      calls.update += 1;
+      for (const list of threads.values()) {
+        const thread = list.find((t) => t.id === threadId);
+        const comment = thread?.comments.find((c) => c.id === commentId);
+        if (comment) comment.content = content;
+      }
+      return { id: commentId, content };
+    },
+  };
+  return { client, calls, threads };
 }
 
 let counter = 0;
@@ -389,6 +426,74 @@ test("generic provider: comments unavailable — error stored, no provider calls
       .from(repositories)
       .where(eq(repositories.id, repoId));
     assert.match(repo!.lastCommentError!, /not available|unavailable/i);
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+// --- Azure DevOps (GP-54) ---------------------------------------------------
+
+test("Azure DevOps: creates one PR thread, then updates the comment in place", async () => {
+  const ado = fakeAzureDevOps();
+  const app = await buildApp(env, { azureDevOps: ado.client });
+  try {
+    const { projectId, repoId } = await setupRepo(app, {
+      enabled: true,
+      withPat: true,
+      provider: "azure_devops",
+      url: "https://dev.azure.com/acme/infra/_git/repo",
+    });
+
+    await postPrComment(app, await insertPlan(app, repoId, "aaaaaaaa1111"));
+    assert.equal(ado.calls.create, 1);
+    assert.equal(ado.calls.update, 0);
+    const firstContent = ado.threads.get(42)![0]!.comments[0]!.content;
+    assert.ok(firstContent.startsWith(COMMENT_MARKER));
+    assert.ok(firstContent.includes("aaaaaaaa"));
+
+    // Second push → the same single thread, comment updated in place.
+    await postPrComment(app, await insertPlan(app, repoId, "bbbbbbbb2222"));
+    assert.equal(ado.calls.create, 1);
+    assert.equal(ado.calls.update, 1);
+    assert.equal(ado.threads.get(42)!.length, 1);
+    assert.ok(ado.threads.get(42)![0]!.comments[0]!.content.includes("bbbbbbbb"));
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("Azure DevOps: a permission error is recorded on the repo, never thrown", async () => {
+  const failing: AzureDevOpsClient = {
+    async listThreads() {
+      return [];
+    },
+    async createThread() {
+      throw new AzureDevOpsApiError(
+        403,
+        "Azure DevOps API 403: TF401027 (check the PAT has Code (read & write) access to post PR comments)",
+      );
+    },
+    async updateComment() {
+      return { id: 0, content: "" };
+    },
+  };
+  const app = await buildApp(env, { azureDevOps: failing });
+  try {
+    const { projectId, repoId } = await setupRepo(app, {
+      enabled: true,
+      withPat: true,
+      provider: "azure_devops",
+      url: "https://dev.azure.com/acme/infra/_git/repo",
+    });
+    await postPrComment(app, await insertPlan(app, repoId, "cccccccc3333"));
+    const [repo] = await app.db
+      .select({ lastCommentError: repositories.lastCommentError })
+      .from(repositories)
+      .where(eq(repositories.id, repoId));
+    assert.match(repo!.lastCommentError!, /403/);
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {
     await app.close();

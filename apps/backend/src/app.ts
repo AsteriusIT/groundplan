@@ -8,6 +8,10 @@ import type { AppEnv } from "./config/env.js";
 import { createEncryptor, type Encryptor } from "./lib/encryption.js";
 import { realGitHubClient, type GitHubClient } from "./services/github.js";
 import { realGitLabClient, type GitLabClient } from "./services/gitlab.js";
+import {
+  realAzureDevOpsClient,
+  type AzureDevOpsClient,
+} from "./services/azure-devops.js";
 import { authPlugin } from "./plugins/auth.js";
 import { backgroundPlugin } from "./plugins/background.js";
 import { dbPlugin } from "./plugins/db.js";
@@ -44,6 +48,8 @@ declare module "fastify" {
     github: GitHubClient;
     /** GitLab REST client for MR-note PR comments (GP-53); injectable in tests. */
     gitlab: GitLabClient;
+    /** Azure DevOps REST client for PR-thread comments (GP-54); injectable in tests. */
+    azureDevOps: AzureDevOpsClient;
     /** Public origin for absolute PR-comment URLs (GP-38); "" = link-only. */
     publicBaseUrl: string;
   }
@@ -60,6 +66,8 @@ export type BuildAppOptions = {
   github?: GitHubClient;
   /** Inject a GitLab client (tests). Defaults to the real REST client. */
   gitlab?: GitLabClient;
+  /** Inject an Azure DevOps client (tests). Defaults to the real REST client. */
+  azureDevOps?: AzureDevOpsClient;
 };
 
 /** Pretty logs in dev, structured JSON in prod, silent in tests. */
@@ -102,6 +110,7 @@ export async function buildApp(
   app.decorate("exportCacheDir", env.exportCacheDir);
   app.decorate("github", opts.github ?? realGitHubClient);
   app.decorate("gitlab", opts.gitlab ?? realGitLabClient);
+  app.decorate("azureDevOps", opts.azureDevOps ?? realAzureDevOpsClient);
   app.decorate("publicBaseUrl", env.publicBaseUrl);
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.

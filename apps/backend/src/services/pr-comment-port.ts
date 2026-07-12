@@ -8,6 +8,10 @@
  */
 import { parseGitHubRepo, type GitHubClient } from "./github.js";
 import { parseGitLabRepo, type GitLabClient } from "./gitlab.js";
+import {
+  parseAzureDevOpsRepo,
+  type AzureDevOpsClient,
+} from "./azure-devops.js";
 
 export interface UpsertCommentArgs {
   /** The repository URL — each port parses out the identifiers it needs. */
@@ -75,6 +79,53 @@ export function createGitLabPort(client: GitLabClient): PrCommentPort {
         await client.createMergeRequestNote(
           target.apiBase,
           target.projectPath,
+          prNumber,
+          body,
+          token,
+        );
+      }
+    },
+  };
+}
+
+/** Azure DevOps pull-request comment threads (Services + Server). */
+export function createAzureDevOpsPort(client: AzureDevOpsClient): PrCommentPort {
+  return {
+    async upsertComment({ repoUrl, prNumber, marker, body, token }) {
+      const target = parseAzureDevOpsRepo(repoUrl);
+      if (!target) throw new Error(`not an Azure DevOps repository URL: ${repoUrl}`);
+      const threads = await client.listThreads(
+        target.apiBase,
+        target.project,
+        target.repo,
+        prNumber,
+        token,
+      );
+      // Our comment is the first comment of a thread carrying the marker.
+      let existing: { threadId: number; commentId: number } | null = null;
+      for (const thread of threads) {
+        const first = thread.comments[0];
+        if (first?.content.includes(marker)) {
+          existing = { threadId: thread.id, commentId: first.id };
+          break;
+        }
+      }
+      if (existing) {
+        await client.updateComment(
+          target.apiBase,
+          target.project,
+          target.repo,
+          prNumber,
+          existing.threadId,
+          existing.commentId,
+          body,
+          token,
+        );
+      } else {
+        await client.createThread(
+          target.apiBase,
+          target.project,
+          target.repo,
           prNumber,
           body,
           token,

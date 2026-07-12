@@ -14,6 +14,7 @@ import { eq } from "drizzle-orm";
 import { repositories, type GraphSnapshotRow } from "../db/schema.js";
 import type { Provider } from "./providers.js";
 import {
+  createAzureDevOpsPort,
   createGitHubPort,
   createGitLabPort,
   type PrCommentPort,
@@ -66,6 +67,8 @@ function resolvePort(app: FastifyInstance, provider: Provider): PrCommentPort | 
       return createGitHubPort(app.github);
     case "gitlab":
       return createGitLabPort(app.gitlab);
+    case "azure_devops":
+      return createAzureDevOpsPort(app.azureDevOps);
     default:
       return null;
   }
