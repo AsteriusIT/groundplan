@@ -1,0 +1,209 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_resource_group.main",
+      "mode": "managed",
+      "type": "azurerm_resource_group",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "after": { "name": "rg-main" } }
+    },
+    {
+      "address": "azurerm_container_registry.main",
+      "mode": "managed",
+      "type": "azurerm_container_registry",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "after": { "name": "acrmain" } }
+    },
+    {
+      "address": "azurerm_user_assigned_identity.aks",
+      "mode": "managed",
+      "type": "azurerm_user_assigned_identity",
+      "name": "aks",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "after": { "name": "id-aks" } }
+    },
+    {
+      "address": "azurerm_kubernetes_cluster.main",
+      "mode": "managed",
+      "type": "azurerm_kubernetes_cluster",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": { "name": "aks-main", "identity": [{ "type": "UserAssigned" }] }
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.acr_pull",
+      "mode": "managed",
+      "type": "azurerm_role_assignment",
+      "name": "acr_pull",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "after": { "role_definition_name": "AcrPull" } }
+    },
+    {
+      "address": "azurerm_role_assignment.owner_rg",
+      "mode": "managed",
+      "type": "azurerm_role_assignment",
+      "name": "owner_rg",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "role_definition_name": "Owner",
+          "principal_id": "11111111-1111-1111-1111-111111111111",
+          "principal_type": "ServicePrincipal"
+        }
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.contributor_sub",
+      "mode": "managed",
+      "type": "azurerm_role_assignment",
+      "name": "contributor_sub",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "role_definition_name": "Contributor",
+          "scope": "/subscriptions/00000000-0000-0000-0000-000000000000",
+          "principal_id": "22222222-2222-2222-2222-222222222222"
+        }
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.reader_rg",
+      "mode": "managed",
+      "type": "azurerm_role_assignment",
+      "name": "reader_rg",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "role_definition_name": "Reader",
+          "principal_id": "33333333-3333-3333-3333-333333333333"
+        }
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.net_admin",
+      "mode": "managed",
+      "type": "azurerm_role_assignment",
+      "name": "net_admin",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "role_definition_name": "Network Admin",
+          "scope": "/subscriptions/00000000-0000-0000-0000-000000000000",
+          "principal_id": "44444444-4444-4444-4444-444444444444"
+        }
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "azurerm_kubernetes_cluster.main",
+          "mode": "managed",
+          "type": "azurerm_kubernetes_cluster",
+          "name": "main",
+          "expressions": {
+            "identity": [
+              {
+                "type": { "constant_value": "UserAssigned" },
+                "identity_ids": {
+                  "references": [
+                    "azurerm_user_assigned_identity.aks.id",
+                    "azurerm_user_assigned_identity.aks"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "address": "azurerm_role_assignment.acr_pull",
+          "mode": "managed",
+          "type": "azurerm_role_assignment",
+          "name": "acr_pull",
+          "expressions": {
+            "role_definition_name": { "constant_value": "AcrPull" },
+            "scope": {
+              "references": [
+                "azurerm_container_registry.main.id",
+                "azurerm_container_registry.main"
+              ]
+            },
+            "principal_id": {
+              "references": [
+                "azurerm_user_assigned_identity.aks.principal_id",
+                "azurerm_user_assigned_identity.aks"
+              ]
+            }
+          }
+        },
+        {
+          "address": "azurerm_role_assignment.owner_rg",
+          "mode": "managed",
+          "type": "azurerm_role_assignment",
+          "name": "owner_rg",
+          "expressions": {
+            "role_definition_name": { "constant_value": "Owner" },
+            "scope": {
+              "references": [
+                "azurerm_resource_group.main.id",
+                "azurerm_resource_group.main"
+              ]
+            },
+            "principal_id": { "constant_value": "11111111-1111-1111-1111-111111111111" },
+            "principal_type": { "constant_value": "ServicePrincipal" }
+          }
+        },
+        {
+          "address": "azurerm_role_assignment.contributor_sub",
+          "mode": "managed",
+          "type": "azurerm_role_assignment",
+          "name": "contributor_sub",
+          "expressions": {
+            "role_definition_name": { "constant_value": "Contributor" },
+            "scope": { "constant_value": "/subscriptions/00000000-0000-0000-0000-000000000000" },
+            "principal_id": { "constant_value": "22222222-2222-2222-2222-222222222222" }
+          }
+        },
+        {
+          "address": "azurerm_role_assignment.reader_rg",
+          "mode": "managed",
+          "type": "azurerm_role_assignment",
+          "name": "reader_rg",
+          "expressions": {
+            "role_definition_name": { "constant_value": "Reader" },
+            "scope": {
+              "references": [
+                "azurerm_resource_group.main.id",
+                "azurerm_resource_group.main"
+              ]
+            },
+            "principal_id": { "constant_value": "33333333-3333-3333-3333-333333333333" }
+          }
+        },
+        {
+          "address": "azurerm_role_assignment.net_admin",
+          "mode": "managed",
+          "type": "azurerm_role_assignment",
+          "name": "net_admin",
+          "expressions": {
+            "role_definition_name": { "constant_value": "Network Admin" },
+            "scope": { "constant_value": "/subscriptions/00000000-0000-0000-0000-000000000000" },
+            "principal_id": { "constant_value": "44444444-4444-4444-4444-444444444444" }
+          }
+        }
+      ]
+    }
+  }
+}

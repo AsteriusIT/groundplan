@@ -87,6 +87,24 @@ export interface NsgRule {
   destination: string;
 }
 
+/**
+ * v4: role-assignment payload on an azurerm_role_assignment node (GP-47).
+ * `principal`/`scope` are resolved node addresses when they reference a
+ * resource in the snapshot, otherwise the raw Azure id / object id.
+ */
+export interface RoleAssignment {
+  role: string;
+  principal: string;
+  scope: string;
+  principal_type?: string;
+}
+
+/** v4: managed-identity payload — UAI nodes & resources with identity{} (GP-47). */
+export interface Identity {
+  type: string;
+  identity_ids?: string[];
+}
+
 export interface GraphNode {
   id: string;
   name: string;
@@ -110,6 +128,12 @@ export interface GraphNode {
   internet_exposed?: boolean;
   /** v4: node ids of the subnets/NICs this NSG is associated with (GP-43/45). */
   associated_ids?: string[];
+  /** v4: role-assignment payload on an azurerm_role_assignment node (GP-47). */
+  role_assignment?: RoleAssignment;
+  /** v4: true iff this role assignment is a broad-scope high-privilege grant (GP-47). */
+  privileged?: boolean;
+  /** v4: managed-identity payload — UAI nodes & resources with identity{} (GP-47). */
+  identity?: Identity;
 }
 
 export interface GraphEdge {

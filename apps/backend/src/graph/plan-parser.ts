@@ -26,7 +26,16 @@ import {
   type EdgeContext,
   type RawRef,
 } from "./dependency-edges.js";
-import type { ChangeKind, Graph, GraphEdge, GraphNode, NsgRule } from "./graph.js";
+import type {
+  ChangeKind,
+  Graph,
+  GraphEdge,
+  GraphNode,
+  Identity,
+  NsgRule,
+  RoleAssignment,
+} from "./graph.js";
+import { attachIam, type ExtractedIam } from "./iam.js";
 import { propagateImpact } from "./impact.js";
 import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
@@ -267,6 +276,142 @@ function extractPlanNsg(
   return extracted;
 }
 
+/** One configuration resource's module prefix + raw per-attribute expressions. */
+type ConfigEntry = { prefix: string; expressions: Record<string, unknown> };
+
+/** Index every configuration resource by full address (module prefix applied). */
+function indexConfigResources(
+  mod: ConfigModule,
+  prefix: string,
+  out: Map<string, ConfigEntry>,
+): void {
+  const resources = Array.isArray(mod.resources) ? mod.resources : [];
+  for (const raw of resources) {
+    const res = raw as ConfigResource;
+    const expressions =
+      res.expressions && typeof res.expressions === "object"
+        ? (res.expressions as Record<string, unknown>)
+        : {};
+    out.set(prefix + asString(res.address), { prefix, expressions });
+  }
+  const calls = mod.module_calls;
+  if (calls && typeof calls === "object") {
+    for (const [name, raw] of Object.entries(calls)) {
+      const child = (raw as { module?: unknown }).module;
+      if (child && typeof child === "object") {
+        indexConfigResources(child as ConfigModule, `${prefix}module.${name}.`, out);
+      }
+    }
+  }
+}
+
+/** First reference under an expression that resolves to an existing node id. */
+function resolveExprNode(
+  expr: unknown,
+  prefix: string,
+  edgeCtx: EdgeContext,
+  nodesById: ReadonlyMap<string, GraphNode>,
+): string | null {
+  const refs = new Set<string>();
+  collectReferences(expr, refs);
+  for (const ref of refs) {
+    for (const id of resolveReference(prefix, ref, edgeCtx)) {
+      if (nodesById.has(id)) return id;
+    }
+  }
+  return null;
+}
+
+/** Resolve an `identity {}` block's refs to the user-assigned-identity node ids. */
+function resolveIdentityIds(
+  expr: unknown,
+  prefix: string,
+  edgeCtx: EdgeContext,
+  nodesById: ReadonlyMap<string, GraphNode>,
+): string[] {
+  const refs = new Set<string>();
+  collectReferences(expr, refs);
+  const ids = new Set<string>();
+  for (const ref of refs) {
+    for (const id of resolveReference(prefix, ref, edgeCtx)) {
+      if (nodesById.get(id)?.type === "azurerm_user_assigned_identity") ids.add(id);
+    }
+  }
+  return [...ids].sort();
+}
+
+/** The first `identity {}` block object from a plan `after.identity` value. */
+function firstIdentityBlock(value: unknown): Record<string, unknown> | null {
+  const block = Array.isArray(value) ? value[0] : value;
+  return block && typeof block === "object"
+    ? (block as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Collect role-assignment triples (with references resolved to addresses) and
+ * managed-identity payloads. The `privileged` flag is computed later by the
+ * shared `attachIam` step so both producers agree.
+ */
+function extractPlanIam(
+  changes: readonly unknown[],
+  configByAddress: ReadonlyMap<string, ConfigEntry>,
+  edgeCtx: EdgeContext,
+  nodesById: ReadonlyMap<string, GraphNode>,
+): Map<string, ExtractedIam> {
+  const extracted = new Map<string, ExtractedIam>();
+  const iamOf = (id: string): ExtractedIam => {
+    let e = extracted.get(id);
+    if (!e) {
+      e = {};
+      extracted.set(id, e);
+    }
+    return e;
+  };
+
+  for (const raw of changes) {
+    const rc = raw as ResourceChange;
+    if (rc.mode === "data") continue;
+    const type = asString(rc.type);
+    const address = asString(rc.address);
+    const after = (rc.change?.after ?? {}) as Record<string, unknown>;
+    const cfg = configByAddress.get(address);
+    const prefix = cfg?.prefix ?? "";
+    const expr = cfg?.expressions ?? {};
+
+    if (type === "azurerm_role_assignment") {
+      const role =
+        asString(after.role_definition_name) || asString(after.role_definition_id);
+      const principal =
+        resolveExprNode(expr.principal_id, prefix, edgeCtx, nodesById) ??
+        asString(after.principal_id);
+      const scope =
+        resolveExprNode(expr.scope, prefix, edgeCtx, nodesById) ??
+        asString(after.scope);
+      const roleAssignment: RoleAssignment = { role, principal, scope };
+      const principalType = asString(after.principal_type);
+      if (principalType) roleAssignment.principal_type = principalType;
+      iamOf(address).role = roleAssignment;
+      continue;
+    }
+
+    if (type === "azurerm_user_assigned_identity") {
+      iamOf(address).identity = { type: "UserAssigned" };
+      continue;
+    }
+
+    const block = firstIdentityBlock(after.identity);
+    if (block) {
+      const identity: Identity = { type: asString(block.type) };
+      const ids = resolveIdentityIds(expr.identity, prefix, edgeCtx, nodesById);
+      if (ids.length > 0) identity.identity_ids = ids;
+      iamOf(address).identity = identity;
+    }
+  }
+
+  return extracted;
+}
+
 /** Parse a Terraform plan into a GraphSnapshot graph (deterministic ordering). */
 export function parsePlanToGraph(plan: unknown): Graph {
   const p = (plan ?? {}) as { resource_changes?: unknown; configuration?: unknown };
@@ -342,9 +487,11 @@ export function parsePlanToGraph(plan: unknown): Graph {
   }
 
   const sources: DependencySource[] = [];
+  const configByAddress = new Map<string, ConfigEntry>();
   const config = (p.configuration ?? {}) as { root_module?: unknown };
   if (config.root_module && typeof config.root_module === "object") {
     collectSources(config.root_module as ConfigModule, "", sources);
+    indexConfigResources(config.root_module as ConfigModule, "", configByAddress);
   }
   const edgeCtx = {
     resourceIds,
@@ -363,6 +510,13 @@ export function parsePlanToGraph(plan: unknown): Graph {
     extractPlanNsg(changes, sources, edgeCtx, nodesById),
   );
 
+  // IAM payload (GP-47): role-assignment triples, managed identities, and the
+  // computed privileged flag on the relevant nodes.
+  attachIam(
+    [...nodesById.values()],
+    extractPlanIam(changes, configByAddress, edgeCtx, nodesById),
+  );
+
   const nodes = [...nodesById.values()].sort((a, b) => compareStrings(a.id, b.id));
   const edges = [...containsEdges.values(), ...dependsOnEdges].sort(sortEdges);
 
@@ -374,7 +528,9 @@ export function parsePlanToGraph(plan: unknown): Graph {
   const isV4 = (n: GraphNode): boolean =>
     n.parent_id !== undefined ||
     n.rules !== undefined ||
-    n.internet_exposed !== undefined;
+    n.internet_exposed !== undefined ||
+    n.role_assignment !== undefined ||
+    n.identity !== undefined;
   let version: Graph["version"] = 2;
   if (withImpact.nodes.some((n) => n.attribute_diff !== undefined)) version = 3;
   if (withImpact.nodes.some(isV4)) version = 4;

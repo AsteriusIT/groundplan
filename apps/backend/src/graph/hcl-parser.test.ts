@@ -90,6 +90,43 @@ test("attaches NSG rules, internet_exposed, and associations from HCL (GP-43)", 
   assert.deepEqual(open.associated_ids, ["azurerm_subnet.web"]);
 });
 
+test("attaches role-assignment triples, privileged flags, and identities from HCL (GP-47)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-iam"));
+  assert.equal(graph.version, 4);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  // AcrPull: principal resolves to the identity, scope to the registry; narrow.
+  const acrPull = byId.get("azurerm_role_assignment.acr_pull")!;
+  assert.deepEqual(acrPull.role_assignment, {
+    role: "AcrPull",
+    principal: "azurerm_user_assigned_identity.aks",
+    scope: "azurerm_container_registry.main",
+  });
+  assert.equal(acrPull.privileged, false);
+
+  // Owner at RG: literal principal id kept, scope resolves to the RG → privileged.
+  const owner = byId.get("azurerm_role_assignment.owner_rg")!;
+  assert.deepEqual(owner.role_assignment, {
+    role: "Owner",
+    principal: "11111111-1111-1111-1111-111111111111",
+    scope: "azurerm_resource_group.main",
+    principal_type: "ServicePrincipal",
+  });
+  assert.equal(owner.privileged, true);
+
+  // Reader at RG: broad scope but weak role → not privileged.
+  assert.equal(byId.get("azurerm_role_assignment.reader_rg")!.privileged, false);
+
+  // Managed identities: the UAI itself, and the AKS cluster that uses it.
+  assert.deepEqual(byId.get("azurerm_user_assigned_identity.aks")!.identity, {
+    type: "UserAssigned",
+  });
+  assert.deepEqual(byId.get("azurerm_kubernetes_cluster.main")!.identity, {
+    type: "UserAssigned",
+    identity_ids: ["azurerm_user_assigned_identity.aks"],
+  });
+});
+
 test("unresolved references are dropped and counted in stats.warnings", () => {
   const { graph, warnings } = parseHclRepo(readRepo("hcl-expressions"));
   // azurerm_virtual_network.secondary is referenced but not declared.

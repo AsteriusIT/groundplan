@@ -252,6 +252,63 @@ test("attribute_diff_truncated is omitted when nothing was capped", () => {
   assert.equal(node?.attribute_diff_truncated, undefined);
 });
 
+// --- IAM extraction (GP-47) ---------------------------------------------------
+
+function iamNode(id: string): GraphNode | undefined {
+  return parsePlanToGraph(readJson("plans/iam.plan.json")).nodes.find(
+    (n) => n.id === id,
+  );
+}
+
+test("a plan carrying IAM payloads is a valid graph at schema version 4", () => {
+  const graph = parsePlanToGraph(readJson("plans/iam.plan.json"));
+  assert.equal(validateGraph(graph).valid, true);
+  assert.equal(graph.version, 4);
+});
+
+test("role assignments carry the role/principal/scope triple, resolving references", () => {
+  // AcrPull: principal resolves to the app identity, scope to the registry.
+  assert.deepEqual(iamNode("azurerm_role_assignment.acr_pull")?.role_assignment, {
+    role: "AcrPull",
+    principal: "azurerm_user_assigned_identity.aks",
+    scope: "azurerm_container_registry.main",
+  });
+  // Owner at RG: literal principal id kept raw, scope resolved to the RG node.
+  assert.deepEqual(iamNode("azurerm_role_assignment.owner_rg")?.role_assignment, {
+    role: "Owner",
+    principal: "11111111-1111-1111-1111-111111111111",
+    scope: "azurerm_resource_group.main",
+    principal_type: "ServicePrincipal",
+  });
+  // Contributor at subscription: raw subscription id scope kept as-is.
+  assert.deepEqual(
+    iamNode("azurerm_role_assignment.contributor_sub")?.role_assignment,
+    {
+      role: "Contributor",
+      principal: "22222222-2222-2222-2222-222222222222",
+      scope: "/subscriptions/00000000-0000-0000-0000-000000000000",
+    },
+  );
+});
+
+test("privileged is true exactly for high-privilege roles at broad scope (GP-47)", () => {
+  assert.equal(iamNode("azurerm_role_assignment.owner_rg")?.privileged, true); // Owner @ RG
+  assert.equal(iamNode("azurerm_role_assignment.contributor_sub")?.privileged, true); // Contributor @ sub
+  assert.equal(iamNode("azurerm_role_assignment.net_admin")?.privileged, true); // *Admin* @ sub
+  assert.equal(iamNode("azurerm_role_assignment.acr_pull")?.privileged, false); // narrow role + scope
+  assert.equal(iamNode("azurerm_role_assignment.reader_rg")?.privileged, false); // broad scope, weak role
+});
+
+test("managed identities carry an identity payload with resolved user-assigned refs", () => {
+  assert.deepEqual(iamNode("azurerm_user_assigned_identity.aks")?.identity, {
+    type: "UserAssigned",
+  });
+  assert.deepEqual(iamNode("azurerm_kubernetes_cluster.main")?.identity, {
+    type: "UserAssigned",
+    identity_ids: ["azurerm_user_assigned_identity.aks"],
+  });
+});
+
 test("validateGraph accepts both a hand-written v1 node and a v3 node", () => {
   const v1Node: GraphNode = {
     id: "aws_s3_bucket.a",

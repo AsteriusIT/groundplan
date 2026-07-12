@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "version": {
-      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node parent_id containment + NSG payload (GP-42/GP-43). All stay valid.",
+      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47). All additive/optional; all stay valid.",
       "enum": [1, 2, 3, 4]
     },
     "nodes": {
@@ -107,6 +107,35 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "v4: subnet/NIC node ids this NSG is attached to (GP-43)."
+        },
+        "role_assignment": {
+          "type": "object",
+          "description": "v4: role-assignment payload on an azurerm_role_assignment node (GP-47). principal/scope are resolved node addresses when they reference a resource, else raw ids.",
+          "required": ["role", "principal", "scope"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "type": "string" },
+            "principal": { "type": "string" },
+            "scope": { "type": "string" },
+            "principal_type": { "type": "string" }
+          }
+        },
+        "privileged": {
+          "type": "boolean",
+          "description": "v4: role assignment is a high-privilege role at subscription/RG scope (GP-47)."
+        },
+        "identity": {
+          "type": "object",
+          "description": "v4: managed-identity payload on a user-assigned identity node or a resource with an identity{} block (GP-47).",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string" },
+            "identity_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
         }
       }
     },

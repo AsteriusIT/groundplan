@@ -25,7 +25,15 @@ import {
   type EdgeContext,
   type RawRef,
 } from "./dependency-edges.js";
-import type { Graph, GraphEdge, GraphNode, NsgRule } from "./graph.js";
+import type {
+  Graph,
+  GraphEdge,
+  GraphNode,
+  Identity,
+  NsgRule,
+  RoleAssignment,
+} from "./graph.js";
+import { attachIam, type ExtractedIam } from "./iam.js";
 import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 export type HclFile = { path: string; content: string };
@@ -381,6 +389,95 @@ function extractHclNsg(ctx: Ctx, edgeCtx: EdgeContext): Map<string, ExtractedNsg
   return extracted;
 }
 
+/** Read the raw right-hand side of `key = <rhs>` up to end of line (may be a ref). */
+function readRawAttr(body: string, key: string): string | undefined {
+  const m = new RegExp(String.raw`(?:^|\n)[ \t]*${key}[ \t]*=[ \t]*([^\n]*)`).exec(body);
+  return m ? (m[1] as string).trim() : undefined;
+}
+
+/**
+ * Resolve an HCL attribute value to a node address (when it references a parsed
+ * resource) or keep the literal / raw expression string otherwise (GP-47).
+ */
+function resolveHclValue(
+  raw: string | undefined,
+  prefix: string,
+  edgeCtx: EdgeContext,
+  ctx: Ctx,
+): string {
+  if (raw === undefined) return "";
+  const literal = /^"([^"]*)"$/.exec(raw);
+  if (literal) return literal[1] as string;
+  for (const ref of extractReferences(raw)) {
+    for (const id of resolveReference(prefix, ref, edgeCtx)) {
+      if (ctx.nodes.has(id)) return id;
+    }
+  }
+  return raw;
+}
+
+/** Resolve an `identity {}` block body's refs to user-assigned-identity node ids. */
+function hclIdentityIds(
+  body: string,
+  prefix: string,
+  edgeCtx: EdgeContext,
+  ctx: Ctx,
+): string[] {
+  const ids = new Set<string>();
+  for (const ref of extractReferences(body)) {
+    for (const id of resolveReference(prefix, ref, edgeCtx)) {
+      if (ctx.nodes.get(id)?.type === "azurerm_user_assigned_identity") ids.add(id);
+    }
+  }
+  return [...ids].sort();
+}
+
+/** Collect role-assignment triples and managed-identity payloads from HCL bodies. */
+function extractHclIam(ctx: Ctx, edgeCtx: EdgeContext): Map<string, ExtractedIam> {
+  const extracted = new Map<string, ExtractedIam>();
+  const bodyById = new Map(ctx.pendingSources.map((ps) => [ps.fromBase, ps]));
+
+  for (const [id, node] of ctx.nodes) {
+    if (node.type === "azurerm_user_assigned_identity") {
+      extracted.set(id, { identity: { type: "UserAssigned" } });
+      continue;
+    }
+    const ps = bodyById.get(id);
+    if (!ps) continue;
+
+    if (node.type === "azurerm_role_assignment") {
+      const role =
+        readAttr(ps.body, "role_definition_name") ??
+        readAttr(ps.body, "role_definition_id") ??
+        "";
+      const roleAssignment: RoleAssignment = {
+        role,
+        principal: resolveHclValue(
+          readRawAttr(ps.body, "principal_id"),
+          ps.prefix,
+          edgeCtx,
+          ctx,
+        ),
+        scope: resolveHclValue(readRawAttr(ps.body, "scope"), ps.prefix, edgeCtx, ctx),
+      };
+      const principalType = readAttr(ps.body, "principal_type");
+      if (principalType) roleAssignment.principal_type = principalType;
+      extracted.set(id, { role: roleAssignment });
+      continue;
+    }
+
+    const block = scanTopLevelBlocks(ps.body).find((b) => b.type === "identity");
+    if (block) {
+      const identity: Identity = { type: readAttr(block.body, "type") ?? "" };
+      const ids = hclIdentityIds(block.body, ps.prefix, edgeCtx, ctx);
+      if (ids.length > 0) identity.identity_ids = ids;
+      extracted.set(id, { identity });
+    }
+  }
+
+  return extracted;
+}
+
 /** Parse a repository's `.tf` files into a GraphSnapshot graph + warnings. */
 export function parseHclRepo(files: HclFile[]): HclParseResult {
   const filesByDir = new Map<string, HclFile[]>();
@@ -450,6 +547,9 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
   // NSG payload (GP-43): rules + internet_exposed + associations on NSG nodes.
   attachNsg([...ctx.nodes.values()], extractHclNsg(ctx, edgeCtx));
 
+  // IAM payload (GP-47): role-assignment triples, identities, privileged flag.
+  attachIam([...ctx.nodes.values()], extractHclIam(ctx, edgeCtx));
+
   const nodes = [...ctx.nodes.values()].sort((a, b) => compareStrings(a.id, b.id));
   const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].sort(
     (a, b) =>
@@ -463,11 +563,13 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
     warnings.push(`${unresolved} reference(s) could not be resolved to a resource`);
   }
 
-  // v4 when any node carries containment or NSG payload; else v1 (docs stay v1).
+  // v4 when any node carries containment, NSG, or IAM payload; else v1 (docs stay v1).
   const isV4 = (n: GraphNode): boolean =>
     n.parent_id !== undefined ||
     n.rules !== undefined ||
-    n.internet_exposed !== undefined;
+    n.internet_exposed !== undefined ||
+    n.role_assignment !== undefined ||
+    n.identity !== undefined;
   const version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
   return { graph: { version, nodes, edges }, warnings: warnings.sort(compareStrings) };
 }

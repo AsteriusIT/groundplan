@@ -32,6 +32,33 @@ export type NsgRule = {
   destination: string; // raw destination address prefix
 };
 
+/**
+ * v4: an Azure role assignment payload (GP-47), on `azurerm_role_assignment`
+ * nodes. `principal`/`scope` are resolved Terraform addresses when they
+ * reference another resource in the snapshot, otherwise the raw id/string.
+ */
+export type RoleAssignment = {
+  /** role_definition_name (e.g. "Owner", "AcrPull"), or role_definition_id. */
+  role: string;
+  /** Resolved address of the granted identity, or the raw principal object id. */
+  principal: string;
+  /** Resolved address of the scope, or the raw Azure scope id. */
+  scope: string;
+  /** Azure principal type ("ServicePrincipal" | "User" | "Group" | …), if declared. */
+  principal_type?: string;
+};
+
+/**
+ * v4: a managed-identity payload (GP-47), on `azurerm_user_assigned_identity`
+ * nodes and on any resource that declares an `identity {}` block.
+ */
+export type Identity = {
+  /** "SystemAssigned" | "UserAssigned" | "SystemAssigned, UserAssigned". */
+  type: string;
+  /** Resolved addresses of the user-assigned identities this resource uses. */
+  identity_ids?: string[];
+};
+
 export type GraphNode = {
   /** Terraform address, e.g. `module.payments.aws_ecs_service.this`. */
   id: string;
@@ -67,6 +94,12 @@ export type GraphNode = {
   internet_exposed?: boolean;
   /** v4: node ids of the subnets/NICs this NSG is associated with (GP-43/45). */
   associated_ids?: string[];
+  /** v4: role-assignment payload on an azurerm_role_assignment node (GP-47). */
+  role_assignment?: RoleAssignment;
+  /** v4: true iff this role assignment is a broad-scope high-privilege grant (GP-47). */
+  privileged?: boolean;
+  /** v4: managed-identity payload — UAI nodes & resources with identity{} (GP-47). */
+  identity?: Identity;
 };
 
 export type GraphEdge = {
@@ -85,7 +118,8 @@ export type Graph = {
   /**
    * 1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22);
    * 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node
-   * parent_id containment + NSG payload (GP-42/GP-43). All stay valid.
+   * parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47).
+   * All stay valid — every version bump is additive/optional.
    */
   version: 1 | 2 | 3 | 4;
   nodes: GraphNode[];
