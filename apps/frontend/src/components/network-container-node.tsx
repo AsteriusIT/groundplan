@@ -9,9 +9,11 @@ import { cn } from "@/lib/utils";
 
 /**
  * A resource-backed container for the network view (GP-44): a vnet or subnet
- * rendered as a dashed group frame (like the module container) but labelled with
- * its own identity — icon + type + name — instead of `module.<name>`. Children
- * (subnets, NICs, …) are laid out inside it via React Flow subflows.
+ * rendered as a nested group frame, labelled with its own identity. The two
+ * levels are styled distinctly so the containment reads at a glance — a vnet is a
+ * bold solid outer frame (network hue), a subnet a lighter dashed inner frame —
+ * with resource cards laid out inside via React Flow subflows (vnet ⊃ subnet ⊃
+ * components).
  */
 export function NetworkContainer({
   graphNode,
@@ -23,19 +25,31 @@ export function NetworkContainer({
   /** GP-45: this subnet is guarded by an internet-exposed NSG. */
   exposed?: boolean;
 }) {
+  const isVnet = graphNode.type === "azurerm_virtual_network";
   const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
+  const layer = isVnet ? "vnet" : shortType(graphNode.type);
   return (
     <div
       className={cn(
-        "border-border-strong bg-accent-soft/20 relative h-full w-full rounded-lg border border-dashed transition-opacity",
+        "relative h-full w-full transition-opacity",
+        isVnet
+          ? "border-cat-network/40 bg-cat-network/5 rounded-xl border-2"
+          : "border-cat-network/30 bg-accent-soft/30 rounded-lg border border-dashed",
         exposed && "ring-exposed ring-2",
         dimmed && "opacity-40",
       )}
     >
-      <span className="bg-canvas absolute -top-2.5 left-3 inline-flex items-center gap-1 px-1.5 font-mono text-[10px] font-medium tracking-wide">
-        <ResourceIcon type={graphNode.type} className={cn("size-3", iconClass)} />
-        <span className="text-muted-foreground">{shortType(graphNode.type)}</span>
-        <span className="text-ink">{graphNode.name}</span>
+      <span
+        className={cn(
+          "absolute left-3 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-[10px] leading-none font-medium",
+          isVnet
+            ? "bg-cat-network/15 text-cat-network -top-3"
+            : "bg-canvas text-muted-foreground -top-2.5",
+        )}
+      >
+        <ResourceIcon type={graphNode.type} className={cn("size-3.5 shrink-0", iconClass)} />
+        <span className="tracking-[0.14em] uppercase opacity-70">{layer}</span>
+        <span className="text-ink font-semibold">{graphNode.name}</span>
       </span>
     </div>
   );

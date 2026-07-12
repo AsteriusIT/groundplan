@@ -13,8 +13,23 @@ const subnet: GraphNode = {
   change: null,
 };
 
-it("labels the container with its resource identity", () => {
+const vnet: GraphNode = {
+  id: "vn",
+  name: "prod",
+  type: "azurerm_virtual_network",
+  provider: "azurerm",
+  module_path: [],
+  change: null,
+};
+
+it("labels a subnet container with its 'subnet' layer + name", () => {
   render(<NetworkContainer graphNode={subnet} />);
   expect(screen.getByText("internal")).toBeInTheDocument(); // name
-  expect(screen.getByText("subnet")).toBeInTheDocument(); // shortType
+  expect(screen.getByText("subnet")).toBeInTheDocument(); // layer label
+});
+
+it("labels a vnet container with its 'vnet' layer + name", () => {
+  render(<NetworkContainer graphNode={vnet} />);
+  expect(screen.getByText("prod")).toBeInTheDocument(); // name
+  expect(screen.getByText("vnet")).toBeInTheDocument(); // layer label (not "virtual_network")
 });
