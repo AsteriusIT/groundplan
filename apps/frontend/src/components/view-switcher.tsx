@@ -26,15 +26,11 @@ const OPTIONS: { key: GraphView; label: string }[] = [
   { key: "network", label: "Network" },
 ];
 
-/** Segmented Plan-impact ⇄ Network switcher (GP-44). */
+/** Plan-impact ⇄ Network view tabs (GP-44). Underlined-tab styling. */
 export function ViewSwitcher() {
   const { view, setView } = useGraphView();
   return (
-    <div
-      className="border-border inline-flex rounded-md border p-0.5"
-      role="group"
-      aria-label="Graph view"
-    >
+    <div className="flex items-center gap-4" role="group" aria-label="Graph view">
       {OPTIONS.map((o) => (
         <button
           key={o.key}
@@ -42,8 +38,10 @@ export function ViewSwitcher() {
           aria-pressed={view === o.key}
           onClick={() => setView(o.key)}
           className={cn(
-            "rounded px-2.5 py-1 font-mono text-[11px] transition-colors",
-            view === o.key ? "bg-accent text-ink" : "text-muted-foreground hover:text-ink",
+            "border-b-2 px-0.5 pb-1.5 font-mono text-xs transition-colors",
+            view === o.key
+              ? "border-primary text-ink"
+              : "border-transparent text-muted-foreground hover:text-ink",
           )}
         >
           {o.label}

@@ -262,7 +262,7 @@ Create `apps/frontend/src/components/snapshot-select.tsx`:
 
 ```tsx
 /**
- * Snapshot history dropdown (GP-46). A native-<details> menu (same pattern as
+ * Snapshot history dropdown. A native-<details> menu (same pattern as
  * ExportMenu) showing the current snapshot in its trigger and every snapshot as
  * a row. Single-select mode picks and closes; compare mode turns rows into
  * checkboxes and keeps the panel open for the two-pick.
@@ -651,7 +651,7 @@ Expected: PASS (all files).
 
 ```bash
 git add apps/frontend/src/pages/docs-page.tsx apps/frontend/src/pages/docs-page.test.tsx
-git commit -m "feat(frontend): sub-toolbar with view tabs + history dropdown, in-flow status bar (GP-46)
+git commit -m "feat(frontend): sub-toolbar with view tabs + history dropdown, in-flow status bar
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```

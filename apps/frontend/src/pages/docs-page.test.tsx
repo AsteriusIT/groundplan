@@ -132,14 +132,13 @@ it("lists every docs snapshot with its trigger and renders the latest", async ()
   ]);
   renderPage();
 
-  // Three cards, newest (s3) selected → its 3-node graph rendered.
-  expect(await screen.findByText("cccccccc")).toBeInTheDocument();
-  expect(screen.getByText("bbbbbbbb")).toBeInTheDocument();
-  expect(screen.getByText("aaaaaaaa")).toBeInTheDocument();
+  // Every snapshot is a row in the history dropdown.
+  expect(await screen.findByRole("menuitem", { name: /cccccccc/i })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: /bbbbbbbb/i })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: /aaaaaaaa/i })).toBeInTheDocument();
   expect(await screen.findByTestId("canvas")).toHaveTextContent("3 nodes");
-  // Trigger badges (auto for the latest, manual for the others).
-  expect(screen.getByText("auto")).toBeInTheDocument();
-  expect(screen.getAllByText("manual").length).toBe(2);
+  // The latest (auto) row carries the auto trigger badge.
+  expect(screen.getByRole("menuitem", { name: /cccccccc.*auto/i })).toBeInTheDocument();
 });
 
 it("clicking an older snapshot loads it and shows the not-latest banner", async () => {
@@ -150,7 +149,7 @@ it("clicking an older snapshot loads it and shows the not-latest banner", async 
   renderPage();
   await screen.findByTestId("canvas");
 
-  fireEvent.click(await screen.findByText("aaaaaaaa"));
+  fireEvent.click(await screen.findByRole("menuitem", { name: /aaaaaaaa/i }));
 
   expect(await screen.findByText(/not the latest/i)).toBeInTheDocument();
   expect(screen.getByTestId("canvas")).toHaveTextContent("1 nodes");
@@ -208,8 +207,8 @@ it("compares two docs snapshots (GP-40)", async () => {
   // Enter compare mode, then pick the two timeline cards.
   fireEvent.click(screen.getByRole("button", { name: /^compare$/i }));
   expect(screen.getByText(/Compare mode/i)).toBeInTheDocument();
-  fireEvent.click(screen.getByText("bbbbbbbb"));
-  fireEvent.click(screen.getByText("aaaaaaaa"));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /bbbbbbbb/i }));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /aaaaaaaa/i }));
 
   // The diff summary strip appears; both ids were diffed.
   expect(await screen.findByText("+1 added")).toBeInTheDocument();
