@@ -10,6 +10,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 
 import { AuthProvider } from "@/auth/auth-provider";
+import { ThemeProvider } from "@/theme/theme-provider";
 import { loadConfig } from "@/config";
 import App from "./App.tsx";
 import "./index.css";
@@ -27,11 +28,13 @@ async function bootstrap(container: HTMLElement): Promise<void> {
 
   createRoot(container).render(
     <StrictMode>
-      <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </BrowserRouter>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
     </StrictMode>,
   );
 }

@@ -15,6 +15,7 @@
  * `design-tokens.test.ts` guard enforces this for the design-v3 surface.
  */
 :root {
+  color-scheme: light;
   --radius: 0.1875rem; /* 3px — crisp, technical, not rounded */
 
   /* — surfaces — */
@@ -77,6 +78,117 @@
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", monospace;
+}
+
+/*
+ * Dark theme — "cyanotype blueprint". Where the light theme is drafting paper,
+ * dark is the developed blueprint: deep Prussian-blue paper, cyan hairline grid,
+ * near-white ink. Only the token VALUES change; the `@theme inline` mapping means
+ * every `bg-*`/`text-*` utility follows automatically (app, panels, diagram,
+ * grid, edges). The elevation ladder inverts correctly — recessed regions are
+ * darkest (muted → background → canvas), raised resource cards lightest (panel).
+ * Applied by toggling the `.dark` class on <html> (see src/theme/).
+ */
+.dark {
+  color-scheme: dark;
+
+  /* — surfaces (dark → light: paper is deepest, cards raised) — */
+  --background: #0a1e42; /* app "paper" */
+  --canvas: #0c2350; /* diagram surface, a shade brighter than the app */
+  --card: #102a58; /* panels / cards / raised surfaces (lightest) */
+  --panel: #102a58;
+  --popover: #102a58;
+
+  /* — ink — */
+  --foreground: #eaf1fb;
+  --ink: #eaf1fb;
+  --card-foreground: #eaf1fb;
+  --popover-foreground: #eaf1fb;
+  --muted-foreground: #93b0d8; /* secondary text */
+  --faint: #6b86b3; /* tertiary text — names, hints */
+
+  /* — accent (blueprint blue, brightened for a dark ground) — */
+  --primary: #4c8dff;
+  --primary-foreground: #06122b; /* ink label on the bright-blue fill (AA) */
+  --accent-soft: #14315f; /* dark-blue fill for accent chips / addresses */
+  --secondary: #14315f;
+  --secondary-foreground: #cfe0ff;
+  --muted: #081a3a; /* most-recessed region fill (vnet) */
+  --accent: #16305c; /* hover surface */
+  --accent-foreground: #cfe0ff;
+  --ring: #4c8dff;
+
+  /* — lines — */
+  --border: #1c3a63;
+  --border-strong: #2b5487;
+  --input: #2b5487;
+  --grid-line: #123a63; /* fine cyan hairline grid */
+  --grid-strong: #1c5288; /* bold cyan grid (every 5th line) */
+  --edge: #5d7db0; /* neutral diagram edge */
+
+  /* — status — brightened, and the -soft fills flip to dark tints so diff
+     cards read as coloured on a dark ground (not blown-out pastels) — */
+  --create: #2ec77e;
+  --create-soft: #0e3b28;
+  --update: #e0a020;
+  --update-soft: #3a2c0c;
+  --delete: #f0604d;
+  --delete-soft: #3d1a16;
+  --destructive: #f0604d;
+  --impacted: #a887f5;
+  --impacted-soft: #241a44;
+  --exposed: #f06a30;
+  --exposed-soft: #3a1d0e;
+
+  /* — resource categories (icons render neutral now; kept for the styleguide) — */
+  --cat-compute: #4f8bf0;
+  --cat-network: #2bb6c4;
+  --cat-network-soft: #0e2f45;
+  --cat-data: #7a72e8;
+  --cat-security: #e0608a;
+  --cat-identity: #d99a3a;
+  --cat-observability: #c964dd;
+  --cat-other: #93b0d8;
+}
+
+/*
+ * Second dark theme — "carbon": a near-neutral very-dark gray/black. It extends
+ * `.dark` (so Tailwind's `dark:` variant and every status/diff colour carry over)
+ * and only re-points the neutral surface / line / ink family — swapping the
+ * blueprint's Prussian blue for graphite. Selected via data-theme="carbon" on
+ * <html>; the higher-specificity selector wins over the plain `.dark` values.
+ */
+.dark[data-theme="carbon"] {
+  /* — surfaces (near-black → raised graphite; cards stay lightest) — */
+  --background: #0c0d10;
+  --canvas: #111317;
+  --card: #17191f;
+  --panel: #17191f;
+  --popover: #17191f;
+
+  /* — ink (neutral off-white, no blue cast) — */
+  --foreground: #e8eaed;
+  --ink: #e8eaed;
+  --card-foreground: #e8eaed;
+  --popover-foreground: #e8eaed;
+  --muted-foreground: #9aa0aa;
+  --faint: #6b7079;
+
+  /* — accent surfaces neutralised to graphite (the blue accent itself stays) — */
+  --accent-soft: #1b2431;
+  --secondary: #1b2431;
+  --secondary-foreground: #dbe2ec;
+  --muted: #0a0b0e; /* most-recessed region fill (vnet) */
+  --accent: #1c1f27; /* hover surface */
+  --accent-foreground: #dfe3ea;
+
+  /* — lines (neutral gray) — */
+  --border: #23262d;
+  --border-strong: #333842;
+  --input: #333842;
+  --grid-line: #191b21; /* very subtle graphite grid */
+  --grid-strong: #24272f;
+  --edge: #565c66;
 }
 
 @theme inline {

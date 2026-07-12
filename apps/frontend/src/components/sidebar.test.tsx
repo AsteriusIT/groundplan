@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context";
+import { ThemeProvider } from "@/theme/theme-provider";
 import { Sidebar } from "./sidebar";
 
 function renderSidebar(
@@ -19,11 +20,13 @@ function renderSidebar(
     ...auth,
   };
   render(
-    <AuthContext.Provider value={value}>
-      <MemoryRouter initialEntries={[path]}>
-        <Sidebar />
-      </MemoryRouter>
-    </AuthContext.Provider>,
+    <ThemeProvider>
+      <AuthContext.Provider value={value}>
+        <MemoryRouter initialEntries={[path]}>
+          <Sidebar />
+        </MemoryRouter>
+      </AuthContext.Provider>
+    </ThemeProvider>,
   );
   return value;
 }

@@ -1,0 +1,103 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+
+import { ThemeProvider, useTheme } from "./theme-provider";
+
+function Consumer() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <div>
+      <span data-testid="theme">{theme}</span>
+      <button type="button" onClick={() => setTheme("light")}>
+        light
+      </button>
+      <button type="button" onClick={() => setTheme("blueprint")}>
+        blueprint
+      </button>
+      <button type="button" onClick={() => setTheme("carbon")}>
+        carbon
+      </button>
+    </div>
+  );
+}
+
+const renderProvider = () =>
+  render(
+    <ThemeProvider>
+      <Consumer />
+    </ThemeProvider>,
+  );
+
+const root = () => document.documentElement;
+
+describe("ThemeProvider", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    root().classList.remove("dark");
+    root().removeAttribute("data-theme");
+    vi.unstubAllGlobals();
+  });
+
+  it("defaults to light when nothing is stored and the OS is light", () => {
+    renderProvider();
+    expect(screen.getByTestId("theme")).toHaveTextContent("light");
+    expect(root()).not.toHaveClass("dark");
+    expect(root().getAttribute("data-theme")).toBeNull();
+  });
+
+  it("restores a stored blueprint theme (.dark, no data-theme)", () => {
+    localStorage.setItem("groundplan-theme", "blueprint");
+    renderProvider();
+    expect(screen.getByTestId("theme")).toHaveTextContent("blueprint");
+    expect(root()).toHaveClass("dark");
+    expect(root().getAttribute("data-theme")).toBeNull();
+  });
+
+  it("restores a stored carbon theme (.dark + data-theme=carbon)", () => {
+    localStorage.setItem("groundplan-theme", "carbon");
+    renderProvider();
+    expect(screen.getByTestId("theme")).toHaveTextContent("carbon");
+    expect(root()).toHaveClass("dark");
+    expect(root().getAttribute("data-theme")).toBe("carbon");
+  });
+
+  it("switches between all three themes, reflecting <html> and persisting", () => {
+    renderProvider();
+
+    fireEvent.click(screen.getByText("carbon"));
+    expect(root()).toHaveClass("dark");
+    expect(root().getAttribute("data-theme")).toBe("carbon");
+    expect(localStorage.getItem("groundplan-theme")).toBe("carbon");
+
+    fireEvent.click(screen.getByText("blueprint"));
+    expect(root()).toHaveClass("dark");
+    expect(root().getAttribute("data-theme")).toBeNull();
+    expect(localStorage.getItem("groundplan-theme")).toBe("blueprint");
+
+    fireEvent.click(screen.getByText("light"));
+    expect(root()).not.toHaveClass("dark");
+    expect(root().getAttribute("data-theme")).toBeNull();
+    expect(localStorage.getItem("groundplan-theme")).toBe("light");
+  });
+
+  it("falls back to the blueprint dark theme when the OS prefers dark", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    renderProvider();
+    expect(screen.getByTestId("theme")).toHaveTextContent("blueprint");
+  });
+
+  it("throws when useTheme is used outside a ThemeProvider", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => render(<Consumer />)).toThrow(/ThemeProvider/);
+    spy.mockRestore();
+  });
+});

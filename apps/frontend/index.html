@@ -5,6 +5,23 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>groundplan — See your infrastructure</title>
+    <script>
+      // Apply the saved (or OS) theme before first paint — no flash.
+      // Kept in sync with src/theme/theme-provider.tsx (same key + resolution).
+      (function () {
+        try {
+          var t = localStorage.getItem("groundplan-theme");
+          if (t !== "light" && t !== "blueprint" && t !== "carbon") {
+            t = window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "blueprint"
+              : "light";
+          }
+          var root = document.documentElement;
+          if (t !== "light") root.classList.add("dark");
+          if (t === "carbon") root.dataset.theme = "carbon";
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
