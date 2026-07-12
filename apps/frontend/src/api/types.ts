@@ -3,7 +3,7 @@
  * API actually returns (GP-3, GP-6). Timestamps are ISO strings over the wire.
  */
 
-export type Provider = "github" | "gitlab";
+export type Provider = "github" | "gitlab" | "azure_devops" | "generic";
 
 export type ConnectionStatus = "unverified" | "ok" | "failed";
 

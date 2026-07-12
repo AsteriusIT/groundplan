@@ -7,8 +7,15 @@ import {
   webhookUrl,
 } from "@/api/client";
 import type { CreatedRepository, Provider } from "@/api/types";
+import {
+  detectProvider,
+  PROVIDER_LABELS,
+  PROVIDER_PAT_HELP,
+  PROVIDERS,
+} from "@/lib/providers";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
 import {
   Dialog,
   DialogContent,
@@ -26,8 +33,6 @@ import {
   connectionErrorMessage,
 } from "@/components/connection-status";
 
-const PROVIDERS: Provider[] = ["github", "gitlab"];
-
 export function AttachRepositoryDialog({
   projectId,
   trigger,
@@ -39,7 +44,9 @@ export function AttachRepositoryDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
-  const [provider, setProvider] = useState<Provider>("github");
+  // null = follow URL auto-detection; a value is an explicit user override that
+  // wins and persists across later URL edits (GP-52).
+  const [providerOverride, setProviderOverride] = useState<Provider | null>(null);
   const [branch, setBranch] = useState("main");
   const [pat, setPat] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -47,9 +54,12 @@ export function AttachRepositoryDialog({
   const [created, setCreated] = useState<CreatedRepository | null>(null);
   const [connectionIssue, setConnectionIssue] = useState<string | null>(null);
 
+  const provider = providerOverride ?? detectProvider(url);
+  const patHelp = PROVIDER_PAT_HELP[provider];
+
   function reset() {
     setUrl("");
-    setProvider("github");
+    setProviderOverride(null);
     setBranch("main");
     setPat("");
     setSubmitting(false);
@@ -156,25 +166,33 @@ export function AttachRepositoryDialog({
               </div>
 
               <div className="space-y-2">
-                <Label>Provider</Label>
-                <div className="flex gap-2">
-                  {PROVIDERS.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      aria-pressed={provider === p}
-                      onClick={() => setProvider(p)}
-                      className={cn(
-                        "flex-1 rounded-md border px-3 py-2 text-sm capitalize transition-colors",
-                        provider === p
-                          ? "border-primary bg-accent text-primary font-medium"
-                          : "border-border text-muted-foreground hover:bg-accent/60",
-                      )}
-                    >
-                      {p}
-                    </button>
-                  ))}
+                <Label htmlFor="repo-provider">Provider</Label>
+                <div className="flex items-center gap-2">
+                  <span data-testid="provider-chip">
+                    <Chip variant="accent">{PROVIDER_LABELS[provider]}</Chip>
+                  </span>
+                  <select
+                    id="repo-provider"
+                    aria-label="Provider"
+                    value={providerOverride ?? ""}
+                    onChange={(e) =>
+                      setProviderOverride(
+                        e.target.value ? (e.target.value as Provider) : null,
+                      )
+                    }
+                    className="border-border bg-background text-foreground focus-visible:ring-ring rounded-md border px-2 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                  >
+                    <option value="">Auto-detect</option>
+                    {PROVIDERS.map((p) => (
+                      <option key={p} value={p}>
+                        {PROVIDER_LABELS[p]}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+                <p className="text-muted-foreground text-xs">
+                  Detected from the URL. Change it for a self-hosted host.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -201,6 +219,22 @@ export function AttachRepositoryDialog({
                 <p className="text-muted-foreground text-xs">
                   Stored encrypted, used only to clone. Leave empty for public
                   repositories.
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {patHelp.hint}
+                  {patHelp.href && (
+                    <>
+                      {" "}
+                      <a
+                        href={patHelp.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline underline-offset-2"
+                      >
+                        {patHelp.linkLabel}
+                      </a>
+                    </>
+                  )}
                 </p>
               </div>
 
