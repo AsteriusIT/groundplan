@@ -10,6 +10,7 @@ import type { Graph } from "../graph/graph.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
 import { buildCommentBody, COMMENT_MARKER, postPrComment } from "./pr-comment.js";
 import { parseGitHubRepo, type GitHubClient, type GitHubComment } from "./github.js";
+import { GitLabApiError, type GitLabClient, type GitLabNote } from "./gitlab.js";
 
 // --- Pure helpers -----------------------------------------------------------
 
@@ -89,10 +90,42 @@ function fakeGitHub() {
   return { client, calls, comments };
 }
 
+function fakeGitLab() {
+  const notes = new Map<number, GitLabNote[]>(); // keyed by MR iid
+  const calls = { list: 0, create: 0, update: 0 };
+  let nextId = 5000;
+  const client: GitLabClient = {
+    async listMergeRequestNotes(_base, _path, iid) {
+      calls.list += 1;
+      return [...(notes.get(iid) ?? [])];
+    },
+    async createMergeRequestNote(_base, _path, iid, body) {
+      calls.create += 1;
+      const note = { id: nextId++, body };
+      notes.set(iid, [...(notes.get(iid) ?? []), note]);
+      return note;
+    },
+    async updateMergeRequestNote(_base, _path, _iid, id, body) {
+      calls.update += 1;
+      for (const list of notes.values()) {
+        const found = list.find((n) => n.id === id);
+        if (found) found.body = body;
+      }
+      return { id, body };
+    },
+  };
+  return { client, calls, notes };
+}
+
 let counter = 0;
 async function setupRepo(
   app: Awaited<ReturnType<typeof buildApp>>,
-  opts: { enabled: boolean; withPat: boolean },
+  opts: {
+    enabled: boolean;
+    withPat: boolean;
+    provider?: string;
+    url?: string;
+  },
 ) {
   counter += 1;
   const p = await app.inject({
@@ -104,7 +137,10 @@ async function setupRepo(
   const r = await app.inject({
     method: "POST",
     url: `/api/v1/projects/${projectId}/repositories`,
-    payload: { provider: "github", url: "https://github.com/acme/infra" },
+    payload: {
+      provider: opts.provider ?? "github",
+      url: opts.url ?? "https://github.com/acme/infra",
+    },
   });
   const repoId = r.json().id;
   // Set the flag + PAT directly (avoids the network re-verify path).
@@ -261,6 +297,98 @@ test("with a public base URL, the comment embeds a public image + share link", a
     const body = gh.comments.get(42)![0]!.body;
     assert.match(body, /!\[.*\]\(https:\/\/gp\.example\.com\/api\/v1\/public\/[^)]+\/export\.png\?scope=changes\)/);
     assert.match(body, /https:\/\/gp\.example\.com\/share\//);
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+// --- GitLab (GP-53) ---------------------------------------------------------
+
+test("GitLab: creates one MR note, then updates it in place on the next push", async () => {
+  const gl = fakeGitLab();
+  const app = await buildApp(env, { gitlab: gl.client });
+  try {
+    const { projectId, repoId } = await setupRepo(app, {
+      enabled: true,
+      withPat: true,
+      provider: "gitlab",
+      url: "https://gitlab.com/acme/infra",
+    });
+
+    await postPrComment(app, await insertPlan(app, repoId, "aaaaaaaa1111"));
+    assert.equal(gl.calls.create, 1);
+    assert.equal(gl.calls.update, 0);
+    const firstBody = gl.notes.get(42)![0]!.body;
+    assert.ok(firstBody.startsWith(COMMENT_MARKER));
+    assert.ok(firstBody.includes("aaaaaaaa"));
+
+    // Second push → same single note, updated in place (idempotent via marker).
+    await postPrComment(app, await insertPlan(app, repoId, "bbbbbbbb2222"));
+    assert.equal(gl.calls.create, 1);
+    assert.equal(gl.calls.update, 1);
+    assert.equal(gl.notes.get(42)!.length, 1);
+    assert.ok(gl.notes.get(42)![0]!.body.includes("bbbbbbbb"));
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("GitLab: a missing 'api' scope is recorded on the repo, never thrown", async () => {
+  const failing: GitLabClient = {
+    async listMergeRequestNotes() {
+      return [];
+    },
+    async createMergeRequestNote() {
+      throw new GitLabApiError(
+        403,
+        "GitLab API 403: insufficient_scope (check the PAT has the 'api' scope and access to this project)",
+      );
+    },
+    async updateMergeRequestNote() {
+      return { id: 0, body: "" };
+    },
+  };
+  const app = await buildApp(env, { gitlab: failing });
+  try {
+    const { projectId, repoId } = await setupRepo(app, {
+      enabled: true,
+      withPat: true,
+      provider: "gitlab",
+      url: "https://gitlab.com/acme/infra",
+    });
+    await postPrComment(app, await insertPlan(app, repoId, "cccccccc3333"));
+    const [repo] = await app.db
+      .select({ lastCommentError: repositories.lastCommentError })
+      .from(repositories)
+      .where(eq(repositories.id, repoId));
+    assert.match(repo!.lastCommentError!, /api/i);
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("generic provider: comments unavailable — error stored, no provider calls", async () => {
+  const gh = fakeGitHub();
+  const gl = fakeGitLab();
+  const app = await buildApp(env, { github: gh.client, gitlab: gl.client });
+  try {
+    const { projectId, repoId } = await setupRepo(app, {
+      enabled: true,
+      withPat: true,
+      provider: "generic",
+      url: "https://git.internal.example.com/acme/infra.git",
+    });
+    await postPrComment(app, await insertPlan(app, repoId, "dddddddd4444"));
+    assert.equal(gh.calls.create + gl.calls.create, 0);
+    const [repo] = await app.db
+      .select({ lastCommentError: repositories.lastCommentError })
+      .from(repositories)
+      .where(eq(repositories.id, repoId));
+    assert.match(repo!.lastCommentError!, /not available|unavailable/i);
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {
     await app.close();

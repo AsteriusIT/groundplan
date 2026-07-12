@@ -12,7 +12,12 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 
 import { repositories, type GraphSnapshotRow } from "../db/schema.js";
-import { parseGitHubRepo } from "./github.js";
+import type { Provider } from "./providers.js";
+import {
+  createGitHubPort,
+  createGitLabPort,
+  type PrCommentPort,
+} from "./pr-comment-port.js";
 import { repoLabel } from "./snapshot-export.js";
 import { ensureSnapshotShareLink } from "./share-links.js";
 
@@ -51,6 +56,21 @@ export function buildCommentBody(input: CommentBodyInput): string {
   return lines.join("\n");
 }
 
+/**
+ * Pick the PR-comment adapter for a repository's provider, or null when the
+ * provider has no comment support (generic hosts; Azure DevOps until GP-54).
+ */
+function resolvePort(app: FastifyInstance, provider: Provider): PrCommentPort | null {
+  switch (provider) {
+    case "github":
+      return createGitHubPort(app.github);
+    case "gitlab":
+      return createGitLabPort(app.gitlab);
+    default:
+      return null;
+  }
+}
+
 /** Persist (or clear) the repository's last PR-comment error. */
 async function setLastCommentError(
   app: FastifyInstance,
@@ -77,10 +97,18 @@ export async function postPrComment(
     .select()
     .from(repositories)
     .where(eq(repositories.id, snapshot.repositoryId));
-  if (!repo || !repo.prCommentsEnabled) return; // flag off → zero GitHub calls
+  if (!repo || !repo.prCommentsEnabled) return; // flag off → zero provider calls
 
-  const target = parseGitHubRepo(repo.url);
-  if (!target) return; // non-GitHub (GitLab/Bitbucket) is out of scope for v1
+  const port = resolvePort(app, repo.provider);
+  if (!port) {
+    // generic / self-hosted-only host: surface it instead of failing silently.
+    await setLastCommentError(
+      app,
+      repo.id,
+      `PR comments are not available for ${repo.provider} repositories`,
+    );
+    return;
+  }
 
   if (!repo.accessToken) {
     await setLastCommentError(app, repo.id, "no access token configured");
@@ -115,18 +143,13 @@ export async function postPrComment(
   });
 
   try {
-    const comments = await app.github.listIssueComments(
-      target.owner,
-      target.repo,
-      snapshot.prNumber,
+    await port.upsertComment({
+      repoUrl: repo.url,
+      prNumber: snapshot.prNumber,
+      marker: COMMENT_MARKER,
+      body,
       token,
-    );
-    const existing = comments.find((c) => c.body.includes(COMMENT_MARKER));
-    if (existing) {
-      await app.github.updateIssueComment(target.owner, target.repo, existing.id, body, token);
-    } else {
-      await app.github.createIssueComment(target.owner, target.repo, snapshot.prNumber, body, token);
-    }
+    });
     if (repo.lastCommentError) await setLastCommentError(app, repo.id, null);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
