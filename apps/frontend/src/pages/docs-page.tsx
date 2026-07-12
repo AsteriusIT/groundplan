@@ -280,12 +280,6 @@ export function DocsPage() {
         <div className="bg-card border-border flex items-center justify-between gap-4 border-b px-8 py-2.5">
           <div className="flex items-center gap-3">
             {current && !compareMode && <ViewSwitcher />}
-            {network && network.hiddenCount > 0 && (
-              <span className="text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono text-[11px]">
-                {network.hiddenCount} resource{network.hiddenCount === 1 ? "" : "s"} not in
-                network view
-              </span>
-            )}
           </div>
           <SnapshotSelect
             snapshots={snapshots}
