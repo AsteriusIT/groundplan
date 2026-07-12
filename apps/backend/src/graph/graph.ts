@@ -40,6 +40,12 @@ export type GraphNode = {
   attribute_diff?: AttributeDiffRow[];
   /** v3: true when the changed-attribute list exceeded 20 and was capped. */
   attribute_diff_truncated?: boolean;
+  /**
+   * v4: id of the node that contains this one (vnet⊃subnet⊃resource). Absent
+   * when no single unambiguous parent resolves. Distinct from module `contains`
+   * edges — this is network containment (GP-42).
+   */
+  parent_id?: string;
 };
 
 export type GraphEdge = {
@@ -57,9 +63,10 @@ export type GraphEdge = {
 export type Graph = {
   /**
    * 1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22);
-   * 3 adds optional node attribute-diff fields (GP-32). All stay valid.
+   * 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node
+   * parent_id containment + NSG payload (GP-42/GP-43). All stay valid.
    */
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };

@@ -47,6 +47,24 @@ test("explicit depends_on wins over an inferred edge to the same target", () => 
   assert.equal(nicEdge?.inferred, true);
 });
 
+test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (GP-42)", () => {
+  const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  assert.equal(graph.version, 4);
+  assert.equal(
+    byId.get("azurerm_subnet.internal")?.parent_id,
+    "azurerm_virtual_network.main",
+  );
+  assert.equal(
+    byId.get("azurerm_network_interface.main")?.parent_id,
+    "azurerm_subnet.internal",
+  );
+  // A VM references only a NIC (not a subnet) → no containment parent.
+  assert.equal(byId.get("azurerm_virtual_machine.main")?.parent_id, undefined);
+  // route_table references a count subnet (2 instances) → ambiguous → no parent.
+  assert.equal(byId.get("azurerm_route_table.rt")?.parent_id, undefined);
+});
+
 test("a reference to a count resource fans out to all its instances", () => {
   const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
   const targets = graph.edges

@@ -17,6 +17,7 @@
  *    in the shared `dependency-edges` builder (reused by Producer B).
  */
 import { computeAttributeDiff, type PlanResourceChange } from "./attribute-diff.js";
+import { deriveContainment } from "./containment.js";
 import {
   buildDependencyEdges,
   buildInstancesByBase,
@@ -258,23 +259,26 @@ export function parsePlanToGraph(plan: unknown): Graph {
   if (config.root_module && typeof config.root_module === "object") {
     collectSources(config.root_module as ConfigModule, "", sources);
   }
-  const dependsOnEdges = buildDependencyEdges(sources, {
+  const edgeCtx = {
     resourceIds,
     moduleIds,
     instancesByBase: buildInstancesByBase(resourceIds),
-  });
+  };
+  const dependsOnEdges = buildDependencyEdges(sources, edgeCtx);
+
+  // Network containment (GP-42): set parent_id on nodes with a single unambiguous
+  // vnet/subnet parent. Mutates the node objects still held in nodesById.
+  deriveContainment([...nodesById.values()], sources, edgeCtx);
 
   const nodes = [...nodesById.values()].sort((a, b) => compareStrings(a.id, b.id));
   const edges = [...containsEdges.values(), ...dependsOnEdges].sort(sortEdges);
 
   // Blast radius: mark unchanged dependents of the change set (GP-22). Emits v2.
   const withImpact = propagateImpact({ version: 1, nodes, edges });
-  // v3 only when at least one node carries an attribute diff (GP-32); otherwise
-  // the graph is byte-identical to a v2 snapshot for backward compatibility.
-  const version: Graph["version"] = withImpact.nodes.some(
-    (n) => n.attribute_diff !== undefined,
-  )
-    ? 3
-    : 2;
+  // Highest applicable version wins: v4 (containment) > v3 (attribute diff, GP-32)
+  // > v2. Non-network snapshots stay byte-identical to their prior version.
+  let version: Graph["version"] = 2;
+  if (withImpact.nodes.some((n) => n.attribute_diff !== undefined)) version = 3;
+  if (withImpact.nodes.some((n) => n.parent_id !== undefined)) version = 4;
   return { ...withImpact, version };
 }

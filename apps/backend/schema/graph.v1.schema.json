@@ -8,8 +8,8 @@
   "additionalProperties": false,
   "properties": {
     "version": {
-      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32). All stay valid.",
-      "enum": [1, 2, 3]
+      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node parent_id containment + NSG payload (GP-42/GP-43). All stay valid.",
+      "enum": [1, 2, 3, 4]
     },
     "nodes": {
       "type": "array",
@@ -75,6 +75,10 @@
         "attribute_diff_truncated": {
           "type": "boolean",
           "description": "v3: true when the changed-attribute list exceeded 20 and was capped."
+        },
+        "parent_id": {
+          "type": ["string", "null"],
+          "description": "v4: id of the containing node (vnet⊃subnet⊃resource). Absent/null when no single unambiguous parent resolves. Distinct from module `contains` edges (GP-42)."
         }
       }
     },

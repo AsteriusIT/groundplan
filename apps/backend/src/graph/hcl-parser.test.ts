@@ -54,6 +54,22 @@ test("the vm -> nic -> subnet -> vnet chain is visible via expressions", () => {
   assert.ok(graph.edges.filter((e) => e.kind === "depends_on").every((e) => e.inferred === true));
 });
 
+test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (GP-42)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-expressions"));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  assert.equal(graph.version, 4);
+  assert.equal(
+    byId.get("azurerm_subnet.internal")?.parent_id,
+    "azurerm_virtual_network.main",
+  );
+  assert.equal(
+    byId.get("azurerm_network_interface.main")?.parent_id,
+    "azurerm_subnet.internal",
+  );
+  // The VM references only a NIC → no subnet containment parent.
+  assert.equal(byId.get("azurerm_virtual_machine.main")?.parent_id, undefined);
+});
+
 test("unresolved references are dropped and counted in stats.warnings", () => {
   const { graph, warnings } = parseHclRepo(readRepo("hcl-expressions"));
   // azurerm_virtual_network.secondary is referenced but not declared.

@@ -16,6 +16,7 @@
  * dropped and counted in `stats.warnings`. References inside comments/strings
  * that don't resolve are ignored (best effort, documented limitation).
  */
+import { deriveContainment } from "./containment.js";
 import {
   buildDependencyEdges,
   buildInstancesByBase,
@@ -364,6 +365,10 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
 
   const dependsOnEdges = buildDependencyEdges(sources, edgeCtx);
 
+  // Network containment (GP-42): set parent_id on nodes with a single unambiguous
+  // vnet/subnet parent. Mutates the node objects still held in ctx.nodes.
+  deriveContainment([...ctx.nodes.values()], sources, edgeCtx);
+
   const nodes = [...ctx.nodes.values()].sort((a, b) => compareStrings(a.id, b.id));
   const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].sort(
     (a, b) =>
@@ -377,5 +382,7 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
     warnings.push(`${unresolved} reference(s) could not be resolved to a resource`);
   }
 
-  return { graph: { version: 1, nodes, edges }, warnings: warnings.sort(compareStrings) };
+  // v4 when any node carries containment; else v1 (docs snapshots stay v1).
+  const version: Graph["version"] = nodes.some((n) => n.parent_id !== undefined) ? 4 : 1;
+  return { graph: { version, nodes, edges }, warnings: warnings.sort(compareStrings) };
 }
