@@ -12,9 +12,7 @@
         try {
           var t = localStorage.getItem("groundplan-theme");
           if (t !== "light" && t !== "blueprint" && t !== "carbon") {
-            t = window.matchMedia("(prefers-color-scheme: dark)").matches
-              ? "blueprint"
-              : "light";
+            t = "blueprint";
           }
           var root = document.documentElement;
           if (t !== "light") root.classList.add("dark");

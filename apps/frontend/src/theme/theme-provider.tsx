@@ -9,9 +9,9 @@
  * it. Both dark themes carry `.dark` so Tailwind's `dark:` variant and all
  * status/diff colours apply; `data-theme="carbon"` re-points the neutral family.
  *
- * Initial theme = the user's stored choice, else the OS preference (dark → the
- * signature blueprint). A tiny inline script in `index.html` applies the same
- * resolution before first paint (no flash).
+ * Initial theme = the user's stored choice, else the signature blueprint dark.
+ * A tiny inline script in `index.html` applies the same resolution before first
+ * paint (no flash).
  */
 import {
   createContext,
@@ -40,13 +40,11 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-/** The stored preference if the user has chosen one, else the OS preference. */
+/** The stored preference if the user has chosen one, else the signature dark theme. */
 export function resolveInitialTheme(): Theme {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (isTheme(stored)) return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "blueprint"
-    : "light";
+  return "blueprint";
 }
 
 /** Reflect a theme onto <html>: `.dark` for either dark theme, `data-theme` for carbon. */

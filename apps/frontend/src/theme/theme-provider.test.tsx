@@ -38,10 +38,10 @@ describe("ThemeProvider", () => {
     vi.unstubAllGlobals();
   });
 
-  it("defaults to light when nothing is stored and the OS is light", () => {
+  it("defaults to the blueprint dark theme when nothing is stored", () => {
     renderProvider();
-    expect(screen.getByTestId("theme")).toHaveTextContent("light");
-    expect(root()).not.toHaveClass("dark");
+    expect(screen.getByTestId("theme")).toHaveTextContent("blueprint");
+    expect(root()).toHaveClass("dark");
     expect(root().getAttribute("data-theme")).toBeNull();
   });
 
@@ -80,9 +80,9 @@ describe("ThemeProvider", () => {
     expect(localStorage.getItem("groundplan-theme")).toBe("light");
   });
 
-  it("falls back to the blueprint dark theme when the OS prefers dark", () => {
+  it("defaults to blueprint regardless of the OS light preference", () => {
     vi.stubGlobal("matchMedia", (query: string) => ({
-      matches: true,
+      matches: false,
       media: query,
       onchange: null,
       addEventListener: () => {},
