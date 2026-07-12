@@ -82,8 +82,10 @@ mode — same condition as today's `{current && !compareMode && <ViewSwitcher />
 - **Trigger:** a button styled like the outline buttons, showing the current
   snapshot as `shortSha · TRIGGER · date` (mono), with a chevron. Preceded by a
   small `History` label so its purpose is clear.
-- **Panel:** a `Popover` (added via shadcn — see Dependencies) containing a
-  scrollable list. Each row reuses the old card content: `shortSha` (mono,
+- **Panel:** a native `<details>` dropdown (the same lightweight pattern the
+  existing `ExportMenu` uses — no new dependency) containing a scrollable list,
+  with an outside-click / Escape close handler. Each row reuses the old card
+  content: `shortSha` (mono,
   medium), the `MANUAL`/`AUTO` trigger badge (same styling as `SnapshotCard`), and
   the formatted date. The currently-selected row is marked (`aria-current`, accent
   background + check).
@@ -133,11 +135,13 @@ exclusive by their existing conditions).
 
 ## Dependencies
 
-- Add the shadcn **Popover** primitive: `pnpm dlx shadcn@latest add popover` (run in
-  `apps/frontend`). This pulls `@radix-ui/react-popover` (only `react-slot` is
-  installed today). Popover is chosen over `dropdown-menu` because the compare
-  2-pick needs the panel to stay open across multiple checkbox toggles, which a
-  custom list inside a Popover handles cleanly.
+- **None.** The history dropdown reuses the codebase's existing native-`<details>`
+  dropdown pattern (as in `components/export-menu.tsx`) rather than adding a new
+  UI primitive. `<details>` keeps its panel open while the compare 2-pick toggles
+  multiple checkboxes (only clicking the `<summary>` toggles it), so it covers the
+  compare flow without a dependency. (An earlier draft called for adding a shadcn
+  Popover / `@radix-ui/react-popover`; that was dropped to stay consistent with the
+  established pattern and keep the dependency set lean.)
 
 ## Non-goals / out of scope
 
