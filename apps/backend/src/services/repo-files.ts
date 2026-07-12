@@ -6,12 +6,14 @@ import { promisify } from "node:util";
 
 import mime from "mime-types";
 
+import { cloneUsername, type Provider } from "./providers.js";
+
 const execFileAsync = promisify(execFile);
 
 /** Abort a clone that hangs (e.g. auth prompt, unreachable host). */
 const CLONE_TIMEOUT_MS = 60_000;
 
-export type Provider = "github" | "gitlab";
+export type { Provider };
 
 export type RepoSource = {
   url: string;
@@ -45,13 +47,10 @@ export function buildAuthenticatedUrl(
     return rawUrl;
   }
   if (u.protocol !== "https:") return rawUrl;
-  if (provider === "gitlab") {
-    u.username = "oauth2";
-    u.password = accessToken;
-  } else {
-    u.username = accessToken;
-    u.password = "";
-  }
+  // One uniform credential form per provider (GP-51): the PAT is the password,
+  // the username comes from the provider's clone-username table.
+  u.username = cloneUsername(provider);
+  u.password = accessToken;
   return u.toString();
 }
 

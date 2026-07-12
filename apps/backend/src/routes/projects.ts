@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 
 import { projects, repositories, toPublicRepository } from "../db/schema.js";
 import { generateToken } from "../lib/tokens.js";
+import { detectProvider, PROVIDERS, type Provider } from "../services/providers.js";
 import { verifyAndStore } from "../services/repository-verification.js";
 
 const UUID_PATTERN =
@@ -32,10 +33,12 @@ const createProjectSchema = {
 
 const createRepositorySchema = {
   type: "object",
-  required: ["provider", "url"],
+  required: ["url"],
   additionalProperties: false,
   properties: {
-    provider: { type: "string", enum: ["github", "gitlab"] },
+    // Optional (GP-51): omitted -> auto-detected from the URL. An explicit value
+    // is an override and wins over detection.
+    provider: { type: "string", enum: [...PROVIDERS] },
     url: { type: "string", minLength: 1, maxLength: 500 },
     defaultBranch: { type: "string", minLength: 1, maxLength: 200 },
     // Write-only: accepted here, never echoed back in any response.
@@ -154,7 +157,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const body = request.body as {
-        provider: "github" | "gitlab";
+        provider?: Provider;
         url: string;
         defaultBranch?: string;
         accessToken?: string;
@@ -170,6 +173,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "project not found" });
       }
 
+      // Provider override wins; otherwise auto-detect from the URL (GP-51).
+      const provider = body.provider ?? detectProvider(body.url);
+
       // PAT is stored ENCRYPTED at rest, never in plaintext.
       const encryptedPat = body.accessToken
         ? app.encryptor.encrypt(body.accessToken)
@@ -179,7 +185,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         .insert(repositories)
         .values({
           projectId: id,
-          provider: body.provider,
+          provider,
           url: body.url,
           // Omitted -> DB default ("main").
           defaultBranch: body.defaultBranch,

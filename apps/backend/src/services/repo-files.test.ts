@@ -138,15 +138,26 @@ test("classifyGitError distinguishes auth / not-found / network", () => {
 });
 
 test("buildAuthenticatedUrl injects credentials for private https repos", () => {
-  // GitHub: token as the username.
+  // One uniform form per provider: https://{cloneUsername}:{PAT}@host/... (GP-51).
+  // GitHub: x-access-token user with the token as password.
   assert.equal(
     buildAuthenticatedUrl("https://github.com/acme/repo.git", "github", "tok"),
-    "https://tok@github.com/acme/repo.git",
+    "https://x-access-token:tok@github.com/acme/repo.git",
   );
   // GitLab: oauth2 user with the token as password.
   assert.equal(
     buildAuthenticatedUrl("https://gitlab.com/acme/repo.git", "gitlab", "tok"),
     "https://oauth2:tok@gitlab.com/acme/repo.git",
+  );
+  // Azure DevOps: pat user with the token as password.
+  assert.equal(
+    buildAuthenticatedUrl("https://dev.azure.com/acme/infra/_git/repo", "azure_devops", "tok"),
+    "https://pat:tok@dev.azure.com/acme/infra/_git/repo",
+  );
+  // Generic (unknown host): git user with the token as password.
+  assert.equal(
+    buildAuthenticatedUrl("https://git.internal.example.com/acme/repo.git", "generic", "tok"),
+    "https://git:tok@git.internal.example.com/acme/repo.git",
   );
   // No token -> URL unchanged.
   assert.equal(

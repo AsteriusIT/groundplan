@@ -85,6 +85,13 @@
       "when": 1783781869184,
       "tag": "0011_dark_the_executioner",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783874824857,
+      "tag": "0012_smart_puppet_master",
+      "breakpoints": true
     }
   ]
 }

@@ -120,6 +120,66 @@ test("repository access_token is write-only and never returned", async () => {
   }
 });
 
+test("repository provider is auto-detected from the URL when omitted (GP-51)", async () => {
+  const app = await buildApp(env);
+  const slug = `detect-${Date.now()}`;
+  try {
+    const project = (
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/projects",
+        payload: { name: "Detect", slug },
+      })
+    ).json();
+
+    const cases: Array<{ url: string; expected: string }> = [
+      { url: "https://gitlab.com/acme/infra", expected: "gitlab" },
+      { url: "https://dev.azure.com/acme/infra/_git/repo", expected: "azure_devops" },
+      { url: "https://git.internal.example.com/acme/infra.git", expected: "generic" },
+    ];
+    for (const { url, expected } of cases) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/v1/projects/${project.id}/repositories`,
+        payload: { url },
+      });
+      assert.equal(res.statusCode, 201, `create failed for ${url}`);
+      assert.equal(res.json().provider, expected, `wrong provider for ${url}`);
+    }
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("an explicit provider overrides URL detection and is stored (GP-51)", async () => {
+  const app = await buildApp(env);
+  const slug = `override-${Date.now()}`;
+  try {
+    const project = (
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/projects",
+        payload: { name: "Override", slug },
+      })
+    ).json();
+
+    // A self-hosted GitLab URL would detect as `generic`, but the user overrides.
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/projects/${project.id}/repositories`,
+      payload: { provider: "gitlab", url: "https://gitlab.example.com/acme/infra" },
+    });
+    assert.equal(res.statusCode, 201);
+    assert.equal(res.json().provider, "gitlab");
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+  } finally {
+    await app.close();
+  }
+});
+
 test("POST /projects with a duplicate slug returns 409", async () => {
   const app = await buildApp(env);
   const slug = `dup-${Date.now()}`;

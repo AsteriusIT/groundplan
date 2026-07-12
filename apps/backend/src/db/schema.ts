@@ -21,6 +21,8 @@ import type { Graph, GraphStats } from "../graph/graph.js";
 export const repositoryProvider = pgEnum("repository_provider", [
   "github",
   "gitlab",
+  "azure_devops",
+  "generic",
 ]);
 
 export const repositoryConnectionStatus = pgEnum(
