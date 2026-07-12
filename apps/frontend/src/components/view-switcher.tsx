@@ -2,8 +2,11 @@ import { useSearchParams } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
 
-/** The two graph views (GP-44). "infra" is the default plan-impact/docs view. */
-export type GraphView = "infra" | "network";
+/**
+ * The graph views: "infra" (default plan-impact/docs canvas, GP-44), "network"
+ * (GP-44), and "iam" (the role-assignment table, GP-48).
+ */
+export type GraphView = "infra" | "network" | "iam";
 
 /**
  * Read/write the `?view` query param (default "infra"). Kept in the URL — like
@@ -11,11 +14,12 @@ export type GraphView = "infra" | "network";
  */
 export function useGraphView(): { view: GraphView; setView: (v: GraphView) => void } {
   const [params, setParams] = useSearchParams();
-  const view: GraphView = params.get("view") === "network" ? "network" : "infra";
+  const raw = params.get("view");
+  const view: GraphView = raw === "network" || raw === "iam" ? raw : "infra";
   const setView = (next: GraphView): void => {
     const updated = new URLSearchParams(params);
-    if (next === "network") updated.set("view", "network");
-    else updated.delete("view");
+    if (next === "infra") updated.delete("view");
+    else updated.set("view", next);
     setParams(updated, { replace: true });
   };
   return { view, setView };
@@ -24,9 +28,10 @@ export function useGraphView(): { view: GraphView; setView: (v: GraphView) => vo
 const OPTIONS: { key: GraphView; label: string }[] = [
   { key: "infra", label: "Plan impact" },
   { key: "network", label: "Network" },
+  { key: "iam", label: "IAM" },
 ];
 
-/** Plan-impact ⇄ Network view tabs (GP-44). Underlined-tab styling. */
+/** Plan-impact ⇄ Network ⇄ IAM view tabs (GP-44/GP-48). Underlined-tab styling. */
 export function ViewSwitcher() {
   const { view, setView } = useGraphView();
   return (

@@ -186,6 +186,47 @@ it("handles a 409 while regenerating with a friendly message", async () => {
   expect(await screen.findByText(/already in progress/i)).toBeInTheDocument();
 });
 
+it("renders the IAM table (no change column) at ?view=iam (GP-48)", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "aaaaaaaa1111", "manual")]);
+  getSnapshotMock.mockResolvedValue({
+    ...summary("s1", "aaaaaaaa1111", "manual"),
+    summaryMd: "No changes.",
+    graph: {
+      version: 4,
+      nodes: [
+        {
+          id: "azurerm_role_assignment.owner",
+          name: "owner",
+          type: "azurerm_role_assignment",
+          provider: "azurerm",
+          module_path: [],
+          change: null,
+          role_assignment: {
+            role: "Owner",
+            principal: "sp-x",
+            scope: "azurerm_resource_group.main",
+          },
+          privileged: true,
+        },
+      ],
+      edges: [],
+    },
+  });
+
+  render(
+    <MemoryRouter initialEntries={["/projects/p1/repos/r1/docs?view=iam"]}>
+      <Routes>
+        <Route path="/projects/:id/repos/:repoId/docs" element={<DocsPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText("Owner")).toBeInTheDocument();
+  // Docs context drops the change column, and the canvas is replaced.
+  expect(screen.queryByRole("columnheader", { name: /change/i })).toBeNull();
+  expect(screen.queryByTestId("canvas")).toBeNull();
+});
+
 it("compares two docs snapshots (GP-40)", async () => {
   listSnapshotsMock.mockResolvedValue([
     summary("s2", "bbbbbbbb2222", "manual"),

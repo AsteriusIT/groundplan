@@ -160,6 +160,50 @@ it("shows the empty state with the parse error when there is no snapshot", async
   expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
 });
 
+it("renders the IAM table (with a change column) at ?view=iam (GP-48)", async () => {
+  getPullMock.mockResolvedValue(pull());
+  listSnapshotsMock.mockResolvedValue([summary()]);
+  getSnapshotMock.mockResolvedValue({
+    ...snapshot,
+    graph: {
+      version: 4,
+      nodes: [
+        {
+          id: "azurerm_role_assignment.owner",
+          name: "owner",
+          type: "azurerm_role_assignment",
+          provider: "azurerm",
+          module_path: [],
+          change: "create",
+          role_assignment: {
+            role: "Owner",
+            principal: "sp-x",
+            scope: "azurerm_resource_group.main",
+          },
+          privileged: true,
+        },
+      ],
+      edges: [],
+    },
+  });
+
+  render(
+    <MemoryRouter initialEntries={["/projects/p1/repos/r1/pulls/5?view=iam"]}>
+      <Routes>
+        <Route
+          path="/projects/:id/repos/:repoId/pulls/:number"
+          element={<PullDetailPage />}
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText("Owner")).toBeInTheDocument();
+  // PR context keeps the change column; the canvas is replaced by the table.
+  expect(screen.getByRole("columnheader", { name: /change/i })).toBeInTheDocument();
+  expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
+});
+
 it("offers a snapshot dropdown when the PR has more than one", async () => {
   getPullMock.mockResolvedValue(pull());
   listSnapshotsMock.mockResolvedValue([

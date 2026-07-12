@@ -23,6 +23,7 @@ import { CompareView } from "@/components/compare-view";
 import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { IamTable } from "@/components/iam-table";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { SnapshotSelect } from "@/components/snapshot-select";
 import { networkProjection } from "@/lib/graph-layout";
@@ -355,11 +356,15 @@ export function DocsPage() {
                 {current.stats.warnings && current.stats.warnings.length > 0 && (
                   <WarningsNotice warnings={current.stats.warnings} />
                 )}
-                <GraphCanvas
-                  graph={network ? network.graph : current.graph}
-                  variant="docs"
-                  containerIds={network?.containerIds}
-                />
+                {view === "iam" ? (
+                  <IamTable graph={current.graph} variant="docs" />
+                ) : (
+                  <GraphCanvas
+                    graph={network ? network.graph : current.graph}
+                    variant="docs"
+                    containerIds={network?.containerIds}
+                  />
+                )}
               </>
             )}
           </>

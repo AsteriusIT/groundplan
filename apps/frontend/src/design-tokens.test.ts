@@ -30,6 +30,7 @@ const GOVERNED = [
   "components/graph-node.tsx",
   "components/graph-edge.tsx",
   "components/resource-icon.tsx",
+  "components/iam-table.tsx",
   "lib/status.ts",
   "lib/graph-layout.ts",
   "lib/resource-category.ts",

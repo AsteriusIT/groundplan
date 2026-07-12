@@ -38,3 +38,25 @@ it("defaults to the plan-impact view when no param is set", () => {
     "true",
   );
 });
+
+it("reflects and selects the ?view=iam param (GP-48)", () => {
+  render(
+    <MemoryRouter initialEntries={["/x?view=iam"]}>
+      <ViewSwitcher />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole("button", { name: /iam/i })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /network/i }));
+  expect(screen.getByRole("button", { name: /network/i })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: /iam/i })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+});

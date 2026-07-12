@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { ChangeSummarySidebar } from "@/components/change-summary";
 import { ExportMenu } from "@/components/export-menu";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { IamTable } from "@/components/iam-table";
 import { SnapshotSelect } from "@/components/snapshot-select";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { networkProjection } from "@/lib/graph-layout";
@@ -203,11 +204,15 @@ export function PullDetailPage() {
               <ErrorBlock message={graph.message} onRetry={load} />
             </CenteredNote>
           ) : graph.status === "ready" ? (
-            <GraphCanvas
-              graph={network ? network.graph : graph.snapshot.graph}
-              variant="plan"
-              containerIds={network?.containerIds}
-            />
+            view === "iam" ? (
+              <IamTable graph={graph.snapshot.graph} variant="plan" />
+            ) : (
+              <GraphCanvas
+                graph={network ? network.graph : graph.snapshot.graph}
+                variant="plan"
+                containerIds={network?.containerIds}
+              />
+            )
           ) : (
             <CenteredNote>Loading diagram…</CenteredNote>
           )}
