@@ -2,9 +2,27 @@
  * Deterministic derivations for the node detail panel (GP-33). Everything here is
  * pure graph traversal over the snapshot — no AI, no invented data.
  */
-import type { Graph, GraphNode } from "@/api/types";
+import type { Graph, GraphNode, NsgRule } from "@/api/types";
 
 const CHANGED = new Set(["create", "update", "delete"]);
+
+const INTERNET_SOURCES = new Set(["*", "0.0.0.0/0", "internet"]);
+
+/** One NSG rule paired with whether its source is an internet source (GP-45). */
+export interface FlaggedRule {
+  rule: NsgRule;
+  internet: boolean;
+}
+
+/** A node's NSG rules sorted by priority, each flagged if internet-sourced. */
+export function sortedRules(node: GraphNode): FlaggedRule[] {
+  return [...(node.rules ?? [])]
+    .sort((a, b) => a.priority - b.priority)
+    .map((rule) => ({
+      rule,
+      internet: INTERNET_SOURCES.has(rule.source.trim().toLowerCase()),
+    }));
+}
 
 /** The resources a node depends on, and the resources that depend on it. */
 export interface Connections {

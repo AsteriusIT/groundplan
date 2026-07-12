@@ -63,6 +63,8 @@ export type GraphNodeData = {
   isHub?: boolean;
   /** Number of this hub's edges currently hidden — drives the counter chip. */
   hubHiddenCount?: number;
+  /** True when this node is internet-exposed (an exposed NSG or its target; GP-45). */
+  exposed?: boolean;
   [key: string]: unknown;
 };
 
@@ -192,6 +194,21 @@ export function networkProjection(graph: Graph): {
 }
 
 /**
+ * Ids to render as internet-exposed (GP-45): every NSG whose `internet_exposed`
+ * flag is set, plus the subnets/NICs it is associated with — so the warning
+ * treatment lands on both the security group and what it (fails to) protect.
+ */
+export function exposedNodeIds(graph: Graph): Set<string> {
+  const ids = new Set<string>();
+  for (const node of graph.nodes) {
+    if (!node.internet_exposed) continue;
+    ids.add(node.id);
+    for (const id of node.associated_ids ?? []) ids.add(id);
+  }
+  return ids;
+}
+
+/**
  * Does a node pass the active change/impact filters? Modules and docs-flow
  * resources (no change data) always pass — filters only apply to plan changes.
  */
@@ -289,6 +306,7 @@ export function elkToFlow(
   const showHubEdges = view.showHubEdges ?? false;
   const neighbors = selectedId ? neighborhood(graph, selectedId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const exposed = exposedNodeIds(graph); // internet-exposure treatment (GP-45)
 
   // Count each hub's currently-hidden edges so the node can show a counter chip
   // (GP-35). A hub edge is hidden unless revealed by the toggle or the selection.
@@ -332,6 +350,7 @@ export function elkToFlow(
           selected: selectedId === graphNode.id,
           isHub: hubs.has(graphNode.id),
           hubHiddenCount: hubHiddenCount.get(graphNode.id) ?? 0,
+          exposed: exposed.has(graphNode.id),
         },
         style: { width: elk.width, height: elk.height },
         ...(parentId ? { parentId, extent: "parent" as const } : {}),

@@ -6,9 +6,9 @@
  */
 import type { ChangeKind } from "@/api/types";
 
-/** The four saturated states in the design system. `impacted` is not a plan
- * action but shares the treatment (violet). */
-export type StatusKind = "create" | "update" | "delete" | "impacted";
+/** The saturated states in the design system. `impacted` (violet) and `exposed`
+ * (orange, GP-45) are not plan actions but share the token-driven treatment. */
+export type StatusKind = "create" | "update" | "delete" | "impacted" | "exposed";
 
 export interface StatusMeta {
   label: string;
@@ -56,6 +56,14 @@ export const STATUS_META: Record<StatusKind, StatusMeta> = {
     bg: "bg-impacted",
     soft: "bg-impacted-soft",
     border: "border-impacted",
+  },
+  exposed: {
+    label: "Internet-exposed",
+    glyph: "⚠",
+    text: "text-exposed",
+    bg: "bg-exposed",
+    soft: "bg-exposed-soft",
+    border: "border-exposed",
   },
 };
 

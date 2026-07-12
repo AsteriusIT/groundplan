@@ -16,15 +16,19 @@ import { cn } from "@/lib/utils";
 export function NetworkContainer({
   graphNode,
   dimmed = false,
+  exposed = false,
 }: {
   graphNode: GraphNode;
   dimmed?: boolean;
+  /** GP-45: this subnet is guarded by an internet-exposed NSG. */
+  exposed?: boolean;
 }) {
   const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
   return (
     <div
       className={cn(
         "border-border-strong bg-accent-soft/20 relative h-full w-full rounded-lg border border-dashed transition-opacity",
+        exposed && "ring-exposed ring-2",
         dimmed && "opacity-40",
       )}
     >
@@ -41,5 +45,11 @@ export function NetworkContainer({
 export const NetworkContainerNode = memo(function NetworkContainerNode({
   data,
 }: NodeProps<FlowNode<GraphNodeData>>) {
-  return <NetworkContainer graphNode={data.graphNode} dimmed={data.dimmed} />;
+  return (
+    <NetworkContainer
+      graphNode={data.graphNode}
+      dimmed={data.dimmed}
+      exposed={data.exposed === true}
+    />
+  );
 });

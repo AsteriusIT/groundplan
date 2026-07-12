@@ -18,7 +18,7 @@ import {
   type Node as FlowNode,
   type NodeProps,
 } from "@xyflow/react";
-import { Waypoints } from "lucide-react";
+import { ShieldAlert, Waypoints } from "lucide-react";
 
 import type { GraphNode } from "@/api/types";
 import { changeClasses } from "@/lib/graph-layout";
@@ -35,6 +35,7 @@ export function NodeCard({
   dimmed = false,
   isHub = false,
   hubHiddenCount = 0,
+  exposed = false,
 }: {
   graphNode: GraphNode;
   selected?: boolean;
@@ -43,6 +44,8 @@ export function NodeCard({
   isHub?: boolean;
   /** GP-35: number of this hub's edges hidden right now (0 = all revealed). */
   hubHiddenCount?: number;
+  /** GP-45: internet-exposed (an exposed NSG or a subnet/NIC it guards). */
+  exposed?: boolean;
 }) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
@@ -61,6 +64,7 @@ export function NodeCard({
         impacted &&
           !selected &&
           "outline-impacted outline-2 outline-offset-2 outline-dashed",
+        exposed && !selected && "ring-exposed ring-offset-background ring-2 ring-offset-1",
         dimmed && "opacity-20",
       )}
     >
@@ -117,6 +121,19 @@ export function NodeCard({
           className="absolute -top-2 -right-2"
         />
       ) : null}
+
+      {/* GP-45: internet-exposure warning — a distinct shield badge (top-left so
+          it never collides with the status/impacted badge on the right). */}
+      {exposed && (
+        <span
+          role="img"
+          aria-label="Internet-exposed"
+          title="Internet-exposed"
+          className="bg-exposed absolute -top-2 -left-2 inline-grid size-4 place-items-center rounded-full text-white ring-2 ring-white"
+        >
+          <ShieldAlert className="size-2.5" />
+        </span>
+      )}
     </div>
   );
 }
@@ -134,6 +151,7 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         dimmed={data.dimmed}
         isHub={data.isHub === true}
         hubHiddenCount={data.hubHiddenCount ?? 0}
+        exposed={data.exposed === true}
       />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>

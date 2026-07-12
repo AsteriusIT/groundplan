@@ -6,7 +6,9 @@ import { categorize, CATEGORY_META, shortType } from "@/lib/resource-category";
 import {
   connectionsOf,
   nearestChangedAncestor,
+  sortedRules,
   type ChangedAncestor,
+  type FlaggedRule,
 } from "@/lib/node-details";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/ui/chip";
@@ -46,6 +48,7 @@ export function NodeDetailsPanel({
   const ancestor = impacted ? nearestChangedAncestor(graph, node.id) : null;
   const diff = showChange ? (node.attribute_diff ?? []) : [];
   const { dependencies, dependents } = connectionsOf(graph, node.id);
+  const rules = sortedRules(node);
   const catClass = CATEGORY_META[categorize(node.type)].className;
 
   return (
@@ -132,6 +135,12 @@ export function NodeDetailsPanel({
             className="mt-3"
           />
         </SidePanelSection>
+
+        {rules.length > 0 && (
+          <SidePanelSection label="Security rules">
+            <SecurityRules rules={rules} />
+          </SidePanelSection>
+        )}
       </SidePanelBody>
     </SidePanel>
   );
@@ -178,6 +187,41 @@ function WhyImpacted({
         .
       </div>
     </SidePanelSection>
+  );
+}
+
+/**
+ * NSG security rules (GP-45): a priority-sorted table; rows whose source is an
+ * internet source are tinted with the exposure token and flagged, so a reviewer
+ * sees exactly which rule opens the group to the internet.
+ */
+function SecurityRules({ rules }: { rules: FlaggedRule[] }) {
+  return (
+    <div className="border-border divide-border divide-y rounded-md border font-mono text-[11px]">
+      {rules.map(({ rule, internet }) => (
+        <div
+          key={rule.name}
+          className={cn(
+            "flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5",
+            internet && "bg-exposed-soft",
+          )}
+        >
+          <span className="text-faint w-8 shrink-0">{rule.priority}</span>
+          <span className="text-ink min-w-0 flex-1 break-all">{rule.name}</span>
+          <span className="text-muted-foreground">
+            {rule.direction} {rule.access}
+          </span>
+          <span className="text-muted-foreground">:{rule.ports}</span>
+          {internet ? (
+            <span aria-label="internet source" className="text-exposed font-medium">
+              {rule.source}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">{rule.source}</span>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

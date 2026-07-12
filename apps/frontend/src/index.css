@@ -61,6 +61,8 @@
   --destructive: #d8503f;
   --impacted: #7b5bd6;
   --impacted-soft: #f1edfc;
+  --exposed: #d4531e; /* internet-exposed warning (GP-45) */
+  --exposed-soft: #fdece3;
 
   /* — resource categories (GP-24) — tokenised so nothing picks a raw hue — */
   --cat-compute: #2563c9;
@@ -118,6 +120,8 @@
   --color-delete-soft: var(--delete-soft);
   --color-impacted: var(--impacted);
   --color-impacted-soft: var(--impacted-soft);
+  --color-exposed: var(--exposed);
+  --color-exposed-soft: var(--exposed-soft);
 
   --color-cat-compute: var(--cat-compute);
   --color-cat-network: var(--cat-network);

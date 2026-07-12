@@ -29,3 +29,18 @@ it("renders no hub chip for a non-hub node", () => {
   render(<NodeCard graphNode={{ ...rg, type: "aws_instance" }} />);
   expect(document.querySelector('[title*="connection"]')).toBeFalsy();
 });
+
+it("shows the exposure badge on an internet-exposed node (GP-45)", () => {
+  render(
+    <NodeCard
+      graphNode={{ ...rg, type: "azurerm_network_security_group" }}
+      exposed
+    />,
+  );
+  expect(screen.getByLabelText(/internet-exposed/i)).toBeInTheDocument();
+});
+
+it("shows no exposure badge when the node is not exposed", () => {
+  render(<NodeCard graphNode={{ ...rg, type: "azurerm_network_security_group" }} />);
+  expect(screen.queryByLabelText(/internet-exposed/i)).not.toBeInTheDocument();
+});

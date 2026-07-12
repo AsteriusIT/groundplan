@@ -98,3 +98,33 @@ it("renders old snapshots (no attribute_diff) without a Changes section", () => 
   expect(screen.getByText("Terraform address")).toBeInTheDocument();
   expect(screen.getByText("aws_s3_bucket.logs")).toBeInTheDocument();
 });
+
+it("renders a Security rules section for an NSG, flagging internet rows (GP-45)", () => {
+  const nsg: GraphNode = {
+    id: "azurerm_network_security_group.open",
+    name: "open",
+    type: "azurerm_network_security_group",
+    provider: "azurerm",
+    module_path: [],
+    change: null,
+    rules: [
+      { name: "allow-internal", priority: 200, direction: "Inbound", access: "Allow", protocol: "Tcp", ports: "22", source: "10.0.0.0/8", destination: "*" },
+      { name: "allow-https", priority: 100, direction: "Inbound", access: "Allow", protocol: "Tcp", ports: "443", source: "Internet", destination: "*" },
+    ],
+  };
+  const graph: Graph = { version: 4, nodes: [nsg], edges: [] };
+  render(<NodeDetailsPanel graph={graph} node={nsg} onClose={() => {}} onSelect={() => {}} />);
+
+  expect(screen.getByText("Security rules")).toBeInTheDocument();
+  // Sorted by priority: allow-https (100) appears before allow-internal (200).
+  const names = screen.getAllByText(/allow-(https|internal)/).map((n) => n.textContent);
+  expect(names).toEqual(["allow-https", "allow-internal"]);
+  // Exactly one row is flagged as an internet source.
+  expect(screen.getAllByLabelText(/internet source/i)).toHaveLength(1);
+});
+
+it("hides the Security rules section when a node has no rules", () => {
+  const graph: Graph = { version: 4, nodes: [subnet], edges: [] };
+  render(<NodeDetailsPanel graph={graph} node={subnet} onClose={() => {}} onSelect={() => {}} />);
+  expect(screen.queryByText("Security rules")).not.toBeInTheDocument();
+});

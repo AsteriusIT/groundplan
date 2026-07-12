@@ -5,6 +5,7 @@ import {
   ALL_FILTERS,
   changeClasses,
   elkToFlow,
+  exposedNodeIds,
   neighborhood,
   networkProjection,
   nodePassesFilters,
@@ -254,4 +255,22 @@ it("networkProjection re-nests vnet/subnet as containers via toElkGraph", () => 
   expect(vn?.children?.map((c) => c.id)).toContain("sn");
   const sn = vn?.children?.find((c) => c.id === "sn");
   expect(sn?.children?.map((c) => c.id)).toContain("nic");
+});
+
+it("exposedNodeIds returns each exposed NSG and its associated targets", () => {
+  const g: Graph = {
+    version: 4,
+    edges: [],
+    nodes: [
+      { id: "nsg", name: "nsg", type: "azurerm_network_security_group", provider: "azurerm", module_path: [], change: null, internet_exposed: true, associated_ids: ["sn"] },
+      { id: "sn", name: "sn", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null },
+      { id: "nsg2", name: "nsg2", type: "azurerm_network_security_group", provider: "azurerm", module_path: [], change: null, internet_exposed: false, associated_ids: ["sn2"] },
+      { id: "sn2", name: "sn2", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null },
+    ],
+  };
+  const ids = exposedNodeIds(g);
+  expect(ids.has("nsg")).toBe(true);
+  expect(ids.has("sn")).toBe(true); // associated target of an exposed NSG
+  expect(ids.has("nsg2")).toBe(false);
+  expect(ids.has("sn2")).toBe(false);
 });

@@ -12,6 +12,7 @@ export type ChipVariant =
   | "update"
   | "delete"
   | "impacted"
+  | "exposed"
   | "neutral"
   | "accent";
 
@@ -20,6 +21,7 @@ const CHIP_VARIANTS: Record<ChipVariant, string> = {
   update: "bg-update-soft text-update border-update/30",
   delete: "bg-delete-soft text-delete border-delete/30",
   impacted: "bg-impacted-soft text-impacted border-impacted/30",
+  exposed: "bg-exposed-soft text-exposed border-exposed/30",
   neutral: "bg-muted text-muted-foreground border-border",
   accent: "bg-accent-soft text-primary border-primary/30",
 };
