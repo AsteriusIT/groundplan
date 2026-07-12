@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Boxes, Plus, TriangleAlert } from "lucide-react";
+import { Boxes, Plus, Trash2, TriangleAlert } from "lucide-react";
 
 import { ApiError, listProjects } from "@/api/client";
 import type { Project } from "@/api/types";
@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
+import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { PageHeader } from "@/components/page-header";
 
 type LoadState =
@@ -45,6 +46,15 @@ export function ProjectsPage() {
     setState((prev) =>
       prev.status === "ready"
         ? { status: "ready", projects: [project, ...prev.projects] }
+        : prev,
+    );
+  }, []);
+
+  // Drop the deleted project from the list in place — no refetch.
+  const handleDeleted = useCallback((id: string) => {
+    setState((prev) =>
+      prev.status === "ready"
+        ? { status: "ready", projects: prev.projects.filter((p) => p.id !== id) }
         : prev,
     );
   }, []);
@@ -87,7 +97,7 @@ export function ProjectsPage() {
           <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {state.projects.map((project) => (
               <li key={project.id}>
-                <ProjectCard project={project} />
+                <ProjectCard project={project} onDeleted={handleDeleted} />
               </li>
             ))}
           </ul>
@@ -97,25 +107,49 @@ export function ProjectsPage() {
   );
 }
 
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({
+  project,
+  onDeleted,
+}: {
+  project: Project;
+  onDeleted: (id: string) => void;
+}) {
   return (
-    <Link to={`/projects/${project.id}`} className="group block">
-      <Card className="hover:border-primary relative gap-0 overflow-hidden transition-colors">
-        <span
-          aria-hidden="true"
-          className="border-grid-line group-hover:border-primary/60 pointer-events-none absolute top-2 right-2 size-2.5 border-t border-r transition-colors"
-        />
-        <CardHeader>
-          <CardTitle className="font-display text-base">{project.name}</CardTitle>
-          <CardDescription className="font-mono text-xs">
-            {project.slug}
-          </CardDescription>
-        </CardHeader>
-        <div className="text-muted-foreground mt-4 border-t border-border px-6 pt-3 font-mono text-xs">
-          Created {formatDate(project.createdAt)}
-        </div>
-      </Card>
-    </Link>
+    <div className="group relative">
+      <Link to={`/projects/${project.id}`} className="block">
+        <Card className="hover:border-primary relative gap-0 overflow-hidden transition-colors">
+          <span
+            aria-hidden="true"
+            className="border-grid-line group-hover:border-primary/60 pointer-events-none absolute top-2 right-2 size-2.5 border-t border-r transition-colors"
+          />
+          <CardHeader>
+            <CardTitle className="font-display text-base">
+              {project.name}
+            </CardTitle>
+            <CardDescription className="font-mono text-xs">
+              {project.slug}
+            </CardDescription>
+          </CardHeader>
+          <div className="text-muted-foreground mt-4 border-t border-border px-6 pt-3 font-mono text-xs">
+            Created {formatDate(project.createdAt)}
+          </div>
+        </Card>
+      </Link>
+      <DeleteProjectDialog
+        project={project}
+        onDeleted={onDeleted}
+        trigger={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Delete project ${project.name}`}
+            className="text-muted-foreground hover:text-destructive absolute top-1.5 right-1.5 size-7 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        }
+      />
+    </div>
   );
 }
 

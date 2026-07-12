@@ -1,19 +1,25 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { axe } from "vitest-axe";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, listProjects: vi.fn(), createProject: vi.fn() };
+  return {
+    ...actual,
+    listProjects: vi.fn(),
+    createProject: vi.fn(),
+    deleteProject: vi.fn(),
+  };
 });
 
-import { ApiError, createProject, listProjects } from "@/api/client";
+import { ApiError, createProject, deleteProject, listProjects } from "@/api/client";
 import type { Project } from "@/api/types";
 import { ProjectsPage } from "./projects-page";
 
 const listProjectsMock = vi.mocked(listProjects);
 const createProjectMock = vi.mocked(createProject);
+const deleteProjectMock = vi.mocked(deleteProject);
 
 /** Project cards are links, so the page needs a router in tests. */
 function renderPage(ui = <ProjectsPage />) {
@@ -33,6 +39,7 @@ function project(over: Partial<Project> = {}): Project {
 beforeEach(() => {
   listProjectsMock.mockReset();
   createProjectMock.mockReset();
+  deleteProjectMock.mockReset();
 });
 
 it("shows a loading state", () => {
@@ -107,4 +114,27 @@ it("has no accessibility violations in the list state", async () => {
   await screen.findByText("Alpha");
   const results = await axe(container);
   expect(results.violations).toEqual([]);
+});
+
+it("removes a project from the list when deleted, without refetching", async () => {
+  listProjectsMock.mockResolvedValue([
+    project({ id: "1", name: "Alpha", slug: "alpha" }),
+    project({ id: "2", name: "Beta", slug: "beta" }),
+  ]);
+  deleteProjectMock.mockResolvedValue(undefined);
+  renderPage();
+
+  await screen.findByText("Alpha");
+  fireEvent.click(screen.getByRole("button", { name: "Delete project Alpha" }));
+  fireEvent.change(screen.getByLabelText(/type the project name/i), {
+    target: { value: "Alpha" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
+
+  await waitFor(() =>
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument(),
+  );
+  expect(screen.getByText("Beta")).toBeInTheDocument();
+  expect(deleteProjectMock).toHaveBeenCalledWith("1");
+  expect(listProjectsMock).toHaveBeenCalledTimes(1); // no refetch
 });
