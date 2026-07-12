@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 
 import type { AttributeDiffRow, Graph, GraphNode } from "@/api/types";
@@ -35,6 +36,7 @@ export function NodeDetailsPanel({
   onClose,
   onSelect,
   showChange = true,
+  footer,
 }: {
   graph: Graph;
   node: GraphNode;
@@ -42,6 +44,8 @@ export function NodeDetailsPanel({
   /** Select + fly to another node (from the why-impacted / connections links). */
   onSelect: (node: GraphNode) => void;
   showChange?: boolean;
+  /** Optional action bar pinned below the scrolling body (e.g. cross-view jump). */
+  footer?: ReactNode;
 }) {
   const status = statusOf(node.change);
   const impacted = showChange && node.impacted === true;
@@ -142,6 +146,10 @@ export function NodeDetailsPanel({
           </SidePanelSection>
         )}
       </SidePanelBody>
+
+      {footer && (
+        <div className="border-border shrink-0 border-t px-4 py-3">{footer}</div>
+      )}
     </SidePanel>
   );
 }

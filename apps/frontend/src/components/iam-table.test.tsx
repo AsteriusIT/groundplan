@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, it, describe } from "vitest";
+import { expect, it, describe, vi } from "vitest";
 
 import type { Graph, GraphNode } from "@/api/types";
 import { IamTable } from "./iam-table";
@@ -125,5 +125,84 @@ describe("IamTable (GP-48)", () => {
     );
     expect(screen.getByText(/no iam resources/i)).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+describe("IamTable drill-down (GP-49)", () => {
+  const drillGraph: Graph = {
+    version: 4,
+    nodes: [
+      assignment(
+        "pull",
+        "AcrPull",
+        "azurerm_user_assigned_identity.aks",
+        "azurerm_container_registry.main",
+        {
+          change: "create",
+          attribute_diff: [
+            { key: "role_definition_name", before: null, after: "AcrPull" },
+          ],
+        },
+      ),
+      {
+        id: "azurerm_user_assigned_identity.aks",
+        name: "aks",
+        type: "azurerm_user_assigned_identity",
+        provider: "azurerm",
+        module_path: [],
+        change: "create",
+        identity: { type: "UserAssigned" },
+      },
+      {
+        id: "azurerm_container_registry.main",
+        name: "main",
+        type: "azurerm_container_registry",
+        provider: "azurerm",
+        module_path: [],
+        change: "create",
+      },
+      // Owner's principal + scope reference nothing in the snapshot → plain text.
+      assignment("owner", "Owner", "sp-raw-object-id", "sub-raw-scope", {
+        privileged: true,
+      }),
+    ],
+    edges: [],
+  };
+
+  it("opens the detail panel for the assignment when its row is clicked", () => {
+    render(<IamTable graph={drillGraph} variant="plan" />);
+    fireEvent.click(screen.getByText("AcrPull")); // role cell → row
+    const panel = screen.getByRole("complementary", { name: /details for pull/i });
+    expect(within(panel).getByText("azurerm_role_assignment.pull")).toBeInTheDocument();
+    // PR context: the panel shows the changed attribute (GP-32).
+    expect(within(panel).getByText("role_definition_name")).toBeInTheDocument();
+  });
+
+  it("makes principal/scope links that jump the panel to that node", () => {
+    render(<IamTable graph={drillGraph} variant="plan" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "azurerm_user_assigned_identity.aks" }),
+    );
+    // The panel lands on the identity node (its Terraform address is shown).
+    const panel = screen.getByRole("complementary", { name: /details for aks/i });
+    expect(
+      within(panel).getByText("azurerm_user_assigned_identity.aks"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a principal that is not a snapshot node as plain text", () => {
+    render(<IamTable graph={drillGraph} variant="plan" />);
+    expect(screen.queryByRole("button", { name: "sp-raw-object-id" })).toBeNull();
+    expect(screen.getByText("sp-raw-object-id")).toBeInTheDocument();
+  });
+
+  it("calls onViewInPlanImpact with the selected node", () => {
+    const onView = vi.fn();
+    render(<IamTable graph={drillGraph} variant="plan" onViewInPlanImpact={onView} />);
+    fireEvent.click(screen.getByText("AcrPull"));
+    fireEvent.click(screen.getByRole("button", { name: /view in plan.impact/i }));
+    expect(onView).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "azurerm_role_assignment.pull" }),
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -15,8 +15,16 @@ vi.mock("@/api/client", async (importOriginal) => {
 
 // The canvas (ELK + React Flow) is exercised in graph-canvas.test.tsx.
 vi.mock("@/components/graph-canvas", () => ({
-  GraphCanvas: ({ graph }: { graph: { nodes: unknown[] } }) => (
-    <div data-testid="canvas">{graph.nodes.length} nodes</div>
+  GraphCanvas: ({
+    graph,
+    focusNodeId,
+  }: {
+    graph: { nodes: unknown[] };
+    focusNodeId?: string | null;
+  }) => (
+    <div data-testid="canvas" data-focus={focusNodeId ?? ""}>
+      {graph.nodes.length} nodes
+    </div>
   ),
 }));
 
@@ -202,6 +210,53 @@ it("renders the IAM table (with a change column) at ?view=iam (GP-48)", async ()
   // PR context keeps the change column; the canvas is replaced by the table.
   expect(screen.getByRole("columnheader", { name: /change/i })).toBeInTheDocument();
   expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
+});
+
+it("jumps from an IAM row to the plan-impact canvas with the node focused (GP-49)", async () => {
+  getPullMock.mockResolvedValue(pull());
+  listSnapshotsMock.mockResolvedValue([summary()]);
+  getSnapshotMock.mockResolvedValue({
+    ...snapshot,
+    graph: {
+      version: 4,
+      nodes: [
+        {
+          id: "azurerm_role_assignment.owner",
+          name: "owner",
+          type: "azurerm_role_assignment",
+          provider: "azurerm",
+          module_path: [],
+          change: "create",
+          role_assignment: {
+            role: "Owner",
+            principal: "sp-x",
+            scope: "azurerm_resource_group.main",
+          },
+          privileged: true,
+        },
+      ],
+      edges: [],
+    },
+  });
+
+  render(
+    <MemoryRouter initialEntries={["/projects/p1/repos/r1/pulls/5?view=iam"]}>
+      <Routes>
+        <Route
+          path="/projects/:id/repos/:repoId/pulls/:number"
+          element={<PullDetailPage />}
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  // Open the row's panel, then use its "View in plan-impact" action.
+  fireEvent.click(await screen.findByText("Owner"));
+  fireEvent.click(screen.getByRole("button", { name: /view in plan.impact/i }));
+
+  // The canvas is now shown, focused on the assignment node (selection preserved).
+  const canvas = await screen.findByTestId("canvas");
+  expect(canvas).toHaveAttribute("data-focus", "azurerm_role_assignment.owner");
 });
 
 it("offers a snapshot dropdown when the PR has more than one", async () => {

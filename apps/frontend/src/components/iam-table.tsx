@@ -5,13 +5,14 @@
  * No canvas, no React Flow; a plain token-styled table.
  */
 import { useMemo, useState } from "react";
-import { Search, ShieldAlert } from "lucide-react";
+import { ArrowRight, Search, ShieldAlert } from "lucide-react";
 
 import type { ChangeKind, Graph, GraphNode } from "@/api/types";
 import { fuzzyMatch } from "@/lib/graph-search";
 import { STATUS_META, changeLabel, statusOf } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/ui/chip";
+import { NodeDetailsPanel } from "@/components/node-details-panel";
 
 /** One projected role-assignment row. */
 export interface IamRow {
@@ -52,10 +53,13 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 export function IamTable({
   graph,
   variant,
+  onViewInPlanImpact,
 }: {
   graph: Graph;
   /** "plan" shows the change column + row tint; "docs" omits both. */
   variant: "plan" | "docs";
+  /** GP-49: jump to the plan-impact view with `node` selected (preserved). */
+  onViewInPlanImpact?: (node: GraphNode) => void;
 }) {
   const showChange = variant === "plan";
   const [query, setQuery] = useState("");
@@ -64,7 +68,13 @@ export function IamTable({
     key: "role",
     dir: "asc",
   });
+  // GP-49: the node whose detail panel is open (a row, or a principal/scope jump).
+  const [selected, setSelected] = useState<GraphNode | null>(null);
 
+  const nodeById = useMemo(
+    () => new Map(graph.nodes.map((n) => [n.id, n])),
+    [graph],
+  );
   const allRows = useMemo(() => toIamRows(graph), [graph]);
 
   const rows = useMemo(() => {
@@ -185,13 +195,15 @@ export function IamTable({
               return (
                 <tr
                   key={row.node.id}
+                  onClick={() => setSelected(row.node)}
+                  aria-selected={selected?.id === row.node.id}
                   className={cn(
-                    "border-border/60 border-b transition-colors",
+                    "border-border/60 hover:bg-accent-soft aria-selected:bg-accent-soft cursor-pointer border-b transition-colors",
                     showChange && status && STATUS_META[status].soft,
                   )}
                 >
                   <td className="px-8 py-2.5 align-top">
-                    <CellValue value={row.principal} />
+                    <CellValue value={row.principal} target={nodeById.get(row.principal)} onSelect={setSelected} />
                   </td>
                   <td className="px-8 py-2.5 align-top">
                     <div className="flex items-center gap-2">
@@ -205,7 +217,7 @@ export function IamTable({
                     </div>
                   </td>
                   <td className="px-8 py-2.5 align-top">
-                    <CellValue value={row.scope} />
+                    <CellValue value={row.scope} target={nodeById.get(row.scope)} onSelect={setSelected} />
                   </td>
                   {showChange && (
                     <td className="px-8 py-2.5 align-top">
@@ -222,12 +234,61 @@ export function IamTable({
           </tbody>
         </table>
       </div>
+
+      {selected && (
+        <NodeDetailsPanel
+          graph={graph}
+          node={selected}
+          onClose={() => setSelected(null)}
+          onSelect={setSelected}
+          showChange={showChange}
+          footer={
+            onViewInPlanImpact && (
+              <button
+                type="button"
+                onClick={() => onViewInPlanImpact(selected)}
+                className="text-primary hover:bg-accent-soft flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 font-mono text-xs transition-colors"
+              >
+                View in plan-impact
+                <ArrowRight className="size-3.5" />
+              </button>
+            )
+          }
+        />
+      )}
     </div>
   );
 }
 
-/** A principal/scope cell: truncated mono text with the full value on hover. */
-function CellValue({ value }: { value: string }) {
+/**
+ * A principal/scope cell. When the value is the address of a node in the
+ * snapshot it becomes a link that opens that node's panel (GP-49); otherwise
+ * it's plain truncated mono text with the full value on hover.
+ */
+function CellValue({
+  value,
+  target,
+  onSelect,
+}: {
+  value: string;
+  target?: GraphNode;
+  onSelect: (node: GraphNode) => void;
+}) {
+  if (target) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect(target);
+        }}
+        className="text-primary block max-w-xs truncate text-left font-mono text-xs underline-offset-2 hover:underline"
+        title={value}
+      >
+        {value}
+      </button>
+    );
+  }
   return (
     <span
       className="text-muted-foreground block max-w-xs truncate font-mono text-xs"

@@ -16,7 +16,7 @@ import {
   getSnapshot,
   listSnapshots,
 } from "@/api/client";
-import type { Repository, Snapshot, SnapshotSummary } from "@/api/types";
+import type { GraphNode, Repository, Snapshot, SnapshotSummary } from "@/api/types";
 import { repoName } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { CompareView } from "@/components/compare-view";
@@ -143,10 +143,19 @@ export function DocsPage() {
   const current = graph.status === "ready" ? graph.snapshot : null;
 
   // Network view (GP-44): project the current snapshot when ?view=network.
-  const { view } = useGraphView();
+  const { view, setView } = useGraphView();
   const network = useMemo(
     () => (current && view === "network" ? networkProjection(current.graph) : null),
     [current, view],
+  );
+  // GP-49: a node to select on the canvas, set when jumping from the IAM view.
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const viewInPlanImpact = useCallback(
+    (node: GraphNode) => {
+      setFocusNodeId(node.id);
+      setView("infra");
+    },
+    [setView],
   );
 
   // --- Compare mode (GP-40) -------------------------------------------------
@@ -357,12 +366,17 @@ export function DocsPage() {
                   <WarningsNotice warnings={current.stats.warnings} />
                 )}
                 {view === "iam" ? (
-                  <IamTable graph={current.graph} variant="docs" />
+                  <IamTable
+                    graph={current.graph}
+                    variant="docs"
+                    onViewInPlanImpact={viewInPlanImpact}
+                  />
                 ) : (
                   <GraphCanvas
                     graph={network ? network.graph : current.graph}
                     variant="docs"
                     containerIds={network?.containerIds}
+                    focusNodeId={focusNodeId}
                   />
                 )}
               </>

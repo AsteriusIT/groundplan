@@ -10,6 +10,7 @@ import {
   listSnapshots,
 } from "@/api/client";
 import type {
+  GraphNode,
   PullDetail,
   Repository,
   Snapshot,
@@ -54,15 +55,26 @@ export function PullDetailPage() {
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphState>({ status: "idle" });
+  // GP-49: a node to select on the canvas, set when jumping from the IAM view.
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
 
   // Network view (GP-44): project the ready snapshot when ?view=network.
-  const { view } = useGraphView();
+  const { view, setView } = useGraphView();
   const network = useMemo(
     () =>
       graph.status === "ready" && view === "network"
         ? networkProjection(graph.snapshot.graph)
         : null,
     [graph, view],
+  );
+
+  // GP-49: leave the IAM table for the plan-impact canvas with the node selected.
+  const viewInPlanImpact = useCallback(
+    (node: GraphNode) => {
+      setFocusNodeId(node.id);
+      setView("infra");
+    },
+    [setView],
   );
 
   const load = useCallback(() => {
@@ -205,12 +217,17 @@ export function PullDetailPage() {
             </CenteredNote>
           ) : graph.status === "ready" ? (
             view === "iam" ? (
-              <IamTable graph={graph.snapshot.graph} variant="plan" />
+              <IamTable
+                graph={graph.snapshot.graph}
+                variant="plan"
+                onViewInPlanImpact={viewInPlanImpact}
+              />
             ) : (
               <GraphCanvas
                 graph={network ? network.graph : graph.snapshot.graph}
                 variant="plan"
                 containerIds={network?.containerIds}
+                focusNodeId={focusNodeId}
               />
             )
           ) : (
