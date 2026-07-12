@@ -17,7 +17,7 @@ import type {
 } from "@/api/types";
 import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ChangeSummaryPanel } from "@/components/change-summary";
+import { ChangeSummarySidebar } from "@/components/change-summary";
 import { ExportMenu } from "@/components/export-menu";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
@@ -190,23 +190,32 @@ export function PullDetailPage() {
             )}
           </div>
         </div>
-        {/* GP-36: deterministic change summary at the top of the PR view. */}
-        {graph.status === "ready" && (
-          <ChangeSummaryPanel markdown={graph.snapshot.summaryMd} />
-        )}
       </header>
 
-      <div className="blueprint-grid relative min-h-0 flex-1">
-        {!pull.latestSnapshot && graph.status !== "ready" ? (
-          <NoSnapshot parseError={pull.parseError} />
-        ) : graph.status === "error" ? (
-          <CenteredNote>
-            <ErrorBlock message={graph.message} onRetry={load} />
-          </CenteredNote>
-        ) : graph.status === "ready" ? (
-          <GraphCanvas graph={network ? network.graph : graph.snapshot.graph} variant="plan" />
-        ) : (
-          <CenteredNote>Loading diagram…</CenteredNote>
+      <div className="flex min-h-0 flex-1">
+        <div className="blueprint-grid relative min-h-0 flex-1">
+          {!pull.latestSnapshot && graph.status !== "ready" ? (
+            <NoSnapshot parseError={pull.parseError} />
+          ) : graph.status === "error" ? (
+            <CenteredNote>
+              <ErrorBlock message={graph.message} onRetry={load} />
+            </CenteredNote>
+          ) : graph.status === "ready" ? (
+            <GraphCanvas
+              graph={network ? network.graph : graph.snapshot.graph}
+              variant="plan"
+              containerIds={network?.containerIds}
+            />
+          ) : (
+            <CenteredNote>Loading diagram…</CenteredNote>
+          )}
+        </div>
+        {/* GP-36: deterministic change summary, docked as a right rail. */}
+        {graph.status === "ready" && (
+          <ChangeSummarySidebar
+            markdown={graph.snapshot.summaryMd}
+            prNumber={pull.number}
+          />
         )}
       </div>
     </div>

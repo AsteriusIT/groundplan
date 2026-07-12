@@ -74,6 +74,42 @@ export function ChangeSummary({
   );
 }
 
+/**
+ * The change summary as a right-docked sidebar beside the diagram (GP-36) — a
+ * persistent rail like an AI-review panel, so the reviewer reads the summary and
+ * the graph side by side instead of scrolling past a header block.
+ */
+export function ChangeSummarySidebar({
+  markdown,
+  prNumber,
+}: {
+  markdown: string;
+  prNumber?: number;
+}) {
+  const empty = !markdown || markdown === "No changes.";
+  return (
+    <aside className="border-border bg-card flex w-80 shrink-0 flex-col overflow-y-auto border-l px-4 py-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-muted-foreground font-mono text-[10px] tracking-[0.1em] uppercase">
+          Change summary
+        </span>
+        {prNumber !== undefined && (
+          <span className="bg-accent-soft text-primary rounded-full px-2 py-0.5 font-mono text-[10px]">
+            plan #{prNumber}
+          </span>
+        )}
+      </div>
+      {empty ? (
+        <p className="text-muted-foreground text-xs">
+          No infrastructure changes in this plan.
+        </p>
+      ) : (
+        <ChangeSummary markdown={markdown} />
+      )}
+    </aside>
+  );
+}
+
 /** A collapsible "Change summary" panel — used at the top of the PR view. */
 export function ChangeSummaryPanel({ markdown }: { markdown: string }) {
   if (!markdown || markdown === "No changes.") {

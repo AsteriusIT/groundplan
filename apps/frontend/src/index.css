@@ -67,6 +67,7 @@
   /* — resource categories (GP-24) — tokenised so nothing picks a raw hue — */
   --cat-compute: #2563c9;
   --cat-network: #0e8f9e;
+  --cat-network-soft: #e6f4f5; /* solid light-teal fill for vnet containers (GP-44) */
   --cat-data: #4f46c7;
   --cat-security: #c23a63;
   --cat-identity: #b5760f;
@@ -125,6 +126,7 @@
 
   --color-cat-compute: var(--cat-compute);
   --color-cat-network: var(--cat-network);
+  --color-cat-network-soft: var(--cat-network-soft);
   --color-cat-data: var(--cat-data);
   --color-cat-security: var(--cat-security);
   --color-cat-identity: var(--cat-identity);

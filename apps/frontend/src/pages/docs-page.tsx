@@ -348,7 +348,11 @@ export function DocsPage() {
                 {current.stats.warnings && current.stats.warnings.length > 0 && (
                   <WarningsNotice warnings={current.stats.warnings} />
                 )}
-                <GraphCanvas graph={network ? network.graph : current.graph} variant="docs" />
+                <GraphCanvas
+                  graph={network ? network.graph : current.graph}
+                  variant="docs"
+                  containerIds={network?.containerIds}
+                />
               </>
             )}
           </>

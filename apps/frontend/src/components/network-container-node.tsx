@@ -31,25 +31,32 @@ export function NetworkContainer({
   return (
     <div
       className={cn(
+        // Solid, fully-opaque fills + borders so both levels read clearly on the
+        // blueprint grid (no opacity modifiers).
         "relative h-full w-full transition-opacity",
         isVnet
-          ? "border-cat-network/40 bg-cat-network/5 rounded-xl border-2"
-          : "border-cat-network/30 bg-accent-soft/30 rounded-lg border border-dashed",
+          ? "border-cat-network bg-cat-network-soft rounded-xl border-2"
+          : "border-border-strong bg-accent-soft rounded-lg border border-dashed",
         exposed && "ring-exposed ring-2",
         dimmed && "opacity-40",
       )}
     >
       <span
         className={cn(
-          "absolute left-3 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-[10px] leading-none font-medium",
+          "absolute left-3 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[10px] leading-none font-medium",
           isVnet
-            ? "bg-cat-network/15 text-cat-network -top-3"
-            : "bg-canvas text-muted-foreground -top-2.5",
+            ? "border-cat-network bg-cat-network -top-3 text-white"
+            : "border-border bg-canvas text-muted-foreground -top-2.5",
         )}
       >
-        <ResourceIcon type={graphNode.type} className={cn("size-3.5 shrink-0", iconClass)} />
-        <span className="tracking-[0.14em] uppercase opacity-70">{layer}</span>
-        <span className="text-ink font-semibold">{graphNode.name}</span>
+        <ResourceIcon
+          type={graphNode.type}
+          className={cn("size-3.5 shrink-0", isVnet ? "text-white" : iconClass)}
+        />
+        <span className="tracking-[0.14em] uppercase">{layer}</span>
+        <span className={isVnet ? "font-semibold" : "text-ink font-semibold"}>
+          {graphNode.name}
+        </span>
       </span>
     </div>
   );

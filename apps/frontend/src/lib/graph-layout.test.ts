@@ -274,3 +274,35 @@ it("exposedNodeIds returns each exposed NSG and its associated targets", () => {
   expect(ids.has("nsg2")).toBe(false);
   expect(ids.has("sn2")).toBe(false);
 });
+
+it("networkProjection marks every kept vnet/subnet a container, incl. empty ones", () => {
+  const g: Graph = {
+    version: 4,
+    edges: [],
+    nodes: [
+      { id: "vn", name: "vn", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+      { id: "sn-full", name: "full", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null, parent_id: "vn" },
+      { id: "nic", name: "nic", type: "azurerm_network_interface", provider: "azurerm", module_path: [], change: null, parent_id: "sn-full" },
+      { id: "sn-empty", name: "empty", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null, parent_id: "vn" },
+    ],
+  };
+  const { containerIds } = networkProjection(g);
+  expect([...containerIds].sort()).toEqual(["sn-empty", "sn-full", "vn"]);
+});
+
+it("toElkGraph keeps a forced empty container as a sized frame, not a leaf", () => {
+  const g: Graph = {
+    version: 4,
+    edges: [{ from: "vn", to: "sn", kind: "contains" }],
+    nodes: [
+      { id: "vn", name: "vn", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+      { id: "sn", name: "sn", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null, parent_id: "vn" },
+    ],
+  };
+  const elk = toElkGraph(g, undefined, new Set(["vn", "sn"]));
+  const vn = elk.children?.find((c) => c.id === "vn");
+  const sn = vn?.children?.find((c) => c.id === "sn");
+  // sn holds nothing but is still a container: empty children array + a min size.
+  expect(sn?.children).toEqual([]);
+  expect(sn?.layoutOptions?.["elk.nodeSize.minimum"]).toBeTruthy();
+});

@@ -117,11 +117,14 @@ export function GraphCanvas({
   graph,
   variant = "plan",
   focusNodeId,
+  containerIds,
 }: {
   graph: Graph;
   variant?: "plan" | "docs";
   /** When set/changed, select that node and fly to it (GP-40 compare lists). */
   focusNodeId?: string | null;
+  /** vnet/subnet ids to render as containers even when empty (GP-44 network view). */
+  containerIds?: ReadonlySet<string>;
 }) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
@@ -150,7 +153,7 @@ export function GraphCanvas({
     setActiveCategories(new Set(categoryOptions(graph)));
     setActiveModules(new Set(moduleOptions(graph)));
     elk
-      .layout(toElkGraph(graph, detectHubs(graph)))
+      .layout(toElkGraph(graph, detectHubs(graph), containerIds))
       .then((result) => {
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
@@ -163,7 +166,7 @@ export function GraphCanvas({
     return () => {
       cancelled = true;
     };
-  }, [graph]);
+  }, [graph, containerIds]);
 
   // `/` focuses the search box (unless already typing in a field).
   useEffect(() => {
@@ -189,9 +192,10 @@ export function GraphCanvas({
             selectedId: selected?.id ?? null,
             hubs,
             showHubEdges,
+            containerIds,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected, hubs, showHubEdges],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hubs, showHubEdges, containerIds],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");

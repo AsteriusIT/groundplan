@@ -21,6 +21,10 @@ export { changeLabel } from "@/lib/status";
 const RESOURCE_WIDTH = 220;
 const RESOURCE_HEIGHT = 56;
 const MODULE_LEAF_WIDTH = 200;
+// Minimum footprint for an empty structural container (e.g. a subnet with no
+// resources) so it still reads as a labelled frame (GP-44).
+const EMPTY_CONTAINER_WIDTH = 200;
+const EMPTY_CONTAINER_HEIGHT = 84;
 
 /** Minimal shape of the ELK graph we send and get back (x/y/w/h filled in). */
 export interface ElkGraphNode {
@@ -109,6 +113,8 @@ export type ViewState = {
   hubs?: ReadonlySet<string>;
   /** When true, draw every hub edge (the "Show hub connections" toggle). */
   showHubEdges?: boolean;
+  /** vnet/subnet ids that render as containers even when empty (GP-44). */
+  containerIds?: ReadonlySet<string>;
 };
 
 const isModule = (node: GraphNode) => node.type === "module";
@@ -145,6 +151,11 @@ export function categoryOptions(graph: Graph): Category[] {
 const isNetworkPlumbing = (node: GraphNode): boolean =>
   node.type.endsWith("_association");
 
+// The two structural container types in the network view. They render as frames
+// even when empty (a subnet with no resources is still a subnet).
+const isNetworkContainer = (node: GraphNode): boolean =>
+  node.type === "azurerm_virtual_network" || node.type === "azurerm_subnet";
+
 /** Ids the network view keeps: containment chains + network category + NSGs. */
 function keptNetworkIds(graph: Graph): Set<string> {
   const keep = new Set<string>();
@@ -174,6 +185,8 @@ function keptNetworkIds(graph: Graph): Set<string> {
 export function networkProjection(graph: Graph): {
   graph: Graph;
   hiddenCount: number;
+  /** vnet/subnet ids to render as containers — even when they hold nothing. */
+  containerIds: Set<string>;
 } {
   const keep = keptNetworkIds(graph);
   const nodes = graph.nodes.filter((node) => keep.has(node.id));
@@ -186,10 +199,12 @@ export function networkProjection(graph: Graph): {
   const hiddenCount = graph.nodes.filter(
     (node) => !isModule(node) && !isNetworkPlumbing(node) && !keep.has(node.id),
   ).length;
+  const containerIds = new Set(nodes.filter(isNetworkContainer).map((n) => n.id));
 
   return {
     graph: { version: graph.version, nodes, edges: [...containsEdges, ...dependsOn] },
     hiddenCount,
+    containerIds,
   };
 }
 
@@ -235,16 +250,43 @@ export function neighborhood(graph: Graph, selectedId: string): Set<string> {
 /** Build the nested ELK input graph (no positions yet). Hub edges are excluded
  * from the layout so the graph lays out cleanly without the hub's edge wall
  * (GP-35); revealed hub edges are drawn over the resulting layout. */
-export function toElkGraph(graph: Graph, hubs?: ReadonlySet<string>): ElkGraphNode {
+/**
+ * Finalize a container that ended up with no children. A forced (structural)
+ * container keeps its frame, floored to a minimum size; an empty module collapses
+ * to a leaf-sized node (the infra-view behaviour, unchanged).
+ */
+function resolveEmptyContainer(elk: ElkGraphNode, forced: boolean): void {
+  if (forced) {
+    elk.layoutOptions = {
+      ...ELK_MODULE_OPTIONS,
+      "elk.nodeSize.constraints": "MINIMUM_SIZE",
+      "elk.nodeSize.minimum": `(${EMPTY_CONTAINER_WIDTH}, ${EMPTY_CONTAINER_HEIGHT})`,
+    };
+    return;
+  }
+  delete elk.children;
+  delete elk.layoutOptions;
+  elk.width = MODULE_LEAF_WIDTH;
+  elk.height = RESOURCE_HEIGHT;
+}
+
+export function toElkGraph(
+  graph: Graph,
+  hubs?: ReadonlySet<string>,
+  forceContainers?: ReadonlySet<string>,
+): ElkGraphNode {
   const parentOf = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
   }
   // Any node that contains others is a container (module hierarchy, or a
-  // vnet/subnet in the network view); it's laid out as a group/subflow node.
-  // For the infra view this is exactly the set of modules, so behaviour is
-  // unchanged there.
+  // vnet/subnet in the network view); it's laid out as a group/subflow node. The
+  // caller can force extra containers (structural vnets/subnets that happen to be
+  // empty) so they still render as frames. For the infra view both are empty, so
+  // behaviour is unchanged there.
+  const forced = forceContainers ?? new Set<string>();
   const containerIds = new Set(parentOf.values());
+  for (const id of forced) containerIds.add(id);
 
   const elkById = new Map<string, ElkGraphNode>();
   for (const node of graph.nodes) {
@@ -265,12 +307,9 @@ export function toElkGraph(graph: Graph, hubs?: ReadonlySet<string>): ElkGraphNo
     else roots.push(elk);
   }
 
-  for (const elk of elkById.values()) {
+  for (const [id, elk] of elkById) {
     if (elk.children && elk.children.length === 0) {
-      delete elk.children;
-      delete elk.layoutOptions;
-      elk.width = MODULE_LEAF_WIDTH;
-      elk.height = RESOURCE_HEIGHT;
+      resolveEmptyContainer(elk, forced.has(id));
     }
   }
 
@@ -304,6 +343,7 @@ export function elkToFlow(
   const { activeFilters, activeCategories, activeModules, selectedId } = view;
   const hubs = view.hubs ?? EMPTY_HUBS;
   const showHubEdges = view.showHubEdges ?? false;
+  const containerIds = view.containerIds ?? EMPTY_HUBS;
   const neighbors = selectedId ? neighborhood(graph, selectedId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const exposed = exposedNodeIds(graph); // internet-exposure treatment (GP-45)
@@ -334,7 +374,10 @@ export function elkToFlow(
   const walk = (elk: ElkGraphNode, parentId?: string) => {
     const graphNode = byId.get(elk.id);
     if (graphNode) {
-      const container = Boolean(elk.children && elk.children.length > 0);
+      // A node is a container if it holds laid-out children, or it's a forced
+      // structural container (an empty vnet/subnet still draws its frame, GP-44).
+      const container =
+        (elk.children?.length ?? 0) > 0 || containerIds.has(elk.id);
       // Module-backed containers render as the dashed module box; resource-backed
       // containers (vnet/subnet in the network view) render with their own
       // identity via the `container` node type (GP-44).
