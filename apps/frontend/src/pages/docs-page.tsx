@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
@@ -24,6 +24,8 @@ import { CompareView } from "@/components/compare-view";
 import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
+import { networkProjection } from "@/lib/graph-layout";
 
 type ListState =
   | { status: "loading" }
@@ -139,6 +141,13 @@ export function DocsPage() {
   const viewingOld = Boolean(selectedId && latestId && selectedId !== latestId);
   const current = graph.status === "ready" ? graph.snapshot : null;
 
+  // Network view (GP-44): project the current snapshot when ?view=network.
+  const { view } = useGraphView();
+  const network = useMemo(
+    () => (current && view === "network" ? networkProjection(current.graph) : null),
+    [current, view],
+  );
+
   // --- Compare mode (GP-40) -------------------------------------------------
   const canCompare = snapshots.length >= 2;
   const compareActive = compareMode && compareSel.length === 2;
@@ -225,6 +234,13 @@ export function DocsPage() {
           </div>
           {snapshots.length > 0 && (
             <div className="flex items-center gap-2">
+              {current && !compareMode && <ViewSwitcher />}
+              {network && network.hiddenCount > 0 && (
+                <span className="text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono text-[11px]">
+                  {network.hiddenCount} resource{network.hiddenCount === 1 ? "" : "s"} not in
+                  network view
+                </span>
+              )}
               {canCompare && (
                 <Button
                   variant={compareMode ? "default" : "outline"}
@@ -332,7 +348,7 @@ export function DocsPage() {
                 {current.stats.warnings && current.stats.warnings.length > 0 && (
                   <WarningsNotice warnings={current.stats.warnings} />
                 )}
-                <GraphCanvas graph={current.graph} variant="docs" />
+                <GraphCanvas graph={network ? network.graph : current.graph} variant="docs" />
               </>
             )}
           </>

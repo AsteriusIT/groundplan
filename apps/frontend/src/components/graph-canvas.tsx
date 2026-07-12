@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { NodeDetailsPanel } from "@/components/node-details-panel";
 import { ResourceFlowNode } from "@/components/graph-node";
+import { NetworkContainerNode } from "@/components/network-container-node";
 import { EdgeArrowMarkers, RelationshipEdge } from "@/components/graph-edge";
 
 const elk = new ELK();
@@ -54,7 +55,11 @@ function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
   );
 }
 
-const NODE_TYPES = { resource: ResourceFlowNode, module: ModuleNode };
+const NODE_TYPES = {
+  resource: ResourceFlowNode,
+  module: ModuleNode,
+  container: NetworkContainerNode,
+};
 const EDGE_TYPES = { relationship: RelationshipEdge };
 
 const FILTER_LABELS: Record<FilterKey, string> = {

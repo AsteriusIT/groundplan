@@ -75,6 +75,18 @@ export interface AttributeDiffRow {
   after: string | null;
 }
 
+/** v4: one NSG security rule; raw values, only `ports` normalized (GP-43). */
+export interface NsgRule {
+  name: string;
+  priority: number;
+  direction: string;
+  access: string;
+  protocol: string;
+  ports: string;
+  source: string;
+  destination: string;
+}
+
 export interface GraphNode {
   id: string;
   name: string;
@@ -90,6 +102,14 @@ export interface GraphNode {
   attribute_diff?: AttributeDiffRow[];
   /** v3: true when the changed-attribute list exceeded 20 and was capped. */
   attribute_diff_truncated?: boolean;
+  /** v4: id of the containing node (vnet⊃subnet⊃resource); network only (GP-42). */
+  parent_id?: string;
+  /** v4: security rules on an azurerm_network_security_group node (GP-43). */
+  rules?: NsgRule[];
+  /** v4: true iff this NSG has an inbound Allow rule from an internet source. */
+  internet_exposed?: boolean;
+  /** v4: node ids of the subnets/NICs this NSG is associated with (GP-43/45). */
+  associated_ids?: string[];
 }
 
 export interface GraphEdge {
@@ -101,7 +121,7 @@ export interface GraphEdge {
 }
 
 export interface Graph {
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   nodes: GraphNode[];
   edges: GraphEdge[];
 }

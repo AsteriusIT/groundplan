@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ChevronLeft, GitPullRequest, TriangleAlert } from "lucide-react";
 
@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import { ChangeSummaryPanel } from "@/components/change-summary";
 import { ExportMenu } from "@/components/export-menu";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
+import { networkProjection } from "@/lib/graph-layout";
 
 type PageState =
   | { status: "loading" }
@@ -50,6 +52,16 @@ export function PullDetailPage() {
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphState>({ status: "idle" });
+
+  // Network view (GP-44): project the ready snapshot when ?view=network.
+  const { view } = useGraphView();
+  const network = useMemo(
+    () =>
+      graph.status === "ready" && view === "network"
+        ? networkProjection(graph.snapshot.graph)
+        : null,
+    [graph, view],
+  );
 
   const load = useCallback(() => {
     if (!repoId) return;
@@ -146,6 +158,13 @@ export function PullDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {graph.status === "ready" && <ViewSwitcher />}
+            {network && network.hiddenCount > 0 && (
+              <span className="text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono text-[11px]">
+                {network.hiddenCount} resource{network.hiddenCount === 1 ? "" : "s"} not in
+                network view
+              </span>
+            )}
             {snapshots.length > 1 && (
               <label className="text-muted-foreground flex items-center gap-2 text-xs">
                 Snapshot
@@ -185,7 +204,7 @@ export function PullDetailPage() {
             <ErrorBlock message={graph.message} onRetry={load} />
           </CenteredNote>
         ) : graph.status === "ready" ? (
-          <GraphCanvas graph={graph.snapshot.graph} variant="plan" />
+          <GraphCanvas graph={network ? network.graph : graph.snapshot.graph} variant="plan" />
         ) : (
           <CenteredNote>Loading diagram…</CenteredNote>
         )}

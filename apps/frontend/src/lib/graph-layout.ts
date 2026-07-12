@@ -10,7 +10,7 @@
  */
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
-import type { ChangeKind, Graph, GraphNode } from "@/api/types";
+import type { ChangeKind, Graph, GraphEdge, GraphNode } from "@/api/types";
 import { categorize, type Category } from "@/lib/resource-category";
 import { hubEdgeRevealed, isHubEdge } from "@/lib/hub";
 
@@ -137,6 +137,60 @@ export function categoryOptions(graph: Graph): Category[] {
   return [...set];
 }
 
+// `*_association` resources are pure plumbing (they wire an NSG/route table to a
+// subnet); their effect is captured in `associated_ids`, so the network view
+// drops them rather than drawing them as nested boxes.
+const isNetworkPlumbing = (node: GraphNode): boolean =>
+  node.type.endsWith("_association");
+
+/** Ids the network view keeps: containment chains + network category + NSGs. */
+function keptNetworkIds(graph: Graph): Set<string> {
+  const keep = new Set<string>();
+  for (const node of graph.nodes) {
+    if (isModule(node) || isNetworkPlumbing(node)) continue;
+    if (node.parent_id || categorize(node.type) === "network") keep.add(node.id);
+  }
+  // A parent referenced by a kept child is itself kept.
+  for (const node of graph.nodes) {
+    if (node.parent_id !== undefined && keep.has(node.id)) keep.add(node.parent_id);
+  }
+  // Keep NSGs associated with a kept node so their rules can be inspected.
+  for (const node of graph.nodes) {
+    if (node.associated_ids?.some((id) => keep.has(id))) keep.add(node.id);
+  }
+  return keep;
+}
+
+/**
+ * Project a snapshot to the network view (GP-44): keep nodes that sit in a
+ * `parent_id` containment chain, nodes of category "network", and NSGs
+ * associated with a kept node (so their rules stay inspectable). Re-express
+ * containment as `contains` edges so the existing subflow layout nests
+ * vnet⊃subnet⊃resource. Everything else is dropped; the count of dropped,
+ * user-meaningful resource nodes is returned for the "not in network view" chip.
+ */
+export function networkProjection(graph: Graph): {
+  graph: Graph;
+  hiddenCount: number;
+} {
+  const keep = keptNetworkIds(graph);
+  const nodes = graph.nodes.filter((node) => keep.has(node.id));
+  const containsEdges: GraphEdge[] = nodes
+    .filter((node) => node.parent_id !== undefined && keep.has(node.parent_id))
+    .map((node) => ({ from: node.parent_id as string, to: node.id, kind: "contains" }));
+  const dependsOn = graph.edges.filter(
+    (e) => e.kind === "depends_on" && keep.has(e.from) && keep.has(e.to),
+  );
+  const hiddenCount = graph.nodes.filter(
+    (node) => !isModule(node) && !isNetworkPlumbing(node) && !keep.has(node.id),
+  ).length;
+
+  return {
+    graph: { version: graph.version, nodes, edges: [...containsEdges, ...dependsOn] },
+    hiddenCount,
+  };
+}
+
 /**
  * Does a node pass the active change/impact filters? Modules and docs-flow
  * resources (no change data) always pass — filters only apply to plan changes.
@@ -169,12 +223,17 @@ export function toElkGraph(graph: Graph, hubs?: ReadonlySet<string>): ElkGraphNo
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
   }
+  // Any node that contains others is a container (module hierarchy, or a
+  // vnet/subnet in the network view); it's laid out as a group/subflow node.
+  // For the infra view this is exactly the set of modules, so behaviour is
+  // unchanged there.
+  const containerIds = new Set(parentOf.values());
 
   const elkById = new Map<string, ElkGraphNode>();
   for (const node of graph.nodes) {
     elkById.set(
       node.id,
-      isModule(node)
+      isModule(node) || containerIds.has(node.id)
         ? { id: node.id, layoutOptions: ELK_MODULE_OPTIONS, children: [] }
         : { id: node.id, width: RESOURCE_WIDTH, height: RESOURCE_HEIGHT },
     );
@@ -258,9 +317,14 @@ export function elkToFlow(
     const graphNode = byId.get(elk.id);
     if (graphNode) {
       const container = Boolean(elk.children && elk.children.length > 0);
+      // Module-backed containers render as the dashed module box; resource-backed
+      // containers (vnet/subnet in the network view) render with their own
+      // identity via the `container` node type (GP-44).
+      let nodeType = "resource";
+      if (container) nodeType = isModule(graphNode) ? "module" : "container";
       nodes.push({
         id: elk.id,
-        type: container ? "module" : "resource",
+        type: nodeType,
         position: { x: elk.x ?? 0, y: elk.y ?? 0 },
         data: {
           graphNode,

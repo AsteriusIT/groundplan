@@ -6,6 +6,7 @@ import {
   changeClasses,
   elkToFlow,
   neighborhood,
+  networkProjection,
   nodePassesFilters,
   toElkGraph,
   type ElkGraphNode,
@@ -219,4 +220,38 @@ it("the toggle reveals every hub edge", () => {
   });
   expect(edges).toHaveLength(3); // all edges drawn
   expect(nodes.find((n) => n.id === "rg")?.data.hubHiddenCount).toBe(0);
+});
+
+const netGraph: Graph = {
+  version: 4,
+  nodes: [
+    { id: "vn", name: "vn", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+    { id: "sn", name: "sn", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null, parent_id: "vn" },
+    { id: "nic", name: "nic", type: "azurerm_network_interface", provider: "azurerm", module_path: [], change: null, parent_id: "sn" },
+    { id: "nsg", name: "nsg", type: "azurerm_network_security_group", provider: "azurerm", module_path: [], change: null, associated_ids: ["sn"] },
+    { id: "assoc", name: "assoc", type: "azurerm_subnet_network_security_group_association", provider: "azurerm", module_path: [], change: null, parent_id: "sn" },
+    { id: "db", name: "db", type: "azurerm_mssql_server", provider: "azurerm", module_path: [], change: null },
+  ],
+  edges: [{ from: "vn", to: "sn", kind: "contains" }],
+};
+
+it("networkProjection keeps the containment chain + associated NSG, drops the rest", () => {
+  const { graph: projected, hiddenCount } = networkProjection(netGraph);
+  const ids = projected.nodes.map((n) => n.id).sort();
+  // db dropped; the *_association plumbing node dropped (not counted).
+  expect(ids).toEqual(["nic", "nsg", "sn", "vn"]);
+  expect(hiddenCount).toBe(1); // db only — plumbing isn't a "hidden resource"
+  // containment re-expressed as contains edges for the subflow layout
+  expect(projected.edges).toContainEqual({ from: "vn", to: "sn", kind: "contains" });
+  expect(projected.edges).toContainEqual({ from: "sn", to: "nic", kind: "contains" });
+});
+
+it("networkProjection re-nests vnet/subnet as containers via toElkGraph", () => {
+  const { graph: projected } = networkProjection(netGraph);
+  const elk = toElkGraph(projected);
+  // vn is a root container holding sn; sn holds nic.
+  const vn = elk.children?.find((c) => c.id === "vn");
+  expect(vn?.children?.map((c) => c.id)).toContain("sn");
+  const sn = vn?.children?.find((c) => c.id === "sn");
+  expect(sn?.children?.map((c) => c.id)).toContain("nic");
 });
