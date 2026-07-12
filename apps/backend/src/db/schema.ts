@@ -266,6 +266,82 @@ export const pullRequests = pgTable(
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 
+export const annotationType = pgEnum("annotation_type", [
+  "note",
+  "link",
+  "group",
+]);
+
+export const annotationStatus = pgEnum("annotation_status", [
+  "resolved",
+  "orphaned",
+]);
+
+/**
+ * A human annotation layer (GP-56), stored per repository and kept strictly
+ * separate from the generated GraphSnapshot (ADR #4). Three types, all anchored
+ * to Terraform addresses (a node's `id`):
+ *   - `note`  — 1 anchor, free markdown `body`.
+ *   - `link`  — exactly 2 anchors (source, dest) + `label`.
+ *   - `group` — 2+ anchors + `label`.
+ * `status` is owned by reconciliation (GP-57): an anchor whose address no longer
+ * exists in the latest snapshot flips the annotation to `orphaned`.
+ */
+export const annotations = pgTable("annotations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  type: annotationType("type").notNull(),
+  /** Terraform addresses this annotation is anchored to (node ids). */
+  anchors: jsonb("anchors").$type<string[]>().notNull(),
+  /** Required for link/group; optional label for a note. */
+  label: text("label"),
+  /** Markdown body — notes only. */
+  body: text("body"),
+  status: annotationStatus("status").notNull().default("resolved"),
+  createdBy: uuid("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type AnnotationRow = typeof annotations.$inferSelect;
+
+export type PublicAnnotation = {
+  id: string;
+  repositoryId: string;
+  type: (typeof annotationType.enumValues)[number];
+  anchors: string[];
+  label: string | null;
+  body: string | null;
+  status: (typeof annotationStatus.enumValues)[number];
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/** Map an annotation row to its API shape (identity today; a seam for later). */
+export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
+  return {
+    id: row.id,
+    repositoryId: row.repositoryId,
+    type: row.type,
+    anchors: row.anchors,
+    label: row.label,
+    body: row.body,
+    status: row.status,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export const projectsRelations = relations(projects, ({ many }) => ({
   repositories: many(repositories),
 }));
@@ -279,6 +355,14 @@ export const repositoriesRelations = relations(repositories, ({ one, many }) => 
   snapshots: many(graphSnapshots),
   pullRequests: many(pullRequests),
   shareTokens: many(shareTokens),
+  annotations: many(annotations),
+}));
+
+export const annotationsRelations = relations(annotations, ({ one }) => ({
+  repository: one(repositories, {
+    fields: [annotations.repositoryId],
+    references: [repositories.id],
+  }),
 }));
 
 export const shareTokensRelations = relations(shareTokens, ({ one }) => ({

@@ -16,6 +16,7 @@ import { authPlugin } from "./plugins/auth.js";
 import { backgroundPlugin } from "./plugins/background.js";
 import { dbPlugin } from "./plugins/db.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
+import { annotationRoutes } from "./routes/annotations.js";
 import {
   verifyConnection as realVerifyConnection,
   type RepoSource,
@@ -135,6 +136,7 @@ export async function buildApp(
   await app.register(shareRoutes, { prefix: "/api/v1" });
   await app.register(pullRoutes, { prefix: "/api/v1" });
   await app.register(docsRoutes, { prefix: "/api/v1" });
+  await app.register(annotationRoutes, { prefix: "/api/v1" });
 
   return app;
 }
