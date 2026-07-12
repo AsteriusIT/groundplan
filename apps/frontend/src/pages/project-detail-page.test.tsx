@@ -38,6 +38,7 @@ const project: Project = {
   id: "p1",
   name: "Prod Platform",
   slug: "prod-platform",
+  contextMd: null,
   createdAt: "2026-01-02T00:00:00.000Z",
 };
 
@@ -53,6 +54,7 @@ function repo(over: Partial<Repository> = {}): Repository {
     verifiedAt: "2026-01-03T00:00:00.000Z",
     prCommentsEnabled: false,
     lastCommentError: null,
+    contextMd: null,
     createdAt: "2026-01-02T00:00:00.000Z",
     ...over,
   };

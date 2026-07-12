@@ -18,6 +18,7 @@ import {
   deleteRepository,
   getProject,
   listRepositories,
+  updateProject,
   updateRepository,
   verifyRepository,
   webhookUrl,
@@ -25,6 +26,7 @@ import {
 import type { CreatedRepository, Project, Repository } from "@/api/types";
 import { repoName } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { ContextSection } from "@/components/context-section";
 import { PageHeader } from "@/components/page-header";
 import { AttachRepositoryDialog } from "@/components/attach-repository-dialog";
 import { CiSetupBlock } from "@/components/ci-setup-block";
@@ -95,6 +97,26 @@ export function ProjectDetailPage() {
     );
   }, []);
 
+  // GP-60: save the project's long-form context (optimistic).
+  const handleSaveContext = useCallback(
+    (contextMd: string) => {
+      if (!id) return;
+      setState((prev) =>
+        prev.status === "ready"
+          ? { ...prev, project: { ...prev.project, contextMd } }
+          : prev,
+      );
+      updateProject(id, { contextMd })
+        .then((project) =>
+          setState((prev) =>
+            prev.status === "ready" ? { ...prev, project } : prev,
+          ),
+        )
+        .catch(() => {});
+    },
+    [id],
+  );
+
   const hasRepos = state.status === "ready" && state.repos.length > 0;
 
   return (
@@ -150,6 +172,15 @@ export function ProjectDetailPage() {
 
         {state.status === "error" && (
           <ErrorState message={state.message} onRetry={load} />
+        )}
+
+        {state.status === "ready" && (
+          <div className="mb-8 max-w-3xl">
+            <ContextSection
+              markdown={state.project.contextMd}
+              onSave={handleSaveContext}
+            />
+          </div>
         )}
 
         {state.status === "ready" && state.repos.length === 0 && (

@@ -34,6 +34,9 @@ export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  // GP-60: long-form markdown "context" — what this system is, its domains and
+  // conventions. The primary corpus the future AI layer reads (ADR #3).
+  contextMd: text("context_md"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -67,6 +70,9 @@ export const repositories = pgTable("repositories", {
   // Last error from posting a PR comment (bad PAT scope, rate limit, …), shown
   // in repo settings. Non-fatal: ingestion never fails on a comment error.
   lastCommentError: text("last_comment_error"),
+  // GP-60: long-form markdown "context" for this repository, shown on the docs
+  // page and (read-only) in the share view.
+  contextMd: text("context_md"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -88,6 +94,8 @@ export type PublicRepository = {
   prCommentsEnabled: boolean;
   /** GP-38: last PR-comment error surfaced in settings, or null. */
   lastCommentError: string | null;
+  /** GP-60: long-form markdown context for this repository, or null. */
+  contextMd: string | null;
   createdAt: Date;
 };
 
@@ -107,6 +115,7 @@ export function toPublicRepository(row: RepositoryRow): PublicRepository {
     verifiedAt: row.verifiedAt,
     prCommentsEnabled: row.prCommentsEnabled,
     lastCommentError: row.lastCommentError,
+    contextMd: row.contextMd,
     createdAt: row.createdAt,
   };
 }

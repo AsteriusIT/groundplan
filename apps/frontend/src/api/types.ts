@@ -14,6 +14,8 @@ export interface Project {
   id: string;
   name: string;
   slug: string;
+  /** GP-60: long-form markdown context, or null. */
+  contextMd: string | null;
   createdAt: string;
 }
 
@@ -31,6 +33,8 @@ export interface Repository {
   prCommentsEnabled: boolean;
   /** GP-38: last PR-comment error to surface in settings, or null. */
   lastCommentError: string | null;
+  /** GP-60: long-form markdown context for this repository, or null. */
+  contextMd: string | null;
   createdAt: string;
 }
 
@@ -45,6 +49,8 @@ export interface UpdateRepositoryInput {
   defaultBranch?: string;
   /** GP-38: toggle GitHub PR comments for this repository. */
   prCommentsEnabled?: boolean;
+  /** GP-60: long-form markdown context (null clears it). */
+  contextMd?: string | null;
 }
 
 /** Result of POST /repositories/:id/verify. */
@@ -264,7 +270,8 @@ export interface CreateShareLinkInput {
 /** The credential-free snapshot payload served on public routes. */
 export interface PublicSnapshotView {
   kind: ShareKind;
-  repository: { name: string; provider: Provider };
+  /** GP-60: `context` is the repository's read-only markdown context. */
+  repository: { name: string; provider: Provider; context: string | null };
   /** GP-58: renderable annotations shown read-only on the shared diagram. */
   annotations: Annotation[];
   snapshot: {
@@ -321,6 +328,13 @@ export interface UpdateAnnotationInput {
 export interface CreateProjectInput {
   name: string;
   slug: string;
+  contextMd?: string | null;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  /** GP-60: long-form markdown context (null clears it). */
+  contextMd?: string | null;
 }
 
 export interface CreateRepositoryInput {

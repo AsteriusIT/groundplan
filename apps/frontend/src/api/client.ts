@@ -22,6 +22,7 @@ import type {
   SnapshotDiff,
   SnapshotSummary,
   UpdateAnnotationInput,
+  UpdateProjectInput,
   UpdateRepositoryInput,
   User,
   VerifyResult,
@@ -161,6 +162,17 @@ export function createProject(input: CreateProjectInput): Promise<Project> {
 
 export function getProject(id: string): Promise<Project> {
   return request<Project>(`/projects/${encode(id)}`);
+}
+
+/** Update a project's name and/or its long-form context (GP-60). */
+export function updateProject(
+  id: string,
+  input: UpdateProjectInput,
+): Promise<Project> {
+  return request<Project>(`/projects/${encode(id)}`, {
+    method: "PATCH",
+    body: input,
+  });
 }
 
 export function deleteProject(id: string): Promise<void> {

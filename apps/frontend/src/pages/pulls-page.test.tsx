@@ -25,6 +25,7 @@ const repo: Repository = {
   verifiedAt: null,
   prCommentsEnabled: false,
   lastCommentError: null,
+  contextMd: null,
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 

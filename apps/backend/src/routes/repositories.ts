@@ -22,6 +22,8 @@ const updateRepositorySchema = {
     accessToken: { type: "string", minLength: 1, maxLength: 500 },
     defaultBranch: { type: "string", minLength: 1, maxLength: 200 },
     prCommentsEnabled: { type: "boolean" },
+    // GP-60: long-form markdown context; editing it never re-verifies.
+    contextMd: { type: ["string", "null"], maxLength: 50000 },
   },
 };
 
@@ -62,6 +64,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
         accessToken?: string;
         defaultBranch?: string;
         prCommentsEnabled?: boolean;
+        contextMd?: string | null;
       };
 
       const existing = await loadRepository(app, id);
@@ -83,6 +86,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
           ...(body.prCommentsEnabled !== undefined
             ? { prCommentsEnabled: body.prCommentsEnabled }
             : {}),
+          ...(body.contextMd !== undefined ? { contextMd: body.contextMd } : {}),
         })
         .where(eq(repositories.id, id))
         .returning();

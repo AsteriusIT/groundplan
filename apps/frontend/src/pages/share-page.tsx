@@ -13,6 +13,7 @@ import type { PublicSnapshotView } from "@/api/types";
 import { formatDate } from "@/lib/format";
 import { Logo } from "@/components/logo";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { ContextSection } from "@/components/context-section";
 
 type State =
   | { status: "loading" }
@@ -105,6 +106,15 @@ export function SharePage() {
           />
         )}
       </div>
+
+      {/* GP-60: the repository's context, read-only, under the diagram. */}
+      {state.status === "ready" && state.view.repository.context && (
+        <div className="bg-card max-h-48 overflow-auto border-t border-border px-6 py-4">
+          <div className="mx-auto max-w-3xl">
+            <ContextSection markdown={state.view.repository.context} readOnly />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

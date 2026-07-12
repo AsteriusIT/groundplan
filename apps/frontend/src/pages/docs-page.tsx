@@ -19,6 +19,7 @@ import {
   listAnnotations,
   listSnapshots,
   updateAnnotation,
+  updateRepository,
 } from "@/api/client";
 import type {
   Annotation,
@@ -36,6 +37,7 @@ import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { AnnotateToggle, useAnnotateMode } from "@/components/annotate-toolbar";
+import { ContextSection } from "@/components/context-section";
 import { OrphanReview } from "@/components/orphan-review";
 import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
@@ -150,6 +152,16 @@ export function DocsPage() {
       deleteAnnotation(id).catch(reloadAnnotations);
     },
     [reloadAnnotations],
+  );
+
+  // GP-60: save the repository's long-form context (optimistic).
+  const handleSaveContext = useCallback(
+    (contextMd: string) => {
+      if (!repoId) return;
+      setRepo((prev) => (prev ? { ...prev, contextMd } : prev));
+      updateRepository(repoId, { contextMd }).then(setRepo).catch(() => {});
+    },
+    [repoId],
   );
 
   useEffect(() => {
@@ -350,6 +362,11 @@ export function DocsPage() {
           <p className="text-destructive mt-3 text-sm" role="alert">
             {genError}
           </p>
+        )}
+        {repo && (
+          <div className="mt-4 max-w-3xl">
+            <ContextSection markdown={repo.contextMd} onSave={handleSaveContext} />
+          </div>
         )}
       </header>
 

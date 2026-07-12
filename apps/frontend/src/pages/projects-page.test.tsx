@@ -31,6 +31,7 @@ function project(over: Partial<Project> = {}): Project {
     id: "p1",
     name: "Prod",
     slug: "prod",
+    contextMd: null,
     createdAt: "2026-01-02T00:00:00.000Z",
     ...over,
   };

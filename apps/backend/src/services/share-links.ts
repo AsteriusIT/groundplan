@@ -133,6 +133,8 @@ export interface ResolvedShare {
   snapshot: GraphSnapshotRow;
   repoUrl: string;
   repoProvider: string;
+  /** GP-60: the repository's long-form context, shown read-only in the view. */
+  repoContextMd: string | null;
   /** The repository's annotation layer (GP-58); filtered to renderable ones on
    * output, so public viewers see notes/links/groups but never orphans. */
   annotations: AnnotationRow[];
@@ -154,7 +156,11 @@ export async function resolveShareToken(
   if (!share) return null;
 
   const [repo] = await db
-    .select({ url: repositories.url, provider: repositories.provider })
+    .select({
+      url: repositories.url,
+      provider: repositories.provider,
+      contextMd: repositories.contextMd,
+    })
     .from(repositories)
     .where(eq(repositories.id, share.repositoryId));
   if (!repo) return null;
@@ -190,6 +196,7 @@ export async function resolveShareToken(
     snapshot,
     repoUrl: repo.url,
     repoProvider: repo.provider,
+    repoContextMd: repo.contextMd,
     annotations: repoAnnotations,
   };
 }
@@ -205,7 +212,11 @@ export function toPublicSnapshotView(resolved: ResolvedShare) {
     .map(toPublicAnnotation);
   return {
     kind: resolved.token.kind,
-    repository: { name: repoLabel(resolved.repoUrl), provider: resolved.repoProvider },
+    repository: {
+      name: repoLabel(resolved.repoUrl),
+      provider: resolved.repoProvider,
+      context: resolved.repoContextMd,
+    },
     annotations: publicAnnotations,
     snapshot: {
       id: snapshot.id,

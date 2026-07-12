@@ -28,6 +28,7 @@ const created: CreatedRepository = {
   verifiedAt: null,
   prCommentsEnabled: false,
   lastCommentError: null,
+  contextMd: null,
   createdAt: "2026-07-11T00:00:00.000Z",
   webhookToken: "wh-secret",
 };

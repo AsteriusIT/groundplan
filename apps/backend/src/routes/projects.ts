@@ -16,6 +16,9 @@ const idParamsSchema = {
   properties: { id: { type: "string", pattern: UUID_PATTERN } },
 };
 
+// GP-60: a sane cap for the long-form markdown context on projects/repos.
+const CONTEXT_MAX = 50000;
+
 const createProjectSchema = {
   type: "object",
   required: ["name", "slug"],
@@ -28,6 +31,17 @@ const createProjectSchema = {
       maxLength: 100,
       pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
     },
+    contextMd: { type: ["string", "null"], maxLength: CONTEXT_MAX },
+  },
+};
+
+const updateProjectSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 200 },
+    contextMd: { type: ["string", "null"], maxLength: CONTEXT_MAX },
   },
 };
 
@@ -74,11 +88,15 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     "/projects",
     { schema: { body: createProjectSchema } },
     async (request, reply) => {
-      const { name, slug } = request.body as { name: string; slug: string };
+      const { name, slug, contextMd } = request.body as {
+        name: string;
+        slug: string;
+        contextMd?: string | null;
+      };
       try {
         const [row] = await app.db
           .insert(projects)
-          .values({ name, slug })
+          .values({ name, slug, contextMd: contextMd ?? null })
           .returning();
         return reply.code(201).send(row);
       } catch (err) {
@@ -107,6 +125,30 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "project not found" });
       }
       return row;
+    },
+  );
+
+  // Update a project's name and/or its long-form context (GP-60).
+  app.patch(
+    "/projects/:id",
+    { schema: { params: idParamsSchema, body: updateProjectSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { name?: string; contextMd?: string | null };
+      const [updated] = await app.db
+        .update(projects)
+        .set({
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.contextMd !== undefined ? { contextMd: body.contextMd } : {}),
+        })
+        .where(eq(projects.id, id))
+        .returning();
+      if (!updated) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "project not found" });
+      }
+      return updated;
     },
   );
 
