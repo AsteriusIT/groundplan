@@ -44,7 +44,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function resolveInitialTheme(): Theme {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (isTheme(stored)) return stored;
-  return "blueprint";
+  return "carbon";
 }
 
 /** Reflect a theme onto <html>: `.dark` for either dark theme, `data-theme` for carbon. */

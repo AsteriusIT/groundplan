@@ -38,9 +38,9 @@ describe("ThemeProvider", () => {
     vi.unstubAllGlobals();
   });
 
-  it("defaults to the blueprint dark theme when nothing is stored", () => {
+  it("defaults to the carbon dark theme when nothing is stored", () => {
     renderProvider();
-    expect(screen.getByTestId("theme")).toHaveTextContent("blueprint");
+    expect(screen.getByTestId("theme")).toHaveTextContent("carbon");
     expect(root()).toHaveClass("dark");
     expect(root().getAttribute("data-theme")).toBeNull();
   });

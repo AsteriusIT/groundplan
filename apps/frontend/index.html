@@ -12,7 +12,7 @@
         try {
           var t = localStorage.getItem("groundplan-theme");
           if (t !== "light" && t !== "blueprint" && t !== "carbon") {
-            t = "blueprint";
+            t = "carbon";
           }
           var root = document.documentElement;
           if (t !== "light") root.classList.add("dark");
