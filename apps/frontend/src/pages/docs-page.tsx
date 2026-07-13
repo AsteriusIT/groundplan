@@ -440,7 +440,7 @@ export function DocsPage() {
       {snapshots.length > 0 && !compareActive && !compareMode && viewingOld && (
         <div
           role="status"
-          className="bg-amber-50 flex items-center justify-center gap-3 border-b border-amber-300 px-4 py-2 text-xs text-amber-900"
+          className="bg-warning-soft text-warning border-warning/40 flex items-center justify-center gap-3 border-b px-4 py-2 text-xs"
         >
           Viewing snapshot {shortSha(selectedId ?? "")} — not the latest.
           <button
@@ -451,6 +451,10 @@ export function DocsPage() {
             Back to latest
           </button>
         </div>
+      )}
+
+      {current && !compareActive && (
+        <WarningsNotice warnings={current.stats.warnings ?? []} />
       )}
 
       {current && !compareMode && (
@@ -494,9 +498,6 @@ export function DocsPage() {
               )}
               {current && (
                 <>
-                  {current.stats.warnings && current.stats.warnings.length > 0 && (
-                    <WarningsNotice warnings={current.stats.warnings} />
-                  )}
                   {view === "iam" ? (
                     <IamTable
                       graph={current.graph}
@@ -548,21 +549,54 @@ export function DocsPage() {
   );
 }
 
+/**
+ * What went wrong while parsing this snapshot — a file we could not read, or a
+ * terraform path that matched nothing.
+ *
+ * A banner in the page flow, above the canvas. It used to be an absolutely
+ * positioned box in the canvas's top-left corner, which is where the filter
+ * panel also lives: the panel paints later and covered it, so the one warning
+ * that explains an empty diagram ("no .tf files found in 'infra'") was hidden
+ * behind "0 of 0 shown".
+ */
 function WarningsNotice({ warnings }: { warnings: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (warnings.length === 0) return null;
+
+  // One warning IS the message. Hiding it behind a "1 file skipped" summary made
+  // the reader click to learn what happened — and lied when it wasn't a file.
+  const only = warnings.length === 1 ? warnings[0] : null;
+
   return (
-    <details className="bg-card/90 absolute top-12 left-3 z-10 max-w-sm rounded-md border border-amber-300 backdrop-blur">
-      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-amber-800">
-        <TriangleAlert className="size-4" />
-        {warnings.length} file{warnings.length === 1 ? "" : "s"} skipped
-      </summary>
-      <ul className="border-t border-amber-200 px-3 py-2 font-mono text-xs">
-        {warnings.map((warning) => (
-          <li key={warning} className="text-muted-foreground break-all">
-            {warning}
-          </li>
-        ))}
-      </ul>
-    </details>
+    <div
+      role="status"
+      className="border-warning/40 bg-warning-soft text-warning flex items-start gap-2 border-b px-4 py-2 text-xs"
+    >
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      {only ? (
+        <span className="font-mono break-all">{only}</span>
+      ) : (
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+            className="underline underline-offset-2"
+          >
+            {warnings.length} warnings while parsing this snapshot
+          </button>
+          {expanded && (
+            <ul className="mt-1 space-y-0.5 font-mono">
+              {warnings.map((warning) => (
+                <li key={warning} className="break-all">
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

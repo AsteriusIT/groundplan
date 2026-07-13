@@ -332,3 +332,54 @@ it("Explain opens a rail that generates prose for the selected snapshot", async 
   expect(getAiGenerationMock).toHaveBeenCalledWith("s1", "docs_explain");
   expect(screen.getByText(/AI-generated from the change model/i)).toBeInTheDocument();
 });
+
+// --- Snapshot warnings ------------------------------------------------------
+
+/** A snapshot carrying parse warnings (a bad terraform path, a skipped file). */
+function warned(id: string, warnings: string[]): Snapshot {
+  const snap = snapshot(id, 0);
+  return { ...snap, stats: { ...snap.stats, warnings } };
+}
+
+it("shows a lone parse warning in full, outside the canvas overlay", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "s1sha", "manual")]);
+  getSnapshotMock.mockImplementation((id: string) =>
+    Promise.resolve(warned(id, ["no .tf files found in 'does-not-exist'"])),
+  );
+
+  renderPage();
+
+  // A single warning is the message itself — no "1 file skipped" to expand, and
+  // no summary that lies about what happened.
+  const banner = await screen.findByRole("status");
+  expect(banner).toHaveTextContent("no .tf files found in 'does-not-exist'");
+
+  // It lives in the page flow, not inside the canvas, where it used to sit under
+  // the filter panel and go unread.
+  expect(banner).not.toContainElement(screen.getByTestId("canvas"));
+  expect(screen.getByTestId("canvas")).not.toContainElement(banner);
+});
+
+it("collapses many warnings behind a count, expandable on demand", async () => {
+  const warnings = ["skipped a.tf: bad block", "skipped b.tf: bad block"];
+  listSnapshotsMock.mockResolvedValue([summary("s1", "s1sha", "manual")]);
+  getSnapshotMock.mockImplementation((id: string) =>
+    Promise.resolve(warned(id, warnings)),
+  );
+
+  renderPage();
+
+  const toggle = await screen.findByRole("button", { name: /2 warnings/i });
+  expect(screen.queryByText(warnings[0]!)).not.toBeInTheDocument();
+
+  fireEvent.click(toggle);
+  expect(screen.getByText(warnings[0]!)).toBeInTheDocument();
+  expect(screen.getByText(warnings[1]!)).toBeInTheDocument();
+});
+
+it("says nothing when a snapshot parsed cleanly", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "s1sha", "manual")]);
+  renderPage();
+  await screen.findByTestId("canvas");
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});

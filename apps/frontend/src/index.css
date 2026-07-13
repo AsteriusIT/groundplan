@@ -64,6 +64,10 @@
   --impacted-soft: #f1edfc;
   --exposed: #d4531e; /* internet-exposed warning (GP-45) */
   --exposed-soft: #fdece3;
+  /* Something about the *snapshot* needs attention (files skipped, a terraform
+     path that matched nothing) — not a diff colour, and not a risk finding. */
+  --warning: #a86a10;
+  --warning-soft: #fbf1de;
 
   /* — resource categories (GP-24) — tokenised so nothing picks a raw hue — */
   --cat-compute: #2563c9;
@@ -139,6 +143,8 @@
   --impacted-soft: #241a44;
   --exposed: #f06a30;
   --exposed-soft: #3a1d0e;
+  --warning: #e8b64a;
+  --warning-soft: #3a2e12;
 
   /* — resource categories (icons render neutral now; kept for the styleguide) — */
   --cat-compute: #4f8bf0;
@@ -235,6 +241,8 @@
   --color-impacted-soft: var(--impacted-soft);
   --color-exposed: var(--exposed);
   --color-exposed-soft: var(--exposed-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
 
   --color-cat-compute: var(--cat-compute);
   --color-cat-network: var(--cat-network);

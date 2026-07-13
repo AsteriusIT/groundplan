@@ -37,7 +37,7 @@ export function OrphanReview({
   return (
     <div
       role="status"
-      className="bg-amber-50 border-b border-amber-300 px-4 py-2 text-amber-900"
+      className="bg-warning-soft text-warning border-b border-warning/40 px-4 py-2"
     >
       <div className="flex items-center justify-center gap-2">
         <TriangleAlert className="size-4" />
@@ -86,12 +86,12 @@ function OrphanRow({
 }) {
   const Icon = TYPE_ICON[annotation.type];
   return (
-    <li className="rounded-md border border-amber-300 bg-amber-100/40 px-3 py-2">
+    <li className="border-warning/40 bg-warning/5 rounded-md border px-3 py-2">
       <div className="flex items-start gap-2">
         <Icon className="mt-0.5 size-3.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">{excerpt(annotation)}</p>
-          <p className="text-[11px] text-amber-800">
+          <p className="text-warning/80 text-[11px]">
             last updated {formatDate(annotation.updatedAt)}
           </p>
         </div>
@@ -132,16 +132,16 @@ function MissingAnchor({
   const results = query ? searchNodes(graph.nodes, query, 8) : [];
 
   return (
-    <li className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+    <li className="border-warning/30 bg-warning-soft rounded border px-2 py-1.5">
       <div className="flex items-center justify-between gap-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-amber-900 line-through">
+        <code className="text-warning min-w-0 flex-1 truncate font-mono text-[11px] line-through">
           {address}
         </code>
         {!searching && (
           <button
             type="button"
             onClick={() => setSearching(true)}
-            className="shrink-0 rounded bg-amber-200 px-2 py-0.5 text-[11px] font-medium hover:bg-amber-300"
+            className="bg-warning/20 hover:bg-warning/30 shrink-0 rounded px-2 py-0.5 text-[11px] font-medium"
           >
             Re-anchor
           </button>
@@ -155,16 +155,16 @@ function MissingAnchor({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search resources…"
-            className="w-full rounded border border-amber-300 bg-white px-2 py-1 text-xs outline-none"
+            className="border-warning/40 bg-card text-foreground w-full rounded border px-2 py-1 text-xs outline-none"
           />
           {results.length > 0 && (
-            <ul className="mt-1 max-h-40 overflow-auto rounded border border-amber-200 bg-white">
+            <ul className="border-warning/30 bg-card text-foreground mt-1 max-h-40 overflow-auto rounded border">
               {results.map((node: GraphNode) => (
                 <li key={node.id}>
                   <button
                     type="button"
                     onClick={() => onPick(node.id)}
-                    className="hover:bg-amber-100 block w-full truncate px-2 py-1 text-left font-mono text-[11px]"
+                    className="hover:bg-accent block w-full truncate px-2 py-1 text-left font-mono text-[11px]"
                   >
                     {node.id}
                   </button>
