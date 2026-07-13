@@ -428,6 +428,109 @@ const DEFAULT_VIEW: ViewState = {
 
 const EMPTY_HUBS: ReadonlySet<string> = new Set<string>();
 
+const ROOT = " root"; // can't collide with a Terraform address
+
+/**
+ * Where every laid-out node actually sits, and who contains it. ELK reports a
+ * node's `x`/`y` relative to its parent, so the absolute position is the sum
+ * along the parent chain.
+ */
+function indexLayout(root: ElkGraphNode): {
+  origin: Map<string, Point>;
+  parent: Map<string, string>;
+} {
+  const origin = new Map<string, Point>([[ROOT, { x: 0, y: 0 }]]);
+  const parent = new Map<string, string>();
+
+  const walk = (node: ElkGraphNode, parentId: string, ox: number, oy: number) => {
+    const x = ox + (node.x ?? 0);
+    const y = oy + (node.y ?? 0);
+    origin.set(node.id, { x, y });
+    parent.set(node.id, parentId);
+    for (const child of node.children ?? []) walk(child, node.id, x, y);
+  };
+  for (const child of root.children ?? []) walk(child, ROOT, 0, 0);
+
+  return { origin, parent };
+}
+
+/** The chain of containers above a node, innermost first, ending at the root. */
+function containerChain(id: string, parent: ReadonlyMap<string, string>): string[] {
+  const chain: string[] = [];
+  let current = parent.get(id);
+  while (current !== undefined) {
+    chain.push(current);
+    if (current === ROOT) break;
+    current = parent.get(current);
+  }
+  return chain.length > 0 ? chain : [ROOT];
+}
+
+/**
+ * The coordinate system an ELK edge's route is expressed in.
+ *
+ * **This is the trap.** ELK reports edge coordinates relative to the *lowest
+ * common ancestor* of the edge's two endpoints — not relative to the node the
+ * edge was declared under, and not absolutely. Declare every edge on the root, as
+ * we do, and a root-level or container-crossing edge comes back in absolute
+ * coordinates (its LCA *is* the root) while an edge **between two nodes of the
+ * same container** comes back relative to that container. Read the second kind as
+ * absolute and it is drawn shifted up and to the left by the container's origin —
+ * which is exactly a diagram whose edges hang off the outside of the box that
+ * owns them.
+ */
+function routeOrigin(
+  edge: ElkGraphEdge,
+  parent: ReadonlyMap<string, string>,
+  origin: ReadonlyMap<string, Point>,
+): Point {
+  const source = edge.sources[0];
+  const target = edge.targets[0];
+  if (!source || !target) return { x: 0, y: 0 };
+
+  const above = new Set(containerChain(source, parent));
+  const lca = containerChain(target, parent).find((id) => above.has(id)) ?? ROOT;
+  return origin.get(lca) ?? { x: 0, y: 0 };
+}
+
+/** Every edge ELK laid out, wherever in the tree it chose to hand it back. */
+function* elkEdges(node: ElkGraphNode): Generator<ElkGraphEdge> {
+  yield* node.edges ?? [];
+  for (const child of node.children ?? []) yield* elkEdges(child);
+}
+
+/**
+ * The routes ELK computed, resolved into absolute (flow) coordinates and keyed by
+ * the same endpoint-derived id we sent in.
+ *
+ * A route is ELK's *whole* polyline — where it left the source, its bends, and
+ * where it reached the target. Taking only the bends and pinning the ends to
+ * React Flow's left/right handles assumes the router always leaves a node on its
+ * right and arrives on its left; give it containers to route around and it does
+ * not, and the line then doubles back across the diagram to meet a bend it was
+ * never going to start from.
+ */
+export function elkRoutes(layout: ElkGraphNode): Map<string, Point[]> {
+  const { origin, parent } = indexLayout(layout);
+  const routes = new Map<string, Point[]>();
+
+  for (const edge of elkEdges(layout)) {
+    const section = edge.sections?.[0];
+    if (!section) continue;
+    const { x, y } = routeOrigin(edge, parent, origin);
+    const points = [
+      section.startPoint,
+      ...(section.bendPoints ?? []),
+      section.endPoint,
+    ];
+    routes.set(
+      edge.id,
+      points.map((p) => ({ x: p.x + x, y: p.y + y })),
+    );
+  }
+  return routes;
+}
+
 /** Map a laid-out ELK graph back to React Flow nodes + edges, applying filters. */
 export function elkToFlow(
   layout: ElkGraphNode,
@@ -444,27 +547,9 @@ export function elkToFlow(
   const neighbors = focusId ? neighborhood(graph, focusId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  // The routes ELK computed, keyed by the same endpoint-derived id we sent in.
   // Absent for hub edges (deliberately left out of the layout, GP-35) — those
   // fall back to a curve, drawn over the layout as they always were.
-  //
-  // The route is ELK's *whole* polyline — where it left the source, its bends,
-  // and where it arrived at the target — not just the bends. Reading only the
-  // bends and pinning the ends to React Flow's left/right handles quietly assumes
-  // ELK always leaves a node on its right and enters on its left. It does not:
-  // give it containers to route around and it will leave from the left or the top,
-  // and the drawn line then doubles back across the diagram to meet the bend it
-  // was given. Trust the router about its own endpoints.
-  const routes = new Map<string, Point[]>();
-  for (const elkEdge of layout.edges ?? []) {
-    const section = elkEdge.sections?.[0];
-    if (!section) continue;
-    routes.set(elkEdge.id, [
-      section.startPoint,
-      ...(section.bendPoints ?? []),
-      section.endPoint,
-    ]);
-  }
+  const routes = elkRoutes(layout);
   const exposed = exposedNodeIds(graph); // internet-exposure treatment (GP-45)
 
   // Count each hub's currently-hidden edges so the node can show a counter chip

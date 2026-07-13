@@ -360,6 +360,107 @@ it("hands each flow edge the route ELK computed for it", () => {
   ]);
 });
 
+it("resolves a container-relative route into absolute coordinates", () => {
+  // The trap ELK sets: edge coordinates come back relative to the *lowest common
+  // ancestor* of the edge's endpoints, not relative to the node the edge was
+  // declared under and not absolutely. Both these nodes live in the same
+  // container, so ELK's numbers are relative to it; read as absolute, the edge is
+  // drawn shifted up and to the left by the container's origin and ends up
+  // hanging off the outside of the very box that owns it.
+  const edgeId = depEdgeId({ from: "aws_s3.a", to: "aws_s3.b", kind: "depends_on" });
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      {
+        // Both endpoints live in this group, so it is their lowest common
+        // ancestor — and ELK's numbers below are relative to *it*, not the canvas.
+        id: "group:g1",
+        x: 100,
+        y: 200,
+        width: 600,
+        height: 200,
+        children: [
+          { id: "aws_s3.b", x: 16, y: 36, width: 220, height: 56 },
+          { id: "aws_s3.a", x: 336, y: 36, width: 220, height: 56 },
+        ],
+      },
+    ],
+    edges: [
+      {
+        id: edgeId,
+        sources: ["aws_s3.b"],
+        targets: ["aws_s3.a"],
+        sections: [
+          {
+            id: "s1",
+            startPoint: { x: 236, y: 64 }, // b's right edge, in group coordinates
+            endPoint: { x: 336, y: 64 }, // a's left edge, in group coordinates
+            bendPoints: [{ x: 286, y: 64 }],
+          },
+        ],
+      },
+    ],
+  };
+
+  const { edges } = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: null,
+  });
+
+  // Every point shifted by the group's origin (100, 200) — so the edge lands on
+  // the two boxes it joins instead of floating above and left of their container.
+  expect(edges[0]?.data?.route).toEqual([
+    { x: 336, y: 264 },
+    { x: 386, y: 264 },
+    { x: 436, y: 264 },
+  ]);
+});
+
+it("leaves a container-crossing route alone — ELK already gave it absolutely", () => {
+  const edgeId = depEdgeId({ from: "aws_s3.a", to: "aws_s3.b", kind: "depends_on" });
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      {
+        id: "group:g1",
+        x: 100,
+        y: 200,
+        width: 260,
+        height: 130,
+        children: [{ id: "aws_s3.b", x: 16, y: 36, width: 220, height: 56 }],
+      },
+      { id: "aws_s3.a", x: 500, y: 236, width: 220, height: 56 },
+    ],
+    edges: [
+      {
+        id: edgeId,
+        sources: ["aws_s3.b"],
+        targets: ["aws_s3.a"],
+        sections: [
+          {
+            id: "s1",
+            // Their lowest common ancestor is the root, so these are absolute
+            // already and must not be shifted a second time.
+            startPoint: { x: 336, y: 264 },
+            endPoint: { x: 500, y: 264 },
+            bendPoints: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  const { edges } = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: null,
+  });
+
+  expect(edges[0]?.data?.route).toEqual([
+    { x: 336, y: 264 },
+    { x: 500, y: 264 },
+  ]);
+});
+
 it("keeps ELK's endpoints even when it routed the edge backwards", () => {
   // The case that breaks handle-pinning: ELK left the source on its *left* side
   // and came into the target from the *right*, going around a container. Drawing
