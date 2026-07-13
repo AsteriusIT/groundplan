@@ -11,6 +11,8 @@ vi.mock("@/api/client", async (importOriginal) => {
     getSnapshot: vi.fn(),
     getAdaptedSnapshot: vi.fn(),
     listAnnotations: vi.fn(),
+    proposeAnnotations: vi.fn(),
+    acceptAnnotation: vi.fn(),
     generateDocs: vi.fn(),
     diffSnapshots: vi.fn(),
     getAiStatus: vi.fn(),
@@ -30,6 +32,7 @@ import {
   ApiError,
   diffSnapshots,
   generateDocs,
+  acceptAnnotation,
   getAdaptedSnapshot,
   getAiGeneration,
   getAiStatus,
@@ -37,9 +40,16 @@ import {
   getSnapshot,
   listAnnotations,
   listSnapshots,
+  proposeAnnotations,
 } from "@/api/client";
 import { resetAiStatus } from "@/lib/use-ai-status";
-import type { Repository, Snapshot, SnapshotDiff, SnapshotSummary } from "@/api/types";
+import type {
+  Annotation,
+  Repository,
+  Snapshot,
+  SnapshotDiff,
+  SnapshotSummary,
+} from "@/api/types";
 import { DocsPage } from "./docs-page";
 
 const getRepositoryMock = vi.mocked(getRepository);
@@ -47,6 +57,8 @@ const listSnapshotsMock = vi.mocked(listSnapshots);
 const getSnapshotMock = vi.mocked(getSnapshot);
 const getAdaptedSnapshotMock = vi.mocked(getAdaptedSnapshot);
 const listAnnotationsMock = vi.mocked(listAnnotations);
+const proposeAnnotationsMock = vi.mocked(proposeAnnotations);
+const acceptAnnotationMock = vi.mocked(acceptAnnotation);
 const generateDocsMock = vi.mocked(generateDocs);
 const diffSnapshotsMock = vi.mocked(diffSnapshots);
 const getAiStatusMock = vi.mocked(getAiStatus);
@@ -129,6 +141,8 @@ beforeEach(() => {
   generateDocsMock.mockReset();
   diffSnapshotsMock.mockReset();
   listAnnotationsMock.mockReset().mockResolvedValue([]);
+  proposeAnnotationsMock.mockReset();
+  acceptAnnotationMock.mockReset();
   getAdaptedSnapshotMock.mockReset().mockImplementation((id: string) =>
     Promise.resolve(snapshot(id, 2)),
   );
@@ -471,4 +485,79 @@ it("the annotate toggle is absent outside the raw view — you annotate what the
   fireEvent.click(screen.getByRole("button", { name: "Adapted" }));
   await screen.findByText("2 nodes");
   expect(screen.queryByRole("button", { name: /annotate/i })).not.toBeInTheDocument();
+});
+
+// --- The proposal inbox (GP-76) ---------------------------------------------
+
+const AI_ON = { enabled: true, model: "claude-opus-4-8" };
+
+const proposal = (over: Partial<Annotation> & Pick<Annotation, "id" | "type">): Annotation => ({
+  repositoryId: "r1",
+  anchors: ["n0"],
+  label: "Storefront",
+  body: null,
+  status: "proposed",
+  provenance: "ai",
+  reason: "They serve one flow.",
+  createdFromSha: "sha1",
+  parentGroupId: null,
+  missingAnchors: [],
+  createdBy: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  ...over,
+});
+
+it("offers no suggestion surface at all when the AI layer is off", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  renderPage();
+  await screen.findByText("1 nodes");
+
+  await openMoreActions();
+  // Absent, not disabled: no key means no AI anywhere (GP-62).
+  expect(
+    screen.queryByRole("menuitemcheckbox", { name: /suggest annotations/i }),
+  ).not.toBeInTheDocument();
+});
+
+it("asks the model, then lists what came back for review", async () => {
+  getAiStatusMock.mockResolvedValue(AI_ON);
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  proposeAnnotationsMock.mockResolvedValue({
+    proposals: [proposal({ id: "p1", type: "group" })],
+    dropped: 0,
+    cached: false,
+  });
+  // The inbox reads its proposals from the annotation layer, not from the POST.
+  listAnnotationsMock.mockResolvedValue([proposal({ id: "p1", type: "group" })]);
+
+  renderPage();
+  await screen.findByText("1 nodes");
+  await openMoreActions();
+  fireEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: /suggest annotations/i }),
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: /suggest annotations/i }));
+  expect(proposeAnnotationsMock).toHaveBeenCalledWith("s1");
+  expect(await screen.findByText("Storefront")).toBeInTheDocument();
+  expect(screen.getByText(/they serve one flow/i)).toBeInTheDocument();
+});
+
+it("accepting a proposal is what puts it on the diagram — nothing before that", async () => {
+  getAiStatusMock.mockResolvedValue(AI_ON);
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  const p = proposal({ id: "p1", type: "group" });
+  listAnnotationsMock.mockResolvedValue([p]);
+  acceptAnnotationMock.mockResolvedValue({ ...p, status: "resolved" });
+
+  renderPage();
+  await screen.findByText("1 nodes");
+  await openMoreActions();
+  fireEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: /suggest annotations/i }),
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+  expect(acceptAnnotationMock).toHaveBeenCalledWith("p1");
 });

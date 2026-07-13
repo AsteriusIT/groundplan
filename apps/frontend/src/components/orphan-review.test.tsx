@@ -11,6 +11,7 @@ function ann(partial: Partial<Annotation> & Pick<Annotation, "id" | "type" | "an
     body: null,
     status: "orphaned",
     provenance: "human" as const,
+    reason: null,
     createdFromSha: null,
     parentGroupId: null,
     missingAnchors: [],

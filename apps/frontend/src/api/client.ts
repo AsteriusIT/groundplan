@@ -12,6 +12,7 @@ import type {
   Annotation,
   AnnotationStatus,
   CreateAnnotationInput,
+  ProposalRun,
   CreatedRepository,
   CreateProjectInput,
   CreateRepositoryInput,
@@ -368,6 +369,26 @@ export function updateAnnotation(
 
 export function deleteAnnotation(id: string): Promise<void> {
   return request<void>(`/annotations/${encode(id)}`, { method: "DELETE" });
+}
+
+/**
+ * Ask the model to propose annotations for this snapshot (GP-75). Always
+ * user-triggered — generating costs money, and an estate that annotates itself
+ * behind your back is not one anybody trusts.
+ *
+ * The proposals come back stored as `proposed`; nothing they say is live until a
+ * human accepts it.
+ */
+export function proposeAnnotations(snapshotId: string): Promise<ProposalRun> {
+  return request<ProposalRun>(
+    `/snapshots/${encode(snapshotId)}/annotation-proposals`,
+    { method: "POST" },
+  );
+}
+
+/** Accept a proposal — the one and only way one goes live (GP-76). */
+export function acceptAnnotation(id: string): Promise<Annotation> {
+  return updateAnnotation(id, { status: "resolved" });
 }
 
 // --- Public share links (GP-39) --------------------------------------------

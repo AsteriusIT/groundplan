@@ -411,6 +411,12 @@ export interface Annotation {
   status: AnnotationStatus;
   /** Where it came from. Permanent — an accepted AI proposal still says `ai`. */
   provenance: AnnotationProvenance;
+  /**
+   * Why the proposer suggested this (GP-75), in one sentence; null for human
+   * annotations. A suggestion you must judge without knowing why it was made is
+   * one you will rubber-stamp.
+   */
+  reason: string | null;
   createdFromSha: string | null;
   parentGroupId: string | null;
   missingAnchors: string[];
@@ -435,6 +441,16 @@ export interface UpdateAnnotationInput {
   /** Accepting a proposal (GP-76). The only way one goes live. */
   status?: "resolved";
   parentGroupId?: string | null;
+}
+
+/** What one run of the AI proposer produced (GP-75). */
+export interface ProposalRun {
+  /** Newly stored proposals — empty when the model had nothing new to say. */
+  proposals: Annotation[];
+  /** How many suggestions were thrown away (invented anchors, duplicates, junk). */
+  dropped: number;
+  /** True when the answer was replayed from cache and no model was called. */
+  cached: boolean;
 }
 
 export interface CreateProjectInput {

@@ -11,9 +11,11 @@ import {
   RefreshCw,
   Sparkles,
   TriangleAlert,
+  Wand2,
 } from "lucide-react";
 
 import {
+  acceptAnnotation,
   ApiError,
   createAnnotation,
   deleteAnnotation,
@@ -23,6 +25,7 @@ import {
   getSnapshot,
   listAnnotations,
   listSnapshots,
+  proposeAnnotations,
   updateAnnotation,
   updateRepository,
 } from "@/api/client";
@@ -55,6 +58,7 @@ import { AiPanel } from "@/components/ai-panel";
 import { ContextRail } from "@/components/context-section";
 import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { OrphanReview } from "@/components/orphan-review";
+import { ProposalInbox } from "@/components/proposal-inbox";
 import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
@@ -183,6 +187,74 @@ export function DocsPage() {
     (id: string) => {
       setAnnotations((prev) => prev.filter((a) => a.id !== id));
       deleteAnnotation(id).catch(reloadAnnotations);
+    },
+    [reloadAnnotations],
+  );
+
+  /**
+   * The proposal inbox (GP-76). Suggestions arrive as `proposed` annotations and
+   * live only here until a human answers them — accepting is what puts one on the
+   * diagram, which is why the canvas never draws a proposal (see
+   * `renderableAnnotations`).
+   */
+  const [proposalsOpen, setProposalsOpen] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [emptyRun, setEmptyRun] = useState(false);
+  const [previewIds, setPreviewIds] = useState<ReadonlySet<string> | null>(null);
+
+  const proposals = useMemo(
+    () => annotations.filter((a) => a.status === "proposed"),
+    [annotations],
+  );
+
+  const suggest = useCallback(async () => {
+    const snapshotId = graphRef.current?.id;
+    if (!snapshotId) return;
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const run = await proposeAnnotations(snapshotId);
+      setEmptyRun(run.proposals.length === 0);
+      reloadAnnotations();
+    } catch (err) {
+      setSuggestError(
+        err instanceof ApiError ? err.message : "Could not reach the model.",
+      );
+    } finally {
+      setSuggesting(false);
+    }
+  }, [reloadAnnotations]);
+
+  const handleAcceptProposal = useCallback(
+    (id: string) => {
+      // Optimistic: it leaves the inbox at once, and the adapted view refetches
+      // because the annotation layer changed.
+      setAnnotations((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "resolved" as const } : a)),
+      );
+      acceptAnnotation(id)
+        .then((updated) =>
+          setAnnotations((prev) => prev.map((a) => (a.id === id ? updated : a))),
+        )
+        .catch(reloadAnnotations);
+    },
+    [reloadAnnotations],
+  );
+
+  /** Fixing the name and keeping it is one decision, so it is one call path. */
+  const handleEditProposal = useCallback(
+    (id: string, label: string) => {
+      setAnnotations((prev) =>
+        prev.map((a) =>
+          a.id === id ? { ...a, label, status: "resolved" as const } : a,
+        ),
+      );
+      updateAnnotation(id, { label, status: "resolved" })
+        .then((updated) =>
+          setAnnotations((prev) => prev.map((a) => (a.id === id ? updated : a))),
+        )
+        .catch(reloadAnnotations);
     },
     [reloadAnnotations],
   );
@@ -465,6 +537,21 @@ export function DocsPage() {
                         Explain
                       </DropdownMenuCheckboxItem>
                     )}
+                    {/* GP-76. Same rule: no AI layer, no AI surface. */}
+                    {current && aiStatus?.enabled && (
+                      <DropdownMenuCheckboxItem
+                        checked={proposalsOpen}
+                        onCheckedChange={(v) => setProposalsOpen(Boolean(v))}
+                      >
+                        <Wand2 className="size-3.5" />
+                        Suggest annotations
+                        {proposals.length > 0 && (
+                          <span className="bg-primary text-primary-foreground ml-auto rounded-full px-1.5 text-[10px]">
+                            {proposals.length}
+                          </span>
+                        )}
+                      </DropdownMenuCheckboxItem>
+                    )}
                     {repo && (
                       <DropdownMenuCheckboxItem
                         checked={contextOpen}
@@ -632,6 +719,7 @@ export function DocsPage() {
                       ? (id) => setExpandedGroup((open) => (open === id ? null : id))
                       : undefined
                   }
+                  highlightIds={previewIds ?? undefined}
                 />
               )}
             </>
@@ -650,6 +738,25 @@ export function DocsPage() {
               cta="Explain this infrastructure"
             />
           </aside>
+        )}
+
+        {/* GP-76: suggestions live here and nowhere else until a human answers
+            them. Rendered only when the AI layer is on — no key, no AI surface. */}
+        {current && proposalsOpen && aiStatus?.enabled && !focus && (
+          <ProposalInbox
+            proposals={proposals}
+            suggesting={suggesting}
+            error={suggestError}
+            emptyRun={emptyRun}
+            onSuggest={suggest}
+            onAccept={handleAcceptProposal}
+            onEdit={handleEditProposal}
+            onDismiss={handleDeleteAnnotation}
+            onPreview={(anchors) =>
+              setPreviewIds(anchors ? new Set(anchors) : null)
+            }
+            onClose={() => setProposalsOpen(false)}
+          />
         )}
 
         {repo && contextOpen && !focus && (

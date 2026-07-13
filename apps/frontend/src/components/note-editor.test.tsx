@@ -14,6 +14,7 @@ function note(id: string, body: string): Annotation {
     body,
     status: "resolved",
     provenance: "human" as const,
+    reason: null,
     createdFromSha: null,
     parentGroupId: null,
     missingAnchors: [],

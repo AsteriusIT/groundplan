@@ -22,6 +22,7 @@ function ann(partial: Partial<Annotation> & Pick<Annotation, "type" | "anchors">
     body: null,
     status: "resolved",
     provenance: "human",
+    reason: null,
     createdFromSha: null,
     parentGroupId: null,
     missingAnchors: [],

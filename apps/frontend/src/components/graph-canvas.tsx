@@ -86,6 +86,7 @@ import { NodeDetailsPanel } from "@/components/node-details-panel";
 import { ResourceFlowNode } from "@/components/graph-node";
 import { NetworkContainerNode } from "@/components/network-container-node";
 import { GroupContainerNode } from "@/components/group-container-node";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { EdgeArrowMarkers, RelationshipEdge } from "@/components/graph-edge";
 
 const elk = new ELK();
@@ -301,6 +302,7 @@ export function GraphCanvas({
   onUpdateAnnotation,
   onDeleteAnnotation,
   onExpandGroup,
+  highlightIds,
 }: {
   graph: Graph;
   variant?: "plan" | "docs";
@@ -323,6 +325,13 @@ export function GraphCanvas({
    * you can already see into.
    */
   onExpandGroup?: (annotationId: string) => void;
+  /**
+   * GP-76: nodes to light up from outside the canvas — hovering a proposal in the
+   * review inbox flashes the resources it is about. It reuses the picked
+   * treatment, because that is exactly what it means: these are the nodes in
+   * question. Transient, and never anything the user has committed to.
+   */
+  highlightIds?: ReadonlySet<string>;
 }) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
@@ -528,21 +537,33 @@ export function GraphCanvas({
     // box-selectable (rubber-band drag). Overlay/module/container nodes never are.
     const mapped = elements.nodes.map((node) => {
       if (node.type !== "resource") return { ...node, selectable: false };
-      const picked = pickedSet.has(node.id);
+      const chosen = pickedSet.has(node.id);
+      // A proposal being hovered in the inbox lights its anchors the same way a
+      // picked node lights: "these are the resources in question" is one idea.
+      const previewed = highlightIds?.has(node.id) === true;
       return {
         ...node,
         selectable: marqueeSelecting,
-        selected: marqueeSelecting ? picked : false,
+        selected: marqueeSelecting ? chosen : false,
         data: {
           ...node.data,
-          picked,
+          picked: chosen || previewed,
           hiddenByAnnotation: hidden.has(node.id),
           renameLabel: renamed.get(node.id),
         },
       };
     });
     return [...overlayNodes, ...mapped, ...notePins];
-  }, [overlayNodes, elements.nodes, notePins, pickedSet, marqueeSelecting, hidden, renamed]);
+  }, [
+    overlayNodes,
+    elements.nodes,
+    notePins,
+    pickedSet,
+    marqueeSelecting,
+    hidden,
+    renamed,
+    highlightIds,
+  ]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
     [elements.edges, annEdges],
@@ -1053,12 +1074,12 @@ export function GraphCanvas({
         </div>
       )}
 
-      {/* Links & groups list (GP-58): relabel or delete. Notes are managed on
-          their node via the details panel. */}
+      {/* The annotation list (GP-58, five types as of GP-73): relabel or delete.
+          Notes are managed on their node via the details panel. */}
       {annotate && renderableAnns.some((a) => a.type !== "note") && (
         <div className="bg-card/95 absolute top-14 right-3 z-10 max-h-[calc(100%-8rem)] w-56 overflow-auto rounded-md border border-border p-2 shadow-sm backdrop-blur">
           <p className="text-muted-foreground mb-1.5 font-mono text-[10px] tracking-wide uppercase">
-            Links &amp; groups
+            Annotations
           </p>
           <ul className="space-y-1">
             {renderableAnns
@@ -1160,6 +1181,13 @@ function LabelForm({
   );
 }
 
+const ROW_ICON: Partial<Record<Annotation["type"], typeof Group>> = {
+  link: Link2,
+  group: Group,
+  hide: EyeOff,
+  rename: Type,
+};
+
 function AnnotationRow({
   annotation,
   onRelabel,
@@ -1171,7 +1199,7 @@ function AnnotationRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(annotation.label ?? "");
-  const Icon = annotation.type === "link" ? Link2 : Group;
+  const Icon = ROW_ICON[annotation.type] ?? Group;
 
   if (editing) {
     return (
@@ -1217,8 +1245,11 @@ function AnnotationRow({
         className="text-ink min-w-0 flex-1 truncate text-left text-xs"
         title="Rename"
       >
-        {annotation.label || "(untitled)"}
+        {annotation.label || (annotation.type === "hide" ? "Hidden" : "(untitled)")}
       </button>
+      {/* The badge outlives the review (GP-76): accepting a suggestion means
+          agreeing with it, not laundering where it came from. */}
+      {annotation.provenance === "ai" && <AiBadge className="shrink-0" />}
       <button
         type="button"
         aria-label="Delete annotation"
