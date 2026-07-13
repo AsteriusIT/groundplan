@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
+  Boxes,
   ChevronLeft,
   Ellipsis,
   FileText,
   GitCompareArrows,
   Loader2,
+  PencilLine,
   RefreshCw,
   Sparkles,
   TriangleAlert,
@@ -16,6 +18,7 @@ import {
   createAnnotation,
   deleteAnnotation,
   generateDocs,
+  getAdaptedSnapshot,
   getRepository,
   getSnapshot,
   listAnnotations,
@@ -26,6 +29,7 @@ import {
 import type {
   Annotation,
   CreateAnnotationInput,
+  Graph,
   GraphNode,
   Repository,
   Snapshot,
@@ -260,12 +264,65 @@ export function DocsPage() {
     [annotations, current],
   );
 
-  // Network view (GP-44): project the current snapshot when ?view=network.
   const { view, setView } = useGraphView();
+
+  // Network view (GP-44): project the current snapshot when ?view=network.
   const network = useMemo(
     () => (current && view === "network" ? networkProjection(current.graph) : null),
     [current, view],
   );
+
+  /**
+   * Adapted / C4 (GP-74/GP-77). Unlike the network view, this projection is not
+   * something the client can compute: it is a fold of the *whole* annotation
+   * layer, and the server owns it (GP-72). So the toggle refetches — and what
+   * comes back is an ordinary snapshot, which the same canvas draws unchanged.
+   *
+   * `expandedGroup` is the C4 drill-in: click a collapsed group and it opens in
+   * place while the others stay closed.
+   */
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [adapted, setAdapted] = useState<GraphState>({ status: "idle" });
+  const [adaptedRetry, setAdaptedRetry] = useState(0);
+  const adaptedView = view === "adapted" || view === "c4";
+
+  useEffect(() => {
+    if (!selectedId || !adaptedView) {
+      setAdapted({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setAdapted({ status: "loading" });
+    getAdaptedSnapshot(selectedId, {
+      ...(view === "c4" ? { granularity: "group" as const } : {}),
+      ...(view === "c4" && expandedGroup ? { expandGroup: expandedGroup } : {}),
+    })
+      .then((snapshot) => {
+        if (!cancelled) setAdapted({ status: "ready", snapshot });
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setAdapted({
+            status: "error",
+            message:
+              err instanceof ApiError ? err.message : "Could not load the diagram.",
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Annotations are a dependency: accepting a proposal or hiding a node must
+    // change this picture, and the picture lives on the server.
+  }, [selectedId, adaptedView, view, expandedGroup, annotations, adaptedRetry]);
+
+  // Leaving C4 forgets which group was open — it is a way of looking, not a
+  // setting to carry around.
+  useEffect(() => {
+    if (view !== "c4") setExpandedGroup(null);
+  }, [view]);
+
+  /** The snapshot on the canvas: the adapted projection, or the generated graph. */
+  const shown = adaptedView ? (adapted.status === "ready" ? adapted.snapshot : null) : current;
   // GP-49: a node to select on the canvas, set when jumping from the IAM view.
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const viewInPlanImpact = useCallback(
@@ -526,34 +583,56 @@ export function DocsPage() {
 
           {snapshots.length > 0 && !compareActive && (
             <>
-              {graph.status === "loading" && <Centered>Loading diagram…</Centered>}
+              {(graph.status === "loading" || adapted.status === "loading") && (
+                <Centered>Loading diagram…</Centered>
+              )}
               {graph.status === "error" && (
                 <Centered>
                   <ErrorBlock message={graph.message} onRetry={() => loadList(false)} />
                 </Centered>
               )}
-              {current && (
-                <>
-                  {view === "iam" ? (
-                    <IamTable
-                      graph={current.graph}
-                      variant="docs"
-                      onViewInPlanImpact={viewInPlanImpact}
-                    />
-                  ) : (
-                    <GraphCanvas
-                      graph={network ? network.graph : current.graph}
-                      variant="docs"
-                      containerIds={network?.containerIds}
-                      focusNodeId={focusNodeId}
-                      annotations={view === "infra" ? annotations : undefined}
-                      annotate={annotate && view === "infra"}
-                      onCreateAnnotation={handleCreateAnnotation}
-                      onUpdateAnnotation={handleUpdateAnnotation}
-                      onDeleteAnnotation={handleDeleteAnnotation}
-                    />
-                  )}
-                </>
+              {adapted.status === "error" && (
+                <Centered>
+                  <ErrorBlock
+                    message={adapted.message}
+                    onRetry={() => setAdaptedRetry((n) => n + 1)}
+                  />
+                </Centered>
+              )}
+
+              {view === "iam" && current && (
+                <IamTable
+                  graph={current.graph}
+                  variant="docs"
+                  onViewInPlanImpact={viewInPlanImpact}
+                />
+              )}
+
+              {/* C4 with nothing to collapse is not a broken graph — it is a
+                  system nobody has grouped yet, and it should say so (GP-77). */}
+              {view === "c4" && shown && !hasGroups(shown.graph) && (
+                <NoGroupsState onAnnotate={() => setView("infra")} />
+              )}
+
+              {view !== "iam" && shown && !(view === "c4" && !hasGroups(shown.graph)) && (
+                <GraphCanvas
+                  // The adapted projection comes back as an ordinary snapshot, so
+                  // the canvas draws it with no idea annotations exist (ADR #2).
+                  graph={network ? network.graph : shown.graph}
+                  variant="docs"
+                  containerIds={network?.containerIds}
+                  focusNodeId={focusNodeId}
+                  annotations={view === "infra" ? annotations : undefined}
+                  annotate={annotate && view === "infra"}
+                  onCreateAnnotation={handleCreateAnnotation}
+                  onUpdateAnnotation={handleUpdateAnnotation}
+                  onDeleteAnnotation={handleDeleteAnnotation}
+                  onExpandGroup={
+                    view === "c4"
+                      ? (id) => setExpandedGroup((open) => (open === id ? null : id))
+                      : undefined
+                  }
+                />
               )}
             </>
           )}
@@ -632,6 +711,39 @@ function WarningsNotice({ warnings }: { warnings: string[] }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Does this projection contain anything to collapse? (GP-77) */
+function hasGroups(graph: Graph): boolean {
+  return graph.nodes.some((n) => n.annotation_group);
+}
+
+/**
+ * C4 with no groups (GP-77). Not an error and not an empty canvas: the view is
+ * built out of the groups a human drew, and this repository has none yet. Say
+ * that, and point at the thing that fixes it.
+ */
+function NoGroupsState({ onAnnotate }: { onAnnotate: () => void }) {
+  return (
+    <div className="grid h-full place-items-center p-8">
+      <div className="max-w-md text-center">
+        <div className="bg-accent text-primary mx-auto mb-4 grid size-12 place-items-center rounded-sm">
+          <Boxes className="size-6" />
+        </div>
+        <h2 className="font-display text-lg font-semibold">Nothing to collapse yet</h2>
+        <p className="text-muted-foreground mt-2 text-sm">
+          The C4 view is built from the groups you draw: each top-level group
+          becomes one system, and the traffic between them is aggregated into a
+          single edge. Group some resources on the Global view — or let the AI
+          suggest a grouping — and they will appear here.
+        </p>
+        <Button className="mt-5" variant="outline" onClick={onAnnotate}>
+          <PencilLine className="size-4" />
+          Go and group some resources
+        </Button>
+      </div>
     </div>
   );
 }

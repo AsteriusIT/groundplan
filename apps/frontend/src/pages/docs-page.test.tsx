@@ -9,6 +9,8 @@ vi.mock("@/api/client", async (importOriginal) => {
     getRepository: vi.fn(),
     listSnapshots: vi.fn(),
     getSnapshot: vi.fn(),
+    getAdaptedSnapshot: vi.fn(),
+    listAnnotations: vi.fn(),
     generateDocs: vi.fn(),
     diffSnapshots: vi.fn(),
     getAiStatus: vi.fn(),
@@ -28,10 +30,12 @@ import {
   ApiError,
   diffSnapshots,
   generateDocs,
+  getAdaptedSnapshot,
   getAiGeneration,
   getAiStatus,
   getRepository,
   getSnapshot,
+  listAnnotations,
   listSnapshots,
 } from "@/api/client";
 import { resetAiStatus } from "@/lib/use-ai-status";
@@ -41,6 +45,8 @@ import { DocsPage } from "./docs-page";
 const getRepositoryMock = vi.mocked(getRepository);
 const listSnapshotsMock = vi.mocked(listSnapshots);
 const getSnapshotMock = vi.mocked(getSnapshot);
+const getAdaptedSnapshotMock = vi.mocked(getAdaptedSnapshot);
+const listAnnotationsMock = vi.mocked(listAnnotations);
 const generateDocsMock = vi.mocked(generateDocs);
 const diffSnapshotsMock = vi.mocked(diffSnapshots);
 const getAiStatusMock = vi.mocked(getAiStatus);
@@ -122,6 +128,10 @@ beforeEach(() => {
   );
   generateDocsMock.mockReset();
   diffSnapshotsMock.mockReset();
+  listAnnotationsMock.mockReset().mockResolvedValue([]);
+  getAdaptedSnapshotMock.mockReset().mockImplementation((id: string) =>
+    Promise.resolve(snapshot(id, 2)),
+  );
   // The AI layer is off unless a test turns it on (GP-65).
   resetAiStatus();
   getAiStatusMock.mockReset().mockResolvedValue({ enabled: false, model: null });
@@ -401,4 +411,64 @@ it("says nothing when a snapshot parsed cleanly", async () => {
   renderPage();
   await screen.findByTestId("canvas");
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+// --- The adapted view (GP-74) -----------------------------------------------
+
+it("the Adapted tab draws the server's projection, not the raw graph", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  renderPage();
+  // Raw: the generated graph, one node.
+  expect(await screen.findByText("1 nodes")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Adapted" }));
+
+  // The projection is a fold of the whole annotation layer — only the server can
+  // compute it, so the toggle refetches rather than reshaping what we already have.
+  expect(await screen.findByText("2 nodes")).toBeInTheDocument();
+  expect(getAdaptedSnapshotMock).toHaveBeenCalledWith("s1", {});
+});
+
+it("toggling back to Global shows the unmodified generated graph", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  renderPage();
+  await screen.findByText("1 nodes");
+
+  fireEvent.click(screen.getByRole("button", { name: "Adapted" }));
+  await screen.findByText("2 nodes");
+  fireEvent.click(screen.getByRole("button", { name: "Global" }));
+  expect(await screen.findByText("1 nodes")).toBeInTheDocument();
+});
+
+it("C4 asks for group granularity", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  renderPage();
+  await screen.findByText("1 nodes");
+
+  fireEvent.click(screen.getByRole("button", { name: "C4" }));
+  await screen.findByText(/nothing to collapse yet/i);
+  expect(getAdaptedSnapshotMock).toHaveBeenCalledWith("s1", { granularity: "group" });
+});
+
+it("C4 with no groups explains itself instead of drawing a broken graph", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  renderPage();
+  await screen.findByText("1 nodes");
+
+  // The projection came back with no group containers — nobody has grouped
+  // anything yet. That is not an error, and it is not an empty canvas either.
+  fireEvent.click(screen.getByRole("button", { name: "C4" }));
+  expect(await screen.findByText(/nothing to collapse yet/i)).toBeInTheDocument();
+  expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
+});
+
+it("the annotate toggle is absent outside the raw view — you annotate what the code says", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "sha1", "manual")]);
+  renderPage();
+  await screen.findByText("1 nodes");
+  expect(screen.getByRole("button", { name: /annotate/i })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Adapted" }));
+  await screen.findByText("2 nodes");
+  expect(screen.queryByRole("button", { name: /annotate/i })).not.toBeInTheDocument();
 });

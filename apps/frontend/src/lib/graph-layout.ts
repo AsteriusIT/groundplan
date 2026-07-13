@@ -63,8 +63,16 @@ export interface ElkGraphNode {
  * attach one edge's route to another edge.
  */
 export function depEdgeId(edge: GraphEdge): string {
-  return `dep|${edge.from}|${edge.to}`;
+  return `${edge.kind === "logical" ? "log" : "dep"}|${edge.from}|${edge.to}`;
 }
+
+/**
+ * The edges we actually draw: generated dependencies, and the logical edges a
+ * human drew in the adapted view (GP-72). `contains` is structure — it becomes
+ * nesting, not a line.
+ */
+const isDrawnEdge = (edge: GraphEdge): boolean =>
+  edge.kind === "depends_on" || edge.kind === "logical";
 
 // Layered, left→right. We lay out in impact-flow direction (a dependency points
 // at its dependents), so roots (vpc/vnet-level) land on the left and leaves /
@@ -398,8 +406,12 @@ export function toElkGraph(
   // Reverse the dependency for layout (dependency → dependent) so roots sit on
   // the left and impact reads left→right (GP-31). Hub edges (GP-35) are left out
   // entirely so the hub node doesn't drag its whole neighbourhood together.
+  //
+  // Logical edges (GP-72) go through ELK like any other: a relationship a human
+  // drew is a real relationship, and the layout should place its endpoints near
+  // each other rather than route a line across the whole diagram afterwards.
   const edges = graph.edges
-    .filter((edge) => edge.kind === "depends_on" && !(hubs && isHubEdge(edge, hubs)))
+    .filter((edge) => isDrawnEdge(edge) && !(hubs && isHubEdge(edge, hubs)))
     .map((edge) => ({
       id: depEdgeId(edge),
       sources: [edge.to],
@@ -474,9 +486,13 @@ export function elkToFlow(
         (elk.children?.length ?? 0) > 0 || containerIds.has(elk.id);
       // Module-backed containers render as the dashed module box; resource-backed
       // containers (vnet/subnet in the network view) render with their own
-      // identity via the `container` node type (GP-44).
+      // identity via the `container` node type (GP-44). A container that came
+      // from a `group` annotation is a third thing again (GP-74) — and it must
+      // never be mistaken for either, because one is what a human said about the
+      // system and the others are what the code says.
       let nodeType = "resource";
-      if (container) nodeType = isModule(graphNode) ? "module" : "container";
+      if (graphNode.annotation_group) nodeType = "groupContainer";
+      else if (container) nodeType = isModule(graphNode) ? "module" : "container";
       // Hand React Flow the size ELK computed, as `width`/`height` *and*
       // `measured`. It hides any node it thinks is unmeasured, and it reads
       // `measured` only off the node object we give it — so every rebuild of this
@@ -508,7 +524,7 @@ export function elkToFlow(
   for (const child of layout.children ?? []) walk(child);
 
   const edges: FlowEdge[] = graph.edges
-    .filter((edge) => edge.kind === "depends_on")
+    .filter(isDrawnEdge)
     // Drop hub edges that are currently hidden (GP-35); revealed ones are drawn
     // over the layout (which was computed without them).
     // Focus reveals a hub's hidden edges — hovering the hub is how you ask what
@@ -518,6 +534,7 @@ export function elkToFlow(
     .map((edge) => {
       const touchesFocus =
         Boolean(focusId) && (edge.from === focusId || edge.to === focusId);
+      const logical = edge.kind === "logical";
       // Colour/dash come from the relationship + inferred flag (GP-30), applied
       // by the RelationshipEdge component — no re-layout on selection. Drawn in
       // impact-flow direction (dependency → dependent) to match the layout
@@ -535,6 +552,12 @@ export function elkToFlow(
           active: touchesFocus,
           inferred: edge.inferred === true,
           bends: routes.get(depEdgeId(edge)),
+          // A logical edge wears the annotation treatment — dashed, accent-toned,
+          // no arrowhead — because it is exactly that: a human relationship drawn
+          // over a generated diagram, and it must not pass for a dependency the
+          // code declares.
+          annotation: logical,
+          ...(edge.label ? { label: edge.label } : {}),
         },
       };
     });

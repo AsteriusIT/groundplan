@@ -62,8 +62,15 @@ export function NodeDetailsPanel({
           Resource
         </p>
         <p className="font-display text-sm font-semibold break-all">
-          {node.name}
+          {node.display_label ?? node.name}
         </p>
+        {/* A rename is a lens, not an erasure (GP-74): the name Terraform gave
+            this resource is what you will search the repository for. */}
+        {node.display_label && (
+          <p className="text-faint font-mono text-[11px] break-all">
+            renamed from {node.name}
+          </p>
+        )}
         {(status || impacted) && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {status && (
@@ -93,6 +100,24 @@ export function NodeDetailsPanel({
             distance={node.impact_distance ?? ancestor.distance}
             onSelect={onSelect}
           />
+        )}
+
+        {/* Notes the projection attached to this node (GP-74). In the adapted
+            view the annotation layer is folded into the graph, so the notes
+            arrive on the node itself rather than through the editor. */}
+        {(node.notes?.length ?? 0) > 0 && (
+          <SidePanelSection label="Notes">
+            <ul className="space-y-2">
+              {node.notes?.map((note) => (
+                <li
+                  key={note}
+                  className="border-primary/30 bg-accent-soft text-ink rounded-md border-l-2 px-2.5 py-1.5 text-xs whitespace-pre-wrap"
+                >
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </SidePanelSection>
         )}
 
         <SidePanelSection label="Terraform address">

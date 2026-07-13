@@ -3,10 +3,25 @@ import { useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 /**
- * The graph views: "infra" (default plan-impact/docs canvas, GP-44), "network"
- * (GP-44), and "iam" (the role-assignment table, GP-48).
+ * The graph views:
+ *   `infra`    the default plan-impact / docs canvas (GP-44)
+ *   `adapted`  the same graph seen through the accepted annotations (GP-74)
+ *   `c4`       the adapted graph collapsed to one node per group (GP-77)
+ *   `network`  the vnet/subnet containment view (GP-44)
+ *   `iam`      the role-assignment table (GP-48)
+ *
+ * `adapted` and `c4` are documentation views: they answer "what is this system",
+ * which is a question about the repository, not about a pull request.
  */
-export type GraphView = "infra" | "network" | "iam";
+export type GraphView = "infra" | "adapted" | "c4" | "network" | "iam";
+
+const VIEWS: ReadonlySet<GraphView> = new Set<GraphView>([
+  "infra",
+  "adapted",
+  "c4",
+  "network",
+  "iam",
+]);
 
 /**
  * Read/write the `?view` query param (default "infra"). Kept in the URL — like
@@ -14,8 +29,8 @@ export type GraphView = "infra" | "network" | "iam";
  */
 export function useGraphView(): { view: GraphView; setView: (v: GraphView) => void } {
   const [params, setParams] = useSearchParams();
-  const raw = params.get("view");
-  const view: GraphView = raw === "network" || raw === "iam" ? raw : "infra";
+  const raw = params.get("view") as GraphView | null;
+  const view: GraphView = raw && VIEWS.has(raw) ? raw : "infra";
   const setView = (next: GraphView): void => {
     const updated = new URLSearchParams(params);
     if (next === "infra") updated.delete("view");
@@ -37,14 +52,33 @@ const INFRA_LABEL: Record<ViewSwitcherVariant, string> = {
   docs: "Global",
 };
 
-/** Infra ⇄ Network ⇄ IAM view tabs (GP-44/GP-48). Underlined-tab styling. */
+const LABELS: Record<Exclude<GraphView, "infra">, string> = {
+  adapted: "Adapted",
+  c4: "C4",
+  network: "Network",
+  iam: "IAM",
+};
+
+/**
+ * The view tabs (GP-44/GP-48/GP-74/GP-77). Underlined-tab styling.
+ *
+ * Adapted and C4 appear on the docs page only. A pull request asks "what does
+ * this change do", and the honest answer to that is the generated graph — an
+ * annotation layer that hides and renames things is the wrong lens for reviewing
+ * a diff.
+ */
 export function ViewSwitcher({ variant = "plan" }: { variant?: ViewSwitcherVariant }) {
   const { view, setView } = useGraphView();
-  const options: { key: GraphView; label: string }[] = [
-    { key: "infra", label: INFRA_LABEL[variant] },
-    { key: "network", label: "Network" },
-    { key: "iam", label: "IAM" },
-  ];
+  const keys: GraphView[] =
+    variant === "docs"
+      ? ["infra", "adapted", "c4", "network", "iam"]
+      : ["infra", "network", "iam"];
+
+  const options = keys.map((key) => ({
+    key,
+    label: key === "infra" ? INFRA_LABEL[variant] : LABELS[key],
+  }));
+
   return (
     <div className="flex items-center gap-4" role="group" aria-label="Graph view">
       {options.map((o) => (

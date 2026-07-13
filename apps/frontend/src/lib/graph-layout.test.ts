@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { Graph } from "@/api/types";
 import {
@@ -484,4 +484,81 @@ it("declares every node's size, so React Flow never re-measures the diagram", ()
     expect(node.height, `${node.id} declares a height`).toBeGreaterThan(0);
     expect(node.measured).toEqual({ width: node.width, height: node.height });
   }
+});
+
+// --- The adapted projection renders like any other graph (GP-74) -------------
+
+describe("adapted graphs", () => {
+  const adapted: Graph = {
+    version: 5,
+    nodes: [
+      {
+        id: "group:g1",
+        name: "Storefront",
+        type: "group",
+        provider: null,
+        module_path: [],
+        change: null,
+        annotation_group: true,
+      },
+      {
+        id: "aws_s3_bucket.data",
+        name: "data",
+        type: "aws_s3_bucket",
+        provider: "aws",
+        module_path: [],
+        change: null,
+      },
+      {
+        id: "aws_lambda_function.api",
+        name: "api",
+        type: "aws_lambda_function",
+        provider: "aws",
+        module_path: [],
+        change: null,
+      },
+    ],
+    edges: [
+      { from: "group:g1", to: "aws_s3_bucket.data", kind: "contains" },
+      {
+        from: "aws_lambda_function.api",
+        to: "aws_s3_bucket.data",
+        kind: "logical",
+        label: "publishes to",
+      },
+    ],
+  };
+
+  it("renders an annotation group as its own node type, not a module box", () => {
+    const layout = toElkGraph(adapted);
+    const { nodes } = elkToFlow(layout, adapted);
+    const group = nodes.find((n) => n.id === "group:g1");
+    // A module container and a human's group are different claims about the
+    // system; they must not look like the same thing.
+    expect(group?.type).toBe("groupContainer");
+    expect(nodes.find((n) => n.id === "aws_s3_bucket.data")?.parentId).toBe("group:g1");
+  });
+
+  it("draws logical edges with the annotation treatment and their label", () => {
+    const layout = toElkGraph(adapted);
+    const { edges } = elkToFlow(layout, adapted);
+    const logical = edges.find((e) => e.id.startsWith("log|"));
+    expect(logical?.data?.annotation).toBe(true);
+    expect(logical?.data?.label).toBe("publishes to");
+  });
+
+  it("lays logical edges out through ELK, rather than routing them afterwards", () => {
+    // A relationship a human drew is a real relationship: ELK should place its
+    // endpoints, not have the line thrown over the finished picture.
+    const elk = toElkGraph(adapted);
+    expect(elk.edges?.some((e) => e.id.startsWith("log|"))).toBe(true);
+  });
+
+  it("still draws no line for a `contains` edge — that is nesting, not a relationship", () => {
+    const layout = toElkGraph(adapted);
+    const { edges } = elkToFlow(layout, adapted);
+    expect(edges.some((e) => e.source === "group:g1" || e.target === "group:g1")).toBe(
+      false,
+    );
+  });
 });

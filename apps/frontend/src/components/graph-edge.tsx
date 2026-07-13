@@ -90,9 +90,11 @@ export function RelationshipEdge({
 
   const source: Point = { x: sourceX, y: sourceY };
   const target: Point = { x: targetX, y: targetY };
-  // An annotation link is a human relationship drawn over the generated diagram;
-  // it never went through ELK, so it keeps its curve.
-  const routed = !annotation && d.bends !== undefined;
+  // Routed iff ELK actually routed it. On the raw canvas an annotation link is
+  // drawn *over* a layout it never entered, so it has no bend points and keeps
+  // its curve; in the adapted view (GP-74) the same relationship is part of the
+  // graph, so it goes through ELK and gets right angles like everything else.
+  const routed = d.bends !== undefined;
 
   let edgePath: string;
   let labelX: number;

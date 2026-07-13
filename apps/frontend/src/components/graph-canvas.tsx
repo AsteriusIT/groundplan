@@ -85,6 +85,7 @@ import { cn } from "@/lib/utils";
 import { NodeDetailsPanel } from "@/components/node-details-panel";
 import { ResourceFlowNode } from "@/components/graph-node";
 import { NetworkContainerNode } from "@/components/network-container-node";
+import { GroupContainerNode } from "@/components/group-container-node";
 import { EdgeArrowMarkers, RelationshipEdge } from "@/components/graph-edge";
 
 const elk = new ELK();
@@ -171,6 +172,10 @@ const NODE_TYPES = {
   resource: ResourceFlowNode,
   module: ModuleNode,
   container: NetworkContainerNode,
+  // A container the projection injected from a `group` annotation (GP-74) — a
+  // different thing from `annotationGroup`, which is the overlay frame drawn on
+  // the *raw* canvas without entering the layout at all.
+  groupContainer: GroupContainerNode,
   annotationGroup: AnnotationGroupNode,
   annotationNote: AnnotationNotePin,
 };
@@ -295,6 +300,7 @@ export function GraphCanvas({
   onCreateAnnotation,
   onUpdateAnnotation,
   onDeleteAnnotation,
+  onExpandGroup,
 }: {
   graph: Graph;
   variant?: "plan" | "docs";
@@ -310,6 +316,13 @@ export function GraphCanvas({
   onCreateAnnotation?: (input: CreateAnnotationInput) => void;
   onUpdateAnnotation?: (id: string, input: UpdateAnnotationInput) => void;
   onDeleteAnnotation?: (id: string) => void;
+  /**
+   * GP-77: clicking a group node in C4 drills into it. Given the *annotation* id
+   * (not the node id), so the caller can ask the server to expand that one group
+   * and leave the rest collapsed. Absent outside C4, where a group is a container
+   * you can already see into.
+   */
+  onExpandGroup?: (annotationId: string) => void;
 }) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
@@ -602,6 +615,12 @@ export function GraphCanvas({
         }
         return;
       }
+      // A group *container* in C4: clicking it opens it (GP-77). The node id is
+      // `group:<annotation id>`; the caller thinks in annotations, so unwrap it.
+      if (node.type === "groupContainer" && onExpandGroup) {
+        onExpandGroup(node.id.replace(/^group:/, ""));
+        return;
+      }
       const graphNode = node.data.graphNode;
       if (!graphNode) return;
       // The link and rename tools pick nodes on click. The multi-select tools
@@ -614,7 +633,7 @@ export function GraphCanvas({
       if (marqueeSelecting) return;
       setSelected(graphNode);
     },
-    [annotate, tool.tool, marqueeSelecting, groupsPickable, graph],
+    [annotate, tool.tool, marqueeSelecting, groupsPickable, graph, onExpandGroup],
   );
 
   // Rubber-band / shift-click selection drives the group and hide tools' picks.
