@@ -91,7 +91,7 @@ export function ShareDialog({
           Share
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Share this documentation</DialogTitle>
           <DialogDescription>
@@ -120,7 +120,9 @@ export function ShareDialog({
           </p>
         )}
 
-        <div className="min-h-16">
+        {/* min-w-0: this is a grid item, and the nowrap URL below would otherwise
+            push the track past the dialog's width instead of truncating. */}
+        <div className="min-h-16 min-w-0">
           {loading ? (
             <p className="text-muted-foreground flex items-center gap-2 text-sm">
               <Loader2 className="size-4 animate-spin" /> Loading links…
@@ -137,11 +139,12 @@ export function ShareDialog({
                       {link.kind === "docs_latest" ? "Always latest" : "Pinned snapshot"}
                     </p>
                   </div>
-                  <CopyButton value={shareUrl(link.token)} label="Copy" />
+                  <CopyButton value={shareUrl(link.token)} label="Copy" className="shrink-0" />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
+                    className="shrink-0"
                     aria-label="Revoke link"
                     disabled={busy}
                     onClick={() => revoke(link.id)}

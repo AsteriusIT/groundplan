@@ -4,7 +4,8 @@
       "Bash(docker version *)",
       "Bash(docker compose *)",
       "Bash(git commit -q -m 'docs: spec for docs viewer header redesign *)",
-      "Bash(pnpm vitest *)"
+      "Bash(pnpm vitest *)",
+      "Bash(pnpm --filter @groundplan/frontend exec tsc --noEmit)"
     ]
   }
 }
