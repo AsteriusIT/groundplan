@@ -65,11 +65,12 @@ test("validateGraph rejects an edge with an unknown kind", () => {
   assert.equal(res.valid, false);
 });
 
-test("validateGraph accepts v2, v3 and v4 but rejects an unknown version", () => {
+test("validateGraph accepts v2..v5 but rejects an unknown version", () => {
   assert.equal(validateGraph({ ...validGraph, version: 2 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 3 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 4 }).valid, true);
-  assert.equal(validateGraph({ ...validGraph, version: 5 }).valid, false);
+  assert.equal(validateGraph({ ...validGraph, version: 5 }).valid, true);
+  assert.equal(validateGraph({ ...validGraph, version: 6 }).valid, false);
 });
 
 test("validateGraph accepts a v4 graph with parent_id containment", () => {

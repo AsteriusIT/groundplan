@@ -15,7 +15,8 @@ import { Ajv, type ValidateFunction } from "ajv";
 import type { AttributeDiffRow } from "./attribute-diff.js";
 
 export type ChangeKind = "create" | "update" | "delete" | "noop";
-export type EdgeKind = "depends_on" | "contains";
+/** v5: `logical` is a human-drawn relationship the code cannot express (GP-72). */
+export type EdgeKind = "depends_on" | "contains" | "logical";
 
 /**
  * v4: one NSG security rule (GP-43). Values are raw as written in the source;
@@ -100,6 +101,22 @@ export type GraphNode = {
   privileged?: boolean;
   /** v4: managed-identity payload — UAI nodes & resources with identity{} (GP-47). */
   identity?: Identity;
+  /**
+   * v5: the human-given name for this node (a `rename` annotation, GP-72). The
+   * derived `name` stays put beside it — a rename is a lens, not an erasure, and
+   * the detail panel shows both.
+   */
+  display_label?: string;
+  /** v5: markdown bodies of the `note` annotations anchored here (GP-72). */
+  notes?: string[];
+  /**
+   * v5: this container came from a `group` annotation, not from Terraform
+   * (GP-72). Renderers must tell it apart from a module container — one is what
+   * a human said about the system, the other is what the code says.
+   */
+  annotation_group?: boolean;
+  /** v5: resources behind a group collapsed to one node (C4, GP-77). */
+  member_count?: number;
 };
 
 export type GraphEdge = {
@@ -112,16 +129,22 @@ export type GraphEdge = {
    * for `contains` edges.
    */
   inferred?: boolean;
+  /** v5: a logical edge's label (GP-72). */
+  label?: string;
+  /** v5: how many edges this one stands for after C4 aggregation (GP-77). */
+  count?: number;
 };
 
 export type Graph = {
   /**
    * 1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22);
    * 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node
-   * parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47).
+   * parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47);
+   * 5 adds the annotation-adapted projection — logical edges, group containers,
+   * display labels, notes (GP-72/GP-77).
    * All stay valid — every version bump is additive/optional.
    */
-  version: 1 | 2 | 3 | 4;
+  version: 1 | 2 | 3 | 4 | 5;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };

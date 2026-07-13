@@ -8,8 +8,8 @@
   "additionalProperties": false,
   "properties": {
     "version": {
-      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47). All additive/optional; all stay valid.",
-      "enum": [1, 2, 3, 4]
+      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47); 5 adds the annotation-adapted projection — logical edges, group containers, display labels, notes (GP-72/GP-77). All additive/optional; all stay valid.",
+      "enum": [1, 2, 3, 4, 5]
     },
     "nodes": {
       "type": "array",
@@ -136,6 +136,24 @@
               "items": { "type": "string" }
             }
           }
+        },
+        "display_label": {
+          "type": "string",
+          "description": "v5: the human-given name for this node (a `rename` annotation, GP-72). The derived `name` is always kept alongside it — a rename is a lens, never an erasure."
+        },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "v5: markdown bodies of the `note` annotations anchored to this node (GP-72)."
+        },
+        "annotation_group": {
+          "type": "boolean",
+          "description": "v5: this node is a container injected from a `group` annotation, not generated from Terraform (GP-72). Renderers must distinguish it from a module container: one is what a human said, the other is what the code says."
+        },
+        "member_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "v5: resources behind a group node collapsed to a single point (C4 granularity, GP-77)."
         }
       }
     },
@@ -147,12 +165,21 @@
         "from": { "type": "string", "minLength": 1 },
         "to": { "type": "string", "minLength": 1 },
         "kind": {
-          "description": "contains = module hierarchy; depends_on = resource dependency.",
-          "enum": ["depends_on", "contains"]
+          "description": "contains = module/group hierarchy; depends_on = resource dependency; logical = a relationship a human drew that the code cannot express (v5, GP-72).",
+          "enum": ["depends_on", "contains", "logical"]
         },
         "inferred": {
           "type": "boolean",
           "description": "depends_on only: true when inferred from an expression reference, false when explicitly declared (GP-20/GP-21)."
+        },
+        "label": {
+          "type": "string",
+          "description": "v5: the edge's name — a logical edge's label (GP-72), or the aggregate count rendered on a collapsed C4 edge (GP-77)."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "v5: how many underlying edges this one stands for, after C4 aggregation (GP-77). Absent means one."
         }
       }
     }

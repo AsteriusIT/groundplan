@@ -2,11 +2,14 @@ import type { FastifyPluginAsync } from "fastify";
 import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
 
 import {
+  annotations,
   graphSnapshots,
   publicSnapshotColumns,
   repositories,
 } from "../db/schema.js";
+import { projectAdapted } from "../graph/adapted.js";
 import { diffGraphs } from "../graph/diff.js";
+import { computeGraphStats } from "../graph/graph.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -87,6 +90,48 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "snapshot not found" });
       }
       return row;
+    },
+  );
+
+  /**
+   * The adapted snapshot (GP-72): the same graph, seen through the repository's
+   * accepted annotations — groups as containers, hidden nodes gone, logical
+   * edges drawn, renames applied.
+   *
+   * It returns a snapshot in the ordinary shape, so the renderer needs to know
+   * nothing about annotations to draw it (ADR #2). Computed per request: the
+   * projection is a pure fold over data we already hold, and caching it would
+   * only buy us a staleness bug (ADR #7).
+   */
+  app.get(
+    "/snapshots/:id/adapted",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const [row] = await app.db
+        .select()
+        .from(graphSnapshots)
+        .where(eq(graphSnapshots.id, id));
+      if (!row) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "snapshot not found" });
+      }
+
+      const layer = await app.db
+        .select()
+        .from(annotations)
+        .where(eq(annotations.repositoryId, row.repositoryId));
+
+      const graph = projectAdapted(row.graph, layer);
+      return {
+        ...row,
+        graph,
+        // The counts describe the graph we are handing back, not the one we
+        // started from — a hidden node is not in this picture, so it is not in
+        // this picture's stats. Warnings are about the *parse*, so they survive.
+        stats: { ...computeGraphStats(graph), warnings: row.stats.warnings ?? [] },
+      };
     },
   );
 
