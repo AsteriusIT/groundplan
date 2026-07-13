@@ -42,7 +42,7 @@ describe("ThemeProvider", () => {
     renderProvider();
     expect(screen.getByTestId("theme")).toHaveTextContent("carbon");
     expect(root()).toHaveClass("dark");
-    expect(root().getAttribute("data-theme")).toBeNull();
+    expect(root().getAttribute("data-theme")).toBe("carbon");
   });
 
   it("restores a stored blueprint theme (.dark, no data-theme)", () => {
@@ -63,24 +63,27 @@ describe("ThemeProvider", () => {
 
   it("switches between all three themes, reflecting <html> and persisting", () => {
     renderProvider();
+    // By role: the readout <span> also holds the name of the current theme.
+    const pick = (theme: string) =>
+      fireEvent.click(screen.getByRole("button", { name: theme }));
 
-    fireEvent.click(screen.getByText("carbon"));
+    pick("carbon");
     expect(root()).toHaveClass("dark");
     expect(root().getAttribute("data-theme")).toBe("carbon");
     expect(localStorage.getItem("groundplan-theme")).toBe("carbon");
 
-    fireEvent.click(screen.getByText("blueprint"));
+    pick("blueprint");
     expect(root()).toHaveClass("dark");
     expect(root().getAttribute("data-theme")).toBeNull();
     expect(localStorage.getItem("groundplan-theme")).toBe("blueprint");
 
-    fireEvent.click(screen.getByText("light"));
+    pick("light");
     expect(root()).not.toHaveClass("dark");
     expect(root().getAttribute("data-theme")).toBeNull();
     expect(localStorage.getItem("groundplan-theme")).toBe("light");
   });
 
-  it("defaults to blueprint regardless of the OS light preference", () => {
+  it("defaults to carbon regardless of the OS light preference", () => {
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: false,
       media: query,
@@ -92,7 +95,7 @@ describe("ThemeProvider", () => {
       dispatchEvent: () => false,
     }));
     renderProvider();
-    expect(screen.getByTestId("theme")).toHaveTextContent("blueprint");
+    expect(screen.getByTestId("theme")).toHaveTextContent("carbon");
   });
 
   it("throws when useTheme is used outside a ThemeProvider", () => {
