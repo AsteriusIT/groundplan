@@ -209,3 +209,58 @@ test("404s for an unknown snapshot", async () => {
     await app.close();
   }
 });
+
+// --- C4 granularity (GP-77) --------------------------------------------------
+
+test("?granularity=group collapses to one node per group, and expandGroup opens one", async () => {
+  const app = await buildApp(env);
+  try {
+    const { projectId, repoId } = await createRepo(app);
+    const snapshot = await insertGraphSnapshot(app.db, {
+      repositoryId: repoId,
+      source: "hcl",
+      ref: "refs/heads/main",
+      commitSha: "sha-c4",
+      graph: GRAPH,
+    });
+
+    const front = await annotate(app, repoId, {
+      type: "group",
+      label: "Storefront",
+      anchors: ["azurerm_x.web"],
+    });
+    await annotate(app, repoId, {
+      type: "group",
+      label: "Data",
+      anchors: ["azurerm_x.db", "azurerm_x.cache"],
+    });
+
+    const c4 = await app.inject({
+      method: "GET",
+      url: `/api/v1/snapshots/${snapshot.id}/adapted?granularity=group`,
+    });
+    assert.equal(c4.statusCode, 200);
+    const collapsed = c4.json().graph as Graph;
+    assert.equal(validateGraph(collapsed).valid, true);
+
+    // The members are behind their groups now.
+    assert.equal(collapsed.nodes.some((n) => n.id === "azurerm_x.web"), false);
+    assert.equal(
+      collapsed.nodes.find((n) => n.id === `group:${front.json().id}`)?.member_count,
+      1,
+    );
+
+    // Drilling in opens that one group and leaves its sibling collapsed.
+    const drilled = await app.inject({
+      method: "GET",
+      url: `/api/v1/snapshots/${snapshot.id}/adapted?granularity=group&expandGroup=${front.json().id}`,
+    });
+    const opened = drilled.json().graph as Graph;
+    assert.equal(opened.nodes.some((n) => n.id === "azurerm_x.web"), true);
+    assert.equal(opened.nodes.some((n) => n.id === "azurerm_x.db"), false);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});

@@ -7,7 +7,7 @@ import {
   publicSnapshotColumns,
   repositories,
 } from "../db/schema.js";
-import { projectAdapted } from "../graph/adapted.js";
+import { collapseToGroups, projectAdapted } from "../graph/adapted.js";
 import { diffGraphs } from "../graph/diff.js";
 import { computeGraphStats } from "../graph/graph.js";
 
@@ -38,6 +38,17 @@ const listQuerySchema = {
     source: { type: "string", enum: ["plan", "hcl"] },
     // Coerced from the query string by Fastify's schema validation.
     pr_number: { type: "integer" },
+  },
+};
+
+const adaptedQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    /** `group` = the C4 view: one node per top-level group (GP-77). */
+    granularity: { type: "string", enum: ["resource", "group"] },
+    /** Annotation id of the single group to leave open inside the C4 view. */
+    expandGroup: { type: "string", pattern: UUID_PATTERN },
   },
 };
 
@@ -102,12 +113,22 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
    * nothing about annotations to draw it (ADR #2). Computed per request: the
    * projection is a pure fold over data we already hold, and caching it would
    * only buy us a staleness bug (ADR #7).
+   *
+   * `granularity=group` collapses it to one node per top-level group — the C4
+   * view (GP-77) — and `expandGroup` opens exactly one of them, which is the
+   * drill-down. Both are ways of *looking* at the same fold, which is why they
+   * are parameters here rather than a second endpoint.
    */
   app.get(
     "/snapshots/:id/adapted",
-    { schema: { params: idParamsSchema } },
+    { schema: { params: idParamsSchema, querystring: adaptedQuerySchema } },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      const query = request.query as {
+        granularity?: "resource" | "group";
+        expandGroup?: string;
+      };
+
       const [row] = await app.db
         .select()
         .from(graphSnapshots)
@@ -123,7 +144,14 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
         .from(annotations)
         .where(eq(annotations.repositoryId, row.repositoryId));
 
-      const graph = projectAdapted(row.graph, layer);
+      const adapted = projectAdapted(row.graph, layer);
+      const graph =
+        query.granularity === "group"
+          ? collapseToGroups(adapted, {
+              ...(query.expandGroup ? { expandGroup: query.expandGroup } : {}),
+            })
+          : adapted;
+
       return {
         ...row,
         graph,
