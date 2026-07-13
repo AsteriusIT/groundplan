@@ -142,8 +142,10 @@ export function PullDetailPage() {
 
   const { repo, pull, snapshots } = state;
 
+  // The gridded paper is the diagram's surface — the IAM view is a table, and a
+  // table on drafting paper is just a table that is harder to read.
   return (
-    <div className="blueprint-grid flex h-full flex-col">
+    <div className={cn("flex h-full flex-col", view !== "iam" && "blueprint-grid")}>
       {!focus && (
         <header className="bg-card border-b border-border px-8 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
