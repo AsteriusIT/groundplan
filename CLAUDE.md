@@ -196,6 +196,15 @@ Local dev needs Postgres up first: `docker compose up -d`.
   The verifier is injectable via `buildApp(env, { verifyConnection })` so tests
   stay offline (real verifier works against `file://` fixtures). `ENCRYPTION_KEY`
   follows the same dev/test-default, prod-fail-closed pattern as OIDC.
+- **Dashboard (GP-67):** `GET /api/v1/dashboard` — the one call the home page
+  makes: four counts, the last 10 pull requests (with their latest plan
+  snapshot's stats and its `internetExposed` / `privileged` risk flags), the last
+  5 docs snapshots, and the repositories holding orphaned annotations (so the
+  orphan card can link into GP-59 review). Read-only, no new tables, no cache.
+  The risk flags are derived in SQL (jsonb containment on `graph->'nodes'`) —
+  never load a graph body to compute them. It reads the **whole estate**: there
+  is no per-user ownership model yet, so every authenticated user sees the same
+  projects. When ownership lands, `routes/dashboard.ts` is the place to scope.
 - Migrations run under a Postgres advisory lock (`runMigrations`), so parallel
   test files / concurrent app startups don't race on schema creation.
 - **Auth (GP-6):** OIDC resource server. `plugins/auth.ts` is an `fp` global

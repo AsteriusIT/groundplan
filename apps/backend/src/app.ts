@@ -19,6 +19,7 @@ import { dbPlugin } from "./plugins/db.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import { aiRoutes } from "./routes/ai.js";
 import { annotationRoutes } from "./routes/annotations.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
 import {
   verifyConnection as realVerifyConnection,
   type RepoSource,
@@ -147,6 +148,7 @@ export async function buildApp(
   await app.register(docsRoutes, { prefix: "/api/v1" });
   await app.register(annotationRoutes, { prefix: "/api/v1" });
   await app.register(aiRoutes, { prefix: "/api/v1" });
+  await app.register(dashboardRoutes, { prefix: "/api/v1" });
 
   return app;
 }
