@@ -15,6 +15,7 @@ import type {
   CreateProjectInput,
   CreateRepositoryInput,
   CreateShareLinkInput,
+  Dashboard,
   Project,
   PublicSnapshotView,
   PullDetail,
@@ -284,6 +285,13 @@ export function getLatestDocs(repositoryId: string): Promise<Snapshot> {
 
 export function getMe(): Promise<User> {
   return request<User>("/me");
+}
+
+// --- Dashboard (GP-67) ------------------------------------------------------
+
+/** Everything the home page shows — counts + recent activity — in one call. */
+export function getDashboard(): Promise<Dashboard> {
+  return request<Dashboard>("/dashboard");
 }
 
 // --- Annotations (GP-56..GP-59) --------------------------------------------

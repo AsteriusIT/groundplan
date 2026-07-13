@@ -50,7 +50,7 @@ function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/projects" replace />} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route

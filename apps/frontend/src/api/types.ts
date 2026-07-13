@@ -247,6 +247,66 @@ export interface PullDetail extends PullSummary {
   parseError: string | null;
 }
 
+// --- Dashboard (GP-67) ------------------------------------------------------
+
+export interface DashboardStats {
+  projects: number;
+  repositories: number;
+  openPrs: number;
+  orphanedAnnotations: number;
+}
+
+/** A recent pull request, with enough context to deep-link into its PR view. */
+export interface DashboardPull {
+  id: string;
+  number: number;
+  title: string | null;
+  state: PullRequestState;
+  /** The PR's branch, as CI reported it (e.g. `refs/heads/feature-x`). */
+  sourceRef: string;
+  /** The repository's default branch — what the PR merges into. */
+  targetRef: string;
+  repositoryId: string;
+  repositoryUrl: string;
+  projectId: string;
+  updatedAt: string;
+  /** Stats of the PR's latest plan snapshot; null when no plan ever parsed. */
+  latestSnapshot: PullSnapshotRef | null;
+  /** The latest plan contains an internet-exposed NSG (GP-43). */
+  internetExposed: boolean;
+  /** The latest plan contains a broad-scope high-privilege grant (GP-47). */
+  privileged: boolean;
+}
+
+/** A recent documentation snapshot, with enough context to link to its docs view. */
+export interface DashboardDocsSnapshot {
+  id: string;
+  commitSha: string;
+  /** How the snapshot was produced: a push to the default branch, or by hand. */
+  trigger: "auto" | "manual";
+  repositoryId: string;
+  repositoryUrl: string;
+  projectId: string;
+  createdAt: string;
+}
+
+/** A repository holding orphaned annotations — where the orphan card links to. */
+export interface DashboardOrphanRepo {
+  repositoryId: string;
+  repositoryUrl: string;
+  projectId: string;
+  count: number;
+}
+
+/** Everything the home page renders, from one call (GP-67). */
+export interface Dashboard {
+  stats: DashboardStats;
+  recentPrs: DashboardPull[];
+  recentDocsSnapshots: DashboardDocsSnapshot[];
+  /** Worst first, so the orphan card can link to the repository to fix. */
+  orphanRepositories: DashboardOrphanRepo[];
+}
+
 // --- Public share links (GP-39) --------------------------------------------
 
 export type ShareKind = "docs_latest" | "snapshot";

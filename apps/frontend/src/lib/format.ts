@@ -31,6 +31,16 @@ export function repoName(url: string): string {
   return clean(path) || url;
 }
 
+/** The branch a git ref names: `refs/heads/feature-x` → `feature-x`. */
+export function branchName(ref: string): string {
+  return ref.replace(/^refs\/heads\//, "");
+}
+
+/** The first 8 characters of a commit sha — what we show everywhere. */
+export function shortSha(sha: string): string {
+  return sha.slice(0, 8);
+}
+
 /** Human-friendly date from an ISO string, e.g. "10 Jul 2026". */
 export function formatDate(iso: string): string {
   const date = new Date(iso);
