@@ -151,7 +151,9 @@ Local dev needs Postgres up first: `docker compose up -d`.
   (registered only when `import.meta.env.DEV`) renders every token + primitive.
   Add shadcn components with `pnpm dlx shadcn@latest add <name>` (run in
   `apps/frontend`).
-- **App shell (GP-9):** `AppLayout` (sidebar + gridded `<Outlet>` canvas) wraps
+- **App shell (GP-9):** `AppLayout` (sidebar + flat `<Outlet>` canvas — the
+  `.blueprint-grid` paper is opt-in per diagram view, currently the PR and docs
+  pages; every other view sits on a plain `bg-background`) wraps
   the authenticated routes under `<RequireAuth>` in `App.tsx`. New authenticated
   pages: add a `pages/*.tsx`, a `<Route>` inside the layout, and a `NAV` entry in
   `components/sidebar.tsx`. Reuse `PageHeader` for the title block.

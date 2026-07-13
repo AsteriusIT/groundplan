@@ -140,7 +140,7 @@ export function PullDetailPage() {
   const { repo, pull, snapshots } = state;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="blueprint-grid flex h-full flex-col">
       <header className="bg-card border-b border-border px-8 py-5">
         <Link
           to={`/projects/${id}/repos/${repoId}/pulls`}
