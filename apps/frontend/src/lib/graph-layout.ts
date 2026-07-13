@@ -477,6 +477,13 @@ export function elkToFlow(
       // identity via the `container` node type (GP-44).
       let nodeType = "resource";
       if (container) nodeType = isModule(graphNode) ? "module" : "container";
+      // Hand React Flow the size ELK computed, as `width`/`height` *and*
+      // `measured`. It hides any node it thinks is unmeasured, and it reads
+      // `measured` only off the node object we give it — so every rebuild of this
+      // list (a hover focuses the diagram, and rebuilds it) would blank the whole
+      // graph for a frame while a ResizeObserver re-measured what we already knew.
+      const width = elk.width ?? RESOURCE_WIDTH;
+      const height = elk.height ?? RESOURCE_HEIGHT;
       nodes.push({
         id: elk.id,
         type: nodeType,
@@ -489,7 +496,10 @@ export function elkToFlow(
           hubHiddenCount: hubHiddenCount.get(graphNode.id) ?? 0,
           exposed: exposed.has(graphNode.id),
         },
-        style: { width: elk.width, height: elk.height },
+        width,
+        height,
+        measured: { width, height },
+        style: { width, height },
         ...(parentId ? { parentId, extent: "parent" as const } : {}),
       });
     }

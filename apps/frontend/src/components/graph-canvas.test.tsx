@@ -38,7 +38,13 @@ vi.mock("@xyflow/react", () => ({
   }: {
     // Loosened so annotation overlay nodes (which carry no real graphNode)
     // render without crashing; falls back to the node id for a label.
-    nodes: { id: string; data: { graphNode?: { name?: string } } }[];
+    nodes: {
+      id: string;
+      width?: number;
+      height?: number;
+      measured?: { width?: number; height?: number };
+      data: { graphNode?: { name?: string } };
+    }[];
     onNodeClick?: (e: unknown, n: unknown) => void;
     onNodesChange?: (changes: { type: string; id: string; selected: boolean }[]) => void;
     onPaneClick?: () => void;
@@ -48,7 +54,7 @@ vi.mock("@xyflow/react", () => ({
         pane
       </button>
       {nodes.map((n) => (
-        <span key={n.id}>
+        <span key={n.id} data-testid={`rf-node:${n.id}`} data-w={n.width} data-h={n.measured?.height}>
           <button type="button" onClick={(e) => onNodeClick?.(e, n)}>
             node:{n.data.graphNode?.name || n.id}
           </button>
@@ -225,6 +231,52 @@ it("hides the hub toggle when there are no hubs", async () => {
   expect(
     screen.queryByRole("checkbox", { name: /show hub connections/i }),
   ).not.toBeInTheDocument();
+});
+
+it("declares a size for every node, so hovering cannot blank the diagram", async () => {
+  // React Flow hides a node it thinks is unmeasured, and it re-measures whenever
+  // the node objects are rebuilt — which a hover does, for the whole graph. Every
+  // node must therefore arrive with its size already declared, overlays included:
+  // the annotation group frame and the note pin are nodes too.
+  const annotation = (over: Record<string, unknown>) => ({
+    id: "a",
+    repositoryId: "r",
+    type: "note" as const,
+    anchors: ["aws_s3_bucket.data"],
+    label: null,
+    body: "b",
+    status: "resolved" as const,
+    missingAnchors: [] as string[],
+    createdBy: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...over,
+  });
+
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotations={[
+        annotation({ id: "n1" }),
+        annotation({
+          id: "g1",
+          type: "group",
+          label: "payments",
+          anchors: ["aws_s3_bucket.data", "azurerm_virtual_network.main"],
+        }),
+      ]}
+    />,
+  );
+  await screen.findByText("node:main");
+
+  const nodes = screen.getAllByTestId(/^rf-node:/);
+  expect(nodes.length).toBeGreaterThan(0);
+  for (const node of nodes) {
+    const id = node.getAttribute("data-testid");
+    expect(Number(node.getAttribute("data-w")), `${id} declares a width`).toBeGreaterThan(0);
+    expect(Number(node.getAttribute("data-h")), `${id} is measured`).toBeGreaterThan(0);
+  }
 });
 
 // --- Annotate mode (GP-58) --------------------------------------------------

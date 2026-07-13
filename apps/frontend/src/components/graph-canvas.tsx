@@ -85,6 +85,9 @@ const elk = new ELK();
  * pins), which carry their own `data` (label / count / nodeId) and never read
  * `graphNode`. Satisfies the shared GraphNodeData shape without a real node.
  */
+/** The note pin's rendered size (`size-4`), declared so it is never re-measured. */
+const NOTE_PIN_SIZE = 16;
+
 const OVERLAY_STUB = {
   id: "",
   name: "",
@@ -406,6 +409,11 @@ export function GraphCanvas({
         type: "annotationGroup",
         position: { x: f.x, y: f.y },
         data: { graphNode: OVERLAY_STUB, dimmed: false, label: f.label },
+        // Declared, like every other node: an overlay React Flow has to measure
+        // is an overlay that vanishes for a frame on every rebuild.
+        width: f.width,
+        height: f.height,
+        measured: { width: f.width, height: f.height },
         style: { width: f.width, height: f.height },
         selectable: false,
         draggable: false,
@@ -429,6 +437,9 @@ export function GraphCanvas({
           nodeId: id,
           count: notesForNode(renderableAnns, id).length,
         },
+        width: NOTE_PIN_SIZE,
+        height: NOTE_PIN_SIZE,
+        measured: { width: NOTE_PIN_SIZE, height: NOTE_PIN_SIZE },
         draggable: false,
         zIndex: 5,
       });

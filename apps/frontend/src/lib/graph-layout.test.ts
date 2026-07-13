@@ -451,3 +451,37 @@ it("hovering a hub reveals the connections it hides at rest (GP-35)", () => {
   // neighbours while drawing no line to them would be a worse lie than hiding both.
   expect(hovered.edges).toHaveLength(1);
 });
+
+it("declares every node's size, so React Flow never re-measures the diagram", () => {
+  // React Flow hides a node it considers unmeasured (`nodeHasDimensions`:
+  // measured ?? width ?? initialWidth). It reads `measured` only from the node
+  // object we hand it — so a node rebuilt without one blanks until a
+  // ResizeObserver catches up. We rebuild every node on hover, so that blank was
+  // the whole diagram, on every pointer move. ELK already told us the size.
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "aws_s3.a", x: 0, y: 0, width: 220, height: 56 },
+      {
+        id: "module.net",
+        x: 0,
+        y: 120,
+        width: 260,
+        height: 120,
+        children: [{ id: "module.net.aws_vpc.v", x: 16, y: 36, width: 220, height: 56 }],
+      },
+    ],
+  };
+
+  const { nodes } = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: null,
+  });
+
+  expect(nodes.length).toBeGreaterThan(0);
+  for (const node of nodes) {
+    expect(node.width, `${node.id} declares a width`).toBeGreaterThan(0);
+    expect(node.height, `${node.id} declares a height`).toBeGreaterThan(0);
+    expect(node.measured).toEqual({ width: node.width, height: node.height });
+  }
+});
