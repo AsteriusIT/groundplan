@@ -4,11 +4,17 @@ import { desc, eq } from "drizzle-orm";
 import {
   annotations,
   graphSnapshots,
+  projects,
   repositories,
   toPublicAnnotation,
   type AnnotationRow,
 } from "../db/schema.js";
 import { isTerraformAddress } from "../lib/tf-address.js";
+import { buildProposalInput } from "../services/ai-input.js";
+import {
+  MalformedProposalsError,
+  proposeAnnotations,
+} from "../services/annotation-proposer.js";
 import { reconcileAnnotations } from "../services/annotation-reconcile.js";
 
 const UUID_PATTERN =
@@ -396,6 +402,107 @@ export const annotationRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "annotation not found" });
       }
       return reply.code(204).send();
+    },
+  );
+
+  /**
+   * Ask the model to propose annotations for this snapshot (GP-75).
+   *
+   * User-triggered, never automatic — generating costs money, and an estate that
+   * silently annotates itself is not one anybody trusts. Everything it returns is
+   * stored `proposed` / `ai` and waits for a human (GP-76).
+   *
+   * The AI layer's flag is `AI_API_KEY` (GP-62): with no key there is no model,
+   * and this route 404s exactly as the prose routes do. A second flag per project
+   * would be a second thing to be wrong about.
+   */
+  app.post(
+    "/snapshots/:id/annotation-proposals",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!app.ai.model) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "the AI layer is disabled" });
+      }
+
+      const [row] = await app.db
+        .select({
+          snapshot: graphSnapshots,
+          repo: repositories,
+          projectName: projects.name,
+          projectContextMd: projects.contextMd,
+        })
+        .from(graphSnapshots)
+        .innerJoin(repositories, eq(graphSnapshots.repositoryId, repositories.id))
+        .innerJoin(projects, eq(repositories.projectId, projects.id))
+        .where(eq(graphSnapshots.id, id));
+      if (!row) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "snapshot not found" });
+      }
+      // Proposing a grouping for a *plan* would be organising a diff, which is
+      // not a thing. The annotation layer describes the repository.
+      if (row.snapshot.source !== "hcl") {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message: "annotation proposals are only available for documentation snapshots",
+        });
+      }
+
+      // Every annotation, whatever its state — the duplicate check has to see the
+      // proposal the reviewer dismissed last week as well as the ones they kept.
+      const existing = await app.db
+        .select()
+        .from(annotations)
+        .where(eq(annotations.repositoryId, row.repo.id));
+
+      try {
+        const result = await proposeAnnotations(app.db, app.ai, {
+          repositoryId: row.repo.id,
+          snapshotId: row.snapshot.id,
+          commitSha: row.snapshot.commitSha,
+          graph: row.snapshot.graph,
+          existing,
+          brief: buildProposalInput({
+            repo: row.repo,
+            graph: row.snapshot.graph,
+            context: {
+              projectName: row.projectName,
+              projectContextMd: row.projectContextMd,
+              repoContextMd: row.repo.contextMd,
+            },
+            annotations: existing,
+          }),
+        });
+
+        // A proposer whose output is quietly being thrown away is a bug worth
+        // finding, so what we dropped is logged even though the client is spared it.
+        if (result.dropped.length > 0) {
+          request.log.info(
+            { dropped: result.dropped, snapshotId: id },
+            "annotation proposals dropped",
+          );
+        }
+
+        return {
+          proposals: result.stored.map(toPublicAnnotation),
+          dropped: result.dropped.length,
+          cached: result.cached,
+        };
+      } catch (err) {
+        if (err instanceof MalformedProposalsError) {
+          // Retriable, and nothing was stored — not even the cache, or we would
+          // serve this failure forever.
+          request.log.warn({ err, snapshotId: id }, "unusable proposer response");
+          return reply
+            .code(502)
+            .send({ error: "Bad Gateway", message: err.message });
+        }
+        throw err;
+      }
     },
   );
 };

@@ -303,3 +303,87 @@ export function annotationSection(rows: AnnotationRow[]): string[] {
 
   return ["## Human annotations (authoritative)", ...lines];
 }
+
+export type ProposalInput = {
+  repo: Pick<RepositoryRow, "url" | "defaultBranch">;
+  graph: Graph;
+  context: ContextInput;
+  /** Annotations that already exist, so the model does not re-propose them. */
+  annotations: AnnotationRow[];
+};
+
+/**
+ * The brief for the annotation proposer (GP-75).
+ *
+ * Unlike the prose briefs, this one has to name every anchorable thing exactly:
+ * the model's output is a set of Terraform *addresses*, and an address it did not
+ * see verbatim is an address it invented. So the resource table is the heart of
+ * this input — address, type, category, module — and the existing annotations are
+ * included so it proposes what is missing rather than what is already there.
+ */
+export function buildProposalInput(input: ProposalInput): string {
+  const nodes = input.graph.nodes;
+  const resources = nodes.filter(isResource);
+
+  const table = [
+    "## Resources (anchor to these addresses, exactly as written)",
+    "| address | type | category | module |",
+    "| --- | --- | --- | --- |",
+    ...resources
+      .map((n) => {
+        const module = n.module_path.length > 0 ? n.module_path.join(".") : "root";
+        const category = CATEGORY_LABEL[categorize(n.type)];
+        return `| \`${n.id}\` | ${n.type} | ${category} | ${module} |`;
+      })
+      .sort((a, b) => (a < b ? -1 : 1)),
+  ];
+
+  const blocks: string[][] = [
+    ["# Infrastructure to organise"],
+    [
+      "## Repository",
+      `- Source: \`${input.repo.url}\` (branch \`${input.repo.defaultBranch}\`)`,
+      `- Resources: ${resources.length}`,
+    ],
+    table,
+    containmentSection(nodes),
+    dependencySection(input.graph),
+    contextSection(input.context),
+    existingAnnotationSection(input.annotations),
+  ];
+  return blocks
+    .filter((lines) => lines.length > 0)
+    .map((lines) => lines.join("\n"))
+    .join("\n\n");
+}
+
+/**
+ * Who depends on whom. Grouping is mostly a question about coupling, and the
+ * dependency edges are the only evidence of it we have that is not a guess.
+ */
+export function dependencySection(graph: Graph): string[] {
+  const edges = graph.edges
+    .filter((e) => e.kind === "depends_on")
+    .map((e) => `- \`${e.from}\` → \`${e.to}\``)
+    .sort((a, b) => (a < b ? -1 : 1));
+  if (edges.length === 0) return [];
+  return ["## Dependencies (dependent → dependency)", ...edges];
+}
+
+/**
+ * What is already annotated — so the proposer adds to the picture instead of
+ * arguing with it. Proposals still awaiting review are included: a suggestion
+ * nobody has answered yet should not be made twice.
+ */
+export function existingAnnotationSection(rows: AnnotationRow[]): string[] {
+  if (rows.length === 0) return [];
+  const lines = rows.map((row) => {
+    const anchors = row.anchors.map((a) => `\`${a}\``).join(", ");
+    const label = row.label ? ` — ${row.label}` : "";
+    return `- [${row.type}, ${row.status}] ${anchors}${label}`;
+  });
+  return [
+    "## Annotations that already exist (do not repeat these)",
+    ...lines,
+  ];
+}

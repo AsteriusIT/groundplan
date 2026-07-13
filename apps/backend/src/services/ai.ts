@@ -24,7 +24,13 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { AppEnv } from "../config/env.js";
 import { aiGenerations, type AiGenerationRow } from "../db/schema.js";
 
-export type AiKind = "pr_summary" | "docs_explain";
+/**
+ * What we generate. The first two are prose *about* a snapshot; the third
+ * (GP-75) is not prose at all but structured suggestions — it rides the same
+ * rails anyway, because the things that make this layer safe (a versioned prompt
+ * file, a content-keyed cache, an injectable provider) are the same either way.
+ */
+export type AiKind = "pr_summary" | "docs_explain" | "annotation_proposals";
 
 export type AiUsage = {
   inputTokens: number | null;
@@ -86,6 +92,7 @@ export function capInput(input: string, max: number = MAX_INPUT_CHARS): string {
 const PROMPT_FILES: Record<AiKind, string> = {
   pr_summary: "pr-summary.md",
   docs_explain: "docs-explain.md",
+  annotation_proposals: "annotation-proposals.md",
 };
 
 export type Prompt = {

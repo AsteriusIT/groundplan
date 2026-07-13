@@ -347,6 +347,13 @@ export const annotations = pgTable("annotations", {
   status: annotationStatus("status").notNull().default("resolved"),
   provenance: annotationProvenance("provenance").notNull().default("human"),
   /**
+   * Why the proposer suggested this (GP-75) — one sentence, shown to the reviewer.
+   * A suggestion you must accept or reject without knowing *why* it was made is a
+   * suggestion you will rubber-stamp, which defeats the point of asking. Null for
+   * human annotations: a person's reasons are their own.
+   */
+  reason: text("reason"),
+  /**
    * The commit the annotation was made against (GP-71) — provenance for a human
    * reviewing a stale or orphaned annotation ("this was drawn on a tree that no
    * longer looks like this"). Never used to re-anchor automatically.
@@ -394,6 +401,8 @@ export type PublicAnnotation = {
   body: string | null;
   status: (typeof annotationStatus.enumValues)[number];
   provenance: (typeof annotationProvenance.enumValues)[number];
+  /** Why the proposer suggested this (GP-75); null for human annotations. */
+  reason: string | null;
   createdFromSha: string | null;
   parentGroupId: string | null;
   /** Anchors gone missing in the latest snapshot; empty when resolved (GP-57). */
@@ -414,6 +423,7 @@ export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
     body: row.body,
     status: row.status,
     provenance: row.provenance,
+    reason: row.reason,
     createdFromSha: row.createdFromSha,
     parentGroupId: row.parentGroupId,
     missingAnchors: row.missingAnchors,
@@ -426,6 +436,9 @@ export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
 export const aiGenerationKind = pgEnum("ai_generation_kind", [
   "pr_summary",
   "docs_explain",
+  // Not prose: the proposer's raw JSON (GP-75), cached under the same key so a
+  // second ask for the same snapshot costs nothing.
+  "annotation_proposals",
 ]);
 
 /**

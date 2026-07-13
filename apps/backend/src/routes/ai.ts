@@ -64,8 +64,15 @@ function providerMessage(err: unknown): string {
   return err.message.replace(/\s+/g, " ").trim().slice(0, 200) || "unknown error";
 }
 
+/**
+ * The prose kinds — the ones these routes serve. `annotation_proposals` (GP-75)
+ * is an `AiKind` too, but it is structured output with its own endpoint, and it
+ * has no business being reachable through a route that streams text to a reader.
+ */
+type ProseKind = Extract<AiKind, "pr_summary" | "docs_explain">;
+
 /** Which snapshot source each generation kind is allowed to describe. */
-const KIND_SOURCE: Record<AiKind, GraphSnapshotRow["source"]> = {
+const KIND_SOURCE: Record<ProseKind, GraphSnapshotRow["source"]> = {
   pr_summary: "plan",
   docs_explain: "hcl",
 };
@@ -108,7 +115,7 @@ async function load(
 /** Render the grounding brief for this kind of generation. */
 async function buildInput(
   app: FastifyInstance,
-  kind: AiKind,
+  kind: ProseKind,
   loaded: Loaded,
 ): Promise<string> {
   const { snapshot, repo, context } = loaded;
@@ -156,7 +163,7 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
     "/snapshots/:id/ai/:kind",
     { schema: { params: generationParamsSchema } },
     async (request, reply) => {
-      const { id, kind } = request.params as { id: string; kind: AiKind };
+      const { id, kind } = request.params as { id: string; kind: ProseKind };
       if (!app.ai.model) {
         return reply
           .code(404)
@@ -189,7 +196,7 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
     // snapshot, and is never something a client gets to supply.
     { schema: { params: generationParamsSchema } },
     async (request, reply) => {
-      const { id, kind } = request.params as { id: string; kind: AiKind };
+      const { id, kind } = request.params as { id: string; kind: ProseKind };
       const body = (request.body ?? {}) as { regenerate?: unknown };
       const regenerate = body.regenerate === true;
 

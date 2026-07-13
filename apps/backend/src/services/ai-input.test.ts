@@ -319,6 +319,7 @@ test("annotations are quoted, and flagged as the authority they are", () => {
     repositoryId: "r1",
     status: "resolved",
     provenance: "human",
+    reason: null,
     createdFromSha: null,
     parentGroupId: null,
     missingAnchors: [],

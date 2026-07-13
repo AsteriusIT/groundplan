@@ -134,6 +134,13 @@
       "when": 1783972296295,
       "tag": "0018_broken_miss_america",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783974249696,
+      "tag": "0019_fresh_red_wolf",
+      "breakpoints": true
     }
   ]
 }
