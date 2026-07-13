@@ -54,6 +54,16 @@ const generationParamsSchema = {
   },
 };
 
+/**
+ * A provider failure, said in one line a human can act on ("invalid x-api-key",
+ * "model not found", "rate limit exceeded"). Only the message — never the
+ * error's response body, which can be long and echo back what we sent.
+ */
+function providerMessage(err: unknown): string {
+  if (!(err instanceof Error)) return "unknown error";
+  return err.message.replace(/\s+/g, " ").trim().slice(0, 200) || "unknown error";
+}
+
 /** Which snapshot source each generation kind is allowed to describe. */
 const KIND_SOURCE: Record<AiKind, GraphSnapshotRow["source"]> = {
   pr_summary: "plan",
@@ -231,9 +241,43 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
         throw err;
       }
 
+      // Pull the first chunk BEFORE committing to a streamed response. A provider
+      // that is going to fail (bad key, unknown model, rate limit) fails here,
+      // while we can still answer with a clean status and a JSON body. Answering
+      // first and failing later would hand Fastify an object to serialise as
+      // text/plain, and the caller would get an opaque 500 instead of the reason.
+      const iterator = chunks[Symbol.asyncIterator]();
+      let first: IteratorResult<string>;
+      try {
+        first = await iterator.next();
+      } catch (err) {
+        request.log.error({ err, kind, targetId: id }, "AI generation failed");
+        return reply.code(502).send({
+          error: "Bad Gateway",
+          message: `the AI provider failed: ${providerMessage(err)}`,
+        });
+      }
+
+      async function* prose(): AsyncGenerator<string> {
+        if (first.done) return;
+        yield first.value;
+        try {
+          while (true) {
+            const next = await iterator.next();
+            if (next.done) return;
+            yield next.value;
+          }
+        } catch (err) {
+          // Mid-stream failure: the status line is long gone, so there is no
+          // clean error left to send. End the (partial) stream and log it —
+          // nothing is cached, so the next request retries from scratch.
+          request.log.error({ err, kind, targetId: id }, "AI generation failed mid-stream");
+        }
+      }
+
       return reply
         .type("text/plain; charset=utf-8")
-        .send(Readable.from(chunks, { objectMode: false }));
+        .send(Readable.from(prose(), { objectMode: false }));
     },
   );
 };

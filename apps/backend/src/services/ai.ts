@@ -130,18 +130,50 @@ export function realAiProvider(env: AppEnv): AiProvider {
   return {
     model,
     stream({ system, prompt }) {
-      const result = streamText({ model: anthropic(model), system, prompt });
-      return {
-        textStream: result.textStream,
-        // `result.usage` is a PromiseLike (it settles only once the stream is
-        // drained); Promise.resolve gives us the real Promise our type wants.
-        usage: Promise.resolve(result.usage).then((u) => ({
-          inputTokens: u.inputTokens ?? null,
-          outputTokens: u.outputTokens ?? null,
-        })),
-      };
+      // The SDK routes provider errors to `onError` and lets `textStream` end
+      // with a generic "No output generated" — which tells an operator nothing.
+      // Capture the real cause so the route can say *why* it failed: bad key,
+      // unknown model, rate limit.
+      let failure: unknown;
+      const result = streamText({
+        model: anthropic(model),
+        system,
+        prompt,
+        onError({ error }) {
+          failure = error;
+        },
+      });
+
+      async function* textStream(): AsyncGenerator<string> {
+        try {
+          for await (const chunk of result.textStream) yield chunk;
+        } catch (err) {
+          throw asError(failure ?? err);
+        }
+        // A provider error can end the stream cleanly-but-empty; onError still
+        // fired, so an empty success is really a failure.
+        if (failure !== undefined) throw asError(failure);
+      }
+
+      // `result.usage` is a PromiseLike (it settles only once the stream is
+      // drained); Promise.resolve gives us the real Promise our type wants.
+      const usage = Promise.resolve(result.usage).then((u) => ({
+        inputTokens: u.inputTokens ?? null,
+        outputTokens: u.outputTokens ?? null,
+      }));
+      // A failed generation rejects this too, and nobody awaits it on that path.
+      // Mark it handled so a provider outage can't take the process down with an
+      // unhandled rejection.
+      usage.catch(() => undefined);
+
+      return { textStream: textStream(), usage };
     },
   };
+}
+
+function asError(value: unknown): Error {
+  if (value instanceof Error) return value;
+  return new Error(typeof value === "string" ? value : "unknown provider error");
 }
 
 export type CacheKey = {

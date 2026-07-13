@@ -77,6 +77,38 @@ function stubProvider(text = "The bucket is being deleted."): AiProvider & {
   return stub;
 }
 
+/** A provider that fails the way a bad key or an unknown model does. */
+function failingProvider(message = "invalid x-api-key"): AiProvider {
+  return {
+    model: "test-model",
+    stream(): AiStream {
+      return {
+        // eslint-disable-next-line require-yield
+        textStream: (async function* () {
+          throw new Error(message);
+        })(),
+        usage: Promise.resolve({ inputTokens: null, outputTokens: null }),
+      };
+    },
+  };
+}
+
+/** A provider that dies partway through, after some prose is already out. */
+function midStreamFailure(): AiProvider {
+  return {
+    model: "test-model",
+    stream(): AiStream {
+      return {
+        textStream: (async function* () {
+          yield "The change ";
+          throw new Error("connection reset");
+        })(),
+        usage: Promise.resolve({ inputTokens: null, outputTokens: null }),
+      };
+    },
+  };
+}
+
 /** A provider that never finishes until released — for the in-flight lock test. */
 function hangingProvider(): AiProvider & { release: () => void } {
   let release!: () => void;
@@ -360,6 +392,88 @@ test("a second generation for the same target while one runs returns 409", async
     });
     assert.equal(after.statusCode, 200);
     assert.equal(after.body, "start end");
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("a provider that fails answers cleanly — and caches nothing", async () => {
+  const app = await buildApp(env, { ai: failingProvider("invalid x-api-key") });
+  try {
+    const { projectId, planId } = await seed(app);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+    });
+
+    // A readable reason and a real status — not an opaque 500 from trying to
+    // serialise a JSON error into a response already committed to text/plain.
+    assert.equal(res.statusCode, 502);
+    assert.equal(res.json().error, "Bad Gateway");
+    assert.match(res.json().message, /invalid x-api-key/);
+
+    // A failed generation is never cached — a cached error would be served forever.
+    const rows = await app.db
+      .select()
+      .from(aiGenerations)
+      .where(eq(aiGenerations.targetId, planId));
+    assert.equal(rows.length, 0);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("a failed generation releases the lock, so a retry can run", async () => {
+  const app = await buildApp(env, { ai: failingProvider() });
+  try {
+    const { projectId, planId } = await seed(app);
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+    });
+    assert.equal(first.statusCode, 502);
+
+    // 409 here would mean the failure leaked the in-flight lock, wedging this
+    // target until the process restarts.
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+    });
+    assert.equal(retry.statusCode, 502);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("a mid-stream failure keeps the prose already sent, and caches nothing", async () => {
+  const app = await buildApp(env, { ai: midStreamFailure() });
+  try {
+    const { projectId, planId } = await seed(app);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+    });
+
+    // Bytes were already on the wire, so there is no status left to change —
+    // the partial prose stands rather than the whole response collapsing.
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body, "The change ");
+
+    // But a truncated generation must never become the cached answer.
+    const rows = await app.db
+      .select()
+      .from(aiGenerations)
+      .where(eq(aiGenerations.targetId, planId));
+    assert.equal(rows.length, 0);
 
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {
