@@ -73,6 +73,11 @@ export const repositories = pgTable("repositories", {
   // GP-60: long-form markdown "context" for this repository, shown on the docs
   // page and (read-only) in the share view.
   contextMd: text("context_md"),
+  // The subdirectory the repository's Terraform lives in; "" (the default) is
+  // the repository root. Stored normalized (see lib/repo-path). It selects the
+  // *entrypoint* of the HCL parse, the way `terraform -chdir` does — plan
+  // snapshots arrive from CI as JSON and are unaffected.
+  terraformPath: text("terraform_path").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -96,6 +101,8 @@ export type PublicRepository = {
   lastCommentError: string | null;
   /** GP-60: long-form markdown context for this repository, or null. */
   contextMd: string | null;
+  /** Subdirectory the Terraform lives in; "" is the repository root. */
+  terraformPath: string;
   createdAt: Date;
 };
 
@@ -116,6 +123,7 @@ export function toPublicRepository(row: RepositoryRow): PublicRepository {
     prCommentsEnabled: row.prCommentsEnabled,
     lastCommentError: row.lastCommentError,
     contextMd: row.contextMd,
+    terraformPath: row.terraformPath,
     createdAt: row.createdAt,
   };
 }

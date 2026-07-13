@@ -35,6 +35,12 @@ export interface Repository {
   lastCommentError: string | null;
   /** GP-60: long-form markdown context for this repository, or null. */
   contextMd: string | null;
+  /**
+   * Subdirectory the Terraform lives in; "" is the repository root. It moves the
+   * entrypoint of the documentation parse (like `terraform -chdir`); plan
+   * snapshots come from CI and ignore it.
+   */
+  terraformPath: string;
   createdAt: string;
 }
 
@@ -64,6 +70,8 @@ export interface UpdateRepositoryInput {
   prCommentsEnabled?: boolean;
   /** GP-60: long-form markdown context (null clears it). */
   contextMd?: string | null;
+  /** Subdirectory the Terraform lives in; "" moves it back to the repo root. */
+  terraformPath?: string;
 }
 
 /** Result of POST /repositories/:id/verify. */
@@ -416,6 +424,8 @@ export interface CreateRepositoryInput {
   defaultBranch?: string;
   /** Optional token for cloning private repos (write-only server-side). */
   accessToken?: string;
+  /** Subdirectory the Terraform lives in; omitted/"" is the repository root. */
+  terraformPath?: string;
 }
 
 // --- AI layer (GP-62 / GP-63 / GP-65) ---------------------------------------

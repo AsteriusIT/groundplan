@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import { eq } from "drizzle-orm";
 
 import { repositories, toPublicRepository, type RepositoryRow } from "../db/schema.js";
+import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.js";
 import { verifyAndStore } from "../services/repository-verification.js";
 
 const UUID_PATTERN =
@@ -24,6 +25,8 @@ const updateRepositorySchema = {
     prCommentsEnabled: { type: "boolean" },
     // GP-60: long-form markdown context; editing it never re-verifies.
     contextMd: { type: ["string", "null"], maxLength: 50000 },
+    // Subdirectory the Terraform lives in; "" moves it back to the repo root.
+    terraformPath: { type: "string", maxLength: 500 },
   },
 };
 
@@ -65,6 +68,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
         defaultBranch?: string;
         prCommentsEnabled?: boolean;
         contextMd?: string | null;
+        terraformPath?: string;
       };
 
       const existing = await loadRepository(app, id);
@@ -72,6 +76,22 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
         return reply
           .code(404)
           .send({ error: "Not Found", message: "repository not found" });
+      }
+
+      let terraformPath: string | undefined;
+      try {
+        if (body.terraformPath !== undefined) {
+          terraformPath = normalizeTerraformPath(body.terraformPath);
+        }
+      } catch (err) {
+        if (err instanceof InvalidRepoPathError) {
+          return reply.code(422).send({
+            error: "Unprocessable Entity",
+            message: err.message,
+            fields: [{ field: "terraformPath", message: err.message }],
+          });
+        }
+        throw err;
       }
 
       const changingCredentials = body.accessToken !== undefined;
@@ -87,6 +107,9 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
             ? { prCommentsEnabled: body.prCommentsEnabled }
             : {}),
           ...(body.contextMd !== undefined ? { contextMd: body.contextMd } : {}),
+          // Moving the Terraform root changes what the next docs snapshot sees;
+          // it says nothing about reachability, so it never re-verifies.
+          ...(terraformPath !== undefined ? { terraformPath } : {}),
         })
         .where(eq(repositories.id, id))
         .returning();

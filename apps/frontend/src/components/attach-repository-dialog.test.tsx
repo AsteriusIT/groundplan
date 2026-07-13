@@ -29,6 +29,7 @@ const created: CreatedRepository = {
   prCommentsEnabled: false,
   lastCommentError: null,
   contextMd: null,
+  terraformPath: "",
   createdAt: "2026-07-11T00:00:00.000Z",
   webhookToken: "wh-secret",
 };

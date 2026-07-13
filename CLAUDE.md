@@ -206,6 +206,16 @@ Local dev needs Postgres up first: `docker compose up -d`.
   The verifier is injectable via `buildApp(env, { verifyConnection })` so tests
   stay offline (real verifier works against `file://` fixtures). `ENCRYPTION_KEY`
   follows the same dev/test-default, prod-fail-closed pattern as OIDC.
+- **Terraform path:** `repositories.terraform_path` ("" = the repository root) is
+  the directory a repo's Terraform lives in. It moves the **entrypoint** of the
+  HCL parse — `parseHclRepo(files, { rootDir })`, the way `terraform -chdir` does:
+  every `.tf` in the clone is still handed to the parser, so a module sourced from
+  _above_ the root (`../modules/shared`) resolves, while stacks the entrypoint
+  never reaches stay out of the graph. A root holding no `.tf` warns rather than
+  storing a silently empty graph. Plan snapshots come from CI as JSON and ignore
+  it entirely; so does the raw file API (GP-4), which stays whole-repo. Always
+  store through `lib/repo-path.normalizeTerraformPath` — a path that escapes the
+  repository is a 422, never something to clamp.
 - **Dashboard (GP-67):** `GET /api/v1/dashboard` — the one call the home page
   makes: four counts, the last 10 pull requests (with their latest plan
   snapshot's stats and its `internetExposed` / `privileged` risk flags), the last

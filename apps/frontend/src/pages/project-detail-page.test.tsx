@@ -66,6 +66,7 @@ function repo(over: Partial<Repository> = {}): Repository {
     prCommentsEnabled: false,
     lastCommentError: null,
     contextMd: null,
+    terraformPath: "",
     createdAt: "2026-01-02T00:00:00.000Z",
     ...over,
   };
@@ -311,6 +312,59 @@ it("sends only the fields the user touched", async () => {
   fireEvent.click(within(dialog).getByRole("button", { name: /save settings/i }));
 
   expect(updateRepositoryMock).toHaveBeenCalledWith("r1", { defaultBranch: "trunk" });
+});
+
+it("shows the terraform path on the card, but only when it is not the root", async () => {
+  listRepositoriesMock.mockResolvedValue([
+    repo({ id: "r1", terraformPath: "infra/azure" }),
+    repo({ id: "r2", url: "https://github.com/acme/rooted", terraformPath: "" }),
+  ]);
+
+  renderPage();
+
+  expect(await screen.findByText("infra/azure")).toBeInTheDocument();
+  // The rooted repo says nothing — silence means "the whole repository".
+  expect(screen.getAllByText("main")).toHaveLength(2);
+});
+
+it("moves a repository's terraform path from settings", async () => {
+  listRepositoriesMock.mockResolvedValue([repo({ terraformPath: "" })]);
+  updateRepositoryMock.mockResolvedValue(repo({ terraformPath: "infra" }));
+
+  renderPage();
+  await openMenu(/manage acme\/infra/i);
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /repository settings/i }),
+  );
+
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText(/terraform path/i), {
+    target: { value: "infra" },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: /save settings/i }));
+
+  expect(updateRepositoryMock).toHaveBeenCalledWith("r1", { terraformPath: "infra" });
+  expect(await screen.findByText("infra")).toBeInTheDocument();
+});
+
+it("clearing the terraform path moves it back to the repository root", async () => {
+  listRepositoriesMock.mockResolvedValue([repo({ terraformPath: "infra" })]);
+  updateRepositoryMock.mockResolvedValue(repo({ terraformPath: "" }));
+
+  renderPage();
+  await openMenu(/manage acme\/infra/i);
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /repository settings/i }),
+  );
+
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText(/terraform path/i), {
+    target: { value: "" },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: /save settings/i }));
+
+  // An emptied path is a real change, not "leave it alone" — it must be sent.
+  expect(updateRepositoryMock).toHaveBeenCalledWith("r1", { terraformPath: "" });
 });
 
 it("surfaces the last PR comment error on the card", async () => {

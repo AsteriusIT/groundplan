@@ -9,6 +9,7 @@ import {
   repositories,
   toPublicRepository,
 } from "../db/schema.js";
+import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.js";
 import { generateToken } from "../lib/tokens.js";
 import { detectProvider, PROVIDERS, type Provider } from "../services/providers.js";
 import { verifyAndStore } from "../services/repository-verification.js";
@@ -64,6 +65,9 @@ const createRepositorySchema = {
     defaultBranch: { type: "string", minLength: 1, maxLength: 200 },
     // Write-only: accepted here, never echoed back in any response.
     accessToken: { type: "string", minLength: 1, maxLength: 500 },
+    // Subdirectory the Terraform lives in; omitted/"" is the repository root.
+    // Shape is checked here, meaning (no escaping the repo) in normalizeTerraformPath.
+    terraformPath: { type: "string", maxLength: 500 },
   },
 };
 
@@ -283,6 +287,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         url: string;
         defaultBranch?: string;
         accessToken?: string;
+        terraformPath?: string;
       };
 
       const [project] = await app.db
@@ -293,6 +298,20 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         return reply
           .code(404)
           .send({ error: "Not Found", message: "project not found" });
+      }
+
+      let terraformPath: string;
+      try {
+        terraformPath = normalizeTerraformPath(body.terraformPath);
+      } catch (err) {
+        if (err instanceof InvalidRepoPathError) {
+          return reply.code(422).send({
+            error: "Unprocessable Entity",
+            message: err.message,
+            fields: [{ field: "terraformPath", message: err.message }],
+          });
+        }
+        throw err;
       }
 
       // Provider override wins; otherwise auto-detect from the URL (GP-51).
@@ -312,6 +331,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           // Omitted -> DB default ("main").
           defaultBranch: body.defaultBranch,
           accessToken: encryptedPat,
+          terraformPath,
           webhookToken: generateToken(),
         })
         .returning();

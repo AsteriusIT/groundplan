@@ -120,6 +120,13 @@
       "when": 1783956748498,
       "tag": "0016_icy_the_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783964463030,
+      "tag": "0017_hard_stryfe",
+      "breakpoints": true
     }
   ]
 }

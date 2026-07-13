@@ -1,0 +1,1 @@
+ALTER TABLE "repositories" ADD COLUMN "terraform_path" text DEFAULT '' NOT NULL;

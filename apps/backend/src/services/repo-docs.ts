@@ -62,7 +62,10 @@ export async function generateDocsSnapshot(
       opts.commitSha,
     );
 
-    const { graph, warnings } = parseHclRepo(files);
+    // The repository's Terraform root is the parse entrypoint. Every .tf file in
+    // the clone is still handed over, so a module sourced from above that root
+    // (`../modules/shared`) resolves — only the starting directory moves.
+    const { graph, warnings } = parseHclRepo(files, { rootDir: repo.terraformPath });
 
     const snapshot = await insertGraphSnapshot(app.db, {
       repositoryId: repo.id,

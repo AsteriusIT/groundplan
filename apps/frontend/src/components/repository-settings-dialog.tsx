@@ -40,6 +40,7 @@ export function RepositorySettingsDialog({
 }) {
   const [pat, setPat] = useState("");
   const [branch, setBranch] = useState(repository.defaultBranch);
+  const [tfPath, setTfPath] = useState(repository.terraformPath);
   const [prComments, setPrComments] = useState(repository.prCommentsEnabled);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,9 +50,15 @@ export function RepositorySettingsDialog({
   useEffect(() => {
     if (open) {
       setBranch(repository.defaultBranch);
+      setTfPath(repository.terraformPath);
       setPrComments(repository.prCommentsEnabled);
     }
-  }, [open, repository.defaultBranch, repository.prCommentsEnabled]);
+  }, [
+    open,
+    repository.defaultBranch,
+    repository.terraformPath,
+    repository.prCommentsEnabled,
+  ]);
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
@@ -66,6 +73,11 @@ export function RepositorySettingsDialog({
     ...(pat.trim() ? { accessToken: pat.trim() } : {}),
     ...(branch.trim() && branch.trim() !== repository.defaultBranch
       ? { defaultBranch: branch.trim() }
+      : {}),
+    // Unlike the branch, an emptied path is meaningful: it moves the Terraform
+    // root back to the repository root.
+    ...(tfPath.trim() !== repository.terraformPath
+      ? { terraformPath: tfPath.trim() }
       : {}),
     ...(prComments !== repository.prCommentsEnabled
       ? { prCommentsEnabled: prComments }
@@ -135,6 +147,23 @@ export function RepositorySettingsDialog({
             <p className="text-muted-foreground text-xs">
               The branch documentation is generated from, and the target pull
               requests are compared against.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="repo-settings-tf-path">Terraform path</Label>
+            <Input
+              id="repo-settings-tf-path"
+              value={tfPath}
+              onChange={(e) => setTfPath(e.target.value)}
+              placeholder="Repository root"
+              autoComplete="off"
+            />
+            <p className="text-muted-foreground text-xs">
+              The directory your Terraform lives in, e.g.{" "}
+              <span className="font-mono">infra/azure</span>. Leave empty for the
+              repository root. Applies to the next documentation snapshot; plans
+              come from your CI and are unaffected.
             </p>
           </div>
 

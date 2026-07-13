@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Ellipsis,
   FileText,
+  FolderTree,
   GitBranch,
   GitPullRequest,
   Inbox,
@@ -109,6 +110,16 @@ export function RepositoryCard({
               <GitBranch className="size-3" />
               {repo.defaultBranch}
             </span>
+            {/* Only when it is not the root: silence means "the whole repo". */}
+            {repo.terraformPath && (
+              <span
+                className="inline-flex items-center gap-1"
+                title="Terraform root — where the documentation parse starts"
+              >
+                <FolderTree className="size-3" />
+                {repo.terraformPath}
+              </span>
+            )}
           </p>
         </div>
 

@@ -59,6 +59,7 @@ const repo: Repository = {
   prCommentsEnabled: false,
   lastCommentError: null,
   contextMd: null,
+  terraformPath: "",
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 

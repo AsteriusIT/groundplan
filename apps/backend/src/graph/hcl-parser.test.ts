@@ -180,3 +180,64 @@ test("a 200-file repo parses in well under 30 seconds", () => {
   assert.equal(graph.nodes.length, 200);
   assert.ok(ms < 30000, `expected < 30000ms, took ${ms.toFixed(1)}ms`);
 });
+
+// --- Terraform root directory (repositories whose HCL is not at the root) ----
+
+/** A repo whose stack lives in `infra/`, with a module *above* it in `modules/`. */
+function subdirRepo(): HclFile[] {
+  return [
+    {
+      path: "infra/main.tf",
+      content: `resource "aws_s3_bucket" "app" {\n  bucket = "app"\n}\n\nmodule "shared" {\n  source = "../modules/shared"\n}\n`,
+    },
+    {
+      path: "modules/shared/main.tf",
+      content: `resource "aws_kms_key" "k" {\n  description = "shared"\n}\n`,
+    },
+    // A second, unrelated stack that must not leak into the graph.
+    {
+      path: "other/main.tf",
+      content: `resource "aws_s3_bucket" "other" {\n  bucket = "other"\n}\n`,
+    },
+  ];
+}
+
+test("a root directory makes that subtree the entrypoint", () => {
+  const { graph } = parseHclRepo(subdirRepo(), { rootDir: "infra" });
+  const ids = graph.nodes.map((n) => n.id).sort();
+
+  assert.ok(ids.includes("aws_s3_bucket.app"), "the stack under the root is parsed");
+  assert.ok(
+    !ids.includes("aws_s3_bucket.other"),
+    "a stack outside the root is not reachable from the entrypoint",
+  );
+  // Addresses are Terraform addresses, not file paths: the root directory does
+  // not appear in them, so a plan snapshot and a docs snapshot still line up.
+  assert.ok(!ids.some((id) => id.includes("infra")));
+});
+
+test("a local module above the root directory still resolves", () => {
+  const { graph } = parseHclRepo(subdirRepo(), { rootDir: "infra" });
+  const ids = graph.nodes.map((n) => n.id);
+
+  assert.ok(ids.includes("module.shared"));
+  assert.ok(
+    ids.includes("module.shared.aws_kms_key.k"),
+    "a ../ module source resolves outside the root, as terraform -chdir does",
+  );
+});
+
+test("without a root directory the whole-repo behaviour is unchanged", () => {
+  const { graph } = parseHclRepo(subdirRepo());
+  // Nothing is at the repository root, so nothing is reachable.
+  assert.equal(graph.nodes.length, 0);
+});
+
+test("a root directory holding no .tf files warns instead of silently emptying", () => {
+  const { graph, warnings } = parseHclRepo(subdirRepo(), { rootDir: "nope" });
+  assert.equal(graph.nodes.length, 0);
+  assert.ok(
+    warnings.some((w) => w.includes("nope")),
+    `expected a warning naming the directory, got ${JSON.stringify(warnings)}`,
+  );
+});

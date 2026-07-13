@@ -478,8 +478,25 @@ function extractHclIam(ctx: Ctx, edgeCtx: EdgeContext): Map<string, ExtractedIam
   return extracted;
 }
 
+export type HclParseOptions = {
+  /**
+   * The directory the parse starts from — the repository's Terraform root.
+   * Empty (the default) is the repository root itself.
+   *
+   * This selects the *entrypoint*, the way `terraform -chdir` does; every `.tf`
+   * file in the repository is still available, so a module sourced from above
+   * the root (`../modules/shared`) resolves normally. Directories the entrypoint
+   * never reaches — a second, unrelated stack — simply do not appear.
+   */
+  rootDir?: string;
+};
+
 /** Parse a repository's `.tf` files into a GraphSnapshot graph + warnings. */
-export function parseHclRepo(files: HclFile[]): HclParseResult {
+export function parseHclRepo(
+  files: HclFile[],
+  options: HclParseOptions = {},
+): HclParseResult {
+  const rootDir = options.rootDir ?? "";
   const filesByDir = new Map<string, HclFile[]>();
   for (const file of files) {
     if (!file.path.endsWith(".tf")) continue;
@@ -501,7 +518,13 @@ export function parseHclRepo(files: HclFile[]): HclParseResult {
     nsgRules: new Map(),
   };
 
-  parseModuleDir(ctx, "", "", [], null);
+  // A configured root that holds no Terraform is a misconfiguration, not an
+  // empty repository — say so rather than storing a silently empty graph.
+  if (rootDir && !filesByDir.has(rootDir)) {
+    ctx.warnings.push(`no .tf files found in '${rootDir}'`);
+  }
+
+  parseModuleDir(ctx, rootDir, "", [], null);
 
   const resourceIds = new Set<string>();
   const moduleIds = new Set<string>();

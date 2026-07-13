@@ -48,6 +48,7 @@ export function AttachRepositoryDialog({
   // wins and persists across later URL edits (GP-52).
   const [providerOverride, setProviderOverride] = useState<Provider | null>(null);
   const [branch, setBranch] = useState("main");
+  const [terraformPath, setTerraformPath] = useState("");
   const [pat, setPat] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +62,7 @@ export function AttachRepositoryDialog({
     setUrl("");
     setProviderOverride(null);
     setBranch("main");
+    setTerraformPath("");
     setPat("");
     setSubmitting(false);
     setError(null);
@@ -92,6 +94,7 @@ export function AttachRepositoryDialog({
         url: url.trim(),
         defaultBranch: branch.trim() || "main",
         accessToken: pat.trim() || undefined,
+        terraformPath: terraformPath.trim() || undefined,
       });
       // Surface the structured reason so a bad PAT gets a clear message.
       if (repo.connectionStatus === "failed") {
@@ -204,6 +207,21 @@ export function AttachRepositoryDialog({
                   placeholder="main"
                   autoComplete="off"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="repo-terraform-path">Terraform path</Label>
+                <Input
+                  id="repo-terraform-path"
+                  value={terraformPath}
+                  onChange={(e) => setTerraformPath(e.target.value)}
+                  placeholder="Optional — e.g. infra/azure"
+                  autoComplete="off"
+                />
+                <p className="text-muted-foreground text-xs">
+                  The directory your Terraform lives in. Leave empty if it sits at
+                  the repository root.
+                </p>
               </div>
 
               <div className="space-y-2">
