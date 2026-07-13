@@ -363,6 +363,75 @@ export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
   };
 }
 
+export const aiGenerationKind = pgEnum("ai_generation_kind", [
+  "pr_summary",
+  "docs_explain",
+]);
+
+/**
+ * Cached AI prose (GP-62). One row per (kind, target, prompt version, model) —
+ * that tuple is the cache key, so a new plan/docs snapshot (new `target_id`), an
+ * edited prompt file (new `prompt_version`, which is a hash of its contents) or a
+ * different `AI_MODEL` all miss the cache and regenerate naturally.
+ *
+ * `target_id` is a `graph_snapshots.id` today but stays a plain text column: the
+ * table is the generic cache for every future generation kind, not just snapshots.
+ * Regenerating = delete the row, then generate again. Failed generations are NOT
+ * stored — caching an error would serve it forever.
+ */
+export const aiGenerations = pgTable(
+  "ai_generations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: aiGenerationKind("kind").notNull(),
+    /** What this prose is about — a snapshot id for both kinds today. */
+    targetId: text("target_id").notNull(),
+    /** Short content hash of the prompt file the output was generated from. */
+    promptVersion: text("prompt_version").notNull(),
+    model: text("model").notNull(),
+    output: text("output").notNull(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("ai_generations_cache_key_unique").on(
+      t.kind,
+      t.targetId,
+      t.promptVersion,
+      t.model,
+    ),
+  ],
+);
+
+export type AiGenerationRow = typeof aiGenerations.$inferSelect;
+
+export type PublicAiGeneration = {
+  kind: (typeof aiGenerationKind.enumValues)[number];
+  targetId: string;
+  model: string;
+  output: string;
+  /** Token usage of the call that produced this row; null if the provider omitted it. */
+  inputTokens: number | null;
+  outputTokens: number | null;
+  createdAt: Date;
+};
+
+/** Map a cached generation to its API shape (the prompt version stays internal). */
+export function toPublicAiGeneration(row: AiGenerationRow): PublicAiGeneration {
+  return {
+    kind: row.kind,
+    targetId: row.targetId,
+    model: row.model,
+    output: row.output,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    createdAt: row.createdAt,
+  };
+}
+
 export const projectsRelations = relations(projects, ({ many }) => ({
   repositories: many(repositories),
 }));

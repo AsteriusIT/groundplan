@@ -12,10 +12,12 @@ import {
   realAzureDevOpsClient,
   type AzureDevOpsClient,
 } from "./services/azure-devops.js";
+import { realAiProvider, type AiProvider } from "./services/ai.js";
 import { authPlugin } from "./plugins/auth.js";
 import { backgroundPlugin } from "./plugins/background.js";
 import { dbPlugin } from "./plugins/db.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
+import { aiRoutes } from "./routes/ai.js";
 import { annotationRoutes } from "./routes/annotations.js";
 import {
   verifyConnection as realVerifyConnection,
@@ -53,6 +55,8 @@ declare module "fastify" {
     azureDevOps: AzureDevOpsClient;
     /** Public origin for absolute PR-comment URLs (GP-38); "" = link-only. */
     publicBaseUrl: string;
+    /** The AI layer's model access (GP-62). `model === null` = layer disabled. */
+    ai: AiProvider;
   }
 }
 
@@ -69,6 +73,8 @@ export type BuildAppOptions = {
   gitlab?: GitLabClient;
   /** Inject an Azure DevOps client (tests). Defaults to the real REST client. */
   azureDevOps?: AzureDevOpsClient;
+  /** Inject an AI provider (tests). Defaults to the real one (off without a key). */
+  ai?: AiProvider;
 };
 
 /** Pretty logs in dev, structured JSON in prod, silent in tests. */
@@ -113,6 +119,9 @@ export async function buildApp(
   app.decorate("gitlab", opts.gitlab ?? realGitLabClient);
   app.decorate("azureDevOps", opts.azureDevOps ?? realAzureDevOpsClient);
   app.decorate("publicBaseUrl", env.publicBaseUrl);
+  // AI layer (GP-62). Without AI_API_KEY the real provider reports model: null,
+  // so /ai/status says disabled and no generation route can reach a model.
+  app.decorate("ai", opts.ai ?? realAiProvider(env));
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.
   await app.register(authPlugin, {
@@ -137,6 +146,7 @@ export async function buildApp(
   await app.register(pullRoutes, { prefix: "/api/v1" });
   await app.register(docsRoutes, { prefix: "/api/v1" });
   await app.register(annotationRoutes, { prefix: "/api/v1" });
+  await app.register(aiRoutes, { prefix: "/api/v1" });
 
   return app;
 }

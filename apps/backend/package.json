@@ -15,9 +15,11 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.12",
     "@fastify/cors": "^10.0.2",
     "@fastify/sensible": "^6.0.3",
     "@resvg/resvg-js": "^2.6.2",
+    "ai": "^7.0.22",
     "ajv": "^8.17.1",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.45.2",

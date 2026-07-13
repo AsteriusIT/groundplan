@@ -58,7 +58,19 @@ export type AppEnv = {
    * Empty = omit the image + link (comment carries stats + summary only).
    */
   publicBaseUrl: string;
+  /**
+   * Anthropic API key for the AI layer (GP-62). **This key IS the feature flag**:
+   * empty = the whole AI layer is off (`/ai/status` reports disabled, the
+   * generation routes 404, and the frontend renders no AI UI). Deliberately has
+   * no dev default — AI costs money, so it stays off until someone opts in.
+   */
+  aiApiKey: string;
+  /** Model the AI layer generates with. Only used when `aiApiKey` is set. */
+  aiModel: string;
 };
+
+/** Sensible default model for the AI layer; override with `AI_MODEL`. */
+const DEFAULT_AI_MODEL = "claude-opus-4-8";
 
 export function loadEnv(): AppEnv {
   const nodeEnv = (process.env.NODE_ENV ?? "development") as AppEnv["nodeEnv"];
@@ -78,5 +90,7 @@ export function loadEnv(): AppEnv {
     exportCacheDir:
       process.env.EXPORT_CACHE_DIR ?? join(tmpdir(), "groundplan-exports"),
     publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, ""),
+    aiApiKey: process.env.AI_API_KEY ?? "",
+    aiModel: process.env.AI_MODEL ?? DEFAULT_AI_MODEL,
   };
 }

@@ -27,6 +27,9 @@ x-backend-env: &backend-env
   NODE_ENV: production
   DATABASE_URL: postgres://${POSTGRES_USER:-groundplan}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}@app-postgres:5432/${POSTGRES_DB:-groundplan}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env.prod (openssl rand -base64 32)}
+  # AI layer (GP-62) — optional. Unset AI_API_KEY = the AI layer stays off.
+  AI_API_KEY: ${AI_API_KEY:-}
+  AI_MODEL: ${AI_MODEL:-claude-opus-4-8}
 
 services:
   # --- Edge: TLS termination + routing ------------------------------------
