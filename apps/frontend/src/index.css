@@ -50,7 +50,8 @@
   --input: #cdd8e8;
   --grid-line: #e2eaf5; /* fine blueprint grid */
   --grid-strong: #d3dff0; /* bold blueprint grid (every 5th line) */
-  --edge: #a6b8d0; /* neutral diagram edge */
+  --edge: #a6b8d0; /* neutral diagram edge: an explicit depends_on */
+  --edge-inferred: #c3cfe0; /* an expression-inferred reference (GP-20) — same family, quieter */
 
   /* — status — */
   --create: #189a5c;
@@ -128,7 +129,8 @@
   --input: #2b5487;
   --grid-line: #123a63; /* fine cyan hairline grid */
   --grid-strong: #1c5288; /* bold cyan grid (every 5th line) */
-  --edge: #5d7db0; /* neutral diagram edge */
+  --edge: #5d7db0; /* neutral diagram edge: an explicit depends_on */
+  --edge-inferred: #46618c; /* an expression-inferred reference (GP-20) */
 
   /* — status — brightened, and the -soft fills flip to dark tints so diff
      cards read as coloured on a dark ground (not blown-out pastels) — */
@@ -195,6 +197,7 @@
   --grid-line: #191b21; /* very subtle graphite grid */
   --grid-strong: #24272f;
   --edge: #565c66;
+  --edge-inferred: #3e434b;
 }
 
 @theme inline {
@@ -230,6 +233,7 @@
   --color-grid-line: var(--grid-line);
   --color-grid-strong: var(--grid-strong);
   --color-edge: var(--edge);
+  --color-edge-inferred: var(--edge-inferred);
 
   --color-create: var(--create);
   --color-create-soft: var(--create-soft);

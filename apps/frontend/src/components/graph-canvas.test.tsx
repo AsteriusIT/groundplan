@@ -92,18 +92,38 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+/** The filter panel rests collapsed — open it before asserting on its contents. */
+function openFilters() {
+  fireEvent.click(screen.getByRole("button", { name: /filters/i }));
+}
+
+it("rests with the filter panel collapsed, keeping the counter in view", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+
+  // The panel holds canvas space open all session for something you touch once,
+  // so it starts closed — but the count it exists to explain stays visible.
+  expect(screen.getByText(/of 3 shown/)).toBeInTheDocument();
+  expect(screen.queryByRole("checkbox", { name: "Create" })).not.toBeInTheDocument();
+
+  openFilters();
+  expect(screen.getByRole("checkbox", { name: /Create/ })).toBeInTheDocument();
+});
+
 it("shows change/impact filter checkboxes on the plan view", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   expect(await screen.findByText("node:main")).toBeInTheDocument();
+  openFilters();
   for (const label of ["Create", "Update", "Delete", "No change", "Impacted"]) {
-    expect(screen.getByRole("checkbox", { name: label })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: new RegExp(label) })).toBeChecked();
   }
 });
 
 it("toggles a filter checkbox", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   await screen.findByText("node:main");
-  const create = screen.getByRole("checkbox", { name: "Create" });
+  openFilters();
+  const create = screen.getByRole("checkbox", { name: /Create/ });
   fireEvent.click(create);
   expect(create).not.toBeChecked();
 });
@@ -111,15 +131,34 @@ it("toggles a filter checkbox", async () => {
 it("shows category and module filters, a counter and reset (both variants)", async () => {
   render(<GraphCanvas graph={graph} variant="docs" />);
   await screen.findByText("node:main");
+  openFilters();
   // Categories present in the graph.
   expect(screen.getByRole("checkbox", { name: /Network/ })).toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: /Compute/ })).toBeInTheDocument();
   // Module + root filters, derived from the snapshot's module nodes.
-  expect(screen.getByRole("checkbox", { name: "net" })).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: "root" })).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: /^net/ })).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: /^root/ })).toBeInTheDocument();
   // Counter + reset.
   expect(screen.getByText(/of 3 shown/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /reset/i })).toBeInTheDocument();
+});
+
+it("counts what each filter option covers, so unticking has a visible cost", async () => {
+  render(<GraphCanvas graph={graph} variant="docs" />);
+  await screen.findByText("node:main");
+  openFilters();
+
+  // One network resource (the vnet), one compute (the instance) — module nodes
+  // are structure, not resources, and are never counted.
+  expect(screen.getByRole("checkbox", { name: /Network\s*1/ })).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: /Compute\s*1/ })).toBeInTheDocument();
+});
+
+it("explains what a line means, so the dashes are not a guess", async () => {
+  render(<GraphCanvas graph={graph} variant="docs" />);
+  await screen.findByText("node:main");
+  expect(screen.getByText("depends_on")).toBeInTheDocument();
+  expect(screen.getByText("inferred reference")).toBeInTheDocument();
 });
 
 it("opens the details panel on node click and closes it on pane click", async () => {
@@ -172,6 +211,7 @@ const hubGraph: Graph = {
 it("offers a 'Show hub connections' toggle only when hubs are present", async () => {
   render(<GraphCanvas graph={hubGraph} variant="docs" />);
   await screen.findByText("node:rg");
+  openFilters();
   const toggle = screen.getByRole("checkbox", { name: /show hub connections/i });
   expect(toggle).not.toBeChecked();
   fireEvent.click(toggle);
@@ -181,6 +221,7 @@ it("offers a 'Show hub connections' toggle only when hubs are present", async ()
 it("hides the hub toggle when there are no hubs", async () => {
   render(<GraphCanvas graph={graph} variant="docs" />);
   await screen.findByText("node:main");
+  openFilters();
   expect(
     screen.queryByRole("checkbox", { name: /show hub connections/i }),
   ).not.toBeInTheDocument();

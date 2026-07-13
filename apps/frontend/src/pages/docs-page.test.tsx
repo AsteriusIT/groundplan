@@ -128,6 +128,17 @@ beforeEach(() => {
   getAiGenerationMock.mockReset().mockResolvedValue(null);
 });
 
+/**
+ * The one-off actions (Explain, Context, Regenerate) live behind the ⋯ menu now
+ * — the toolbar used to present eight equal-weight buttons. Radix opens a
+ * dropdown on keydown, not on a synthetic click.
+ */
+async function openMoreActions() {
+  fireEvent.keyDown(await screen.findByRole("button", { name: /more actions/i }), {
+    key: "Enter",
+  });
+}
+
 it("shows the empty state with a generate button when there is no history", async () => {
   listSnapshotsMock.mockResolvedValue([]);
   renderPage();
@@ -184,7 +195,8 @@ it("regenerating creates a new latest and jumps to it", async () => {
 
   renderPage();
   await screen.findByTestId("canvas");
-  fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+  await openMoreActions();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /regenerate/i }));
 
   expect(await screen.findByText("dddddddd")).toBeInTheDocument();
   expect(getSnapshotMock).toHaveBeenCalledWith("s4");
@@ -195,7 +207,8 @@ it("handles a 409 while regenerating with a friendly message", async () => {
   generateDocsMock.mockRejectedValue(new ApiError(409, "locked"));
   renderPage();
   await screen.findByTestId("canvas");
-  fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+  await openMoreActions();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /regenerate/i }));
   expect(await screen.findByText(/already in progress/i)).toBeInTheDocument();
 });
 
@@ -248,7 +261,8 @@ it("keeps the context out of the header until the Context button opens the rail"
 
   expect(screen.queryByText(/Payments platform/)).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: /^context$/i }));
+  await openMoreActions();
+  fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /context/i }));
   expect(await screen.findByText(/Payments platform/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: /hide context/i }));
@@ -302,8 +316,12 @@ it("shows no Explain button at all when the AI layer is off", async () => {
   renderPage();
   await screen.findByTestId("canvas");
 
-  // Not a disabled button — no AI affordance whatsoever.
+  // Not a disabled button — no AI affordance whatsoever, in the toolbar or the menu.
   expect(screen.queryByRole("button", { name: /explain/i })).not.toBeInTheDocument();
+  await openMoreActions();
+  expect(
+    screen.queryByRole("menuitemcheckbox", { name: /explain/i }),
+  ).not.toBeInTheDocument();
 });
 
 it("Explain opens a rail that generates prose for the selected snapshot", async () => {
@@ -325,7 +343,8 @@ it("Explain opens a rail that generates prose for the selected snapshot", async 
   // Closed by default — the diagram, not the prose, is what this page is for.
   expect(screen.queryByText(/serves the storefront/i)).not.toBeInTheDocument();
 
-  fireEvent.click(await screen.findByRole("button", { name: /explain/i }));
+  await openMoreActions();
+  fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /explain/i }));
 
   expect(await screen.findByText(/serves the storefront/i)).toBeInTheDocument();
   // The explanation is asked for by snapshot, so the timeline keeps its own.

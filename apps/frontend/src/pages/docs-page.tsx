@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
+  Ellipsis,
   FileText,
   GitCompareArrows,
   Loader2,
@@ -33,6 +34,14 @@ import type {
 } from "@/api/types";
 import { repoName } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CompareView } from "@/components/compare-view";
 import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
@@ -344,6 +353,10 @@ export function DocsPage() {
                 {repo ? repoName(repo.url) : "Documentation"}
               </h1>
             </div>
+            {/* Grouped by intent: what you *do to the diagram* (compare,
+                annotate), then what you *take away* (share, export), then the
+                panels and the rebuild, which are one-off and belong in a menu.
+                Eight equal-weight buttons is eight decisions on every visit. */}
             {snapshots.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 {canCompare && (
@@ -356,27 +369,9 @@ export function DocsPage() {
                   </Button>
                 )}
                 {current && !compareMode && view === "infra" && <AnnotateToggle />}
-                {/* GP-65. Absent entirely when the AI layer is off — not disabled. */}
-                {current && aiStatus?.enabled && (
-                  <Button
-                    variant={explainOpen ? "default" : "outline"}
-                    aria-pressed={explainOpen}
-                    onClick={() => setExplainOpen((open) => !open)}
-                  >
-                    <Sparkles className="size-4" />
-                    Explain
-                  </Button>
-                )}
-                {repo && (
-                  <Button
-                    variant={contextOpen ? "default" : "outline"}
-                    aria-pressed={contextOpen}
-                    onClick={() => setContextOpen((open) => !open)}
-                  >
-                    <FileText className="size-4" />
-                    Context
-                  </Button>
-                )}
+
+                <span className="bg-border mx-1 h-5 w-px" aria-hidden="true" />
+
                 {repoId && (
                   <ShareDialog repositoryId={repoId} currentSnapshotId={selectedId} />
                 )}
@@ -386,10 +381,42 @@ export function DocsPage() {
                     filenameBase={`${(repo ? repoName(repo.url) : "diagram").replaceAll("/", "-")}-${shortSha(current.commitSha)}`}
                   />
                 )}
-                <Button variant="outline" onClick={generate} disabled={generating}>
-                  <RefreshCw className={generating ? "size-4 animate-spin" : "size-4"} />
-                  {generating ? "Regenerating…" : "Regenerate"}
-                </Button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label="More actions">
+                      <Ellipsis className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    {/* GP-65. Absent entirely when the AI layer is off — not disabled. */}
+                    {current && aiStatus?.enabled && (
+                      <DropdownMenuCheckboxItem
+                        checked={explainOpen}
+                        onCheckedChange={(v) => setExplainOpen(Boolean(v))}
+                      >
+                        <Sparkles className="size-3.5" />
+                        Explain
+                      </DropdownMenuCheckboxItem>
+                    )}
+                    {repo && (
+                      <DropdownMenuCheckboxItem
+                        checked={contextOpen}
+                        onCheckedChange={(v) => setContextOpen(Boolean(v))}
+                      >
+                        <FileText className="size-3.5" />
+                        Context
+                      </DropdownMenuCheckboxItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={generate} disabled={generating}>
+                      <RefreshCw
+                        className={generating ? "size-3.5 animate-spin" : "size-3.5"}
+                      />
+                      {generating ? "Regenerating…" : "Regenerate"}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             )}
           </div>

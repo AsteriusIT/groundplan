@@ -11,6 +11,7 @@
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
 import type { ChangeKind, Graph, GraphEdge, GraphNode } from "@/api/types";
+import type { Point } from "@/lib/edge-path";
 import { categorize, type Category } from "@/lib/resource-category";
 import { hubEdgeRevealed, isHubEdge } from "@/lib/hub";
 
@@ -26,6 +27,22 @@ const MODULE_LEAF_WIDTH = 200;
 const EMPTY_CONTAINER_WIDTH = 200;
 const EMPTY_CONTAINER_HEIGHT = 84;
 
+/** One routed edge as ELK hands it back: endpoints plus its right-angle turns. */
+export interface ElkEdgeSection {
+  id: string;
+  startPoint: Point;
+  endPoint: Point;
+  bendPoints?: Point[];
+}
+
+export interface ElkGraphEdge {
+  id: string;
+  sources: string[];
+  targets: string[];
+  /** Filled in by ELK when it has routed the edge (elk.edgeRouting). */
+  sections?: ElkEdgeSection[];
+}
+
 /** Minimal shape of the ELK graph we send and get back (x/y/w/h filled in). */
 export interface ElkGraphNode {
   id: string;
@@ -35,7 +52,18 @@ export interface ElkGraphNode {
   y?: number;
   layoutOptions?: Record<string, string>;
   children?: ElkGraphNode[];
-  edges?: { id: string; sources: string[]; targets: string[] }[];
+  edges?: ElkGraphEdge[];
+}
+
+/**
+ * Stable id for a dependency edge, shared by the ELK input, the ELK output and
+ * the React Flow edge. Keyed on the endpoints rather than an array index: the
+ * layout and the render filter the edge list differently (hub edges are left out
+ * of the layout), so positional ids would silently drift apart and we would
+ * attach one edge's route to another edge.
+ */
+export function depEdgeId(edge: GraphEdge): string {
+  return `dep|${edge.from}|${edge.to}`;
 }
 
 // Layered, left→right. We lay out in impact-flow direction (a dependency points
@@ -51,6 +79,16 @@ export const ELK_ROOT_OPTIONS: Record<string, string> = {
   "elk.spacing.nodeNode": "40",
   "elk.spacing.edgeNode": "24",
   "elk.padding": "[top=28,left=28,bottom=28,right=28]",
+  // Right-angle routing. On a dense many-to-many graph, curves cross at
+  // arbitrary angles and the eye loses the thread; orthogonal segments share
+  // lanes and cross cleanly. ELK computes the bend points — we render them
+  // ourselves (see lib/edge-path), because React Flow would otherwise throw the
+  // route away and draw its own bezier between the handles.
+  "elk.edgeRouting": "ORTHOGONAL",
+  // Give the router lanes to work with, so parallel edges stack instead of
+  // overlapping into a single thick cable.
+  "elk.spacing.edgeEdge": "12",
+  "elk.layered.spacing.edgeEdgeBetweenLayers": "12",
 };
 
 const ELK_MODULE_OPTIONS: Record<string, string> = {
@@ -109,6 +147,13 @@ export type ViewState = {
   activeModules?: ReadonlySet<string>;
   /** Currently selected node id, or null. Drives the neighbourhood highlight. */
   selectedId: string | null;
+  /**
+   * Node under the cursor, or null. Focuses the diagram exactly as a selection
+   * does, but transiently: the resting state is calm and you *reveal* a node's
+   * relationships by pointing at it, rather than reading them off a wall of
+   * edges that are all drawn at once.
+   */
+  hoveredId?: string | null;
   /** Hub node ids (GP-35). Their edges are hidden unless revealed. */
   hubs?: ReadonlySet<string>;
   /** When true, draw every hub edge (the "Show hub connections" toggle). */
@@ -143,6 +188,43 @@ export function categoryOptions(graph: Graph): Category[] {
     if (!isModule(node)) set.add(categorize(node.type));
   }
   return [...set];
+}
+
+/**
+ * How many resources sit behind each filter option. A checkbox that says
+ * "Network (4)" tells you what unticking it will cost you; a bare "Network"
+ * makes you toggle it to find out.
+ */
+export function categoryCounts(graph: Graph): Map<Category, number> {
+  const counts = new Map<Category, number>();
+  for (const node of graph.nodes) {
+    if (isModule(node)) continue;
+    const key = categorize(node.type);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function moduleCounts(graph: Graph): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const node of graph.nodes) {
+    if (isModule(node)) continue;
+    const key = moduleKeyOf(node);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** How many resources carry each change kind — the plan view's filter counts. */
+export function changeCounts(graph: Graph): Map<FilterKey, number> {
+  const counts = new Map<FilterKey, number>();
+  for (const node of graph.nodes) {
+    if (isModule(node)) continue;
+    if (node.impacted) counts.set("impacted", (counts.get("impacted") ?? 0) + 1);
+    const change = node.change;
+    if (change) counts.set(change, (counts.get(change) ?? 0) + 1);
+  }
+  return counts;
 }
 
 // `*_association` resources are pure plumbing (they wire an NSG/route table to a
@@ -318,8 +400,8 @@ export function toElkGraph(
   // entirely so the hub node doesn't drag its whole neighbourhood together.
   const edges = graph.edges
     .filter((edge) => edge.kind === "depends_on" && !(hubs && isHubEdge(edge, hubs)))
-    .map((edge, i) => ({
-      id: `dep-${i}`,
+    .map((edge) => ({
+      id: depEdgeId(edge),
       sources: [edge.to],
       targets: [edge.from],
     }));
@@ -344,8 +426,20 @@ export function elkToFlow(
   const hubs = view.hubs ?? EMPTY_HUBS;
   const showHubEdges = view.showHubEdges ?? false;
   const containerIds = view.containerIds ?? EMPTY_HUBS;
-  const neighbors = selectedId ? neighborhood(graph, selectedId) : null;
+  // A selection is sticky, a hover is transient — but both focus the same way.
+  // Selection wins, so hovering elsewhere can't yank you out of what you pinned.
+  const focusId = selectedId ?? view.hoveredId ?? null;
+  const neighbors = focusId ? neighborhood(graph, focusId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  // The routes ELK computed, keyed by the same endpoint-derived id we sent in.
+  // Absent for hub edges (deliberately left out of the layout, GP-35) — those
+  // fall back to a curve, drawn over the layout as they always were.
+  const routes = new Map<string, Point[]>();
+  for (const elkEdge of layout.edges ?? []) {
+    const section = elkEdge.sections?.[0];
+    if (section) routes.set(elkEdge.id, section.bendPoints ?? []);
+  }
   const exposed = exposedNodeIds(graph); // internet-exposure treatment (GP-45)
 
   // Count each hub's currently-hidden edges so the node can show a counter chip
@@ -353,7 +447,7 @@ export function elkToFlow(
   const hubHiddenCount = new Map<string, number>();
   for (const edge of graph.edges) {
     if (!isHubEdge(edge, hubs)) continue;
-    if (hubEdgeRevealed(edge, selectedId, showHubEdges)) continue;
+    if (hubEdgeRevealed(edge, focusId, showHubEdges)) continue;
     for (const endpoint of [edge.from, edge.to]) {
       if (hubs.has(endpoint)) {
         hubHiddenCount.set(endpoint, (hubHiddenCount.get(endpoint) ?? 0) + 1);
@@ -407,24 +501,30 @@ export function elkToFlow(
     .filter((edge) => edge.kind === "depends_on")
     // Drop hub edges that are currently hidden (GP-35); revealed ones are drawn
     // over the layout (which was computed without them).
-    .filter((edge) => !isHubEdge(edge, hubs) || hubEdgeRevealed(edge, selectedId, showHubEdges))
-    .map((edge, i) => {
-      const dimmed = Boolean(
-        selectedId && edge.from !== selectedId && edge.to !== selectedId,
-      );
+    // Focus reveals a hub's hidden edges — hovering the hub is how you ask what
+    // it connects to, and lighting its neighbours while drawing no line to them
+    // is a worse lie than hiding both.
+    .filter((edge) => !isHubEdge(edge, hubs) || hubEdgeRevealed(edge, focusId, showHubEdges))
+    .map((edge) => {
+      const touchesFocus =
+        Boolean(focusId) && (edge.from === focusId || edge.to === focusId);
       // Colour/dash come from the relationship + inferred flag (GP-30), applied
       // by the RelationshipEdge component — no re-layout on selection. Drawn in
       // impact-flow direction (dependency → dependent) to match the layout
       // (GP-31); the relationship is still computed from the true dependency.
       return {
-        id: `dep-${i}`,
+        id: depEdgeId(edge),
         source: edge.to,
         target: edge.from,
         type: "relationship",
         data: {
           rel: edgeRel(byId.get(edge.from), byId.get(edge.to)),
-          dimmed,
+          dimmed: Boolean(focusId) && !touchesFocus,
+          // Lit: this edge belongs to the node you are pointing at. Everything
+          // else recedes, so one relationship can be traced through a crossing.
+          active: touchesFocus,
           inferred: edge.inferred === true,
+          bends: routes.get(depEdgeId(edge)),
         },
       };
     });

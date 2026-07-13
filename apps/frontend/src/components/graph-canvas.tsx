@@ -12,6 +12,7 @@ import {
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
 import {
+  ChevronDown,
   Group,
   Link2,
   Loader2,
@@ -21,6 +22,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  SlidersHorizontal,
   Trash2,
   Waypoints,
   X,
@@ -52,8 +54,11 @@ import {
 import { NotePanel } from "@/components/note-editor";
 import {
   ALL_FILTERS,
+  categoryCounts,
   categoryOptions,
+  changeCounts,
   elkToFlow,
+  moduleCounts,
   moduleOptions,
   toElkGraph,
   type ElkGraphNode,
@@ -169,10 +174,13 @@ const FILTER_SWATCH: Record<FilterKey, string> = {
 function CheckRow({
   checked,
   onToggle,
+  count,
   children,
 }: {
   checked: boolean;
   onToggle: () => void;
+  /** How many resources this option covers — what unticking it will cost you. */
+  count?: number;
   children: React.ReactNode;
 }) {
   return (
@@ -183,8 +191,55 @@ function CheckRow({
         onChange={onToggle}
         className="accent-primary size-3.5"
       />
-      {children}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">{children}</span>
+      {count !== undefined && (
+        <span className="text-muted-foreground shrink-0 font-mono text-[10px] tabular-nums">
+          {count}
+        </span>
+      )}
     </label>
+  );
+}
+
+/**
+ * What a line means. Dashed vs solid already carried a real distinction — an
+ * expression-inferred reference vs an explicit `depends_on` (GP-20) — but nothing
+ * on screen said so, which turns a deterministic encoding into a guess.
+ */
+function EdgeLegend({ variant }: { variant: "plan" | "docs" }) {
+  return (
+    <div className="bg-card/90 text-muted-foreground absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-1.5 shadow-sm backdrop-blur">
+      {variant === "plan" &&
+        ALL_FILTERS.map((key) => (
+          <span
+            key={key}
+            className="inline-flex items-center gap-1.5 font-mono text-[10px]"
+          >
+            <span className={cn("size-2 rounded-full", FILTER_SWATCH[key])} />
+            {FILTER_LABELS[key]}
+          </span>
+        ))}
+      <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
+        <svg width="18" height="6" aria-hidden="true">
+          <line x1="0" y1="3" x2="18" y2="3" strokeWidth="1.5" className="stroke-edge" />
+        </svg>
+        depends_on
+      </span>
+      <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
+        <svg width="18" height="6" aria-hidden="true">
+          <line
+            x1="0"
+            y1="3"
+            x2="18"
+            y2="3"
+            strokeWidth="1.5"
+            strokeDasharray="4 3"
+            className="stroke-edge-inferred"
+          />
+        </svg>
+        inferred reference
+      </span>
+    </div>
   );
 }
 
@@ -230,6 +285,10 @@ export function GraphCanvas({
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
   const hubs = useMemo(() => detectHubs(graph), [graph]);
+  // What each filter option covers, so a checkbox says what unticking it costs.
+  const changeCount = useMemo(() => changeCounts(graph), [graph]);
+  const categoryCount = useMemo(() => categoryCounts(graph), [graph]);
+  const moduleCount = useMemo(() => moduleCounts(graph), [graph]);
 
   const [layout, setLayout] = useState<ElkGraphNode | null>(null);
   const [laying, setLaying] = useState(true);
@@ -237,7 +296,9 @@ export function GraphCanvas({
   const [activeCategories, setActiveCategories] = useState(() => new Set(categoryOpts));
   const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showHubEdges, setShowHubEdges] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
 
@@ -248,6 +309,7 @@ export function GraphCanvas({
     let cancelled = false;
     setLaying(true);
     setSelected(null);
+    setHoveredId(null);
     setQuery("");
     setShowHubEdges(false);
     setActiveFilters(new Set(ALL_FILTERS));
@@ -295,12 +357,13 @@ export function GraphCanvas({
             activeCategories,
             activeModules,
             selectedId: selected?.id ?? null,
+            hoveredId,
             hubs,
             showHubEdges,
             containerIds,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected, hubs, showHubEdges, containerIds],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
@@ -516,6 +579,13 @@ export function GraphCanvas({
         }}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
         onNodeClick={handleNodeClick}
+        // Pointing at a node lights its relationships and pushes the rest back.
+        // Only real resources focus — an overlay pin or a container frame would
+        // dim the whole diagram for nothing.
+        onNodeMouseEnter={(_, node) =>
+          setHoveredId(node.type === "resource" ? node.id : null)
+        }
+        onNodeMouseLeave={() => setHoveredId(null)}
         onNodesChange={handleNodesChange}
         onPaneClick={() => setSelected(null)}
         nodesDraggable={false}
@@ -578,21 +648,6 @@ export function GraphCanvas({
         </span>
       </div>
 
-      {/* Status legend (bottom-left). */}
-      {variant === "plan" && (
-        <div className="bg-card/90 absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-1.5 shadow-sm backdrop-blur">
-          {ALL_FILTERS.map((key) => (
-            <span
-              key={key}
-              className="text-muted-foreground inline-flex items-center gap-1.5 font-mono text-[10px]"
-            >
-              <span className={cn("size-2 rounded-full", FILTER_SWATCH[key])} />
-              {FILTER_LABELS[key]}
-            </span>
-          ))}
-        </div>
-      )}
-
       {laying && (
         <div
           className="bg-background/60 absolute inset-0 z-20 grid place-items-center"
@@ -605,123 +660,150 @@ export function GraphCanvas({
         </div>
       )}
 
-      {/* Search box + results (top centre). */}
-      <div className="absolute top-3 left-1/2 z-10 w-72 -translate-x-1/2">
-        <div className="bg-card/95 flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 shadow-sm backdrop-blur">
-          <Search className="text-muted-foreground size-3.5 shrink-0" />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && results[0]) flyTo(results[0]);
-              if (e.key === "Escape") setQuery("");
-            }}
-            placeholder="Search resources…  ( / )"
-            aria-label="Search resources"
-            className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-xs outline-none"
-          />
+      {/* One left rail: search, then filters. The search box used to float in
+          the middle of the canvas, anchored to nothing; the filter panel used to
+          hold canvas space open all session for something you touch once. */}
+      <div className="absolute top-3 left-3 z-10 flex max-h-[calc(100%-1.5rem)] w-64 flex-col gap-2">
+        <div className="shrink-0">
+          <div className="bg-card/95 flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 shadow-sm backdrop-blur">
+            <Search className="text-muted-foreground size-3.5 shrink-0" />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && results[0]) flyTo(results[0]);
+                if (e.key === "Escape") setQuery("");
+              }}
+              placeholder="Search resources…  ( / )"
+              aria-label="Search resources"
+              className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-xs outline-none"
+            />
+          </div>
+          {query && results.length > 0 && (
+            <ul className="bg-card mt-1 max-h-64 overflow-auto rounded-md border border-border shadow-lg">
+              {results.map((node) => (
+                <li key={node.id}>
+                  <button
+                    type="button"
+                    onClick={() => flyTo(node)}
+                    className="hover:bg-accent flex w-full flex-col items-start px-2.5 py-1.5 text-left"
+                  >
+                    <span className="font-mono text-xs font-medium">
+                      {shortType(node.type)}
+                    </span>
+                    <span className="text-muted-foreground truncate font-mono text-[10px]">
+                      {node.id}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-        {query && results.length > 0 && (
-          <ul className="bg-card mt-1 max-h-64 overflow-auto rounded-md border border-border shadow-lg">
-            {results.map((node) => (
-              <li key={node.id}>
-                <button
-                  type="button"
-                  onClick={() => flyTo(node)}
-                  className="hover:bg-accent flex w-full flex-col items-start px-2.5 py-1.5 text-left"
-                >
-                  <span className="font-mono text-xs font-medium">
-                    {shortType(node.type)}
-                  </span>
-                  <span className="text-muted-foreground truncate font-mono text-[10px]">
-                    {node.id}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
 
-      {/* Filters + counter (top left). */}
-      <div className="bg-card/90 absolute top-3 left-3 z-10 max-h-[calc(100%-1.5rem)] w-44 overflow-auto rounded-md border border-border p-3 backdrop-blur">
-        {variant === "plan" && (
-          <FilterSection title="Change">
-            {ALL_FILTERS.map((key) => (
-              <CheckRow
-                key={key}
-                checked={activeFilters.has(key)}
-                onToggle={() => setActiveFilters((s) => toggle(s, key))}
-              >
-                <span className={cn("size-2.5 rounded-xs", FILTER_SWATCH[key])} />
-                {FILTER_LABELS[key]}
-              </CheckRow>
-            ))}
-          </FilterSection>
-        )}
-
-        {categoryOpts.length > 0 && (
-          <FilterSection title="Category">
-            {categoryOpts.map((cat) => {
-              const meta = CATEGORY_META[cat];
-              return (
-                <CheckRow
-                  key={cat}
-                  checked={activeCategories.has(cat)}
-                  onToggle={() =>
-                    setActiveCategories((s) => toggle<Category>(s, cat))
-                  }
-                >
-                  <meta.icon className={cn("size-3", meta.className)} />
-                  {meta.label}
-                </CheckRow>
-              );
-            })}
-          </FilterSection>
-        )}
-
-        {moduleOpts.length > 0 && (
-          <FilterSection title="Module">
-            {moduleOpts.map((mod) => (
-              <CheckRow
-                key={mod}
-                checked={activeModules.has(mod)}
-                onToggle={() => setActiveModules((s) => toggle(s, mod))}
-              >
-                <span className="truncate">{mod}</span>
-              </CheckRow>
-            ))}
-          </FilterSection>
-        )}
-
-        {/* GP-35: hub edges are hidden by default; this restores them all. */}
-        {hubs.size > 0 && (
-          <FilterSection title="Connections">
-            <CheckRow
-              checked={showHubEdges}
-              onToggle={() => setShowHubEdges((v) => !v)}
+        <div className="bg-card/90 flex min-h-0 flex-col overflow-hidden rounded-md border border-border shadow-sm backdrop-blur">
+          <div className="flex items-center justify-between gap-2 px-3 py-2">
+            <button
+              type="button"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide uppercase"
             >
-              <Waypoints className="text-muted-foreground size-3" />
-              Show hub connections
-            </CheckRow>
-          </FilterSection>
-        )}
+              <SlidersHorizontal className="size-3" />
+              Filters
+              <ChevronDown
+                className={cn("size-3 transition-transform", filtersOpen && "rotate-180")}
+              />
+            </button>
+            <span className="text-muted-foreground font-mono text-[10px]">
+              {shown} of {resourceNodes.length} shown
+            </span>
+          </div>
 
-        <div className="mt-3 flex items-center justify-between border-t border-border pt-2">
-          <span className="text-muted-foreground font-mono text-[10px]">
-            {shown} of {resourceNodes.length} shown
-          </span>
-          <button
-            type="button"
-            onClick={reset}
-            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-[10px]"
-          >
-            <RotateCcw className="size-3" />
-            Reset
-          </button>
+          {filtersOpen && (
+            <div className="min-h-0 overflow-auto border-t border-border px-3 pb-3">
+              {variant === "plan" && (
+                <FilterSection title="Change">
+                  {ALL_FILTERS.map((key) => (
+                    <CheckRow
+                      key={key}
+                      checked={activeFilters.has(key)}
+                      count={changeCount.get(key) ?? 0}
+                      onToggle={() => setActiveFilters((s) => toggle(s, key))}
+                    >
+                      <span className={cn("size-2.5 rounded-xs", FILTER_SWATCH[key])} />
+                      {FILTER_LABELS[key]}
+                    </CheckRow>
+                  ))}
+                </FilterSection>
+              )}
+
+              {categoryOpts.length > 0 && (
+                <FilterSection title="Category">
+                  {categoryOpts.map((cat) => {
+                    const meta = CATEGORY_META[cat];
+                    return (
+                      <CheckRow
+                        key={cat}
+                        checked={activeCategories.has(cat)}
+                        count={categoryCount.get(cat) ?? 0}
+                        onToggle={() =>
+                          setActiveCategories((s) => toggle<Category>(s, cat))
+                        }
+                      >
+                        <meta.icon className={cn("size-3", meta.className)} />
+                        {meta.label}
+                      </CheckRow>
+                    );
+                  })}
+                </FilterSection>
+              )}
+
+              {moduleOpts.length > 0 && (
+                <FilterSection title="Module">
+                  {moduleOpts.map((mod) => (
+                    <CheckRow
+                      key={mod}
+                      checked={activeModules.has(mod)}
+                      count={moduleCount.get(mod) ?? 0}
+                      onToggle={() => setActiveModules((s) => toggle(s, mod))}
+                    >
+                      <span className="truncate">{mod}</span>
+                    </CheckRow>
+                  ))}
+                </FilterSection>
+              )}
+
+              {/* GP-35: hub edges are hidden by default; this restores them all. */}
+              {hubs.size > 0 && (
+                <FilterSection title="Connections">
+                  <CheckRow
+                    checked={showHubEdges}
+                    onToggle={() => setShowHubEdges((v) => !v)}
+                  >
+                    <Waypoints className="text-muted-foreground size-3" />
+                    Show hub connections
+                  </CheckRow>
+                </FilterSection>
+              )}
+
+              <button
+                type="button"
+                onClick={reset}
+                className="text-muted-foreground hover:text-foreground mt-3 inline-flex items-center gap-1 border-t border-border pt-2 text-[10px]"
+              >
+                <RotateCcw className="size-3" />
+                Reset
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* What the lines mean. An undocumented encoding is a guess the reader has
+          to make — and this diagram is supposed to be trustworthy. */}
+      <EdgeLegend variant={variant} />
 
       {selected && (
         <NodeDetailsPanel

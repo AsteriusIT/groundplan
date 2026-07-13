@@ -3,8 +3,12 @@ import { expect, it } from "vitest";
 import type { Graph } from "@/api/types";
 import {
   ALL_FILTERS,
+  categoryCounts,
   changeClasses,
+  depEdgeId,
+  ELK_ROOT_OPTIONS,
   elkToFlow,
+  moduleCounts,
   exposedNodeIds,
   neighborhood,
   networkProjection,
@@ -305,4 +309,145 @@ it("toElkGraph keeps a forced empty container as a sized frame, not a leaf", () 
   // sn holds nothing but is still a container: empty children array + a min size.
   expect(sn?.children).toEqual([]);
   expect(sn?.layoutOptions?.["elk.nodeSize.minimum"]).toBeTruthy();
+});
+
+// --- Orthogonal routing + calm resting state --------------------------------
+
+it("asks ELK to route edges orthogonally", () => {
+  // React Flow throws ELK's route away and draws a bezier unless we render the
+  // bend points ourselves — so the option and the renderer must stay in step.
+  expect(ELK_ROOT_OPTIONS["elk.edgeRouting"]).toBe("ORTHOGONAL");
+});
+
+it("hands each flow edge the route ELK computed for it", () => {
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "aws_s3.a", x: 300, y: 0, width: 220, height: 56 },
+      { id: "aws_s3.b", x: 0, y: 0, width: 220, height: 56 },
+    ],
+    edges: [
+      {
+        id: depEdgeId({ from: "aws_s3.a", to: "aws_s3.b", kind: "depends_on" }),
+        sources: ["aws_s3.b"],
+        targets: ["aws_s3.a"],
+        sections: [
+          {
+            id: "s1",
+            startPoint: { x: 220, y: 28 },
+            endPoint: { x: 300, y: 28 },
+            bendPoints: [{ x: 260, y: 28 }],
+          },
+        ],
+      },
+    ],
+  };
+
+  const { edges } = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: null,
+  });
+
+  expect(edges[0]?.data?.bends).toEqual([{ x: 260, y: 28 }]);
+});
+
+it("matches routes to edges by their endpoints, not by position in the list", () => {
+  // The layout drops hub edges and the render does not, so index-based ids drift
+  // apart — and an edge would silently inherit a different edge's route.
+  const a = depEdgeId({ from: "aws_s3.a", to: "aws_s3.b", kind: "depends_on" });
+  const b = depEdgeId({ from: "aws_s3.b", to: "aws_s3.a", kind: "depends_on" });
+  expect(a).not.toBe(b);
+  expect(depEdgeId({ from: "aws_s3.a", to: "aws_s3.b", kind: "depends_on" })).toBe(a);
+});
+
+it("lights the hovered node's edges and pushes the rest back", () => {
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "aws_s3.a", x: 0, y: 0, width: 220, height: 56 },
+      { id: "aws_s3.b", x: 300, y: 0, width: 220, height: 56 },
+      {
+        id: "module.net",
+        x: 0,
+        y: 120,
+        width: 260,
+        height: 120,
+        children: [{ id: "module.net.aws_vpc.v", x: 16, y: 36, width: 220, height: 56 }],
+      },
+    ],
+  };
+
+  // At rest nothing is singled out: no node dimmed, no edge lit.
+  const resting = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: null,
+  });
+  expect(resting.edges[0]?.data?.active).toBe(false);
+  expect(resting.edges[0]?.data?.dimmed).toBe(false);
+
+  // Hovering focuses exactly as selecting does — the diagram answers the pointer.
+  const hovered = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: null,
+    hoveredId: "aws_s3.a",
+  });
+  expect(hovered.edges[0]?.data?.active).toBe(true);
+  // A resource unrelated to the hovered node recedes.
+  expect(hovered.nodes.find((n) => n.id === "module.net.aws_vpc.v")?.data.dimmed).toBe(
+    true,
+  );
+
+  // A selection is sticky: hovering elsewhere must not yank you out of it.
+  const pinned = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: "aws_s3.a",
+    hoveredId: "aws_s3.b",
+  });
+  expect(pinned.nodes.find((n) => n.id === "aws_s3.a")?.data.selected).toBe(true);
+});
+
+it("counts what each filter option covers", () => {
+  expect(moduleCounts(graph).get("root")).toBe(2); // the two buckets
+  expect(moduleCounts(graph).get("net")).toBe(1); // the vpc inside module.net
+
+  // Module nodes are structure, not resources — they never appear in a count.
+  const resources = graph.nodes.filter((n) => n.type !== "module").length;
+  const total = [...categoryCounts(graph).values()].reduce((a, b) => a + b, 0);
+  expect(total).toBe(resources);
+});
+
+it("hovering a hub reveals the connections it hides at rest (GP-35)", () => {
+  const hubGraph: Graph = {
+    version: 1,
+    nodes: [
+      { id: "rg", name: "rg", type: "azurerm_resource_group", provider: "azurerm", module_path: [], change: null },
+      { id: "a", name: "a", type: "aws_s3", provider: "aws", module_path: [], change: null },
+    ],
+    edges: [{ from: "a", to: "rg", kind: "depends_on" }],
+  };
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "rg", x: 0, y: 0, width: 220, height: 56 },
+      { id: "a", x: 300, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const hubs = new Set(["rg"]);
+
+  const resting = elkToFlow(layout, hubGraph, {
+    activeFilters: allFilters,
+    selectedId: null,
+    hubs,
+  });
+  expect(resting.edges).toHaveLength(0); // the hub's edge wall stays down
+
+  const hovered = elkToFlow(layout, hubGraph, {
+    activeFilters: allFilters,
+    selectedId: null,
+    hoveredId: "rg",
+    hubs,
+  });
+  // Pointing at the hub is how you ask what it connects to. Lighting its
+  // neighbours while drawing no line to them would be a worse lie than hiding both.
+  expect(hovered.edges).toHaveLength(1);
 });

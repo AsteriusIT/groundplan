@@ -1,13 +1,25 @@
 /**
- * Edge design v3 (GP-30). A custom React Flow edge coloured by relationship —
- * new dependency (target created) green, removed (endpoint deleted) red dashed,
- * impact-carrying violet, plain dependency neutral grey — with a matching
- * arrowhead. Inferred (expression-derived) edges stay dashed (GP-20). A label
- * pill renders only when the edge carries information (`data.label`); plain deps
- * carry nothing. All colours are tokens (stroke-… and fill-… classes).
+ * Edge design v3 (GP-30), routed orthogonally.
+ *
+ * Colour comes from the relationship to the change set — new dependency green,
+ * removed red, impact-carrying violet, plain dependency neutral — with a matching
+ * arrowhead. An expression-inferred dependency (GP-20) is dashed *and* drawn in a
+ * fainter tone than an explicit `depends_on`: one encoding is a legend entry
+ * people forget, two is a difference you can see at a crossing.
+ *
+ * The route itself is ELK's (right-angle bend points, see lib/edge-path) — React
+ * Flow's own bezier would cross its neighbours at arbitrary angles, which is what
+ * turns a dense right-hand side into a cable bundle. Edges with no ELK route (hub
+ * edges, annotation links) fall back to a curve.
+ *
+ * The resting state is calm on purpose. A plain dependency sits at a third
+ * opacity; pointing at a node raises *its* edges to full and pushes everything
+ * else back. Diff-coloured edges never fade into the background — they are the
+ * signal a plan view exists for.
  */
 import { EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
 
+import { orthogonalMid, orthogonalPath, type Point } from "@/lib/edge-path";
 import type { EdgeRel } from "@/lib/graph-layout";
 import { cn } from "@/lib/utils";
 
@@ -25,15 +37,42 @@ const MARKER: Record<EdgeRel, string> = {
   neutral: "url(#gp-arrow-neutral)",
 };
 
+/** At rest: structure recedes, change stays legible. */
+const RESTING_OPACITY: Record<EdgeRel, number> = {
+  new: 0.9,
+  removed: 0.9,
+  impact: 0.9,
+  neutral: 0.35,
+};
+
+const DIMMED_OPACITY = 0.06;
+
 type EdgeData = {
   rel?: EdgeRel;
   dimmed?: boolean;
+  /** This edge touches the focused (hovered or selected) node — draw it fully. */
+  active?: boolean;
   inferred?: boolean;
+  /** ELK's right-angle bend points, in flow coordinates. */
+  bends?: Point[];
   /** Optional relationship label (e.g. a port or kind); absent for plain deps. */
   label?: string;
   /** GP-58: a human annotation link — dashed, accent-toned, no arrowhead. */
   annotation?: boolean;
 };
+
+function edgeOpacity(d: EdgeData, rel: EdgeRel): number {
+  if (d.dimmed) return DIMMED_OPACITY;
+  if (d.active) return 1;
+  return RESTING_OPACITY[rel];
+}
+
+/** Stroke token: annotation accent, the faint tone for an inferred reference, or the relationship's colour. */
+function edgeStroke(d: EdgeData, rel: EdgeRel): string {
+  if (d.annotation) return "stroke-primary";
+  if (d.inferred && rel === "neutral") return "stroke-edge-inferred";
+  return STROKE[rel];
+}
 
 export function RelationshipEdge({
   sourceX,
@@ -48,28 +87,50 @@ export function RelationshipEdge({
   const rel = d.rel ?? "neutral";
   const annotation = d.annotation === true;
   const dashed = annotation || rel === "removed" || d.inferred === true;
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  });
+
+  const source: Point = { x: sourceX, y: sourceY };
+  const target: Point = { x: targetX, y: targetY };
+  // An annotation link is a human relationship drawn over the generated diagram;
+  // it never went through ELK, so it keeps its curve.
+  const routed = !annotation && d.bends !== undefined;
+
+  let edgePath: string;
+  let labelX: number;
+  let labelY: number;
+  if (routed) {
+    edgePath = orthogonalPath(source, target, d.bends ?? []);
+    ({ labelX, labelY } = orthogonalMid(source, target, d.bends ?? []));
+  } else {
+    [edgePath, labelX, labelY] = getBezierPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+    });
+  }
+
+  const stroke = edgeStroke(d, rel);
 
   return (
     <>
       <path
         d={edgePath}
+        fill="none"
         // Annotation links carry no arrowhead — they are human relationships,
         // not generated dependencies (GP-58).
         markerEnd={annotation || d.dimmed ? undefined : MARKER[rel]}
         className={cn(
           "react-flow__edge-path",
-          annotation ? "stroke-primary" : STROKE[rel],
+          stroke,
           dashed && "[stroke-dasharray:6_4]",
         )}
-        style={{ strokeWidth: 1.5, opacity: d.dimmed ? 0.12 : 1 }}
+        style={{
+          strokeWidth: d.active ? 2 : 1.5,
+          opacity: edgeOpacity(d, rel),
+          transition: "opacity 120ms ease-out, stroke-width 120ms ease-out",
+        }}
       />
       {d.label && !d.dimmed && (
         <EdgeLabelRenderer>
