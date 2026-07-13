@@ -116,12 +116,20 @@ test("enforces per-type anchor counts", async () => {
     });
     assert.equal(linkOne.statusCode, 422);
 
+    // A group of one is legitimate (GP-71): one resource can be a system on its
+    // own, and a group whose siblings are hidden must not become invalid.
     const groupOne = await create(app, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.a"],
       label: "x",
     });
-    assert.equal(groupOne.statusCode, 422);
+    assert.equal(groupOne.statusCode, 201);
+
+    const hideTwo = await create(app, repoId, {
+      type: "hide",
+      anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b"],
+    });
+    assert.equal(hideTwo.statusCode, 422);
 
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {
@@ -148,16 +156,25 @@ test("rejects invalid Terraform address format with a clear message", async () =
   }
 });
 
-test("requires a label for link/group and rejects a body on non-notes", async () => {
+test("requires a label for group/rename and rejects a body on non-notes", async () => {
   const app = await buildApp(env);
   try {
     const { projectId, repoId } = await createRepo(app);
 
+    // A logical edge's label is optional (GP-71) — saying *that* two things are
+    // joined is worth drawing even when you have no name for the relationship.
     const noLabel = await create(app, repoId, {
       type: "link",
       anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b"],
     });
-    assert.equal(noLabel.statusCode, 422);
+    assert.equal(noLabel.statusCode, 201);
+    assert.equal(noLabel.json().label, null);
+
+    const renameNoLabel = await create(app, repoId, {
+      type: "rename",
+      anchors: ["aws_s3_bucket.a"],
+    });
+    assert.equal(renameNoLabel.statusCode, 422);
 
     const bodyOnGroup = await create(app, repoId, {
       type: "group",
@@ -166,6 +183,150 @@ test("requires a label for link/group and rejects a body on non-notes", async ()
       body: "not allowed",
     });
     assert.equal(bodyOnGroup.statusCode, 422);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("creates hide and rename annotations, human-provenanced by default", async () => {
+  const app = await buildApp(env);
+  try {
+    const { projectId, repoId } = await createRepo(app);
+
+    const hide = await create(app, repoId, {
+      type: "hide",
+      anchors: ["aws_s3_bucket.a"],
+      createdFromSha: "abc1234",
+    });
+    assert.equal(hide.statusCode, 201);
+    assert.equal(hide.json().provenance, "human");
+    assert.equal(hide.json().status, "resolved");
+    assert.equal(hide.json().createdFromSha, "abc1234");
+
+    const rename = await create(app, repoId, {
+      type: "rename",
+      anchors: ["aws_s3_bucket.a"],
+      label: "Customer uploads",
+    });
+    assert.equal(rename.statusCode, 201);
+    assert.equal(rename.json().label, "Customer uploads");
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("a logical edge may anchor to a group id", async () => {
+  const app = await buildApp(env);
+  try {
+    const { projectId, repoId } = await createRepo(app);
+
+    const group = await create(app, repoId, {
+      type: "group",
+      anchors: ["aws_s3_bucket.a"],
+      label: "Payments",
+    });
+    const edge = await create(app, repoId, {
+      type: "link",
+      anchors: [group.json().id, "aws_s3_bucket.b"],
+      label: "publishes to",
+    });
+    assert.equal(edge.statusCode, 201);
+
+    // ...but only a link may. A note anchored to a uuid is not a Terraform address.
+    const note = await create(app, repoId, {
+      type: "note",
+      anchors: [group.json().id],
+      body: "x",
+    });
+    assert.equal(note.statusCode, 422);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("groups nest one level — a grandchild group is rejected", async () => {
+  const app = await buildApp(env);
+  try {
+    const { projectId, repoId } = await createRepo(app);
+
+    const parent = await create(app, repoId, {
+      type: "group",
+      anchors: ["aws_s3_bucket.a"],
+      label: "Platform",
+    });
+    const child = await create(app, repoId, {
+      type: "group",
+      anchors: ["aws_s3_bucket.b"],
+      label: "Payments",
+      parentGroupId: parent.json().id,
+    });
+    assert.equal(child.statusCode, 201);
+    assert.equal(child.json().parentGroupId, parent.json().id);
+
+    const grandchild = await create(app, repoId, {
+      type: "group",
+      anchors: ["aws_s3_bucket.c"],
+      label: "Ledger",
+      parentGroupId: child.json().id,
+    });
+    assert.equal(grandchild.statusCode, 422);
+    assert.match(grandchild.json().message, /one level/i);
+
+    // Only groups nest.
+    const nestedNote = await create(app, repoId, {
+      type: "note",
+      anchors: ["aws_s3_bucket.a"],
+      body: "x",
+      parentGroupId: parent.json().id,
+    });
+    assert.equal(nestedNote.statusCode, 422);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("?snapshotId= re-resolves anchors on demand without persisting", async () => {
+  const app = await buildApp(env);
+  try {
+    const { projectId, repoId } = await createRepo(app);
+    const created = await create(app, repoId, {
+      type: "note",
+      anchors: ["aws_s3_bucket.a"],
+      body: "x",
+    });
+    assert.equal(created.json().status, "resolved");
+
+    // A snapshot in which the anchored address does not exist.
+    const snapshot = await insertGraphSnapshot(app.db, {
+      repositoryId: repoId,
+      source: "hcl",
+      ref: "refs/heads/main",
+      commitSha: "sha-empty",
+      graph: graph(["aws_s3_bucket.other"]),
+    });
+
+    const against = await app.inject({
+      method: "GET",
+      url: `/api/v1/repositories/${repoId}/annotations?snapshotId=${snapshot.id}`,
+    });
+    assert.equal(against.statusCode, 200);
+    assert.equal(against.json()[0].status, "orphaned");
+    assert.deepEqual(against.json()[0].missingAnchors, ["aws_s3_bucket.a"]);
+
+    // The stored row is untouched — a GET decides nothing.
+    const stored = await app.inject({
+      method: "GET",
+      url: `/api/v1/annotations/${created.json().id}`,
+    });
+    assert.equal(stored.json().status, "resolved");
 
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {

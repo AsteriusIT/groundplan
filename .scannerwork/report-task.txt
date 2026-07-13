@@ -1,0 +1,6 @@
+projectKey=groundplan
+serverUrl=http://localhost:9001
+serverVersion=26.7.0.124771
+dashboardUrl=http://localhost:9001/dashboard?id=groundplan
+ceTaskId=f606d14b-fe32-4ef4-a6fe-1e147b160fbe
+ceTaskUrl=http://localhost:9001/api/ce/task?id=f606d14b-fe32-4ef4-a6fe-1e147b160fbe

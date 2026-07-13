@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker version *)",
+      "Bash(docker compose *)",
+      "Bash(git commit -q -m 'docs: spec for docs viewer header redesign *)",
+      "Bash(pnpm vitest *)"
+    ]
+  }
+}

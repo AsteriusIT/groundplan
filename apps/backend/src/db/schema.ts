@@ -14,6 +14,7 @@ import {
   timestamp,
   unique,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 import type { Graph, GraphStats } from "../graph/graph.js";
@@ -283,26 +284,53 @@ export const pullRequests = pgTable(
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 
+/**
+ * The five annotation kinds (GP-71). `link` is the epic's **logical_edge** — the
+ * name predates it (GP-56) and means exactly the same thing: a human-drawn edge
+ * the generated graph cannot know about. It is kept rather than renamed, because
+ * renaming an enum value rewrites the type and would strand existing rows.
+ */
 export const annotationType = pgEnum("annotation_type", [
   "note",
   "link",
   "group",
-]);
-
-export const annotationStatus = pgEnum("annotation_status", [
-  "resolved",
-  "orphaned",
+  "hide",
+  "rename",
 ]);
 
 /**
- * A human annotation layer (GP-56), stored per repository and kept strictly
- * separate from the generated GraphSnapshot (ADR #4). Three types, all anchored
- * to Terraform addresses (a node's `id`):
- *   - `note`  — 1 anchor, free markdown `body`.
- *   - `link`  — exactly 2 anchors (source, dest) + `label`.
- *   - `group` — 2+ anchors + `label`.
- * `status` is owned by reconciliation (GP-57): an anchor whose address no longer
- * exists in the latest snapshot flips the annotation to `orphaned`.
+ * `resolved` is the epic's **accepted**: the annotation is live and every anchor
+ * points at a node that exists. `proposed` (GP-75) is an AI suggestion awaiting a
+ * human decision — nothing but an explicit PATCH ever moves it out of that state.
+ * `orphaned` (GP-57) means an anchored address vanished from the latest snapshot.
+ */
+export const annotationStatus = pgEnum("annotation_status", [
+  "resolved",
+  "orphaned",
+  "proposed",
+]);
+
+/** Who authored the annotation: a person, or the proposer model (GP-75). */
+export const annotationProvenance = pgEnum("annotation_provenance", [
+  "human",
+  "ai",
+]);
+
+/**
+ * A human annotation layer (GP-56, extended GP-71), stored per repository and
+ * kept strictly separate from the generated GraphSnapshot (ADR #4). Five types,
+ * anchored to Terraform addresses (a node's `id`):
+ *   - `note`   — 1 anchor, free markdown `body`.
+ *   - `link`   — exactly 2 anchors + optional `label` (the logical edge). Each
+ *                anchor is a Terraform address *or* the id of a `group`
+ *                annotation, which is how a group→group edge is expressed.
+ *   - `group`  — 1+ anchors + `label`; nests one level via `parentGroupId`.
+ *   - `hide`   — 1 anchor; drops the node from the adapted projection (GP-72).
+ *   - `rename` — 1 anchor + `label`; the node's display label in the projection.
+ *
+ * `status` is owned by reconciliation (GP-57/GP-71): an anchor whose address no
+ * longer exists flips the annotation to `orphaned`. Orphaning is a status flip,
+ * never a delete, and it reverses itself if the address comes back.
  */
 export const annotations = pgTable("annotations", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -312,11 +340,29 @@ export const annotations = pgTable("annotations", {
   type: annotationType("type").notNull(),
   /** Terraform addresses this annotation is anchored to (node ids). */
   anchors: jsonb("anchors").$type<string[]>().notNull(),
-  /** Required for link/group; optional label for a note. */
+  /** Required for group/rename; optional for link and note. */
   label: text("label"),
   /** Markdown body — notes only. */
   body: text("body"),
   status: annotationStatus("status").notNull().default("resolved"),
+  provenance: annotationProvenance("provenance").notNull().default("human"),
+  /**
+   * The commit the annotation was made against (GP-71) — provenance for a human
+   * reviewing a stale or orphaned annotation ("this was drawn on a tree that no
+   * longer looks like this"). Never used to re-anchor automatically.
+   */
+  createdFromSha: text("created_from_sha"),
+  /**
+   * The group this group nests inside (`group` annotations only). Groups nest
+   * **one level**: a group whose parent already has a parent is rejected (422),
+   * which keeps the C4 mapping honest — top-level groups are systems, their
+   * children are containers (GP-77). Deleting a parent un-nests its children
+   * rather than deleting them — an annotation is never removed on our initiative.
+   */
+  parentGroupId: uuid("parent_group_id").references(
+    (): AnyPgColumn => annotations.id,
+    { onDelete: "set null" },
+  ),
   /**
    * Anchors whose Terraform address no longer exists in the latest snapshot
    * (GP-57). Empty when `status` is `resolved`; populated by reconciliation so
@@ -347,6 +393,9 @@ export type PublicAnnotation = {
   label: string | null;
   body: string | null;
   status: (typeof annotationStatus.enumValues)[number];
+  provenance: (typeof annotationProvenance.enumValues)[number];
+  createdFromSha: string | null;
+  parentGroupId: string | null;
   /** Anchors gone missing in the latest snapshot; empty when resolved (GP-57). */
   missingAnchors: string[];
   createdBy: string | null;
@@ -364,6 +413,9 @@ export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
     label: row.label,
     body: row.body,
     status: row.status,
+    provenance: row.provenance,
+    createdFromSha: row.createdFromSha,
+    parentGroupId: row.parentGroupId,
     missingAnchors: row.missingAnchors,
     createdBy: row.createdBy,
     createdAt: row.createdAt,

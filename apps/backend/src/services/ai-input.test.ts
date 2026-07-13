@@ -315,32 +315,33 @@ test("standing risks name what is exposed and what is privileged", () => {
 
 test("annotations are quoted, and flagged as the authority they are", () => {
   const now = new Date();
+  const base: Omit<AnnotationRow, "id" | "type" | "anchors" | "label" | "body"> = {
+    repositoryId: "r1",
+    status: "resolved",
+    provenance: "human",
+    createdFromSha: null,
+    parentGroupId: null,
+    missingAnchors: [],
+    createdBy: null,
+    createdAt: now,
+    updatedAt: now,
+  };
   const rows: AnnotationRow[] = [
     {
+      ...base,
       id: "a1",
-      repositoryId: "r1",
       type: "note",
       anchors: ["azurerm_linux_virtual_machine.web"],
       label: null,
       body: "Serves the public storefront.\nOn-call: payments team.",
-      status: "resolved",
-      missingAnchors: [],
-      createdBy: null,
-      createdAt: now,
-      updatedAt: now,
     },
     {
+      ...base,
       id: "a2",
-      repositoryId: "r1",
       type: "group",
       anchors: ["azurerm_subnet.public", "azurerm_network_security_group.edge"],
       label: "Edge tier",
       body: null,
-      status: "resolved",
-      missingAnchors: [],
-      createdBy: null,
-      createdAt: now,
-      updatedAt: now,
     },
   ];
 
