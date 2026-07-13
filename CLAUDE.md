@@ -265,6 +265,49 @@ Local dev needs Postgres up first: `docker compose up -d`.
     with the model name, and absent entirely when the flag is off. Model Markdown
     renders through `AiResponse` (react-markdown, no `rehype-raw`) — treat model
     output as untrusted input, never as HTML. Share links never show AI content.
+- **Annotation layer & adapted diagrams (GP-56..GP-59, GP-71..GP-77):** what a
+  human (or the proposer) says about the estate, stored strictly _beside_ the
+  generated snapshot and never inside it (ADR #4).
+  - **Five types**, all in one `annotations` table, anchored to Terraform
+    addresses: `note` (1 anchor + markdown body), `link` (2 anchors + optional
+    label — this _is_ the epic's "logical_edge"; an anchor may be a **group's id**
+    instead of an address, which is how a group→group edge is said), `group` (1+
+    anchors + label; nests **one level** via `parent_group_id`, which is what makes
+    the C4 mapping honest), `hide` (1 anchor), `rename` (1 anchor + label).
+  - `status`: `resolved` (= accepted/live), `orphaned` (an anchor's address
+    vanished — GP-57 reconciliation owns this; it is a status flip, never a
+    delete, and it reverses itself), `proposed` (an AI suggestion, GP-75).
+    `provenance` (`human` | `ai`) is permanent — an accepted AI annotation still
+    says where it came from. **Nothing but an explicit PATCH moves a proposal to
+    `resolved`**; reconciliation skips proposals entirely, by design.
+  - **The projection is the whole point (GP-72).** `graph/adapted.ts` is a pure
+    fold: `projectAdapted(graph, annotations) → Graph`, exposed as
+    `GET /snapshots/:id/adapted`. It returns an **ordinary GraphSnapshot**, so the
+    renderer draws an adapted diagram knowing nothing about annotations (ADR #2).
+    Only `resolved` annotations participate. Nothing dangles: a hidden node takes
+    its edges with it, and a group whose last member is hidden is dropped.
+  - **C4 (GP-77):** `?granularity=group` collapses it to one node per top-level
+    group, aggregating inter-group edges (with a count) and dropping intra-group
+    ones; `?expandGroup=<annotation id>` opens one in place. Module containers are
+    dropped at that altitude, and ungrouped resources collapse into an
+    "Ungrouped (n)" bucket past 5.
+  - Graph schema **v5** carries the additions (`logical` edge kind, edge
+    `label`/`count`, node `display_label`/`notes`/`annotation_group`/
+    `member_count`) — all optional, so v1..v4 stay valid.
+  - Frontend: `?view=` switches `infra` (raw) / `adapted` / `c4` / `network` /
+    `iam`. **You annotate on the raw view only** — editing through a lens that
+    already hides and renames things is how you annotate your own annotations.
+    Proposals are never drawn on the canvas (`renderableAnnotations` filters them);
+    they live in the `ProposalInbox` until a human answers them.
+- **AI proposer (GP-75):** `POST /snapshots/:id/annotation-proposals` (docs
+  snapshots only). Same rails as the rest of the AI layer — versioned prompt file,
+  `ai_generations` cache (so a second ask costs nothing), injectable provider, and
+  `AI_API_KEY` as the only flag (404 when off). Every anchor it returns must exist
+  in the snapshot or the proposal is dropped; a response that is not JSON is a 502
+  and stores **nothing**, cache included. Proposals never duplicate an existing
+  annotation in any status. Each carries a one-sentence `reason`, shown to the
+  reviewer — a suggestion you judge without knowing why it was made is one you
+  rubber-stamp.
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,
