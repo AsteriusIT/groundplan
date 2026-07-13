@@ -4,7 +4,6 @@ import { Boxes, LayoutDashboard, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Logo } from "./logo";
-import { ThemeSwitcher } from "./theme-switcher";
 import { UserCard } from "./user-card";
 
 type NavEntry = {
@@ -55,13 +54,7 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="px-3 pb-2">
-        <p className="text-muted-foreground px-2 pb-1.5 font-mono text-[10px] font-medium tracking-[0.12em] uppercase">
-          Theme
-        </p>
-        <ThemeSwitcher />
-      </div>
-
+      {/* The theme picker lives in Settings only — the sidebar is navigation. */}
       <UserCard />
     </aside>
   );

@@ -81,7 +81,7 @@ function AppearanceCard() {
       description="Applies immediately and is remembered on this device."
     >
       <div className="flex items-center gap-6">
-        <ThemeSwitcher labelled className="w-80 shrink-0" />
+        <ThemeSwitcher className="w-80 shrink-0" />
         <p className="text-muted-foreground text-sm">{THEME_BLURB[theme]}</p>
       </div>
     </Section>

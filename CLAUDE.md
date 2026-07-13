@@ -161,7 +161,8 @@ Local dev needs Postgres up first: `docker compose up -d`.
   only caller of `GET /dashboard` (GP-67) — stat cards, recent PRs (change chips +
   `Exposed`/`Privileged` risk badges), recent docs; a fresh user gets one CTA, not
   empty tables. `/settings` is deliberately thin: account (read-only, from the
-  token), appearance (the `ThemeSwitcher`, `labelled`), and a **read-only** AI
+  token), appearance (the `ThemeSwitcher` — Settings is its _only_ home; the
+  sidebar is navigation, nothing else), and a **read-only** AI
   status card. That card is the one AI surface that still renders when the layer
   is off — it is a readout of server config, not AI content, and "why is there no
   AI anywhere?" is exactly what Settings should answer. Never add a key input:

@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
  * Segmented three-way theme picker: light "drafting paper", the cyanotype
  * "blueprint" dark, and the near-neutral "carbon" dark. The active segment is
  * highlighted; each writes through to the shared ThemeProvider.
+ *
+ * Lives on the Settings page only (GP-69) — the sidebar is for navigation.
  */
 const OPTIONS: { theme: Theme; label: string; icon: LucideIcon }[] = [
   { theme: "light", label: "Light", icon: Sun },
@@ -14,15 +16,7 @@ const OPTIONS: { theme: Theme; label: string; icon: LucideIcon }[] = [
   { theme: "carbon", label: "Carbon", icon: Moon },
 ];
 
-export function ThemeSwitcher({
-  className,
-  /** Spell the themes out — for Settings, where this is the primary control
-   * rather than the sidebar shortcut (GP-69). */
-  labelled = false,
-}: {
-  className?: string;
-  labelled?: boolean;
-}) {
+export function ThemeSwitcher({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
 
   return (
@@ -52,7 +46,7 @@ export function ThemeSwitcher({
             )}
           >
             <Icon className="size-4" />
-            {labelled && <span className="text-xs font-medium">{label}</span>}
+            <span className="text-xs font-medium">{label}</span>
           </button>
         );
       })}
