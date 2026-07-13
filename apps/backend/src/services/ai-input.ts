@@ -12,7 +12,7 @@
  * bytes we send are golden-testable without a model in the loop.
  */
 import type { AnnotationRow, RepositoryRow } from "../db/schema.js";
-import { categorize, CATEGORY_LABEL } from "../graph/categories.js";
+import { categorize, CATEGORY_LABEL, shortType } from "../graph/categories.js";
 import type { Graph, GraphNode } from "../graph/graph.js";
 
 /** The human-written context (GP-60) around a repository and its project. */
@@ -146,6 +146,110 @@ export function buildPrSummaryInput(input: PrSummaryInput): string {
     .join("\n\n");
 }
 
+/** `- Compute: 4 (linux_virtual_machine ×3, kubernetes_cluster)` — the inventory. */
+export function inventorySection(nodes: GraphNode[]): string[] {
+  const byCategory = new Map<string, Map<string, number>>();
+
+  for (const node of nodes) {
+    if (!isResource(node)) continue;
+    const label = CATEGORY_LABEL[categorize(node.type)];
+    const types = byCategory.get(label) ?? new Map<string, number>();
+    const short = shortType(node.type);
+    types.set(short, (types.get(short) ?? 0) + 1);
+    byCategory.set(label, types);
+  }
+  if (byCategory.size === 0) return [];
+
+  const rows = [...byCategory.entries()].map(([label, types]) => {
+    const total = [...types.values()].reduce((sum, k) => sum + k, 0);
+    const parts = [...types.entries()]
+      .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+      .map(([type, k]) => (k > 1 ? `${type} ×${k}` : type));
+    return { total, label, line: `- ${label}: ${total} (${parts.join(", ")})` };
+  });
+
+  rows.sort((a, b) => b.total - a.total || (a.label < b.label ? -1 : 1));
+  return ["## What is in here (by category)", ...rows.map((r) => r.line)];
+}
+
+/** The Terraform modules the system is decomposed into — its authored structure. */
+export function moduleSection(nodes: GraphNode[]): string[] {
+  const modules = nodes
+    .filter((n) => n.type === "module")
+    .map((n) => n.id)
+    .sort((a, b) => (a < b ? -1 : 1));
+  if (modules.length === 0) return [];
+  return ["## Modules", ...modules.map((m) => `- \`${m}\``)];
+}
+
+/**
+ * The network shape (GP-42): what sits inside what. This is the single most
+ * useful thing for "how do these blocks talk to each other" — a flat resource
+ * list can't say that a VM is inside a subnet inside a vnet.
+ */
+export function containmentSection(nodes: GraphNode[]): string[] {
+  const childrenOf = new Map<string, GraphNode[]>();
+  for (const node of nodes) {
+    if (!node.parent_id) continue;
+    const siblings = childrenOf.get(node.parent_id) ?? [];
+    siblings.push(node);
+    childrenOf.set(node.parent_id, siblings);
+  }
+  if (childrenOf.size === 0) return [];
+
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  // Roots: containers that are not themselves contained (a vnet, typically).
+  const roots = [...childrenOf.keys()]
+    .filter((id) => !byId.get(id)?.parent_id)
+    .sort((a, b) => (a < b ? -1 : 1));
+
+  const lines: string[] = [];
+  const walk = (id: string, depth: number): void => {
+    const kids = (childrenOf.get(id) ?? [])
+      .slice()
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    for (const kid of kids) {
+      const grandkids = childrenOf.get(kid.id);
+      const count = grandkids
+        ? ` — contains ${grandkids.length} ${grandkids.length === 1 ? "resource" : "resources"}`
+        : "";
+      lines.push(`${"  ".repeat(depth)}- \`${kid.id}\`${count}`);
+      // Two levels of nesting (vnet ⊃ subnet) is the shape; below that we
+      // summarise with the count above rather than listing every VM.
+      if (depth < 1) walk(kid.id, depth + 1);
+    }
+  };
+
+  for (const root of roots) {
+    lines.push(`- \`${root}\``);
+    walk(root, 1);
+  }
+  return ["## Network containment (what sits inside what)", ...lines];
+}
+
+/** Standing exposure and privilege in the system as documented (not a change). */
+export function standingRiskSection(nodes: GraphNode[]): string[] {
+  const exposed = nodes.filter((n) => n.internet_exposed === true).sort(byId);
+  const privileged = nodes.filter((n) => n.privileged === true).sort(byId);
+  if (exposed.length === 0 && privileged.length === 0) return [];
+
+  const lines: string[] = [];
+  for (const node of exposed) {
+    const attached = node.associated_ids?.length
+      ? ` — attached to ${node.associated_ids.map((a) => `\`${a}\``).join(", ")}`
+      : "";
+    lines.push(`- Reachable from the internet: \`${node.id}\`${attached}`);
+  }
+  for (const node of privileged) {
+    const role = node.role_assignment;
+    const grant = role
+      ? ` — grants \`${role.role}\` to \`${role.principal}\` on \`${role.scope}\``
+      : "";
+    lines.push(`- Privileged IAM grant: \`${node.id}\`${grant}`);
+  }
+  return ["## Points of attention (derived by rules, not opinion)", ...lines];
+}
+
 export type DocsExplainInput = {
   repo: Pick<RepositoryRow, "url" | "defaultBranch">;
   graph: Graph;
@@ -155,11 +259,14 @@ export type DocsExplainInput = {
 };
 
 /**
- * The newcomer's brief for a docs snapshot. GP-65 enriches this with the module
- * list, network containment and the exposure/privilege flags.
+ * The newcomer's brief for a docs snapshot (GP-65): the inventory, the authored
+ * structure, the network shape, the standing risks — and, crucially, whatever
+ * the humans wrote down, which is the only part Terraform cannot tell us.
  */
 export function buildDocsExplainInput(input: DocsExplainInput): string {
-  const resources = input.graph.nodes.filter((n) => n.type !== "module");
+  const nodes = input.graph.nodes;
+  const resources = nodes.filter(isResource);
+
   const blocks: string[][] = [
     ["# Infrastructure documentation"],
     [
@@ -167,6 +274,10 @@ export function buildDocsExplainInput(input: DocsExplainInput): string {
       `- Source: \`${input.repo.url}\` (branch \`${input.repo.defaultBranch}\`)`,
       `- Resources: ${resources.length}`,
     ],
+    inventorySection(nodes),
+    moduleSection(nodes),
+    containmentSection(nodes),
+    standingRiskSection(nodes),
     contextSection(input.context),
     annotationSection(input.annotations),
   ];

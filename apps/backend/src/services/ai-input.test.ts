@@ -1,8 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildPrSummaryInput, type ContextInput } from "./ai-input.js";
+import {
+  buildDocsExplainInput,
+  buildPrSummaryInput,
+  type ContextInput,
+} from "./ai-input.js";
 import { summarize } from "../graph/summarize.js";
+import type { AnnotationRow } from "../db/schema.js";
 import type { Graph } from "../graph/graph.js";
 
 const NO_CONTEXT: ContextInput = {
@@ -198,4 +203,163 @@ test("empty context contributes no section", () => {
   });
   assert.doesNotMatch(input, /Project context/);
   assert.doesNotMatch(input, /Repository context/);
+});
+
+// --- GP-65: the docs "explain this infrastructure" brief --------------------
+
+/** A small but complete system: modules, a vnet ⊃ subnet ⊃ VM, and both flags. */
+const DOCS_GRAPH: Graph = {
+  version: 4,
+  nodes: [
+    { id: "module.network", name: "network", type: "module", provider: null, module_path: [], change: null },
+    { id: "module.app", name: "app", type: "module", provider: null, module_path: [], change: null },
+    {
+      id: "azurerm_virtual_network.main",
+      name: "main",
+      type: "azurerm_virtual_network",
+      provider: "azurerm",
+      module_path: ["network"],
+      change: null,
+    },
+    {
+      id: "azurerm_subnet.public",
+      name: "public",
+      type: "azurerm_subnet",
+      provider: "azurerm",
+      module_path: ["network"],
+      change: null,
+      parent_id: "azurerm_virtual_network.main",
+    },
+    {
+      id: "azurerm_linux_virtual_machine.web",
+      name: "web",
+      type: "azurerm_linux_virtual_machine",
+      provider: "azurerm",
+      module_path: ["app"],
+      change: null,
+      parent_id: "azurerm_subnet.public",
+    },
+    {
+      id: "azurerm_network_security_group.edge",
+      name: "edge",
+      type: "azurerm_network_security_group",
+      provider: "azurerm",
+      module_path: ["network"],
+      change: null,
+      internet_exposed: true,
+      associated_ids: ["azurerm_subnet.public"],
+    },
+    {
+      id: "azurerm_role_assignment.admin",
+      name: "admin",
+      type: "azurerm_role_assignment",
+      provider: "azurerm",
+      module_path: [],
+      change: null,
+      privileged: true,
+      role_assignment: {
+        role: "Contributor",
+        principal: "azurerm_user_assigned_identity.ci",
+        scope: "/subscriptions/xyz",
+      },
+    },
+  ],
+  edges: [],
+};
+
+const REPO = { url: "https://example.com/acme/infra.git", defaultBranch: "main" };
+
+function buildDocs(rows: AnnotationRow[] = [], context: ContextInput = NO_CONTEXT) {
+  return buildDocsExplainInput({ repo: REPO, graph: DOCS_GRAPH, context, annotations: rows });
+}
+
+test("the docs brief inventories the system by category and lists its modules", () => {
+  const input = buildDocs();
+
+  assert.match(input, /- Resources: 5/);
+  assert.match(input, /## What is in here \(by category\)/);
+  assert.match(input, /- Network: 2 \(subnet, virtual_network\)/);
+  assert.match(input, /- Compute: 1 \(linux_virtual_machine\)/);
+  // The NSG is Security, not Network — the brief groups the way the UI colours.
+  assert.match(input, /- Security: 1 \(network_security_group\)/);
+  assert.match(input, /- Identity: 1 \(role_assignment\)/);
+  assert.match(input, /## Modules/);
+  assert.match(input, /- `module\.app`/);
+  assert.match(input, /- `module\.network`/);
+});
+
+test("network containment shows what sits inside what", () => {
+  const input = buildDocs();
+
+  assert.match(input, /## Network containment \(what sits inside what\)/);
+  // vnet ⊃ subnet ⊃ resource — the thing a flat resource list cannot say.
+  assert.match(
+    input,
+    /- `azurerm_virtual_network\.main`\n {2}- `azurerm_subnet\.public` — contains 1 resource/,
+  );
+});
+
+test("standing risks name what is exposed and what is privileged", () => {
+  const input = buildDocs();
+
+  assert.match(input, /## Points of attention/);
+  assert.match(
+    input,
+    /- Reachable from the internet: `azurerm_network_security_group\.edge` — attached to `azurerm_subnet\.public`/,
+  );
+  assert.match(
+    input,
+    /- Privileged IAM grant: `azurerm_role_assignment\.admin` — grants `Contributor` to `azurerm_user_assigned_identity\.ci` on `\/subscriptions\/xyz`/,
+  );
+});
+
+test("annotations are quoted, and flagged as the authority they are", () => {
+  const now = new Date();
+  const rows: AnnotationRow[] = [
+    {
+      id: "a1",
+      repositoryId: "r1",
+      type: "note",
+      anchors: ["azurerm_linux_virtual_machine.web"],
+      label: null,
+      body: "Serves the public storefront.\nOn-call: payments team.",
+      status: "resolved",
+      missingAnchors: [],
+      createdBy: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "a2",
+      repositoryId: "r1",
+      type: "group",
+      anchors: ["azurerm_subnet.public", "azurerm_network_security_group.edge"],
+      label: "Edge tier",
+      body: null,
+      status: "resolved",
+      missingAnchors: [],
+      createdBy: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+
+  const input = buildDocs(rows);
+
+  assert.match(input, /## Human annotations \(authoritative\)/);
+  // Newlines in a note body are flattened so one annotation stays one line.
+  assert.match(
+    input,
+    /- \[note\] `azurerm_linux_virtual_machine\.web`: Serves the public storefront\. On-call: payments team\./,
+  );
+  assert.match(
+    input,
+    /- \[group\] `azurerm_subnet\.public`, `azurerm_network_security_group\.edge` — Edge tier/,
+  );
+});
+
+test("a system with no annotations and no context has neither section", () => {
+  const input = buildDocs();
+  assert.doesNotMatch(input, /Human annotations/);
+  assert.doesNotMatch(input, /Project context/);
 });

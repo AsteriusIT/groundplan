@@ -6,6 +6,7 @@ import {
   GitCompareArrows,
   Loader2,
   RefreshCw,
+  Sparkles,
   TriangleAlert,
 } from "lucide-react";
 
@@ -37,6 +38,7 @@ import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { AnnotateToggle, useAnnotateMode } from "@/components/annotate-toolbar";
+import { AiPanel } from "@/components/ai-panel";
 import { ContextRail } from "@/components/context-section";
 import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { OrphanReview } from "@/components/orphan-review";
@@ -44,6 +46,7 @@ import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { SnapshotSelect } from "@/components/snapshot-select";
+import { useAiStatus } from "@/lib/use-ai-status";
 import { networkProjection } from "@/lib/graph-layout";
 
 type ListState =
@@ -78,6 +81,9 @@ export function DocsPage() {
   // The repository context (GP-60) rides in a right rail, closed by default —
   // the diagram, not the prose, is what this page is for.
   const [contextOpen, setContextOpen] = useState(false);
+  // GP-65: the "Explain this infrastructure" rail.
+  const [explainOpen, setExplainOpen] = useState(false);
+  const aiStatus = useAiStatus();
   const { focus } = useFocusMode();
 
   // Compare mode (GP-40): pick two snapshots to diff. Deep-linkable via ?compare.
@@ -350,6 +356,17 @@ export function DocsPage() {
                   </Button>
                 )}
                 {current && !compareMode && view === "infra" && <AnnotateToggle />}
+                {/* GP-65. Absent entirely when the AI layer is off — not disabled. */}
+                {current && aiStatus?.enabled && (
+                  <Button
+                    variant={explainOpen ? "default" : "outline"}
+                    aria-pressed={explainOpen}
+                    onClick={() => setExplainOpen((open) => !open)}
+                  >
+                    <Sparkles className="size-4" />
+                    Explain
+                  </Button>
+                )}
                 {repo && (
                   <Button
                     variant={contextOpen ? "default" : "outline"}
@@ -504,6 +521,20 @@ export function DocsPage() {
             </>
           )}
         </div>
+
+        {/* GP-65. Keyed on the snapshot: each point in the timeline keeps its own
+            explanation, so stepping back through history shows what *that*
+            snapshot was, not the newest one's prose. */}
+        {current && explainOpen && !focus && (
+          <aside className="border-border bg-card w-80 shrink-0 overflow-y-auto border-l px-4 py-4">
+            <AiPanel
+              snapshotId={current.id}
+              kind="docs_explain"
+              title="Explain this infrastructure"
+              cta="Explain this infrastructure"
+            />
+          </aside>
+        )}
 
         {repo && contextOpen && !focus && (
           <ContextRail

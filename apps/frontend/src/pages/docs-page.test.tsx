@@ -11,6 +11,8 @@ vi.mock("@/api/client", async (importOriginal) => {
     getSnapshot: vi.fn(),
     generateDocs: vi.fn(),
     diffSnapshots: vi.fn(),
+    getAiStatus: vi.fn(),
+    getAiGeneration: vi.fn(),
   };
 });
 
@@ -26,10 +28,13 @@ import {
   ApiError,
   diffSnapshots,
   generateDocs,
+  getAiGeneration,
+  getAiStatus,
   getRepository,
   getSnapshot,
   listSnapshots,
 } from "@/api/client";
+import { resetAiStatus } from "@/lib/use-ai-status";
 import type { Repository, Snapshot, SnapshotDiff, SnapshotSummary } from "@/api/types";
 import { DocsPage } from "./docs-page";
 
@@ -38,6 +43,8 @@ const listSnapshotsMock = vi.mocked(listSnapshots);
 const getSnapshotMock = vi.mocked(getSnapshot);
 const generateDocsMock = vi.mocked(generateDocs);
 const diffSnapshotsMock = vi.mocked(diffSnapshots);
+const getAiStatusMock = vi.mocked(getAiStatus);
+const getAiGenerationMock = vi.mocked(getAiGeneration);
 
 const repo: Repository = {
   id: "r1",
@@ -114,6 +121,10 @@ beforeEach(() => {
   );
   generateDocsMock.mockReset();
   diffSnapshotsMock.mockReset();
+  // The AI layer is off unless a test turns it on (GP-65).
+  resetAiStatus();
+  getAiStatusMock.mockReset().mockResolvedValue({ enabled: false, model: null });
+  getAiGenerationMock.mockReset().mockResolvedValue(null);
 });
 
 it("shows the empty state with a generate button when there is no history", async () => {
@@ -280,4 +291,43 @@ it("compares two docs snapshots (GP-40)", async () => {
   expect(await screen.findByText("+1 added")).toBeInTheDocument();
   const [baseArg, targetArg] = diffSnapshotsMock.mock.calls[0]!;
   expect(new Set([baseArg, targetArg])).toEqual(new Set(["s1", "s2"]));
+});
+
+// --- GP-65: "Explain this infrastructure" -----------------------------------
+
+it("shows no Explain button at all when the AI layer is off", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "aaa", "manual")]);
+
+  renderPage();
+  await screen.findByTestId("canvas");
+
+  // Not a disabled button — no AI affordance whatsoever.
+  expect(screen.queryByRole("button", { name: /explain/i })).not.toBeInTheDocument();
+});
+
+it("Explain opens a rail that generates prose for the selected snapshot", async () => {
+  getAiStatusMock.mockResolvedValue({ enabled: true, model: "claude-opus-4-8" });
+  listSnapshotsMock.mockResolvedValue([summary("s1", "aaa", "manual")]);
+  getAiGenerationMock.mockResolvedValue({
+    kind: "docs_explain",
+    targetId: "s1",
+    model: "claude-opus-4-8",
+    output: "This system serves the storefront.",
+    inputTokens: 10,
+    outputTokens: 5,
+    createdAt: "2026-07-13T00:00:00.000Z",
+  });
+
+  renderPage();
+  await screen.findByTestId("canvas");
+
+  // Closed by default — the diagram, not the prose, is what this page is for.
+  expect(screen.queryByText(/serves the storefront/i)).not.toBeInTheDocument();
+
+  fireEvent.click(await screen.findByRole("button", { name: /explain/i }));
+
+  expect(await screen.findByText(/serves the storefront/i)).toBeInTheDocument();
+  // The explanation is asked for by snapshot, so the timeline keeps its own.
+  expect(getAiGenerationMock).toHaveBeenCalledWith("s1", "docs_explain");
+  expect(screen.getByText(/AI-generated from the change model/i)).toBeInTheDocument();
 });

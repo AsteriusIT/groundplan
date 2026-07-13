@@ -211,6 +211,31 @@ Local dev needs Postgres up first: `docker compose up -d`.
   - Local IdP: `docker compose --profile auth up -d` (Keycloak on :8085, realm
     in `infra/keycloak/`). New protected routes need no wiring — the global hook
     already covers them; add to the exempt list only for genuinely public ones.
+- **AI layer (GP-62..GP-65):** prose _about a snapshot_, and never a substitute
+  for the deterministic view it sits beside.
+  - **`AI_API_KEY` is the feature flag.** Unset ⇒ `app.ai.model` is null, so
+    `GET /api/v1/ai/status` reports disabled, the generation routes 404, and the
+    frontend renders no AI surface at all. There is no dev default — generating
+    costs money. `AI_MODEL` defaults to `claude-opus-4-8`.
+  - Routes are uniform for both features: `GET|POST /snapshots/:id/ai/:kind`
+    (`kind` = `pr_summary` for a plan snapshot, `docs_explain` for an hcl one).
+    POST streams plain text (the AI SDK `text` protocol that `useCompletion`
+    reads); a cache hit replays the stored text with no provider call.
+  - **The model never sees a plan.json.** It sees a Markdown brief rendered from
+    our own deterministic outputs by `services/ai-input.ts` — pure functions,
+    golden-tested. Ground new generations there, not in raw payloads.
+  - Prompts are versioned **files** (`apps/backend/prompts/*.md`), never string
+    literals, and the file's content hash _is_ the prompt version — editing a
+    prompt invalidates the `ai_generations` cache with nothing to remember to
+    bump. Cache key: `(kind, target, prompt version, model)`. Failures are never
+    cached. One generation in flight per target (409 otherwise).
+  - The provider is injectable — `buildApp(env, { ai })` — so the whole layer is
+    tested offline against a stub. Never write a test that calls a real model.
+  - Frontend: one `AiPanel` serves both features; generation is always
+    user-triggered (no auto-generation on mount), always labelled AI-generated
+    with the model name, and absent entirely when the flag is off. Model Markdown
+    renders through `AiResponse` (react-markdown, no `rehype-raw`) — treat model
+    output as untrusted input, never as HTML. Share links never show AI content.
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,
