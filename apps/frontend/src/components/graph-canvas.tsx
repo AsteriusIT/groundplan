@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import {
   Background,
   BackgroundVariant,
+  Handle,
+  Position,
   ReactFlow,
   SelectionMode,
   type Edge as FlowEdge,
@@ -13,6 +15,7 @@ import {
 import ELK from "elkjs/lib/elk.bundled.js";
 import {
   ChevronDown,
+  EyeOff,
   Group,
   Link2,
   Loader2,
@@ -24,6 +27,7 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  Type,
   Waypoints,
   X,
 } from "lucide-react";
@@ -41,14 +45,19 @@ import {
   absoluteNodeBoxes,
   annotationLinkEdges,
   groupFrames,
+  groupFrameNodeId,
+  hiddenNodeIds,
   notedNodeIds,
   notesForNode,
+  renamedLabels,
   renderableAnnotations,
 } from "@/lib/annotations";
 import {
   INITIAL_TOOL,
+  isMultiSelectTool,
   linkIsReady,
   reduceTool,
+  renameIsReady,
   type AnnotateTool,
 } from "@/lib/annotate-tool";
 import { NotePanel } from "@/components/note-editor";
@@ -116,13 +125,30 @@ function ModuleNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
 
 /**
  * A group annotation (GP-58): a soft accent-toned frame with a floating label,
- * drawn behind its members. `pointer-events-none` so it never steals clicks from
- * the resources it surrounds — it is decoration, not an ELK container.
+ * drawn behind its members. The frame itself is `pointer-events-none` so it never
+ * steals clicks from the resources it surrounds — it is decoration, not an ELK
+ * container. Only its *label* is clickable, and only while the link tool is live:
+ * that is how you draw an edge from a whole group (GP-73).
  */
 function AnnotationGroupNode({ data }: NodeProps<FlowNode<GraphNodeData>>) {
+  const pickable = Boolean(data.pickable);
+  const picked = Boolean(data.picked);
   return (
-    <div className="border-primary/50 bg-primary/5 pointer-events-none h-full w-full rounded-xl border border-dashed">
-      <span className="bg-canvas text-primary absolute -top-2.5 left-3 px-1.5 font-mono text-[10px] font-medium tracking-wide">
+    <div
+      className={cn(
+        "pointer-events-none h-full w-full rounded-xl border border-dashed",
+        picked ? "border-primary bg-primary/10" : "border-primary/50 bg-primary/5",
+      )}
+    >
+      {/* Handles let a group→group logical edge attach to the frame (GP-73). */}
+      <Handle type="target" position={Position.Left} className="!opacity-0" />
+      <Handle type="source" position={Position.Right} className="!opacity-0" />
+      <span
+        className={cn(
+          "bg-canvas text-primary absolute -top-2.5 left-3 px-1.5 font-mono text-[10px] font-medium tracking-wide",
+          pickable && "pointer-events-auto cursor-pointer underline underline-offset-2",
+        )}
+      >
         {String(data.label ?? "group")}
       </span>
     </div>
@@ -400,15 +426,27 @@ export function GraphCanvas({
     [renderableAnns, boxes],
   );
 
+  // While the link tool is live a group is a legal endpoint, so its frame label
+  // becomes clickable (GP-73) — that is how you say "this whole group talks to
+  // that one" rather than picking one resource inside it and meaning the group.
+  const groupsPickable = annotate && tool.tool === "link";
+
   const overlayNodes = useMemo<FlowNode<GraphNodeData>[]>(() => {
     const out: FlowNode<GraphNodeData>[] = [];
     // Group frames first so they paint behind the resources they surround.
     for (const f of frames) {
       out.push({
-        id: `ann-group-${f.id}`,
+        id: groupFrameNodeId(f.id),
         type: "annotationGroup",
         position: { x: f.x, y: f.y },
-        data: { graphNode: OVERLAY_STUB, dimmed: false, label: f.label },
+        data: {
+          graphNode: OVERLAY_STUB,
+          dimmed: false,
+          label: f.label,
+          annotationId: f.id,
+          pickable: groupsPickable,
+          picked: tool.picks.includes(f.id),
+        },
         // Declared, like every other node: an overlay React Flow has to measure
         // is an overlay that vanishes for a frame on every rebuild.
         width: f.width,
@@ -421,7 +459,7 @@ export function GraphCanvas({
       });
     }
     return out;
-  }, [frames]);
+  }, [frames, groupsPickable, tool.picks]);
 
   const notePins = useMemo<FlowNode<GraphNodeData>[]>(() => {
     const out: FlowNode<GraphNodeData>[] = [];
@@ -461,25 +499,37 @@ export function GraphCanvas({
     [renderableAnns],
   );
 
-  // Nodes picked as link endpoints / group members (annotate mode).
+  // Nodes picked as link endpoints / group / hide members (annotate mode).
   const pickedSet = useMemo(() => new Set(tool.picks), [tool.picks]);
-  const groupSelecting = annotate && tool.tool === "group";
+  // The group *and* hide tools build a membership set by marquee drag.
+  const marqueeSelecting = annotate && isMultiSelectTool(tool.tool);
+
+  // What the adapted view (GP-74) will do to these nodes. Shown here, on the raw
+  // canvas, because you edit annotations here: a resource you have marked hidden
+  // should look marked, or you will mark it twice and wonder why nothing changed.
+  const hidden = useMemo(() => hiddenNodeIds(renderableAnns), [renderableAnns]);
+  const renamed = useMemo(() => renamedLabels(renderableAnns), [renderableAnns]);
 
   const flowNodes = useMemo(() => {
-    // Colour picked resources and, for the group tool, make them box-selectable
-    // (rubber-band drag). Overlay/module/container nodes are never selectable.
+    // Colour picked resources and, for the multi-select tools, make them
+    // box-selectable (rubber-band drag). Overlay/module/container nodes never are.
     const mapped = elements.nodes.map((node) => {
       if (node.type !== "resource") return { ...node, selectable: false };
       const picked = pickedSet.has(node.id);
       return {
         ...node,
-        selectable: groupSelecting,
-        selected: groupSelecting ? picked : false,
-        data: { ...node.data, picked },
+        selectable: marqueeSelecting,
+        selected: marqueeSelecting ? picked : false,
+        data: {
+          ...node.data,
+          picked,
+          hiddenByAnnotation: hidden.has(node.id),
+          renameLabel: renamed.get(node.id),
+        },
       };
     });
     return [...overlayNodes, ...mapped, ...notePins];
-  }, [overlayNodes, elements.nodes, notePins, pickedSet, groupSelecting]);
+  }, [overlayNodes, elements.nodes, notePins, pickedSet, marqueeSelecting, hidden, renamed]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
     [elements.edges, annEdges],
@@ -496,13 +546,37 @@ export function GraphCanvas({
     dispatchTool({ type: "reset" });
   };
   const createLink = () => {
-    if (!labelDraft.trim()) return;
-    onCreateAnnotation?.({ type: "link", anchors: tool.picks, label: labelDraft.trim() });
+    const label = labelDraft.trim();
+    onCreateAnnotation?.({
+      type: "link",
+      anchors: tool.picks,
+      // Optional (GP-71): drawing *that* two things are related is worth doing
+      // even before you have settled on a word for the relationship.
+      ...(label ? { label } : {}),
+    });
     resetTool();
   };
   const createGroup = () => {
     if (!labelDraft.trim()) return;
     onCreateAnnotation?.({ type: "group", anchors: tool.picks, label: labelDraft.trim() });
+    resetTool();
+  };
+  const createRename = () => {
+    const anchor = tool.picks[0];
+    if (!anchor || !labelDraft.trim()) return;
+    onCreateAnnotation?.({ type: "rename", anchors: [anchor], label: labelDraft.trim() });
+    resetTool();
+  };
+  /**
+   * One `hide` per picked resource, rather than one hide holding them all. Each
+   * node then orphans on its own terms: if one of the three you hid disappears
+   * from the repo, the other two stay hidden instead of the whole instruction
+   * falling over.
+   */
+  const createHides = () => {
+    for (const anchor of tool.picks) {
+      onCreateAnnotation?.({ type: "hide", anchors: [anchor] });
+    }
     resetTool();
   };
 
@@ -519,27 +593,35 @@ export function GraphCanvas({
         if (target) setSelected(target);
         return;
       }
-      if (node.type === "annotationGroup") return;
+      // A group frame is a legal endpoint for a logical edge — clicking it picks
+      // the *group*, not any resource inside it (GP-73).
+      if (node.type === "annotationGroup") {
+        const annotationId = node.data.annotationId as string | undefined;
+        if (groupsPickable && annotationId) {
+          dispatchTool({ type: "pick", id: annotationId });
+        }
+        return;
+      }
       const graphNode = node.data.graphNode;
       if (!graphNode) return;
-      // The link tool picks source then target on click. The group tool instead
-      // uses React Flow's box/shift selection (see onNodesChange), so a plain
-      // click there is handled by the selection layer, not here.
-      if (annotate && tool.tool === "link") {
+      // The link and rename tools pick nodes on click. The multi-select tools
+      // (group/hide) use React Flow's box/shift selection instead (see
+      // onNodesChange), so a plain click there is the selection layer's business.
+      if (annotate && (tool.tool === "link" || tool.tool === "rename")) {
         dispatchTool({ type: "pick", id: graphNode.id });
         return;
       }
-      if (groupSelecting) return;
+      if (marqueeSelecting) return;
       setSelected(graphNode);
     },
-    [annotate, tool.tool, groupSelecting, graph],
+    [annotate, tool.tool, marqueeSelecting, groupsPickable, graph],
   );
 
-  // Rubber-band / shift-click selection drives the group tool's picks. Only
-  // real resource selections matter — overlay/module nodes are ignored.
+  // Rubber-band / shift-click selection drives the group and hide tools' picks.
+  // Only real resource selections matter — overlay/module nodes are ignored.
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      if (!groupSelecting) return;
+      if (!marqueeSelecting) return;
       const selections = changes.flatMap((c) =>
         c.type === "select" && resourceNodeIds.has(c.id)
           ? [{ id: c.id, selected: c.selected }]
@@ -549,7 +631,7 @@ export function GraphCanvas({
         dispatchTool({ type: "applySelection", changes: selections });
       }
     },
-    [groupSelecting, resourceNodeIds],
+    [marqueeSelecting, resourceNodeIds],
   );
 
   const flyTo = useCallback((node: GraphNode) => {
@@ -601,12 +683,12 @@ export function GraphCanvas({
         onPaneClick={() => setSelected(null)}
         nodesDraggable={false}
         nodesConnectable={false}
-        // Group tool: left-drag draws a selection box; middle/right-drag pans.
+        // Group/hide tools: left-drag draws a selection box; middle/right-drag pans.
         // Otherwise the canvas pans on left-drag as usual and nothing is selectable.
-        elementsSelectable={groupSelecting}
-        selectionOnDrag={groupSelecting}
+        elementsSelectable={marqueeSelecting}
+        selectionOnDrag={marqueeSelecting}
         selectionMode={SelectionMode.Partial}
-        panOnDrag={groupSelecting ? [1, 2] : true}
+        panOnDrag={marqueeSelecting ? [1, 2] : true}
         minZoom={0.1}
         defaultViewport={DEFAULT_VIEWPORT}
         proOptions={{ hideAttribution: true }}
@@ -853,6 +935,12 @@ export function GraphCanvas({
             <ToolButton label="Group" active={tool.tool === "group"} onClick={() => setTool("group")}>
               <Group className="size-4" />
             </ToolButton>
+            <ToolButton label="Rename" active={tool.tool === "rename"} onClick={() => setTool("rename")}>
+              <Type className="size-4" />
+            </ToolButton>
+            <ToolButton label="Hide" active={tool.tool === "hide"} onClick={() => setTool("hide")}>
+              <EyeOff className="size-4" />
+            </ToolButton>
           </div>
 
           {tool.tool === "select" && (
@@ -866,6 +954,7 @@ export function GraphCanvas({
               <LabelForm
                 label="Link label"
                 submitLabel="Add link"
+                optional
                 value={labelDraft}
                 onChange={setLabelDraft}
                 onSubmit={createLink}
@@ -874,8 +963,8 @@ export function GraphCanvas({
             ) : (
               <span className="text-muted-foreground px-1 text-xs">
                 {tool.picks.length === 0
-                  ? "Click the source resource"
-                  : "Click the target resource"}
+                  ? "Click the source resource or group"
+                  : "Click the target resource or group"}
               </span>
             ))}
 
@@ -886,7 +975,7 @@ export function GraphCanvas({
                   ? "Drag a box (or shift-click) to select resources"
                   : `${tool.picks.length} selected`}
               </span>
-              {tool.picks.length >= 2 && (
+              {tool.picks.length >= 1 && (
                 <LabelForm
                   label="Group label"
                   submitLabel="Create group"
@@ -895,6 +984,50 @@ export function GraphCanvas({
                   onSubmit={createGroup}
                   onCancel={resetTool}
                 />
+              )}
+            </div>
+          )}
+
+          {tool.tool === "rename" &&
+            (renameIsReady(tool) ? (
+              <LabelForm
+                label="New label"
+                submitLabel="Apply rename"
+                value={labelDraft}
+                onChange={setLabelDraft}
+                onSubmit={createRename}
+                onCancel={resetTool}
+              />
+            ) : (
+              <span className="text-muted-foreground px-1 text-xs">
+                Click the resource to rename
+              </span>
+            ))}
+
+          {tool.tool === "hide" && (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground px-1 text-xs">
+                {tool.picks.length === 0
+                  ? "Drag a box (or shift-click) to select what to hide"
+                  : `${tool.picks.length} selected`}
+              </span>
+              {tool.picks.length >= 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={createHides}
+                    className="bg-primary text-primary-foreground rounded px-2 py-1 text-xs font-medium"
+                  >
+                    Hide {tool.picks.length}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetTool}
+                    className="text-muted-foreground hover:text-foreground px-1 text-xs"
+                  >
+                    Cancel
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -960,6 +1093,7 @@ function LabelForm({
   label,
   submitLabel,
   value,
+  optional = false,
   onChange,
   onSubmit,
   onCancel,
@@ -967,6 +1101,8 @@ function LabelForm({
   label: string;
   submitLabel: string;
   value: string;
+  /** A logical edge may be drawn without a name for the relationship (GP-71). */
+  optional?: boolean;
   onChange: (v: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -982,13 +1118,13 @@ function LabelForm({
           if (e.key === "Enter") onSubmit();
           if (e.key === "Escape") onCancel();
         }}
-        placeholder={`${label}…`}
+        placeholder={optional ? `${label} (optional)` : `${label}…`}
         className="border-border w-32 rounded border bg-transparent px-1.5 py-0.5 text-xs outline-none"
       />
       <button
         type="button"
         onClick={onSubmit}
-        disabled={!value.trim()}
+        disabled={!optional && !value.trim()}
         className="bg-primary text-primary-foreground rounded px-2 py-0.5 text-xs disabled:opacity-40"
       >
         {submitLabel}

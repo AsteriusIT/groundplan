@@ -246,6 +246,9 @@ it("declares a size for every node, so hovering cannot blank the diagram", async
     label: null,
     body: "b",
     status: "resolved" as const,
+    provenance: "human" as const,
+    createdFromSha: null,
+    parentGroupId: null,
     missingAnchors: [] as string[],
     createdBy: null,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -289,6 +292,9 @@ const NOTE = {
   label: null,
   body: "owned by payments",
   status: "resolved" as const,
+  provenance: "human" as const,
+  createdFromSha: null,
+  parentGroupId: null,
   missingAnchors: [] as string[],
   createdBy: null,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -460,4 +466,82 @@ it("lists a link with a delete control in annotate mode", async () => {
   expect(screen.getByText("reads")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /delete annotation/i }));
   expect(onDelete).toHaveBeenCalledWith("link-1");
+});
+
+// --- Hide & rename (GP-73) --------------------------------------------------
+
+it("hides a multi-selection as one annotation per resource", async () => {
+  const onCreate = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[]}
+      onCreateAnnotation={onCreate}
+    />,
+  );
+  await screen.findByText("node:main");
+  fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+  fireEvent.click(screen.getByTestId("rf-select:azurerm_virtual_network.main"));
+  fireEvent.click(screen.getByTestId("rf-select:aws_s3_bucket.data"));
+  fireEvent.click(screen.getByRole("button", { name: "Hide 2" }));
+
+  // One hide each, so a resource that later vanishes orphans only its own hide.
+  expect(onCreate).toHaveBeenCalledTimes(2);
+  expect(onCreate).toHaveBeenCalledWith({
+    type: "hide",
+    anchors: ["azurerm_virtual_network.main"],
+  });
+  expect(onCreate).toHaveBeenCalledWith({
+    type: "hide",
+    anchors: ["aws_s3_bucket.data"],
+  });
+});
+
+it("renames a single resource", async () => {
+  const onCreate = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[]}
+      onCreateAnnotation={onCreate}
+    />,
+  );
+  await screen.findByText("node:data");
+  fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+  fireEvent.click(screen.getByText("node:data"));
+  fireEvent.change(screen.getByLabelText("New label"), {
+    target: { value: "Event lake" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Apply rename" }));
+  expect(onCreate).toHaveBeenCalledWith({
+    type: "rename",
+    anchors: ["aws_s3_bucket.data"],
+    label: "Event lake",
+  });
+});
+
+it("a logical edge may be drawn without a label", async () => {
+  const onCreate = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="docs"
+      annotate
+      annotations={[]}
+      onCreateAnnotation={onCreate}
+    />,
+  );
+  await screen.findByText("node:main");
+  fireEvent.click(screen.getByRole("button", { name: "Link" }));
+  fireEvent.click(screen.getByText("node:main"));
+  fireEvent.click(screen.getByText("node:data"));
+  fireEvent.click(screen.getByRole("button", { name: "Add link" }));
+  expect(onCreate).toHaveBeenCalledWith({
+    type: "link",
+    anchors: ["azurerm_virtual_network.main", "aws_s3_bucket.data"],
+  });
 });

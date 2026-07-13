@@ -5,10 +5,12 @@ import {
   absoluteNodeBoxes,
   annotationLinkEdges,
   groupFrames,
+  hiddenNodeIds,
   notedNodeIds,
   notesForNode,
   orphanedAnnotations,
   reanchor,
+  renamedLabels,
   renderableAnnotations,
 } from "./annotations";
 
@@ -19,6 +21,9 @@ function ann(partial: Partial<Annotation> & Pick<Annotation, "type" | "anchors">
     label: null,
     body: null,
     status: "resolved",
+    provenance: "human",
+    createdFromSha: null,
+    parentGroupId: null,
     missingAnchors: [],
     createdBy: null,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -33,6 +38,46 @@ describe("renderableAnnotations", () => {
     const orphan = ann({ id: "gone", type: "note", anchors: ["missing"] });
     const result = renderableAnnotations([present, orphan], new Set(["a", "b"]));
     expect(result.map((a) => a.id)).toEqual(["ok"]);
+  });
+
+  it("never draws a proposal — it belongs in the review inbox, not the diagram", () => {
+    const proposed = ann({
+      id: "p",
+      type: "group",
+      anchors: ["a"],
+      label: "Suggested",
+      status: "proposed",
+      provenance: "ai",
+    });
+    const accepted = ann({ id: "ok", type: "group", anchors: ["a"], label: "Mine" });
+    const result = renderableAnnotations([proposed, accepted], new Set(["a"]));
+    expect(result.map((a) => a.id)).toEqual(["ok"]);
+  });
+
+  it("a logical edge anchored to a live group is renderable (the anchor is not an address)", () => {
+    const group = ann({ id: "g1", type: "group", anchors: ["a"], label: "Front" });
+    const edge = ann({ id: "e1", type: "link", anchors: ["g1", "b"] });
+    const result = renderableAnnotations([group, edge], new Set(["a", "b"]));
+    expect(result.map((a) => a.id).sort()).toEqual(["e1", "g1"]);
+  });
+
+  it("a logical edge into a group with no members left is not renderable", () => {
+    const group = ann({ id: "g1", type: "group", anchors: ["gone"], label: "Front" });
+    const edge = ann({ id: "e1", type: "link", anchors: ["g1", "b"] });
+    const result = renderableAnnotations([group, edge], new Set(["b"]));
+    expect(result).toEqual([]);
+  });
+});
+
+describe("hiddenNodeIds / renamedLabels", () => {
+  it("collects what the adapted view will drop and re-label", () => {
+    const annotations = [
+      ann({ type: "hide", anchors: ["a"] }),
+      ann({ type: "hide", anchors: ["b"], status: "proposed" }), // not accepted
+      ann({ type: "rename", anchors: ["c"], label: "Order ledger" }),
+    ];
+    expect([...hiddenNodeIds(annotations)]).toEqual(["a"]);
+    expect(renamedLabels(annotations).get("c")).toBe("Order ledger");
   });
 });
 

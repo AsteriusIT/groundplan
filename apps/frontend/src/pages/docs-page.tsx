@@ -86,6 +86,9 @@ export function DocsPage() {
   // Annotation layer (GP-58). Loaded per repo, applied optimistically.
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const { annotate } = useAnnotateMode();
+  // The snapshot on screen, read (not watched) when stamping a new annotation
+  // with the commit it was made against — so the create callback stays stable.
+  const graphRef = useRef<Snapshot | null>(null);
 
   // The repository context (GP-60) rides in a right rail, closed by default —
   // the diagram, not the prose, is what this page is for.
@@ -143,10 +146,15 @@ export function DocsPage() {
 
   // Optimistic annotation edits (GP-58): apply locally, then reconcile with the
   // server response; on failure, refetch to snap back to the truth.
+  //
+  // Every annotation records the commit it was made against (GP-71) — so a human
+  // meeting an orphan later can see it was drawn on a tree that no longer looks
+  // like this, rather than guessing.
   const handleCreateAnnotation = useCallback(
     (input: CreateAnnotationInput) => {
       if (!repoId) return;
-      createAnnotation(repoId, input)
+      const sha = graphRef.current?.commitSha;
+      createAnnotation(repoId, { ...(sha ? { createdFromSha: sha } : {}), ...input })
         .then((created) => setAnnotations((prev) => [created, ...prev]))
         .catch(reloadAnnotations);
     },
@@ -236,6 +244,7 @@ export function DocsPage() {
   const latestId = snapshots[0]?.id ?? null;
   const viewingOld = Boolean(selectedId && latestId && selectedId !== latestId);
   const current = graph.status === "ready" ? graph.snapshot : null;
+  graphRef.current = current;
 
   // Orphaned annotations relative to the displayed snapshot (GP-59): an anchor
   // whose address is no longer a node. Computed client-side so a re-anchor clears

@@ -1,23 +1,53 @@
 import { useState } from "react";
-import { ChevronDown, Link2, Group, StickyNote, Trash2, TriangleAlert } from "lucide-react";
+import {
+  ChevronDown,
+  EyeOff,
+  Group,
+  Link2,
+  StickyNote,
+  Trash2,
+  TriangleAlert,
+  Type,
+} from "lucide-react";
 
 import type { Annotation, Graph, GraphNode } from "@/api/types";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { reanchor, type Orphan } from "@/lib/annotations";
 import { searchNodes } from "@/lib/graph-search";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const TYPE_ICON = { note: StickyNote, link: Link2, group: Group } as const;
+const TYPE_ICON = {
+  note: StickyNote,
+  link: Link2,
+  group: Group,
+  hide: EyeOff,
+  rename: Type,
+} as const;
+
+const TYPE_LABEL: Record<Annotation["type"], string> = {
+  note: "Note",
+  link: "Logical edge",
+  group: "Group",
+  hide: "Hide",
+  rename: "Rename",
+};
 
 function excerpt(a: Annotation): string {
-  return a.label || a.body || "(untitled)";
+  return a.label || a.body || TYPE_LABEL[a.type];
 }
 
 /**
- * Orphan review (GP-59): a non-blocking banner when annotations have lost an
- * anchor after a snapshot change, opening a list where each can be re-anchored
- * (search the current snapshot's addresses) or deleted. Closes the GP-57
- * reconciliation loop on the UX side. Renders nothing when there are no orphans.
+ * Orphan review (GP-59, tray as of GP-73): a non-blocking banner when annotations
+ * have lost an anchor after a snapshot change, opening a list where each can be
+ * re-anchored (search the current snapshot's addresses), kept as-is, or deleted.
+ *
+ * "Keep" is not a no-op dressed up as a button: an orphan is often a resource
+ * that is *coming back* — mid-refactor, or moved to a branch — and the right
+ * answer is to leave it alone and stop being asked. So Keep dismisses it from the
+ * tray for this session without touching the annotation, which stays orphaned.
+ *
+ * Renders nothing when there are no orphans.
  */
 export function OrphanReview({
   orphans,
@@ -31,9 +61,12 @@ export function OrphanReview({
   onDelete: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  if (orphans.length === 0) return null;
+  const [kept, setKept] = useState<ReadonlySet<string>>(new Set());
 
-  const n = orphans.length;
+  const shown = orphans.filter((o) => !kept.has(o.annotation.id));
+  if (shown.length === 0) return null;
+
+  const n = shown.length;
   return (
     <div
       role="status"
@@ -53,7 +86,7 @@ export function OrphanReview({
 
       {open && (
         <ul className="mx-auto mt-2 max-w-2xl space-y-2">
-          {orphans.map(({ annotation, missing }) => (
+          {shown.map(({ annotation, missing }) => (
             <OrphanRow
               key={annotation.id}
               annotation={annotation}
@@ -61,6 +94,9 @@ export function OrphanReview({
               graph={graph}
               onReanchor={(anchor, replacement) =>
                 onReanchor(annotation.id, reanchor(annotation.anchors, anchor, replacement))
+              }
+              onKeep={() =>
+                setKept((prev) => new Set([...prev, annotation.id]))
               }
               onDelete={() => onDelete(annotation.id)}
             />
@@ -76,25 +112,39 @@ function OrphanRow({
   missing,
   graph,
   onReanchor,
+  onKeep,
   onDelete,
 }: {
   annotation: Annotation;
   missing: string[];
   graph: Graph;
   onReanchor: (missingAnchor: string, replacement: string) => void;
+  onKeep: () => void;
   onDelete: () => void;
 }) {
   const Icon = TYPE_ICON[annotation.type];
   return (
     <li className="border-warning/40 bg-warning/5 rounded-md border px-3 py-2">
       <div className="flex items-start gap-2">
-        <Icon className="mt-0.5 size-3.5 shrink-0" />
+        <Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">{excerpt(annotation)}</p>
+          <p className="flex items-center gap-1.5 truncate text-xs font-medium">
+            {excerpt(annotation)}
+            {annotation.provenance === "ai" && <AiBadge />}
+          </p>
           <p className="text-warning/80 text-[11px]">
-            last updated {formatDate(annotation.updatedAt)}
+            {TYPE_LABEL[annotation.type]} · last updated{" "}
+            {formatDate(annotation.updatedAt)}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={onKeep}
+          title="Leave it orphaned and stop showing it here"
+          className="hover:bg-warning/20 shrink-0 rounded px-2 py-0.5 text-[11px] font-medium"
+        >
+          Keep
+        </button>
         <button
           type="button"
           aria-label="Delete annotation"

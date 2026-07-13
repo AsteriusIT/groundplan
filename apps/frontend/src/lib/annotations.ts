@@ -79,15 +79,78 @@ export type GroupFrame = {
 };
 
 /**
- * Only annotations whose every anchor still exists in the displayed graph are
- * renderable — an orphaned annotation has an anchor with nowhere to draw, so it
- * lives in the orphan-review list (GP-59) until fixed, never on the canvas.
+ * The `group` annotations that have at least one member on the canvas. A logical
+ * edge between two groups anchors to their *ids* rather than to Terraform
+ * addresses (GP-71), so this is what such an anchor is resolved against.
+ */
+function drawnGroupIds(
+  annotations: Annotation[],
+  nodeIds: ReadonlySet<string>,
+): Set<string> {
+  return new Set(
+    annotations
+      .filter((a) => a.type === "group")
+      .filter((a) => a.anchors.some((anchor) => nodeIds.has(anchor)))
+      .map((a) => a.id),
+  );
+}
+
+/**
+ * Does this anchor point at something that is actually on the canvas — a node,
+ * or a group that is itself being drawn?
+ */
+function anchorResolves(
+  anchor: string,
+  nodeIds: ReadonlySet<string>,
+  drawnGroups: ReadonlySet<string>,
+): boolean {
+  return nodeIds.has(anchor) || drawnGroups.has(anchor);
+}
+
+/**
+ * The annotations we can actually draw. Two exclusions, for two different reasons:
+ *
+ *   - an **orphan** has an anchor with nowhere to land, so it lives in the orphan
+ *     tray (GP-59) until a human fixes or drops it — never on the canvas;
+ *   - a **proposal** (GP-75) has not been agreed to. It belongs in the review
+ *     inbox (GP-76). Drawing it would be the machine editing your diagram.
+ *
+ * Group frames are resolved first, because a logical edge may be anchored to a
+ * group: an edge into a group nobody is drawing is not renderable either.
  */
 export function renderableAnnotations(
   annotations: Annotation[],
   nodeIds: ReadonlySet<string>,
 ): Annotation[] {
-  return annotations.filter((a) => a.anchors.every((anchor) => nodeIds.has(anchor)));
+  const live = annotations.filter((a) => a.status !== "proposed");
+  const drawnGroups = drawnGroupIds(live, nodeIds);
+  return live.filter((a) =>
+    a.type === "group"
+      ? drawnGroups.has(a.id)
+      : a.anchors.every((anchor) => anchorResolves(anchor, nodeIds, drawnGroups)),
+  );
+}
+
+/** Node ids a `hide` annotation asks the adapted view to drop (GP-72). */
+export function hiddenNodeIds(annotations: Annotation[]): Set<string> {
+  const ids = new Set<string>();
+  for (const a of annotations) {
+    if (a.type === "hide" && a.status === "resolved" && a.anchors[0]) {
+      ids.add(a.anchors[0]);
+    }
+  }
+  return ids;
+}
+
+/** The display label a `rename` annotation gives a node, by node id (GP-72). */
+export function renamedLabels(annotations: Annotation[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const a of annotations) {
+    if (a.type === "rename" && a.status === "resolved" && a.anchors[0] && a.label) {
+      labels.set(a.anchors[0], a.label);
+    }
+  }
+  return labels;
 }
 
 /** Notes anchored to a specific node (links/groups excluded). */
@@ -102,14 +165,22 @@ export type Orphan = { annotation: Annotation; missing: string[] };
  * Annotations with at least one anchor missing from the displayed graph (GP-59).
  * Computed against the *current* snapshot's node ids, so re-anchoring to a
  * present address clears the orphan immediately, no regeneration required.
+ *
+ * Proposals are not orphans — they are not part of the picture yet, so there is
+ * nothing for them to have lost. A logical edge into a group that still has
+ * members is not an orphan either, even though its anchor is not a node id.
  */
 export function orphanedAnnotations(
   annotations: Annotation[],
   nodeIds: ReadonlySet<string>,
 ): Orphan[] {
+  const live = annotations.filter((a) => a.status !== "proposed");
+  const drawnGroups = drawnGroupIds(live, nodeIds);
   const out: Orphan[] = [];
-  for (const annotation of annotations) {
-    const missing = annotation.anchors.filter((a) => !nodeIds.has(a));
+  for (const annotation of live) {
+    const missing = annotation.anchors.filter(
+      (a) => !anchorResolves(a, nodeIds, drawnGroups),
+    );
     if (missing.length > 0) out.push({ annotation, missing });
   }
   return out;
@@ -133,14 +204,37 @@ export function notedNodeIds(annotations: Annotation[]): Set<string> {
   return ids;
 }
 
-/** Link annotations as labeled source→target edge descriptors. */
+/**
+ * The React Flow node id a group frame is drawn under. Group frames are overlay
+ * nodes, so an edge anchored to a group has to point at the *frame*, not at the
+ * annotation.
+ */
+export const groupFrameNodeId = (annotationId: string): string =>
+  `ann-group-${annotationId}`;
+
+/**
+ * Link annotations as labeled source→target edge descriptors. An endpoint is
+ * either a Terraform address (draw to the node) or a group id (draw to the
+ * group's frame) — which is how a group→group edge lands on the canvas.
+ */
 export function annotationLinkEdges(annotations: Annotation[]): AnnotationEdge[] {
+  const groups = new Set(
+    annotations.filter((a) => a.type === "group").map((a) => a.id),
+  );
+  const endpoint = (anchor: string) =>
+    groups.has(anchor) ? groupFrameNodeId(anchor) : anchor;
+
   const edges: AnnotationEdge[] = [];
   for (const a of annotations) {
     if (a.type !== "link") continue;
     const [source, target] = a.anchors;
     if (source && target) {
-      edges.push({ id: a.id, source, target, label: a.label ?? "" });
+      edges.push({
+        id: a.id,
+        source: endpoint(source),
+        target: endpoint(target),
+        label: a.label ?? "",
+      });
     }
   }
   return edges;

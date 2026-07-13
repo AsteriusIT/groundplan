@@ -18,7 +18,7 @@ import {
   type Node as FlowNode,
   type NodeProps,
 } from "@xyflow/react";
-import { ShieldAlert, Waypoints } from "lucide-react";
+import { EyeOff, ShieldAlert, Waypoints } from "lucide-react";
 
 import type { GraphNode } from "@/api/types";
 import { changeClasses } from "@/lib/graph-layout";
@@ -37,6 +37,8 @@ export function NodeCard({
   isHub = false,
   hubHiddenCount = 0,
   exposed = false,
+  hiddenByAnnotation = false,
+  renameLabel,
 }: {
   graphNode: GraphNode;
   selected?: boolean;
@@ -49,11 +51,21 @@ export function NodeCard({
   hubHiddenCount?: number;
   /** GP-45: internet-exposed (an exposed NSG or a subnet/NIC it guards). */
   exposed?: boolean;
+  /**
+   * GP-73: a `hide` annotation is anchored here. The raw view still draws the
+   * node — it is what the code says — but marks it, so you can see the
+   * instruction you left for the adapted view instead of leaving it twice.
+   */
+  hiddenByAnnotation?: boolean;
+  /** GP-73: the name a `rename` annotation will give this node in Adapted. */
+  renameLabel?: string;
 }) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
   const isDelete = graphNode.change === "delete";
   const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
+  // The projection has the last word: a node it renames shows that name here too.
+  const displayName = graphNode.display_label ?? renameLabel ?? graphNode.name;
 
   return (
     <div
@@ -75,6 +87,9 @@ export function NodeCard({
           !selected &&
           !picked &&
           "ring-exposed ring-offset-background ring-2 ring-offset-1",
+        // Marked for hiding: still drawn (this is the raw view — it shows what
+        // the code says), but visibly on its way out.
+        hiddenByAnnotation && !picked && "border-dashed opacity-50",
         dimmed && "opacity-20",
       )}
     >
@@ -110,10 +125,26 @@ export function NodeCard({
         >
           {shortType(graphNode.type)}
         </p>
-        <p className="text-faint truncate font-mono text-[10px]">
-          {graphNode.name}
+        <p
+          className="text-faint truncate font-mono text-[10px]"
+          title={displayName === graphNode.name ? undefined : graphNode.name}
+        >
+          {displayName}
         </p>
       </div>
+
+      {/* GP-73: this node carries a `hide`. Say so — a hidden node that looks
+          exactly like every other node is an instruction you will give twice. */}
+      {hiddenByAnnotation && (
+        <span
+          role="img"
+          aria-label="Hidden in the adapted view"
+          title="Hidden in the adapted view"
+          className="bg-muted text-muted-foreground inline-grid size-4 shrink-0 place-items-center rounded-full"
+        >
+          <EyeOff className="size-2.5" />
+        </span>
+      )}
 
       {/* GP-35: hub indicator + hidden-connection counter chip. */}
       {isHub && (
@@ -171,6 +202,8 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         isHub={data.isHub === true}
         hubHiddenCount={data.hubHiddenCount ?? 0}
         exposed={data.exposed === true}
+        hiddenByAnnotation={data.hiddenByAnnotation === true}
+        renameLabel={data.renameLabel as string | undefined}
       />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>

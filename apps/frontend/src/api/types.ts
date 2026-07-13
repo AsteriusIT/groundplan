@@ -89,7 +89,8 @@ export interface User {
 // --- Graph / snapshots / pull requests (GP-12..GP-15) ----------------------
 
 export type ChangeKind = "create" | "update" | "delete" | "noop";
-export type EdgeKind = "depends_on" | "contains";
+/** v5: `logical` is a human-drawn relationship the code cannot express (GP-72). */
+export type EdgeKind = "depends_on" | "contains" | "logical";
 export type SnapshotSource = "plan" | "hcl";
 export type PullRequestState = "open" | "closed";
 
@@ -161,6 +162,14 @@ export interface GraphNode {
   privileged?: boolean;
   /** v4: managed-identity payload — UAI nodes & resources with identity{} (GP-47). */
   identity?: Identity;
+  /** v5: the human-given name (a `rename` annotation); `name` is kept beside it. */
+  display_label?: string;
+  /** v5: markdown bodies of the notes anchored to this node (GP-72). */
+  notes?: string[];
+  /** v5: this container came from a `group` annotation, not from Terraform. */
+  annotation_group?: boolean;
+  /** v5: resources behind a group collapsed to a single node (C4, GP-77). */
+  member_count?: number;
 }
 
 export interface GraphEdge {
@@ -169,10 +178,14 @@ export interface GraphEdge {
   kind: EdgeKind;
   /** depends_on only: true when inferred from an expression reference (GP-20). */
   inferred?: boolean;
+  /** v5: a logical edge's label (GP-72). */
+  label?: string;
+  /** v5: how many edges this one stands for after C4 aggregation (GP-77). */
+  count?: number;
 }
 
 export interface Graph {
-  version: 1 | 2 | 3 | 4;
+  version: 1 | 2 | 3 | 4 | 5;
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
@@ -367,17 +380,26 @@ export interface PublicSnapshotView {
   };
 }
 
-// --- Annotations (GP-56..GP-59) --------------------------------------------
+// --- Annotations (GP-56..GP-59, five types as of GP-71) ---------------------
 
-export type AnnotationType = "note" | "link" | "group";
-export type AnnotationStatus = "resolved" | "orphaned";
+export type AnnotationType = "note" | "link" | "group" | "hide" | "rename";
+/** `resolved` is "accepted and live"; `proposed` awaits a human (GP-75/GP-76). */
+export type AnnotationStatus = "resolved" | "orphaned" | "proposed";
+export type AnnotationProvenance = "human" | "ai";
 
 /**
- * A human annotation, anchored to Terraform addresses (graph node ids). A `note`
- * has 1 anchor + markdown `body`; a `link` has exactly 2 anchors + `label`; a
- * `group` has 2+ anchors + `label`. `status` is owned by reconciliation (GP-57):
- * when an anchor's address vanishes from the latest snapshot the annotation is
- * `orphaned` and `missingAnchors` records what was lost (surfaced in GP-59).
+ * A human annotation, anchored to Terraform addresses (graph node ids):
+ *   `note`   1 anchor + markdown `body`
+ *   `link`   exactly 2 anchors + optional `label` — the logical edge. An anchor
+ *            may be a *group's id* instead of an address, which is how a
+ *            group→group edge is expressed.
+ *   `group`  1+ anchors + `label`; nests one level via `parentGroupId`
+ *   `hide`   1 anchor — the node is dropped from the adapted view (GP-74)
+ *   `rename` 1 anchor + `label` — the node's display label in the adapted view
+ *
+ * `status` is owned by reconciliation (GP-57): when an anchor's address vanishes
+ * from the latest snapshot the annotation is `orphaned` and `missingAnchors`
+ * records what was lost (surfaced in GP-59).
  */
 export interface Annotation {
   id: string;
@@ -387,6 +409,10 @@ export interface Annotation {
   label: string | null;
   body: string | null;
   status: AnnotationStatus;
+  /** Where it came from. Permanent — an accepted AI proposal still says `ai`. */
+  provenance: AnnotationProvenance;
+  createdFromSha: string | null;
+  parentGroupId: string | null;
   missingAnchors: string[];
   createdBy: string | null;
   createdAt: string;
@@ -398,12 +424,17 @@ export interface CreateAnnotationInput {
   anchors: string[];
   label?: string;
   body?: string;
+  parentGroupId?: string;
+  createdFromSha?: string;
 }
 
 export interface UpdateAnnotationInput {
   anchors?: string[];
   label?: string;
   body?: string;
+  /** Accepting a proposal (GP-76). The only way one goes live. */
+  status?: "resolved";
+  parentGroupId?: string | null;
 }
 
 export interface CreateProjectInput {

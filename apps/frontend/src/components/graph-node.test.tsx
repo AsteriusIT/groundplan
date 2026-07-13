@@ -55,3 +55,29 @@ it("shows no pick badge on an unpicked node", () => {
   render(<NodeCard graphNode={rg} />);
   expect(screen.queryByText("✓")).not.toBeInTheDocument();
 });
+
+// --- Annotation treatment (GP-73) -------------------------------------------
+
+it("marks a node carrying a hide, rather than letting it look untouched", () => {
+  // The raw view still draws it — that is what the code says — but an
+  // instruction you cannot see is one you will give twice.
+  render(<NodeCard graphNode={rg} hiddenByAnnotation />);
+  expect(screen.getByTitle("Hidden in the adapted view")).toBeInTheDocument();
+});
+
+it("shows a rename's label, keeping the derived name reachable", () => {
+  render(<NodeCard graphNode={rg} renameLabel="Shared platform" />);
+  expect(screen.getByText("Shared platform")).toBeInTheDocument();
+  // A rename is a lens, not an erasure: the truth is still on the node.
+  expect(screen.getByTitle("rg")).toBeInTheDocument();
+});
+
+it("prefers the projection's display_label over a locally-known rename", () => {
+  render(
+    <NodeCard
+      graphNode={{ ...rg, display_label: "From the projection" }}
+      renameLabel="From the client"
+    />,
+  );
+  expect(screen.getByText("From the projection")).toBeInTheDocument();
+});

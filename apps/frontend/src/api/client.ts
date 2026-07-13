@@ -10,6 +10,7 @@ import type {
   AiKind,
   AiStatus,
   Annotation,
+  AnnotationStatus,
   CreateAnnotationInput,
   CreatedRepository,
   CreateProjectInput,
@@ -273,6 +274,26 @@ export function getSnapshot(id: string): Promise<Snapshot> {
   return request<Snapshot>(`/snapshots/${encode(id)}`);
 }
 
+/**
+ * The same snapshot, seen through the repository's accepted annotations (GP-72):
+ * groups as containers, hidden nodes gone, logical edges drawn, renames applied.
+ * It comes back as an ordinary Snapshot — the renderer needs to know nothing
+ * about annotations to draw it.
+ *
+ * `granularity: "group"` collapses it further, to one node per top-level group —
+ * the C4 view (GP-77). `expandGroup` keeps a single group open inside it.
+ */
+export function getAdaptedSnapshot(
+  id: string,
+  params: { granularity?: "resource" | "group"; expandGroup?: string } = {},
+): Promise<Snapshot> {
+  const query = new URLSearchParams();
+  if (params.granularity) query.set("granularity", params.granularity);
+  if (params.expandGroup) query.set("expandGroup", params.expandGroup);
+  const suffix = query.size > 0 ? `?${query}` : "";
+  return request<Snapshot>(`/snapshots/${encode(id)}/adapted${suffix}`);
+}
+
 /** Diff two docs snapshots (base → target); 422 for cross-repo/plan pairs (GP-40). */
 export function diffSnapshots(baseId: string, targetId: string): Promise<SnapshotDiff> {
   return request<SnapshotDiff>(
@@ -304,11 +325,24 @@ export function getDashboard(): Promise<Dashboard> {
   return request<Dashboard>("/dashboard");
 }
 
-// --- Annotations (GP-56..GP-59) --------------------------------------------
+// --- Annotations (GP-56..GP-59, GP-71) --------------------------------------
 
-export function listAnnotations(repositoryId: string): Promise<Annotation[]> {
+/**
+ * A repository's annotations. `status` narrows to one bucket (the proposal inbox
+ * asks for `proposed`); `snapshotId` re-resolves every anchor against that
+ * snapshot, so the caller sees what has orphaned *there* rather than the verdict
+ * left behind by the last generation.
+ */
+export function listAnnotations(
+  repositoryId: string,
+  params: { status?: AnnotationStatus; snapshotId?: string } = {},
+): Promise<Annotation[]> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.snapshotId) query.set("snapshotId", params.snapshotId);
+  const suffix = query.size > 0 ? `?${query}` : "";
   return request<Annotation[]>(
-    `/repositories/${encode(repositoryId)}/annotations`,
+    `/repositories/${encode(repositoryId)}/annotations${suffix}`,
   );
 }
 

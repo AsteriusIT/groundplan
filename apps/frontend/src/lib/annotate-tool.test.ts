@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { INITIAL_TOOL, linkIsReady, reduceTool } from "./annotate-tool";
+import {
+  INITIAL_TOOL,
+  isMultiSelectTool,
+  linkIsReady,
+  reduceTool,
+  renameIsReady,
+} from "./annotate-tool";
 
 describe("reduceTool", () => {
   it("selecting a tool resets any in-progress picks", () => {
@@ -60,11 +66,39 @@ describe("reduceTool", () => {
     expect(state.picks).toEqual(["a", "c"]);
   });
 
-  it("ignores selection changes unless the group tool is active", () => {
+  it("ignores selection changes unless a multi-select tool is active", () => {
     const state = reduceTool(
       { tool: "link", picks: ["a"] },
       { type: "applySelection", changes: [{ id: "b", selected: true }] },
     );
+    expect(state.picks).toEqual(["a"]);
+  });
+
+  // --- GP-73: hide (multi-select) and rename (a single node) -----------------
+
+  it("the hide tool is multi-select, like group — you hide a set of things", () => {
+    expect(isMultiSelectTool("hide")).toBe(true);
+    let state = reduceTool(INITIAL_TOOL, { type: "setTool", tool: "hide" });
+    state = reduceTool(state, {
+      type: "applySelection",
+      changes: [
+        { id: "a", selected: true },
+        { id: "b", selected: true },
+      ],
+    });
+    state = reduceTool(state, { type: "pick", id: "b" }); // toggles off
+    expect(state.picks).toEqual(["a"]);
+  });
+
+  it("the rename tool takes exactly one node, and a second click cannot steal it", () => {
+    let state = reduceTool(INITIAL_TOOL, { type: "setTool", tool: "rename" });
+    expect(isMultiSelectTool("rename")).toBe(false);
+    expect(renameIsReady(state)).toBe(false);
+
+    state = reduceTool(state, { type: "pick", id: "a" });
+    expect(renameIsReady(state)).toBe(true);
+
+    state = reduceTool(state, { type: "pick", id: "b" });
     expect(state.picks).toEqual(["a"]);
   });
 });
