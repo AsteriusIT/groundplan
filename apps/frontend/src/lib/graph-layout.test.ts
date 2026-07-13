@@ -348,7 +348,58 @@ it("hands each flow edge the route ELK computed for it", () => {
     selectedId: null,
   });
 
-  expect(edges[0]?.data?.bends).toEqual([{ x: 260, y: 28 }]);
+  // The *whole* polyline, endpoints included. Taking only the bend points and
+  // pinning the ends to React Flow's handles assumes ELK always leaves a node on
+  // its right and arrives on its left; give it containers to route around and it
+  // will not, and the drawn line doubles back across the diagram to reach a bend
+  // it was never going to start from.
+  expect(edges[0]?.data?.route).toEqual([
+    { x: 220, y: 28 },
+    { x: 260, y: 28 },
+    { x: 300, y: 28 },
+  ]);
+});
+
+it("keeps ELK's endpoints even when it routed the edge backwards", () => {
+  // The case that breaks handle-pinning: ELK left the source on its *left* side
+  // and came into the target from the *right*, going around a container. Drawing
+  // that from the source's right handle would send the line back across the
+  // whole diagram before it turned around.
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "aws_s3.a", x: 0, y: 0, width: 220, height: 56 },
+      { id: "aws_s3.b", x: 600, y: 0, width: 220, height: 56 },
+    ],
+    edges: [
+      {
+        id: depEdgeId({ from: "aws_s3.a", to: "aws_s3.b", kind: "depends_on" }),
+        sources: ["aws_s3.b"],
+        targets: ["aws_s3.a"],
+        sections: [
+          {
+            id: "s1",
+            startPoint: { x: 600, y: 28 }, // b's LEFT edge
+            endPoint: { x: 110, y: 56 }, // a's BOTTOM edge
+            bendPoints: [
+              { x: 560, y: 28 },
+              { x: 560, y: 120 },
+              { x: 110, y: 120 },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const { edges } = elkToFlow(layout, graph, {
+    activeFilters: allFilters,
+    selectedId: null,
+  });
+
+  const route = edges[0]?.data?.route as { x: number; y: number }[];
+  expect(route[0]).toEqual({ x: 600, y: 28 });
+  expect(route.at(-1)).toEqual({ x: 110, y: 56 });
 });
 
 it("matches routes to edges by their endpoints, not by position in the list", () => {

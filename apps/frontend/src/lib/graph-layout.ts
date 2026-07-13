@@ -447,10 +447,23 @@ export function elkToFlow(
   // The routes ELK computed, keyed by the same endpoint-derived id we sent in.
   // Absent for hub edges (deliberately left out of the layout, GP-35) — those
   // fall back to a curve, drawn over the layout as they always were.
+  //
+  // The route is ELK's *whole* polyline — where it left the source, its bends,
+  // and where it arrived at the target — not just the bends. Reading only the
+  // bends and pinning the ends to React Flow's left/right handles quietly assumes
+  // ELK always leaves a node on its right and enters on its left. It does not:
+  // give it containers to route around and it will leave from the left or the top,
+  // and the drawn line then doubles back across the diagram to meet the bend it
+  // was given. Trust the router about its own endpoints.
   const routes = new Map<string, Point[]>();
   for (const elkEdge of layout.edges ?? []) {
     const section = elkEdge.sections?.[0];
-    if (section) routes.set(elkEdge.id, section.bendPoints ?? []);
+    if (!section) continue;
+    routes.set(elkEdge.id, [
+      section.startPoint,
+      ...(section.bendPoints ?? []),
+      section.endPoint,
+    ]);
   }
   const exposed = exposedNodeIds(graph); // internet-exposure treatment (GP-45)
 
@@ -551,7 +564,7 @@ export function elkToFlow(
           // else recedes, so one relationship can be traced through a crossing.
           active: touchesFocus,
           inferred: edge.inferred === true,
-          bends: routes.get(depEdgeId(edge)),
+          route: routes.get(depEdgeId(edge)),
           // A logical edge wears the annotation treatment — dashed, accent-toned,
           // no arrowhead — because it is exactly that: a human relationship drawn
           // over a generated diagram, and it must not pass for a dependency the

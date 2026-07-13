@@ -53,8 +53,13 @@ type EdgeData = {
   /** This edge touches the focused (hovered or selected) node — draw it fully. */
   active?: boolean;
   inferred?: boolean;
-  /** ELK's right-angle bend points, in flow coordinates. */
-  bends?: Point[];
+  /**
+   * The route ELK computed, in flow coordinates: where it left the source, its
+   * right-angle bends, and where it reached the target. Absent for edges that
+   * never entered the layout (hub edges, overlay annotation links) — those fall
+   * back to a curve between React Flow's handles.
+   */
+  route?: Point[];
   /** Optional relationship label (e.g. a port or kind); absent for plain deps. */
   label?: string;
   /** GP-58: a human annotation link — dashed, accent-toned, no arrowhead. */
@@ -88,20 +93,28 @@ export function RelationshipEdge({
   const annotation = d.annotation === true;
   const dashed = annotation || rel === "removed" || d.inferred === true;
 
-  const source: Point = { x: sourceX, y: sourceY };
-  const target: Point = { x: targetX, y: targetY };
   // Routed iff ELK actually routed it. On the raw canvas an annotation link is
-  // drawn *over* a layout it never entered, so it has no bend points and keeps
-  // its curve; in the adapted view (GP-74) the same relationship is part of the
+  // drawn *over* a layout it never entered, so it has no route and keeps its
+  // curve; in the adapted view (GP-74) the same relationship is part of the
   // graph, so it goes through ELK and gets right angles like everything else.
-  const routed = d.bends !== undefined;
+  //
+  // The route's endpoints are ELK's, not React Flow's handles. Splicing ELK's
+  // bends between the source's right handle and the target's left handle assumes
+  // the router always leaves right and arrives left — and once there are
+  // containers to route around, it does not. The line then doubles back across
+  // the diagram to reach a bend it was never going to start from.
+  const route = d.route;
+  const routed = route !== undefined && route.length >= 2;
 
   let edgePath: string;
   let labelX: number;
   let labelY: number;
   if (routed) {
-    edgePath = orthogonalPath(source, target, d.bends ?? []);
-    ({ labelX, labelY } = orthogonalMid(source, target, d.bends ?? []));
+    const start = route[0]!;
+    const end = route.at(-1)!;
+    const bends = route.slice(1, -1);
+    edgePath = orthogonalPath(start, end, bends);
+    ({ labelX, labelY } = orthogonalMid(start, end, bends));
   } else {
     [edgePath, labelX, labelY] = getBezierPath({
       sourceX,
