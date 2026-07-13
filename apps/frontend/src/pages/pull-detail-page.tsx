@@ -18,6 +18,7 @@ import type {
 } from "@/api/types";
 import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AiPanel } from "@/components/ai-panel";
 import { ChangeSummarySidebar } from "@/components/change-summary";
 import { ExportMenu } from "@/components/export-menu";
 import { FocusToggle, useFocusMode } from "@/components/focus-mode";
@@ -237,11 +238,20 @@ export function PullDetailPage() {
             <CenteredNote>Loading diagram…</CenteredNote>
           )}
         </div>
-        {/* GP-36: deterministic change summary, docked as a right rail. */}
+        {/* GP-36 deterministic change summary, docked as a right rail — with the
+            GP-64 AI summary above it (and nothing there when AI is off). */}
         {graph.status === "ready" && !focus && (
           <ChangeSummarySidebar
             markdown={graph.snapshot.summaryMd}
             prNumber={pull.number}
+            above={
+              <AiPanel
+                snapshotId={graph.snapshot.id}
+                kind="pr_summary"
+                title="AI summary"
+                cta="Generate AI summary"
+              />
+            }
           />
         )}
       </div>

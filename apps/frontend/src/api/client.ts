@@ -6,6 +6,9 @@
 import { getConfig } from "@/config";
 
 import type {
+  AiGeneration,
+  AiKind,
+  AiStatus,
   Annotation,
   CreateAnnotationInput,
   CreatedRepository,
@@ -356,3 +359,55 @@ export function shareUrl(token: string): string {
     typeof window !== "undefined" ? window.location.origin : apiRoot();
   return `${origin}/share/${encode(token)}`;
 }
+
+// --- AI layer (GP-62 / GP-64 / GP-65) --------------------------------------
+
+/** Is the AI layer configured? When it isn't, no AI UI renders anywhere. */
+export function getAiStatus(): Promise<AiStatus> {
+  return request<AiStatus>("/ai/status");
+}
+
+/**
+ * The prose already generated for a snapshot, or null if there is none yet.
+ * "Not generated" is the normal state, not an error — so the 404 the backend
+ * answers with becomes a null here rather than a thrown ApiError.
+ */
+export async function getAiGeneration(
+  snapshotId: string,
+  kind: AiKind,
+): Promise<AiGeneration | null> {
+  try {
+    return await request<AiGeneration>(
+      `/snapshots/${encode(snapshotId)}/ai/${encode(kind)}`,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** The endpoint `useCompletion` POSTs to in order to stream a generation. */
+export function aiCompletionUrl(snapshotId: string, kind: AiKind): string {
+  return `${apiBase()}/snapshots/${encode(snapshotId)}/ai/${encode(kind)}`;
+}
+
+/**
+ * The `fetch` the AI SDK's streaming hooks must use. They own the request, so
+ * they bypass `request()` above — this keeps them on the same rails anyway:
+ * the bearer token goes on, a 401 still triggers the logout handler, and a
+ * non-2xx becomes an ApiError with the server's own message instead of the
+ * hook's generic "Failed to fetch".
+ */
+export const aiFetch: typeof fetch = async (input, init) => {
+  const headers = new Headers(init?.headers);
+  const token = tokenProvider();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(input, { ...init, headers });
+
+  if (response.status === 401) unauthorizedHandler();
+  if (!response.ok) {
+    throw new ApiError(response.status, await extractErrorMessage(response));
+  }
+  return response;
+};

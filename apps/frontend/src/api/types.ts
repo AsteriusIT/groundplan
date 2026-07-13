@@ -344,3 +344,31 @@ export interface CreateRepositoryInput {
   /** Optional token for cloning private repos (write-only server-side). */
   accessToken?: string;
 }
+
+// --- AI layer (GP-62 / GP-63 / GP-65) ---------------------------------------
+
+/** Which kind of prose a snapshot can have generated about it. */
+export type AiKind = "pr_summary" | "docs_explain";
+
+/**
+ * Whether the AI layer is configured at all. The backend's API key IS the
+ * feature flag — when `enabled` is false, no AI surface renders anywhere.
+ */
+export interface AiStatus {
+  enabled: boolean;
+  /** The model generations are produced with; null when disabled. */
+  model: string | null;
+}
+
+/** Prose the backend has already generated and cached for a snapshot. */
+export interface AiGeneration {
+  kind: AiKind;
+  /** The snapshot this prose is about. */
+  targetId: string;
+  model: string;
+  /** Markdown. */
+  output: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  createdAt: string;
+}
