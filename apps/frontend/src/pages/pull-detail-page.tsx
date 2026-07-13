@@ -20,6 +20,7 @@ import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ChangeSummarySidebar } from "@/components/change-summary";
 import { ExportMenu } from "@/components/export-menu";
+import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { IamTable } from "@/components/iam-table";
 import { SnapshotSelect } from "@/components/snapshot-select";
@@ -57,6 +58,7 @@ export function PullDetailPage() {
   const [graph, setGraph] = useState<GraphState>({ status: "idle" });
   // GP-49: a node to select on the canvas, set when jumping from the IAM view.
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const { focus } = useFocusMode();
 
   // Network view (GP-44): project the ready snapshot when ?view=network.
   const { view, setView } = useGraphView();
@@ -141,63 +143,70 @@ export function PullDetailPage() {
 
   return (
     <div className="blueprint-grid flex h-full flex-col">
-      <header className="bg-card border-b border-border px-8 py-5">
-        <Link
-          to={`/projects/${id}/repos/${repoId}/pulls`}
-          className="text-muted-foreground hover:text-foreground mb-3 inline-flex items-center gap-1 text-sm"
-        >
-          <ChevronLeft className="size-4" />
-          All pull requests
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <GitPullRequest
-                className={cn(
-                  "size-4",
-                  pull.state === "open"
-                    ? "text-emerald-600"
-                    : "text-muted-foreground",
-                )}
-              />
-              <h1 className="font-display truncate text-xl font-semibold">
-                {pull.title ?? `Pull request #${pull.number}`}
-              </h1>
+      {!focus && (
+        <header className="bg-card border-b border-border px-8 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0">
+              <p className="text-muted-foreground flex items-center gap-2 font-mono text-[11px] tracking-[0.14em] uppercase">
+                <Link
+                  to={`/projects/${id}/repos/${repoId}/pulls`}
+                  className="hover:text-foreground inline-flex items-center gap-0.5"
+                >
+                  <ChevronLeft className="size-3.5" />
+                  All pull requests
+                </Link>
+              </p>
+              <div className="mt-0.5 flex items-center gap-2">
+                <GitPullRequest
+                  className={cn(
+                    "size-4 shrink-0",
+                    pull.state === "open"
+                      ? "text-emerald-600"
+                      : "text-muted-foreground",
+                  )}
+                />
+                <h1 className="font-display truncate text-xl font-semibold">
+                  {pull.title ?? `Pull request #${pull.number}`}
+                </h1>
+                <span className="text-muted-foreground truncate font-mono text-xs">
+                  #{pull.number} · {pull.sourceRef} → {repo.defaultBranch} ·{" "}
+                  {shortSha(pull.latestCommitSha)}
+                  {graph.status === "ready" &&
+                    ` · ${formatDate(graph.snapshot.createdAt)}`}
+                </span>
+              </div>
             </div>
-            <p className="text-muted-foreground mt-1 font-mono text-xs">
-              #{pull.number} · {pull.sourceRef} → {repo.defaultBranch} ·{" "}
-              {shortSha(pull.latestCommitSha)}
-              {graph.status === "ready" &&
-                ` · ${formatDate(graph.snapshot.createdAt)}`}
-            </p>
+            <div className="flex items-center gap-2">
+              {graph.status === "ready" && (
+                <ExportMenu
+                  snapshotId={graph.snapshot.id}
+                  filenameBase={`${repoName(repo.url).replaceAll("/", "-")}-${shortSha(graph.snapshot.commitSha)}`}
+                  includeChangesScope
+                />
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {graph.status === "ready" && (
-              <ExportMenu
-                snapshotId={graph.snapshot.id}
-                filenameBase={`${repoName(repo.url).replaceAll("/", "-")}-${shortSha(graph.snapshot.commitSha)}`}
-                includeChangesScope
-              />
-            )}
-          </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {(graph.status === "ready" || snapshots.length > 1) && (
         <div className="bg-card border-border flex items-center justify-between gap-4 border-b px-8 py-2.5">
           <div className="flex items-center gap-3">
-            {graph.status === "ready" && <ViewSwitcher />}
+            {graph.status === "ready" && <ViewSwitcher variant="plan" />}
           </div>
-          {snapshots.length > 1 && (
-            <SnapshotSelect
-              snapshots={snapshots}
-              selectedIds={selectedId ? [selectedId] : []}
-              visible={snapshots.length}
-              compareMode={false}
-              onSelect={(sid) => setSelectedId(sid)}
-              onShowMore={() => {}}
-            />
-          )}
+          <div className="flex items-center gap-4">
+            {snapshots.length > 1 && (
+              <SnapshotSelect
+                snapshots={snapshots}
+                selectedIds={selectedId ? [selectedId] : []}
+                visible={snapshots.length}
+                compareMode={false}
+                onSelect={(sid) => setSelectedId(sid)}
+                onShowMore={() => {}}
+              />
+            )}
+            <FocusToggle />
+          </div>
         </div>
       )}
 
@@ -229,7 +238,7 @@ export function PullDetailPage() {
           )}
         </div>
         {/* GP-36: deterministic change summary, docked as a right rail. */}
-        {graph.status === "ready" && (
+        {graph.status === "ready" && !focus && (
           <ChangeSummarySidebar
             markdown={graph.snapshot.summaryMd}
             prNumber={pull.number}

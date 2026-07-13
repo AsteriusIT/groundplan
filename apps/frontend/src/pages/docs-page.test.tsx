@@ -228,6 +228,30 @@ it("renders the IAM table (no change column) at ?view=iam (GP-48)", async () => 
   expect(screen.queryByTestId("canvas")).toBeNull();
 });
 
+it("keeps the context out of the header until the Context button opens the rail", async () => {
+  getRepositoryMock.mockResolvedValue({ ...repo, contextMd: "# Payments platform" });
+  listSnapshotsMock.mockResolvedValue([summary("s1", "aaaaaaaa1111", "manual")]);
+  renderPage();
+  await screen.findByTestId("canvas");
+
+  expect(screen.queryByText(/Payments platform/)).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: /^context$/i }));
+  expect(await screen.findByText(/Payments platform/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /hide context/i }));
+  expect(screen.queryByText(/Payments platform/)).toBeNull();
+});
+
+it("labels the infra tab 'Global' rather than 'Plan impact'", async () => {
+  listSnapshotsMock.mockResolvedValue([summary("s1", "aaaaaaaa1111", "manual")]);
+  renderPage();
+  await screen.findByTestId("canvas");
+
+  expect(screen.getByRole("button", { name: /^global$/i })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /plan impact/i })).toBeNull();
+});
+
 it("compares two docs snapshots (GP-40)", async () => {
   listSnapshotsMock.mockResolvedValue([
     summary("s2", "bbbbbbbb2222", "manual"),

@@ -39,6 +39,22 @@ it("defaults to the plan-impact view when no param is set", () => {
   );
 });
 
+it("labels the infra tab 'Global' on the docs page, without changing the ?view value", () => {
+  render(
+    <MemoryRouter initialEntries={["/x?view=network"]}>
+      <ViewSwitcher variant="docs" />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole("button", { name: /plan impact/i })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: /^global$/i }));
+
+  expect(screen.getByRole("button", { name: /^global$/i })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
 it("reflects and selects the ?view=iam param (GP-48)", () => {
   render(
     <MemoryRouter initialEntries={["/x?view=iam"]}>

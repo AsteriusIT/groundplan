@@ -37,7 +37,8 @@ import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { AnnotateToggle, useAnnotateMode } from "@/components/annotate-toolbar";
-import { ContextSection } from "@/components/context-section";
+import { ContextRail } from "@/components/context-section";
+import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { OrphanReview } from "@/components/orphan-review";
 import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
@@ -73,6 +74,11 @@ export function DocsPage() {
   // Annotation layer (GP-58). Loaded per repo, applied optimistically.
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const { annotate } = useAnnotateMode();
+
+  // The repository context (GP-60) rides in a right rail, closed by default —
+  // the diagram, not the prose, is what this page is for.
+  const [contextOpen, setContextOpen] = useState(false);
+  const { focus } = useFocusMode();
 
   // Compare mode (GP-40): pick two snapshots to diff. Deep-linkable via ?compare.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -313,76 +319,87 @@ export function DocsPage() {
 
   return (
     <div className="blueprint-grid flex h-full flex-col">
-      <header className="bg-card border-b border-border px-8 py-5">
-        <Link
-          to={`/projects/${id}`}
-          className="text-muted-foreground hover:text-foreground mb-3 inline-flex items-center gap-1 text-sm"
-        >
-          <ChevronLeft className="size-4" />
-          Back to project
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
-              Documentation · {repo?.defaultBranch ?? "main"}
-            </p>
-            <h1 className="font-display text-xl font-semibold">
-              {repo ? repoName(repo.url) : "Documentation"}
-            </h1>
-          </div>
-          {snapshots.length > 0 && (
-            <div className="flex items-center gap-2">
-              {canCompare && (
-                <Button
-                  variant={compareMode ? "default" : "outline"}
-                  onClick={compareMode ? exitCompare : () => setCompareMode(true)}
+      {!focus && (
+        <header className="bg-card border-b border-border px-8 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0">
+              <p className="text-muted-foreground flex items-center gap-2 font-mono text-[11px] tracking-[0.14em] uppercase">
+                <Link
+                  to={`/projects/${id}`}
+                  className="hover:text-foreground inline-flex items-center gap-0.5"
                 >
-                  <GitCompareArrows className="size-4" />
-                  {compareMode ? "Exit compare" : "Compare"}
-                </Button>
-              )}
-              {current && !compareMode && view === "infra" && <AnnotateToggle />}
-              {repoId && (
-                <ShareDialog repositoryId={repoId} currentSnapshotId={selectedId} />
-              )}
-              {current && (
-                <ExportMenu
-                  snapshotId={current.id}
-                  filenameBase={`${(repo ? repoName(repo.url) : "diagram").replaceAll("/", "-")}-${shortSha(current.commitSha)}`}
-                />
-              )}
-              <Button variant="outline" onClick={generate} disabled={generating}>
-                <RefreshCw className={generating ? "size-4 animate-spin" : "size-4"} />
-                {generating ? "Regenerating…" : "Regenerate"}
-              </Button>
+                  <ChevronLeft className="size-3.5" />
+                  Back to project
+                </Link>
+                <span className="text-faint">/</span>
+                Documentation · {repo?.defaultBranch ?? "main"}
+              </p>
+              <h1 className="font-display truncate text-xl font-semibold">
+                {repo ? repoName(repo.url) : "Documentation"}
+              </h1>
             </div>
-          )}
-        </div>
-        {genError && (
-          <p className="text-destructive mt-3 text-sm" role="alert">
-            {genError}
-          </p>
-        )}
-        {repo && (
-          <div className="mt-4 max-w-3xl">
-            <ContextSection markdown={repo.contextMd} onSave={handleSaveContext} />
+            {snapshots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {canCompare && (
+                  <Button
+                    variant={compareMode ? "default" : "outline"}
+                    onClick={compareMode ? exitCompare : () => setCompareMode(true)}
+                  >
+                    <GitCompareArrows className="size-4" />
+                    {compareMode ? "Exit compare" : "Compare"}
+                  </Button>
+                )}
+                {current && !compareMode && view === "infra" && <AnnotateToggle />}
+                {repo && (
+                  <Button
+                    variant={contextOpen ? "default" : "outline"}
+                    aria-pressed={contextOpen}
+                    onClick={() => setContextOpen((open) => !open)}
+                  >
+                    <FileText className="size-4" />
+                    Context
+                  </Button>
+                )}
+                {repoId && (
+                  <ShareDialog repositoryId={repoId} currentSnapshotId={selectedId} />
+                )}
+                {current && (
+                  <ExportMenu
+                    snapshotId={current.id}
+                    filenameBase={`${(repo ? repoName(repo.url) : "diagram").replaceAll("/", "-")}-${shortSha(current.commitSha)}`}
+                  />
+                )}
+                <Button variant="outline" onClick={generate} disabled={generating}>
+                  <RefreshCw className={generating ? "size-4 animate-spin" : "size-4"} />
+                  {generating ? "Regenerating…" : "Regenerate"}
+                </Button>
+              </div>
+            )}
           </div>
-        )}
-      </header>
+          {genError && (
+            <p className="text-destructive mt-2 text-sm" role="alert">
+              {genError}
+            </p>
+          )}
+        </header>
+      )}
 
       {snapshots.length > 0 && (
         <div className="bg-card border-border flex items-center justify-between gap-4 border-b px-8 py-2.5">
           <div className="flex items-center gap-3">
-            {current && !compareMode && <ViewSwitcher />}
+            {current && !compareMode && <ViewSwitcher variant="docs" />}
           </div>
-          <SnapshotSelect
-            snapshots={snapshots}
-            selectedIds={timelineSelected}
-            visible={visible}
-            compareMode={compareMode}
-            onSelect={handleCardClick}
-            onShowMore={() => setVisible((v) => v + PAGE)}
-          />
+          <div className="flex items-center gap-4">
+            <SnapshotSelect
+              snapshots={snapshots}
+              selectedIds={timelineSelected}
+              visible={visible}
+              compareMode={compareMode}
+              onSelect={handleCardClick}
+              onShowMore={() => setVisible((v) => v + PAGE)}
+            />
+            <FocusToggle />
+          </div>
         </div>
       )}
 
@@ -428,62 +445,72 @@ export function DocsPage() {
         />
       )}
 
-      <div className="relative min-h-0 flex-1">
-        {list.status === "loading" && <Centered>Loading documentation…</Centered>}
+      <div className="flex min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1">
+          {list.status === "loading" && <Centered>Loading documentation…</Centered>}
 
-        {list.status === "error" && (
-          <Centered>
-            <ErrorBlock message={list.message} onRetry={() => loadList()} />
-          </Centered>
-        )}
+          {list.status === "error" && (
+            <Centered>
+              <ErrorBlock message={list.message} onRetry={() => loadList()} />
+            </Centered>
+          )}
 
-        {list.status === "empty" && (
-          <EmptyState generating={generating} onGenerate={generate} />
-        )}
+          {list.status === "empty" && (
+            <EmptyState generating={generating} onGenerate={generate} />
+          )}
 
-        {snapshots.length > 0 && compareActive && comparePair && (
-          <CompareView
-            baseId={comparePair.baseId}
-            targetId={comparePair.targetId}
-            onExit={exitCompare}
+          {snapshots.length > 0 && compareActive && comparePair && (
+            <CompareView
+              baseId={comparePair.baseId}
+              targetId={comparePair.targetId}
+              onExit={exitCompare}
+            />
+          )}
+
+          {snapshots.length > 0 && !compareActive && (
+            <>
+              {graph.status === "loading" && <Centered>Loading diagram…</Centered>}
+              {graph.status === "error" && (
+                <Centered>
+                  <ErrorBlock message={graph.message} onRetry={() => loadList(false)} />
+                </Centered>
+              )}
+              {current && (
+                <>
+                  {current.stats.warnings && current.stats.warnings.length > 0 && (
+                    <WarningsNotice warnings={current.stats.warnings} />
+                  )}
+                  {view === "iam" ? (
+                    <IamTable
+                      graph={current.graph}
+                      variant="docs"
+                      onViewInPlanImpact={viewInPlanImpact}
+                    />
+                  ) : (
+                    <GraphCanvas
+                      graph={network ? network.graph : current.graph}
+                      variant="docs"
+                      containerIds={network?.containerIds}
+                      focusNodeId={focusNodeId}
+                      annotations={view === "infra" ? annotations : undefined}
+                      annotate={annotate && view === "infra"}
+                      onCreateAnnotation={handleCreateAnnotation}
+                      onUpdateAnnotation={handleUpdateAnnotation}
+                      onDeleteAnnotation={handleDeleteAnnotation}
+                    />
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {repo && contextOpen && !focus && (
+          <ContextRail
+            markdown={repo.contextMd}
+            onSave={handleSaveContext}
+            onClose={() => setContextOpen(false)}
           />
-        )}
-
-        {snapshots.length > 0 && !compareActive && (
-          <>
-            {graph.status === "loading" && <Centered>Loading diagram…</Centered>}
-            {graph.status === "error" && (
-              <Centered>
-                <ErrorBlock message={graph.message} onRetry={() => loadList(false)} />
-              </Centered>
-            )}
-            {current && (
-              <>
-                {current.stats.warnings && current.stats.warnings.length > 0 && (
-                  <WarningsNotice warnings={current.stats.warnings} />
-                )}
-                {view === "iam" ? (
-                  <IamTable
-                    graph={current.graph}
-                    variant="docs"
-                    onViewInPlanImpact={viewInPlanImpact}
-                  />
-                ) : (
-                  <GraphCanvas
-                    graph={network ? network.graph : current.graph}
-                    variant="docs"
-                    containerIds={network?.containerIds}
-                    focusNodeId={focusNodeId}
-                    annotations={view === "infra" ? annotations : undefined}
-                    annotate={annotate && view === "infra"}
-                    onCreateAnnotation={handleCreateAnnotation}
-                    onUpdateAnnotation={handleUpdateAnnotation}
-                    onDeleteAnnotation={handleDeleteAnnotation}
-                  />
-                )}
-              </>
-            )}
-          </>
         )}
       </div>
     </div>

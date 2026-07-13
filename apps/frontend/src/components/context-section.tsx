@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, Pencil } from "lucide-react";
+import { FileText, Pencil, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ChangeSummary } from "@/components/change-summary";
@@ -15,12 +15,17 @@ export function ContextSection({
   markdown,
   title = "Context",
   readOnly = false,
+  bare = false,
   onSave,
+  onClose,
 }: {
   markdown: string | null;
   title?: string;
   readOnly?: boolean;
+  /** Drop the scroll box: the container already scrolls (see ContextRail). */
+  bare?: boolean;
   onSave?: (markdown: string) => void;
+  onClose?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -74,20 +79,36 @@ export function ContextSection({
     <section className="space-y-2">
       <div className="flex items-center justify-between">
         <Header title={title} />
-        {!readOnly && hasContent && (
-          <button
-            type="button"
-            onClick={startEdit}
-            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
-          >
-            <Pencil className="size-3.5" />
-            Edit context
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {!readOnly && hasContent && (
+            <button
+              type="button"
+              onClick={startEdit}
+              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+            >
+              <Pencil className="size-3.5" />
+              Edit context
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Hide context"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {hasContent ? (
-        <div className="border-border max-h-64 overflow-auto rounded-md border px-3 py-2">
+        <div
+          className={
+            bare ? "" : "border-border max-h-64 overflow-auto rounded-md border px-3 py-2"
+          }
+        >
           <ChangeSummary markdown={value} />
         </div>
       ) : (
@@ -101,6 +122,28 @@ export function ContextSection({
         </button>
       )}
     </section>
+  );
+}
+
+/**
+ * The context, docked as a right rail beside a diagram canvas — the same shape
+ * as the pull request's change summary. It keeps the long markdown out of the
+ * page header, where it was pushing the diagram off the fold, while staying one
+ * click away.
+ */
+export function ContextRail({
+  markdown,
+  onSave,
+  onClose,
+}: {
+  markdown: string | null;
+  onSave: (markdown: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="border-border bg-card w-80 shrink-0 overflow-y-auto border-l px-4 py-4">
+      <ContextSection markdown={markdown} bare onSave={onSave} onClose={onClose} />
+    </aside>
   );
 }
 

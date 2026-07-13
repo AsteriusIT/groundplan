@@ -249,7 +249,7 @@ export function IamTable({
                 onClick={() => onViewInPlanImpact(selected)}
                 className="text-primary hover:bg-accent-soft flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 font-mono text-xs transition-colors"
               >
-                View in plan-impact
+                {showChange ? "View in plan-impact" : "View in global"}
                 <ArrowRight className="size-3.5" />
               </button>
             )

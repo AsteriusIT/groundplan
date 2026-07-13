@@ -25,18 +25,29 @@ export function useGraphView(): { view: GraphView; setView: (v: GraphView) => vo
   return { view, setView };
 }
 
-const OPTIONS: { key: GraphView; label: string }[] = [
-  { key: "infra", label: "Plan impact" },
-  { key: "network", label: "Network" },
-  { key: "iam", label: "IAM" },
-];
+/**
+ * The "infra" tab is the same view either way, but it reads differently by
+ * context: on a pull request it is the impact of the plan, on the docs page it
+ * is simply everything the repository builds.
+ */
+export type ViewSwitcherVariant = "plan" | "docs";
 
-/** Plan-impact ⇄ Network ⇄ IAM view tabs (GP-44/GP-48). Underlined-tab styling. */
-export function ViewSwitcher() {
+const INFRA_LABEL: Record<ViewSwitcherVariant, string> = {
+  plan: "Plan impact",
+  docs: "Global",
+};
+
+/** Infra ⇄ Network ⇄ IAM view tabs (GP-44/GP-48). Underlined-tab styling. */
+export function ViewSwitcher({ variant = "plan" }: { variant?: ViewSwitcherVariant }) {
   const { view, setView } = useGraphView();
+  const options: { key: GraphView; label: string }[] = [
+    { key: "infra", label: INFRA_LABEL[variant] },
+    { key: "network", label: "Network" },
+    { key: "iam", label: "IAM" },
+  ];
   return (
     <div className="flex items-center gap-4" role="group" aria-label="Graph view">
-      {OPTIONS.map((o) => (
+      {options.map((o) => (
         <button
           key={o.key}
           type="button"
