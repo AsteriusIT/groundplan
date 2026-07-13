@@ -13,13 +13,20 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useCompletion } from "@ai-sdk/react";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { Maximize2, RefreshCw, Sparkles } from "lucide-react";
 
 import { aiCompletionUrl, aiFetch, getAiGeneration } from "@/api/client";
 import type { AiKind } from "@/api/types";
 import { AiResponse } from "@/components/ai-response";
 import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useAiStatus } from "@/lib/use-ai-status";
 
 /** Pulsing bars standing in for prose the model has not produced yet. */
@@ -104,6 +111,41 @@ export function AiPanel({
         <span className="text-muted-foreground font-mono text-[10px] tracking-[0.1em] uppercase">
           {title}
         </span>
+        {/* A 320px rail is a poor place to read 400 words of prose. Once there
+            is something to read, offer it full-width. */}
+        {hasText && (
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="ml-auto size-6"
+                aria-label={`Read ${title} full screen`}
+              >
+                <Maximize2 className="size-3.5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Sparkles className="text-primary size-4" aria-hidden />
+                  {title}
+                </DialogTitle>
+              </DialogHeader>
+
+              {/* Same prose, room to breathe — and it keeps streaming in here. */}
+              <AiResponse markdown={completion} className="text-sm" />
+
+              <div className="border-border mt-2 flex items-center gap-1.5 border-t pt-3">
+                <CopyButton value={completion} />
+                <span className="text-faint ml-auto font-mono text-[10px]">
+                  AI-generated from the change model · {status.model}
+                </span>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {loadingCached ? (

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { AiPanel } from "./ai-panel";
 import { resetAiStatus } from "@/lib/use-ai-status";
@@ -202,4 +202,40 @@ it("surfaces a generation failure without wiping the panel", async () => {
 
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent(/already in progress/i);
+});
+
+it("offers a full-screen read of the prose — but only once there is prose", async () => {
+  getAiGenerationMock.mockResolvedValue({
+    kind: "pr_summary",
+    targetId: "snap-1",
+    model: "claude-opus-4-8",
+    output: "**Risk:** the settlement bucket is deleted.",
+    inputTokens: 100,
+    outputTokens: 20,
+    createdAt: "2026-07-13T00:00:00.000Z",
+  });
+
+  renderPanel();
+
+  const expand = await screen.findByRole("button", {
+    name: /read ai summary full screen/i,
+  });
+  fireEvent.click(expand);
+
+  // The prose is now in a dialog, rendered as Markdown and wide enough to read.
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog).toHaveTextContent(/the settlement bucket is deleted/i);
+  expect(within(dialog).getByText("Risk:").tagName).toBe("STRONG");
+  // Still labelled, still copyable, even full screen.
+  expect(within(dialog).getByText(/AI-generated from the change model/i)).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: /copy/i })).toBeInTheDocument();
+});
+
+it("shows no expand button when there is nothing to expand", async () => {
+  renderPanel();
+
+  await screen.findByRole("button", { name: /generate ai summary/i });
+  expect(
+    screen.queryByRole("button", { name: /full screen/i }),
+  ).not.toBeInTheDocument();
 });
