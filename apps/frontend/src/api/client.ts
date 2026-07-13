@@ -21,6 +21,7 @@ import type {
   PullDetail,
   PullSummary,
   Repository,
+  RepositoryActivity,
   ShareLink,
   Snapshot,
   SnapshotDiff,
@@ -185,6 +186,15 @@ export function deleteProject(id: string): Promise<void> {
 
 export function listRepositories(projectId: string): Promise<Repository[]> {
   return request<Repository[]>(`/projects/${encode(projectId)}/repositories`);
+}
+
+/** Freshness signal for every repo in a project — one call for the whole list. */
+export function listRepositoryActivity(
+  projectId: string,
+): Promise<RepositoryActivity[]> {
+  return request<RepositoryActivity[]>(
+    `/projects/${encode(projectId)}/repositories/activity`,
+  );
 }
 
 export function createRepository(

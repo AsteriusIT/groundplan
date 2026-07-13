@@ -51,3 +51,30 @@ export function formatDate(iso: string): string {
     year: "numeric",
   });
 }
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+function plural(n: number, unit: string): string {
+  return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+}
+
+/**
+ * How long ago an instant was, e.g. "14 min ago" — for freshness signals where
+ * the age is the point ("is my CI still sending data?"). Past a month the age
+ * stops meaning anything and we fall back to the date.
+ */
+export function relativeTime(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+
+  // Clamp: a server clock a few seconds ahead of ours must not read "-3 min ago".
+  const elapsed = Math.max(0, now.getTime() - date.getTime());
+
+  if (elapsed < MINUTE) return "just now";
+  if (elapsed < HOUR) return `${Math.floor(elapsed / MINUTE)} min ago`;
+  if (elapsed < DAY) return plural(Math.floor(elapsed / HOUR), "hour");
+  if (elapsed < 30 * DAY) return plural(Math.floor(elapsed / DAY), "day");
+  return formatDate(iso);
+}

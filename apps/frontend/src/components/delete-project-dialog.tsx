@@ -18,21 +18,28 @@ import { Label } from "@/components/ui/label";
 export function DeleteProjectDialog({
   project,
   trigger,
+  open: controlledOpen,
+  onOpenChange,
   onDeleted,
 }: {
   project: Pick<Project, "id" | "name">;
-  trigger: ReactNode;
+  /** Omit when opening from a menu item — drive `open` instead. */
+  trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onDeleted: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const open = controlledOpen ?? uncontrolledOpen;
   const confirmed = confirmText.trim() === project.name;
 
   function handleOpenChange(next: boolean) {
-    setOpen(next);
+    setUncontrolledOpen(next);
+    onOpenChange?.(next);
     if (!next) {
       setConfirmText("");
       setError(null);
@@ -60,7 +67,7 @@ export function DeleteProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="font-display">Delete project</DialogTitle>

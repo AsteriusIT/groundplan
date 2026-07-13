@@ -229,3 +229,102 @@ test("POST /projects with an invalid body returns 422 with field messages", asyn
     await app.close();
   }
 });
+
+// --- Per-repository activity (project page) --------------------------------
+
+test("GET /projects/:id/repositories/activity reports each repo's activity", async () => {
+  const app = await buildApp(env);
+  try {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/projects",
+      payload: { name: "Activity", slug: `activity-${Date.now()}` },
+    });
+    const projectId = created.json().id;
+
+    const busy = (
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/projects/${projectId}/repositories`,
+        payload: { url: "https://github.com/acme/busy" },
+      })
+    ).json();
+    const quiet = (
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/projects/${projectId}/repositories`,
+        payload: { url: "https://github.com/acme/quiet" },
+      })
+    ).json();
+
+    // One PR ingestion on the busy repo: an open PR, a snapshot and an event.
+    const ingested = await app.inject({
+      method: "POST",
+      url: `/api/v1/webhooks/ci/${busy.id}`,
+      headers: { "x-groundplan-token": busy.webhookToken },
+      payload: {
+        event: "pull_request",
+        ref: "refs/heads/feature",
+        commit_sha: "sha-activity",
+        pr_number: 7,
+        pr_title: "Add a bucket",
+        payload: {
+          format_version: "1.2",
+          resource_changes: [
+            {
+              address: "aws_s3_bucket.b",
+              mode: "managed",
+              type: "aws_s3_bucket",
+              name: "b",
+              provider_name: "registry.terraform.io/hashicorp/aws",
+              change: { actions: ["create"] },
+            },
+          ],
+        },
+      },
+    });
+    assert.equal(ingested.statusCode, 202);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/projects/${projectId}/repositories/activity`,
+    });
+    assert.equal(res.statusCode, 200);
+
+    const byId: Record<string, {
+      repositoryId: string;
+      openPrs: number;
+      lastSnapshotAt: string | null;
+      lastEventAt: string | null;
+    }> = Object.fromEntries(
+      res.json().map((a: { repositoryId: string }) => [a.repositoryId, a]),
+    );
+
+    assert.equal(byId[busy.id]?.openPrs, 1);
+    assert.ok(byId[busy.id]?.lastSnapshotAt, "the busy repo has a snapshot");
+    assert.ok(byId[busy.id]?.lastEventAt, "the busy repo received an event");
+
+    // A repo nobody has pushed to still gets a row — zeroed, not missing. The
+    // card needs it to say "no CI events yet" rather than render nothing.
+    assert.equal(byId[quiet.id]?.openPrs, 0);
+    assert.equal(byId[quiet.id]?.lastSnapshotAt, null);
+    assert.equal(byId[quiet.id]?.lastEventAt, null);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /projects/:id/repositories/activity 404s for an unknown project", async () => {
+  const app = await buildApp(env);
+  try {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/projects/00000000-0000-0000-0000-000000000000/repositories/activity",
+    });
+    assert.equal(res.statusCode, 404);
+  } finally {
+    await app.close();
+  }
+});

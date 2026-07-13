@@ -43,6 +43,19 @@ export interface CreatedRepository extends Repository {
   webhookToken: string;
 }
 
+/**
+ * Freshness signal for one repository, as the project page shows it. Every repo
+ * in the project gets a row; a quiet one is zeroed, not missing.
+ */
+export interface RepositoryActivity {
+  repositoryId: string;
+  openPrs: number;
+  /** Last plan or docs snapshot stored, or null if none. */
+  lastSnapshotAt: string | null;
+  /** Last CI webhook received — null means CI has never reached us. */
+  lastEventAt: string | null;
+}
+
 export interface UpdateRepositoryInput {
   /** New PAT (write-only). Replaces the stored one and re-verifies. */
   accessToken?: string;

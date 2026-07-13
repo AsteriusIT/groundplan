@@ -1,41 +1,32 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import {
-  ChevronLeft,
-  FileText,
-  GitBranch,
-  GitPullRequest,
-  KeyRound,
-  Plug,
-  Plus,
-  RefreshCw,
-  Trash2,
-  TriangleAlert,
-} from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Ellipsis, Plug, Plus, Trash2, TriangleAlert } from "lucide-react";
 
 import {
   ApiError,
-  deleteRepository,
   getProject,
   listRepositories,
+  listRepositoryActivity,
   updateProject,
-  updateRepository,
-  verifyRepository,
-  webhookUrl,
 } from "@/api/client";
-import type { CreatedRepository, Project, Repository } from "@/api/types";
-import { repoName } from "@/lib/format";
+import type {
+  CreatedRepository,
+  Project,
+  Repository,
+  RepositoryActivity,
+} from "@/api/types";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ContextSection } from "@/components/context-section";
 import { PageHeader } from "@/components/page-header";
 import { AttachRepositoryDialog } from "@/components/attach-repository-dialog";
-import { CiSetupBlock } from "@/components/ci-setup-block";
-import {
-  ConnectionStatusBadge,
-  connectionErrorMessage,
-} from "@/components/connection-status";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
-import { EditPatDialog } from "@/components/edit-pat-dialog";
+import { RepositoryCard } from "@/components/repository-card";
 
 type LoadState =
   | { status: "loading" }
@@ -45,6 +36,10 @@ type LoadState =
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [activity, setActivity] = useState<Map<string, RepositoryActivity>>(
+    new Map(),
+  );
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const navigate = useNavigate();
 
@@ -64,6 +59,12 @@ export function ProjectDetailPage() {
             err instanceof ApiError ? err.message : "Could not load the project.",
         }),
       );
+
+    // Freshness signal is decoration, not the page: if it fails, the repositories
+    // still list — the cards just drop their activity strip.
+    listRepositoryActivity(id)
+      .then((rows) => setActivity(new Map(rows.map((r) => [r.repositoryId, r]))))
+      .catch(() => setActivity(new Map()));
   }, [id]);
 
   useEffect(() => {
@@ -125,45 +126,41 @@ export function ProjectDetailPage() {
         eyebrow="Project"
         title={state.status === "ready" ? state.project.name : "Project"}
         description="Repositories connected to this project."
+        backTo="/projects"
+        backLabel="All projects"
         actions={
           state.status === "ready" ? (
-            <div className="flex items-center gap-2">
-              {hasRepos && (
-                <AttachRepositoryDialog
-                  projectId={state.project.id}
-                  onAttached={handleAttached}
-                  trigger={
-                    <Button>
-                      <Plus className="size-4" />
-                      Attach repository
-                    </Button>
-                  }
-                />
-              )}
+            <>
+              {/* Deleting a project is not a page action — it is the last resort
+                  in a menu, nowhere near the primary CTA it used to sit beside. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Project actions">
+                    <Ellipsis className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete project
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <DeleteProjectDialog
                 project={state.project}
+                open={deleteOpen}
+                onOpenChange={setDeleteOpen}
                 onDeleted={handleProjectDeleted}
-                trigger={
-                  <Button variant="outline">
-                    <Trash2 className="size-4" />
-                    Delete project
-                  </Button>
-                }
               />
-            </div>
+            </>
           ) : undefined
         }
       />
 
       <div className="p-8">
-        <Link
-          to="/projects"
-          className="text-muted-foreground hover:text-foreground mb-6 inline-flex items-center gap-1 text-sm"
-        >
-          <ChevronLeft className="size-4" />
-          All projects
-        </Link>
-
         {state.status === "loading" && (
           <p className="text-muted-foreground text-sm" aria-busy="true">
             Loading project…
@@ -178,6 +175,7 @@ export function ProjectDetailPage() {
           <div className="mb-8 max-w-3xl">
             <ContextSection
               markdown={state.project.contextMd}
+              hint="Grounds the AI change summaries and documentation for every repository here — write what a new reviewer would need to know."
               onSave={handleSaveContext}
             />
           </div>
@@ -188,183 +186,42 @@ export function ProjectDetailPage() {
         )}
 
         {hasRepos && state.status === "ready" && (
-          <ul className="space-y-3">
-            {state.repos.map((repo) => (
-              <li key={repo.id}>
-                <RepositoryRow
-                  repo={repo}
-                  onChanged={handleChanged}
-                  onDeleted={handleDeleted}
-                />
-              </li>
-            ))}
-          </ul>
+          <section className="space-y-3">
+            {/* The action lives with the list it acts on. */}
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="font-display text-sm font-semibold">
+                Repositories{" "}
+                <span className="text-muted-foreground font-mono font-normal">
+                  ({state.repos.length})
+                </span>
+              </h2>
+              <AttachRepositoryDialog
+                projectId={state.project.id}
+                onAttached={handleAttached}
+                trigger={
+                  <Button size="sm">
+                    <Plus className="size-4" />
+                    Attach repository
+                  </Button>
+                }
+              />
+            </div>
+
+            <ul className="space-y-3">
+              {state.repos.map((repo) => (
+                <li key={repo.id}>
+                  <RepositoryCard
+                    repo={repo}
+                    activity={activity.get(repo.id)}
+                    onChanged={handleChanged}
+                    onDeleted={handleDeleted}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </div>
-    </div>
-  );
-}
-
-function RepositoryRow({
-  repo,
-  onChanged,
-  onDeleted,
-}: {
-  repo: Repository;
-  onChanged: (repo: Repository) => void;
-  onDeleted: (id: string) => void;
-}) {
-  const [showCi, setShowCi] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
-  const [togglingComments, setTogglingComments] = useState(false);
-
-  async function handleTogglePrComments(next: boolean) {
-    setTogglingComments(true);
-    setVerifyMessage(null);
-    try {
-      const updated = await updateRepository(repo.id, { prCommentsEnabled: next });
-      onChanged(updated);
-    } catch {
-      setVerifyMessage("Could not update the PR comment setting.");
-    } finally {
-      setTogglingComments(false);
-    }
-  }
-
-  async function handleVerify() {
-    setVerifying(true);
-    setVerifyMessage(null);
-    try {
-      const result = await verifyRepository(repo.id);
-      onChanged({
-        ...repo,
-        connectionStatus: result.ok ? "ok" : "failed",
-        verifiedAt: new Date().toISOString(),
-      });
-      if (!result.ok) setVerifyMessage(connectionErrorMessage(result.error));
-    } catch {
-      setVerifyMessage("Could not verify the connection.");
-    } finally {
-      setVerifying(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!window.confirm(`Remove ${repoName(repo.url)} from this project?`)) return;
-    try {
-      await deleteRepository(repo.id);
-      onDeleted(repo.id);
-    } catch {
-      setVerifyMessage("Could not remove the repository.");
-    }
-  }
-
-  return (
-    <div className="bg-card rounded-md border border-border">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-sm font-medium">{repoName(repo.url)}</p>
-          <p className="text-muted-foreground mt-0.5 flex items-center gap-2 font-mono text-xs">
-            <span className="capitalize">{repo.provider}</span>
-            <span className="inline-flex items-center gap-1">
-              <GitBranch className="size-3" />
-              {repo.defaultBranch}
-            </span>
-          </p>
-        </div>
-
-        <ConnectionStatusBadge status={repo.connectionStatus} />
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="outline" size="sm" asChild>
-            <Link to={`/projects/${repo.projectId}/repos/${repo.id}/pulls`}>
-              <GitPullRequest className="size-3.5" />
-              Pull requests
-            </Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link to={`/projects/${repo.projectId}/repos/${repo.id}/docs`}>
-              <FileText className="size-3.5" />
-              Docs
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleVerify}
-            disabled={verifying}
-          >
-            <RefreshCw className={verifying ? "size-3.5 animate-spin" : "size-3.5"} />
-            {verifying ? "Verifying…" : "Verify"}
-          </Button>
-          <EditPatDialog
-            repository={repo}
-            onUpdated={onChanged}
-            trigger={
-              <Button variant="outline" size="sm">
-                <KeyRound className="size-3.5" />
-                {repo.accessToken ? "Edit token" : "Add token"}
-              </Button>
-            }
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            aria-expanded={showCi}
-            onClick={() => setShowCi((v) => !v)}
-          >
-            <Plug className="size-3.5" />
-            CI setup
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Remove repository"
-            onClick={handleDelete}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
-      </div>
-
-      {verifyMessage && (
-        <p
-          className="text-destructive border-t border-border px-4 py-2 text-sm"
-          role="alert"
-        >
-          {verifyMessage}
-        </p>
-      )}
-
-      {/* GP-38: opt in to GitHub PR comments; surface the last comment error. */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
-        <label className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs">
-          <input
-            type="checkbox"
-            className="accent-primary size-3.5"
-            checked={repo.prCommentsEnabled}
-            disabled={togglingComments}
-            onChange={(e) => handleTogglePrComments(e.target.checked)}
-          />
-          Comment on GitHub pull requests
-        </label>
-        {repo.lastCommentError && (
-          <span
-            className="text-destructive inline-flex items-center gap-1 font-mono text-[11px]"
-            title={repo.lastCommentError}
-          >
-            <TriangleAlert className="size-3" />
-            Last PR comment failed
-          </span>
-        )}
-      </div>
-
-      {showCi && (
-        <div className="border-t border-border p-4">
-          <CiSetupBlock webhookUrl={webhookUrl(repo.id)} />
-        </div>
-      )}
     </div>
   );
 }

@@ -1,7 +1,14 @@
 import type { FastifyPluginAsync } from "fastify";
-import { desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 
-import { projects, repositories, toPublicRepository } from "../db/schema.js";
+import {
+  graphSnapshots,
+  ingestionEvents,
+  projects,
+  pullRequests,
+  repositories,
+  toPublicRepository,
+} from "../db/schema.js";
 import { generateToken } from "../lib/tokens.js";
 import { detectProvider, PROVIDERS, type Provider } from "../services/providers.js";
 import { verifyAndStore } from "../services/repository-verification.js";
@@ -190,6 +197,79 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         .where(eq(repositories.projectId, id))
         .orderBy(desc(repositories.createdAt));
       return rows.map(toPublicRepository);
+    },
+  );
+
+  /**
+   * Activity signal for every repository in the project, in one call — what the
+   * project page needs to answer "is my CI actually sending data?" without
+   * clicking into each repo. Aggregates only (three grouped counts/maxima); it
+   * never loads a snapshot graph or an event payload.
+   *
+   * Every repository gets a row, zeroed when nothing has arrived yet: a missing
+   * row and a quiet repo mean different things to the caller.
+   */
+  app.get(
+    "/projects/:id/repositories/activity",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const [project] = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, id));
+      if (!project) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "project not found" });
+      }
+
+      const rows = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.projectId, id));
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) return [];
+
+      const [openPrs, snapshots, events] = await Promise.all([
+        app.db
+          .select({ repositoryId: pullRequests.repositoryId, n: count() })
+          .from(pullRequests)
+          .where(
+            and(
+              inArray(pullRequests.repositoryId, ids),
+              eq(pullRequests.state, "open"),
+            ),
+          )
+          .groupBy(pullRequests.repositoryId),
+        app.db
+          .select({
+            repositoryId: graphSnapshots.repositoryId,
+            at: max(graphSnapshots.createdAt),
+          })
+          .from(graphSnapshots)
+          .where(inArray(graphSnapshots.repositoryId, ids))
+          .groupBy(graphSnapshots.repositoryId),
+        app.db
+          .select({
+            repositoryId: ingestionEvents.repositoryId,
+            at: max(ingestionEvents.receivedAt),
+          })
+          .from(ingestionEvents)
+          .where(inArray(ingestionEvents.repositoryId, ids))
+          .groupBy(ingestionEvents.repositoryId),
+      ]);
+
+      const prCounts = new Map(openPrs.map((r) => [r.repositoryId, r.n]));
+      const lastSnapshot = new Map(snapshots.map((r) => [r.repositoryId, r.at]));
+      const lastEvent = new Map(events.map((r) => [r.repositoryId, r.at]));
+
+      return ids.map((repositoryId) => ({
+        repositoryId,
+        openPrs: prCounts.get(repositoryId) ?? 0,
+        lastSnapshotAt: lastSnapshot.get(repositoryId) ?? null,
+        lastEventAt: lastEvent.get(repositoryId) ?? null,
+      }));
     },
   );
 

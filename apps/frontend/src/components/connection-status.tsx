@@ -21,6 +21,32 @@ const STATUS = {
   },
 } as const;
 
+const DOT = {
+  ok: "bg-create",
+  failed: "bg-delete",
+  unverified: "bg-muted-foreground/40",
+} as const;
+
+/**
+ * A repository's connection status as a dot beside its name (GP-11). Status is
+ * metadata, not an action: it reads as part of the identity of the row instead
+ * of competing with the buttons. The label stays available to screen readers
+ * and on hover — the colour alone is never the message.
+ */
+export function ConnectionStatusDot({ status }: { status: ConnectionStatus }) {
+  const { label } = STATUS[status];
+  return (
+    <span
+      className="inline-flex shrink-0 items-center"
+      title={label}
+      aria-label={label}
+      role="img"
+    >
+      <span className={cn("size-2 rounded-full", DOT[status])} />
+    </span>
+  );
+}
+
 /** Small pill showing a repository's last connection-check result (GP-11). */
 export function ConnectionStatusBadge({
   status,

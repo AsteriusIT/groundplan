@@ -14,6 +14,7 @@ import { ChangeSummary } from "@/components/change-summary";
 export function ContextSection({
   markdown,
   title = "Context",
+  hint,
   readOnly = false,
   bare = false,
   onSave,
@@ -21,6 +22,8 @@ export function ContextSection({
 }: {
   markdown: string | null;
   title?: string;
+  /** One line saying who reads this and where it shows up. */
+  hint?: string;
   readOnly?: boolean;
   /** Drop the scroll box: the container already scrolls (see ContextRail). */
   bare?: boolean;
@@ -48,7 +51,7 @@ export function ContextSection({
   if (editing) {
     return (
       <section className="space-y-2">
-        <Header title={title} />
+        <Header title={title} hint={hint} />
         <textarea
           aria-label="Context (markdown)"
           value={draft}
@@ -77,9 +80,9 @@ export function ContextSection({
 
   return (
     <section className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Header title={title} />
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-4">
+        <Header title={title} hint={hint} />
+        <div className="flex shrink-0 items-center gap-3">
           {!readOnly && hasContent && (
             <button
               type="button"
@@ -147,10 +150,13 @@ export function ContextRail({
   );
 }
 
-function Header({ title }: { title: string }) {
+function Header({ title, hint }: { title: string; hint?: string }) {
   return (
-    <p className="text-muted-foreground font-mono text-[10px] tracking-[0.14em] uppercase">
-      {title}
-    </p>
+    <div className="space-y-0.5">
+      <p className="text-muted-foreground font-mono text-[10px] tracking-[0.14em] uppercase">
+        {title}
+      </p>
+      {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
+    </div>
   );
 }
