@@ -157,6 +157,15 @@ Local dev needs Postgres up first: `docker compose up -d`.
   the authenticated routes under `<RequireAuth>` in `App.tsx`. New authenticated
   pages: add a `pages/*.tsx`, a `<Route>` inside the layout, and a `NAV` entry in
   `components/sidebar.tsx`. Reuse `PageHeader` for the title block.
+- **Dashboard & Settings (GP-68/GP-69):** `/dashboard` is the index route and the
+  only caller of `GET /dashboard` (GP-67) — stat cards, recent PRs (change chips +
+  `Exposed`/`Privileged` risk badges), recent docs; a fresh user gets one CTA, not
+  empty tables. `/settings` is deliberately thin: account (read-only, from the
+  token), appearance (the `ThemeSwitcher`, `labelled`), and a **read-only** AI
+  status card. That card is the one AI surface that still renders when the layer
+  is off — it is a readout of server config, not AI content, and "why is there no
+  AI anywhere?" is exactly what Settings should answer. Never add a key input:
+  `AI_API_KEY` is env-only by design (GP-62).
 - **Login (GP-8):** Authorization Code + PKCE via `oidc-client-ts`. `src/auth/`
   holds the `UserManager` config (`user-manager.ts`, defaults to the dockerized
   Keycloak), `AuthProvider` (wires the GP-7 client hooks: token provider +

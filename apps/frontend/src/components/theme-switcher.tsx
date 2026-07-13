@@ -14,7 +14,15 @@ const OPTIONS: { theme: Theme; label: string; icon: LucideIcon }[] = [
   { theme: "carbon", label: "Carbon", icon: Moon },
 ];
 
-export function ThemeSwitcher({ className }: { className?: string }) {
+export function ThemeSwitcher({
+  className,
+  /** Spell the themes out — for Settings, where this is the primary control
+   * rather than the sidebar shortcut (GP-69). */
+  labelled = false,
+}: {
+  className?: string;
+  labelled?: boolean;
+}) {
   const { theme, setTheme } = useTheme();
 
   return (
@@ -37,13 +45,14 @@ export function ThemeSwitcher({ className }: { className?: string }) {
             aria-pressed={active}
             title={label}
             className={cn(
-              "grid flex-1 place-items-center rounded-sm py-1.5 transition-colors",
+              "flex flex-1 items-center justify-center gap-1.5 rounded-sm py-1.5 transition-colors",
               active
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
             <Icon className="size-4" />
+            {labelled && <span className="text-xs font-medium">{label}</span>}
           </button>
         );
       })}
