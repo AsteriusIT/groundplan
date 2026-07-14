@@ -6,8 +6,10 @@ import {
   repositories,
   type RepositoryRow,
 } from "../db/schema.js";
+import { docsSourceFor } from "../services/graph-snapshots.js";
 import {
   DocsGenerationInProgressError,
+  NoManifestsError,
   generateDocsSnapshot,
 } from "../services/repo-docs.js";
 
@@ -34,7 +36,8 @@ async function loadRepository(
 
 export const docsRoutes: FastifyPluginAsync = async (app) => {
   // Generate documentation of the default branch (Producer B). Synchronous:
-  // clone → static HCL parse → store snapshot. 409 if one is already running.
+  // clone → static parse (HCL, or YAML manifests for a kubernetes repository —
+  // GP-102) → store snapshot. 409 if one is already running.
   app.post(
     "/repositories/:id/docs/generate",
     { schema: { params: idParamsSchema } },
@@ -46,16 +49,6 @@ export const docsRoutes: FastifyPluginAsync = async (app) => {
           .code(404)
           .send({ error: "Not Found", message: "repository not found" });
       }
-      // GP-101: this producer parses HCL. A kubernetes repository is told so
-      // plainly — a silently empty diagram is the one answer nobody can act on.
-      // (GP-102 gives it a producer of its own and this becomes a branch.)
-      if (repo.iacType !== "terraform") {
-        return reply.code(422).send({
-          error: "Unprocessable Entity",
-          message:
-            "this repository holds kubernetes manifests — Terraform documentation does not apply to it",
-        });
-      }
 
       try {
         const snapshot = await generateDocsSnapshot(app, repo);
@@ -64,12 +57,23 @@ export const docsRoutes: FastifyPluginAsync = async (app) => {
         if (err instanceof DocsGenerationInProgressError) {
           return reply.code(409).send({ error: "Conflict", message: err.message });
         }
+        // Nothing to draw, and a reason the user can act on (a templated chart is
+        // rendered by their CI, not by us). We store nothing rather than an empty
+        // diagram nobody could tell from a broken one.
+        if (err instanceof NoManifestsError) {
+          return reply.code(422).send({
+            error: "Unprocessable Entity",
+            message: err.message,
+            warnings: err.warnings,
+          });
+        }
         throw err;
       }
     },
   );
 
-  // The latest docs (source=hcl) snapshot, including its graph.
+  // The latest docs snapshot (whichever producer documents this repository),
+  // including its graph.
   app.get(
     "/repositories/:id/docs/latest",
     { schema: { params: idParamsSchema } },
@@ -88,7 +92,7 @@ export const docsRoutes: FastifyPluginAsync = async (app) => {
         .where(
           and(
             eq(graphSnapshots.repositoryId, id),
-            eq(graphSnapshots.source, "hcl"),
+            eq(graphSnapshots.source, docsSourceFor(repo.iacType)),
           ),
         )
         .orderBy(desc(graphSnapshots.createdAt))

@@ -196,9 +196,9 @@ test("docs endpoints 404 for an unknown repo; latest 404 before generation", asy
   }
 });
 
-// --- GP-101: HCL documentation is a Terraform thing ---
+// --- GP-102: a kubernetes repository with nothing to draw stores nothing ---
 
-test("generating documentation for a kubernetes repository is refused", async () => {
+test("a kubernetes repository whose manifests path holds no objects is told, not drawn", async () => {
   const app = await buildApp(env);
   try {
     const p = await app.inject({
@@ -207,6 +207,10 @@ test("generating documentation for a kubernetes repository is refused", async ()
       payload: { name: "D", slug: `docs-k8s-${Date.now()}` },
     });
     const projectId = p.json().id;
+    // A Terraform repository attached as kubernetes: not one YAML file in it.
+    // This is what a Helm chart looks like to us too, and the answer is the same —
+    // say so, and point at the CI-rendered path. Never store an empty diagram: it
+    // is indistinguishable from a broken one.
     const r = await app.inject({
       method: "POST",
       url: `/api/v1/projects/${projectId}/repositories`,
@@ -217,13 +221,21 @@ test("generating documentation for a kubernetes repository is refused", async ()
         iacType: "kubernetes",
       },
     });
+    const repoId = r.json().id;
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${r.json().id}/docs/generate`,
+      url: `/api/v1/repositories/${repoId}/docs/generate`,
     });
     assert.equal(res.statusCode, 422);
-    assert.match(res.json().message, /kubernetes/);
+    assert.match(res.json().message, /no Kubernetes objects/);
+    assert.ok(res.json().warnings.length > 0, "it says what it looked at");
+
+    const latest = await app.inject({
+      method: "GET",
+      url: `/api/v1/repositories/${repoId}/docs/latest`,
+    });
+    assert.equal(latest.statusCode, 404, "nothing was stored");
 
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {

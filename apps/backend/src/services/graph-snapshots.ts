@@ -8,7 +8,35 @@ import {
 } from "../graph/graph.js";
 import { summarize } from "../graph/summarize.js";
 
-export type SnapshotSource = "plan" | "hcl" | "k8s_namespace";
+export type SnapshotSource =
+  | "plan"
+  | "hcl"
+  | "k8s_namespace"
+  | "k8s_manifest"
+  | "k8s_rendered";
+
+/** What a repository holds (GP-101) — the axis every producer choice turns on. */
+export type IacType = "terraform" | "kubernetes";
+
+/**
+ * The two questions every consumer of snapshots actually asks — "what documents
+ * this repository's main branch?" and "what does a pull request in it look like?"
+ * — answered in one place, so the mapping from a repository's kind to its producer
+ * is stated once rather than re-derived at each `where` clause.
+ */
+export function docsSourceFor(iacType: IacType): SnapshotSource {
+  return iacType === "kubernetes" ? "k8s_manifest" : "hcl";
+}
+
+export function prSourceFor(iacType: IacType): SnapshotSource {
+  return iacType === "kubernetes" ? "k8s_rendered" : "plan";
+}
+
+/** Every source that documents a default branch — what the docs list is made of. */
+export const DOCS_SOURCES: SnapshotSource[] = ["hcl", "k8s_manifest"];
+
+/** Every source that describes a pull request's head. */
+export const PR_SOURCES: SnapshotSource[] = ["plan", "k8s_rendered"];
 
 /** What the snapshot is *of*: a repository's Terraform, or a cluster's namespace. */
 type SnapshotOwner =

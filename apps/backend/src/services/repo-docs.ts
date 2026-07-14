@@ -7,16 +7,39 @@ import {
   type GraphSnapshotRow,
   type RepositoryRow,
 } from "../db/schema.js";
+import type { Graph } from "../graph/graph.js";
 import { parseHclRepo } from "../graph/hcl-parser.js";
+import { mapK8sObjects } from "../graph/k8s-mapper.js";
+import { isManifestPath, parseManifests } from "../graph/manifest-parser.js";
 import { reconcileRepositoryAnnotations } from "./annotation-reconcile.js";
-import { insertGraphSnapshot } from "./graph-snapshots.js";
-import { readRepoTextFiles } from "./repo-files.js";
+import { docsSourceFor, insertGraphSnapshot } from "./graph-snapshots.js";
+import { readRepoTextFiles, type RepoTextFile } from "./repo-files.js";
 
 /** Thrown when a docs generation is already running for a repository. */
 export class DocsGenerationInProgressError extends Error {
   constructor() {
     super("documentation generation already in progress for this repository");
     this.name = "DocsGenerationInProgressError";
+  }
+}
+
+/**
+ * Thrown when a kubernetes repository's manifests root yields no objects at all.
+ *
+ * We could store the empty graph and call it documentation. We don't: an empty
+ * diagram is indistinguishable from a broken one, and for the repository this
+ * most often happens to — a Helm chart, whose templates are Go source and not
+ * YAML — there is a real answer, which is to render in CI and post the result
+ * (GP-103). Saying so beats drawing nothing and letting the user wonder.
+ */
+export class NoManifestsError extends Error {
+  readonly warnings: string[];
+  constructor(warnings: string[]) {
+    super(
+      "no Kubernetes objects found in this repository's manifests path — if it is a Helm chart or a kustomize overlay, its diagram comes from your CI rendering it (see the Kubernetes CI setup)",
+    );
+    this.name = "NoManifestsError";
+    this.warnings = warnings;
   }
 }
 
@@ -34,10 +57,49 @@ export type GenerateDocsOptions = {
 // (before the first await) so two overlapping calls can't both pass the guard.
 const generating = new Set<string>();
 
+/** What a producer hands back: the graph, and everything worth saying about it. */
+type Produced = { graph: Graph; extraStats: Record<string, unknown> };
+
 /**
- * Producer B (GP-15): clone the repo's default branch, statically parse its
- * Terraform, and store a `source=hcl` GraphSnapshot. Synchronous for now (no
- * queue); the clone is always cleaned up by `readRepoTextFiles`.
+ * Producer B (GP-15): statically parse the repository's Terraform.
+ *
+ * The repository's Terraform root is the parse entrypoint. Every .tf file in the
+ * clone is still handed over, so a module sourced from above that root
+ * (`../modules/shared`) resolves — only the starting directory moves.
+ */
+function produceHcl(files: RepoTextFile[], repo: RepositoryRow): Produced {
+  const { graph, warnings } = parseHclRepo(files, { rootDir: repo.terraformPath });
+  return { graph, extraStats: { warnings } };
+}
+
+/**
+ * Producer B for Kubernetes (GP-102): parse the repository's YAML manifests.
+ *
+ * Unlike the HCL parse, the walk is confined to the manifests root: manifests have
+ * no `../modules/shared` to resolve, so a file outside the root is not context —
+ * it is somebody else's stack.
+ */
+function produceManifests(files: RepoTextFile[], repo: RepositoryRow): Produced {
+  const result = parseManifests(files, { rootDir: repo.terraformPath });
+  if (result.objects.length === 0) throw new NoManifestsError(result.warnings);
+  return {
+    graph: mapK8sObjects(result.objects),
+    extraStats: {
+      warnings: result.warnings,
+      skippedDocuments: result.skippedDocuments,
+      skippedFiles: result.skippedFiles,
+    },
+  };
+}
+
+/**
+ * Living documentation of the default branch: clone it, parse what it holds, and
+ * store a docs GraphSnapshot. Synchronous for now (no queue); the clone is always
+ * cleaned up by `readRepoTextFiles`.
+ *
+ * Which producer runs is the repository's own answer (GP-101) — the flow around
+ * it (lock, clone, store, reconcile) is the same either way, which is why
+ * Kubernetes needed no second copy of it.
  */
 export async function generateDocsSnapshot(
   app: FastifyInstance,
@@ -56,31 +118,34 @@ export async function generateDocsSnapshot(
       }
     }
 
+    const kubernetes = repo.iacType === "kubernetes";
     const { files, headSha } = await readRepoTextFiles(
       { url: repo.url, provider: repo.provider, ref: repo.defaultBranch, accessToken },
-      (path) => path.endsWith(".tf"),
+      kubernetes ? isManifestPath : (path) => path.endsWith(".tf"),
       opts.commitSha,
     );
 
-    // The repository's Terraform root is the parse entrypoint. Every .tf file in
-    // the clone is still handed over, so a module sourced from above that root
-    // (`../modules/shared`) resolves — only the starting directory moves.
-    const { graph, warnings } = parseHclRepo(files, { rootDir: repo.terraformPath });
+    const { graph, extraStats } = kubernetes
+      ? produceManifests(files, repo)
+      : produceHcl(files, repo);
 
     const snapshot = await insertGraphSnapshot(app.db, {
       repositoryId: repo.id,
-      source: "hcl",
+      source: docsSourceFor(repo.iacType),
       ref: repo.defaultBranch,
       commitSha: headSha,
       prNumber: null,
       graph,
-      extraStats: { warnings, trigger: opts.trigger ?? "manual" },
+      extraStats: { ...extraStats, trigger: opts.trigger ?? "manual" },
     });
 
     // Reconcile the annotation layer against the new snapshot (ADR #4 / GP-57):
     // a deterministic, synchronous post-step, so every docs generation (manual,
     // regenerate, on-merge) keeps annotation status in sync with the graph.
-    await reconcileRepositoryAnnotations(app.db, repo.id, graph);
+    // Kubernetes snapshots carry no annotation layer yet (GP-100 excludes it), so
+    // there is nothing to reconcile them against — and reconciling anyway would
+    // quietly orphan a repository's Terraform annotations against a YAML graph.
+    if (!kubernetes) await reconcileRepositoryAnnotations(app.db, repo.id, graph);
 
     return snapshot;
   } finally {
@@ -120,7 +185,7 @@ export async function autoGenerateDocsOnPush(
     .where(
       and(
         eq(graphSnapshots.repositoryId, repositoryId),
-        eq(graphSnapshots.source, "hcl"),
+        eq(graphSnapshots.source, docsSourceFor(repo.iacType)),
         eq(graphSnapshots.commitSha, body.commit_sha),
       ),
     )
@@ -143,6 +208,13 @@ export async function autoGenerateDocsOnPush(
       app.log.info(
         { repositoryId },
         "docs generation already running, skipping (next push will regenerate)",
+      );
+    } else if (err instanceof NoManifestsError) {
+      // A templated chart on merge to main: expected, and not a failure. The
+      // pull-request flow renders it in CI (GP-103); there is nothing to do here.
+      app.log.info(
+        { repositoryId, warnings: err.warnings },
+        "no Kubernetes objects in the manifests path, skipping docs generation",
       );
     } else {
       app.log.error({ err, repositoryId }, "auto docs generation failed");

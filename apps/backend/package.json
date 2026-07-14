@@ -29,7 +29,8 @@
     "fastify-plugin": "^6.0.0",
     "jose": "^6.2.3",
     "mime-types": "^3.0.2",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/mime-types": "^3.0.1",

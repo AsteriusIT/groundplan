@@ -170,10 +170,12 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Unauthorized", message: "invalid webhook token" });
       }
 
-      // GP-101: this endpoint speaks Terraform. A kubernetes repository has no
-      // plan.json to send, so it is refused rather than left to accumulate events
-      // nothing will read. (GP-103 gives it its own payload and this branches.)
-      if (repo.iacType !== "terraform") {
+      // A push says main moved, which is true of both kinds of repository — the
+      // docs producer downstream knows which one to run (GP-102). A pull request,
+      // though, carries a Terraform plan, and a kubernetes repository has none to
+      // send: it is refused rather than left to accumulate events nothing reads.
+      // (GP-103 gives it a payload of its own and this becomes a branch.)
+      if (repo.iacType !== "terraform" && body.event !== "push") {
         return reply.code(422).send({
           error: "Unprocessable Entity",
           message:

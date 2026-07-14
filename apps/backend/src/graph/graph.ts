@@ -124,6 +124,17 @@ export type GraphNode = {
    * a Secret's data never reaches a node (see k8s-mapper).
    */
   labels?: Record<string, string>;
+  /**
+   * v7: the object's own content, flattened to `path → value` (GP-102) — e.g.
+   * `spec.template.spec.containers[0].image`. A Kubernetes snapshot has no plan to
+   * be told what changed by, so a pull request's colours are computed by comparing
+   * one graph against another (GP-103); this is the part of the node that makes
+   * two versions of the same workload comparable. Sensitive values (a Secret's
+   * data) are masked here, exactly as they are in `attribute_diff`.
+   */
+  attributes?: Record<string, string>;
+  /** v7: true when the attribute list exceeded the cap and was capped. */
+  attributes_truncated?: boolean;
 };
 
 export type GraphEdge = {
@@ -149,10 +160,12 @@ export type Graph = {
    * parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47);
    * 5 adds the annotation-adapted projection — logical edges, group containers,
    * display labels, notes (GP-72/GP-77); 6 adds node labels, which is how a
-   * Kubernetes namespace read says what a workload is (GP-96).
+   * Kubernetes namespace read says what a workload is (GP-96); 7 adds node
+   * attributes, which is what lets one Kubernetes graph be diffed against another
+   * when there is no plan to ask (GP-102/GP-103).
    * All stay valid — every version bump is additive/optional.
    */
-  version: 1 | 2 | 3 | 4 | 5 | 6;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };

@@ -67,6 +67,10 @@ const KIND_FOR_SOURCE: Record<GraphSnapshotRow["source"], TourKind | null> = {
   plan: "change_tour",
   hcl: "system_tour",
   k8s_namespace: null,
+  // Kubernetes repositories (GP-102/GP-103) get no tour for the same reason: the
+  // AI layer is grounded in Terraform snapshots and their repository context.
+  k8s_manifest: null,
+  k8s_rendered: null,
 };
 
 type Prepared = {

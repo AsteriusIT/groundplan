@@ -212,9 +212,9 @@ test("events list returns the last 20, newest first, without payload", async () 
   }
 });
 
-// --- GP-101: a repository refuses operations meant for the other kind ---
+// --- GP-101/GP-102: a repository refuses payloads meant for the other kind ---
 
-test("the plan webhook refuses a kubernetes repository", async () => {
+test("a kubernetes repository takes a push, and refuses a Terraform plan", async () => {
   const app = await buildApp(env);
   try {
     const p = await app.inject({
@@ -234,23 +234,32 @@ test("the plan webhook refuses a kubernetes repository", async () => {
     });
     const { id: repoId, webhookToken } = r.json();
 
-    // Explicit beats silent-empty: a manifests repo has no plan.json to send,
-    // and saying so is more use than storing an event nothing will ever read.
-    const res = await app.inject({
+    // Explicit beats silent-empty: a manifests repository has no plan.json to
+    // send, and saying so is more use than storing an event nothing will read.
+    const plan = await app.inject({
+      method: "POST",
+      url: `/api/v1/webhooks/ci/${repoId}`,
+      headers: { "x-groundplan-token": webhookToken },
+      payload: { ...validBody, event: "pull_request", pr_number: 7 },
+    });
+    assert.equal(plan.statusCode, 422);
+    assert.match(plan.json().message, /kubernetes/);
+
+    // Nothing was stored — a refused delivery is not an event.
+    assert.deepEqual(
+      (await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/events` })).json(),
+      [],
+    );
+
+    // But a push is a push: main moved, and that means the same thing whatever the
+    // repository holds. (What it documents is GP-102's business, not the webhook's.)
+    const push = await app.inject({
       method: "POST",
       url: `/api/v1/webhooks/ci/${repoId}`,
       headers: { "x-groundplan-token": webhookToken },
       payload: validBody,
     });
-    assert.equal(res.statusCode, 422);
-    assert.match(res.json().message, /kubernetes/);
-
-    // Nothing was stored — a refused delivery is not an event.
-    const events = await app.inject({
-      method: "GET",
-      url: `/api/v1/repositories/${repoId}/events`,
-    });
-    assert.deepEqual(events.json(), []);
+    assert.equal(push.statusCode, 202);
 
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {

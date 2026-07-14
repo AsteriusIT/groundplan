@@ -169,6 +169,13 @@
       "when": 1784061291125,
       "tag": "0023_watery_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784062141098,
+      "tag": "0024_wild_the_anarchist",
+      "breakpoints": true
     }
   ]
 }

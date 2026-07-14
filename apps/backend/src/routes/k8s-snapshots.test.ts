@@ -184,13 +184,16 @@ test("generate: read → map → store a k8s_namespace snapshot the rest of the 
     assert.equal(snapshot.repositoryId, null, "a cluster snapshot has no repository");
 
     // The graph is the GP-96 mapping — the namespace container and what is in it.
+    // Ids carry the namespace since GP-102, because the same mapper now also maps
+    // repositories that hold several namespaces at once, where `Kind/name` alone
+    // would collide.
     assert.deepEqual(
       snapshot.graph.nodes.map((n: { id: string }) => n.id).sort(),
       [
-        "ConfigMap/api-config",
-        "Deployment/api",
         "Namespace/payments",
-        "Service/api-svc",
+        "payments/ConfigMap/api-config",
+        "payments/Deployment/api",
+        "payments/Service/api-svc",
       ],
     );
     assert.equal(snapshot.stats.nodes, 4);
@@ -203,7 +206,7 @@ test("generate: read → map → store a k8s_namespace snapshot the rest of the 
       headers: auth,
     });
     assert.equal(read.statusCode, 200);
-    assert.equal(read.json().graph.version, 6);
+    assert.equal(read.json().graph.version, 7);
     assert.equal(read.json().stats.edges, 5);
 
     const svg = await app.inject({

@@ -65,14 +65,16 @@ test("validateGraph rejects an edge with an unknown kind", () => {
   assert.equal(res.valid, false);
 });
 
-test("validateGraph accepts v2..v6 but rejects an unknown version", () => {
+test("validateGraph accepts v2..v7 but rejects an unknown version", () => {
   assert.equal(validateGraph({ ...validGraph, version: 2 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 3 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 4 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 5 }).valid, true);
   // v6 (GP-96) adds node labels. Every bump is additive, so v1 stays valid too.
   assert.equal(validateGraph({ ...validGraph, version: 6 }).valid, true);
-  assert.equal(validateGraph({ ...validGraph, version: 7 }).valid, false);
+  // v7 (GP-102) adds node attributes — what a Kubernetes graph is diffed by.
+  assert.equal(validateGraph({ ...validGraph, version: 7 }).valid, true);
+  assert.equal(validateGraph({ ...validGraph, version: 8 }).valid, false);
 });
 
 test("validateGraph accepts v6 node labels, and rejects non-string values", () => {

@@ -9,6 +9,7 @@ import {
   repositories,
 } from "../db/schema.js";
 import type { GraphStats } from "../graph/graph.js";
+import { DOCS_SOURCES } from "../services/graph-snapshots.js";
 
 /** How much recent activity the dashboard shows. Fixed — no pagination (GP-67). */
 const RECENT_PRS = 10;
@@ -182,7 +183,9 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       })
       .from(graphSnapshots)
       .innerJoin(repositories, eq(graphSnapshots.repositoryId, repositories.id))
-      .where(eq(graphSnapshots.source, "hcl"))
+      // Every producer that documents a default branch, Terraform or Kubernetes
+      // (GP-102) — the card is about documentation, not about a language.
+      .where(inArray(graphSnapshots.source, DOCS_SOURCES))
       .orderBy(desc(graphSnapshots.createdAt))
       .limit(RECENT_DOCS);
 

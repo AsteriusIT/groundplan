@@ -268,12 +268,25 @@ export const publicEventColumns = {
   receivedAt: ingestionEvents.receivedAt,
 };
 
+/**
+ * Where a graph came from. Each value names a **producer**, and the two Terraform
+ * ones keep their names and their meaning forever — every value here is additive.
+ *
+ * The Kubernetes trio mirrors the Terraform pair on purpose (GP-100): manifests
+ * committed to a repository are the HCL of Kubernetes (a static read of main), and
+ * manifests rendered by the user's CI are its plan.json (what a pull request would
+ * do). `k8s_namespace` is the odd one out — it is a live cluster, not a repository.
+ */
 export const graphSnapshotSource = pgEnum("graph_snapshot_source", [
   "plan",
   "hcl",
   // GP-97: one namespace of a live Kubernetes cluster, read and mapped (GP-96).
-  // Additive — the two Terraform sources keep their names and their meaning.
   "k8s_namespace",
+  // GP-102: the YAML manifests of a repository's default branch — its living docs.
+  "k8s_manifest",
+  // GP-103: manifests rendered by the user's CI (`helm template`, `kustomize
+  // build`, or plain YAML) for a pull request head, coloured against main.
+  "k8s_rendered",
 ]);
 
 /**

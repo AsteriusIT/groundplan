@@ -10,6 +10,7 @@ import {
 import { collapseToGroups, projectAdapted } from "../graph/adapted.js";
 import { diffGraphs } from "../graph/diff.js";
 import { computeGraphStats } from "../graph/graph.js";
+import { DOCS_SOURCES, type SnapshotSource } from "../services/graph-snapshots.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -35,7 +36,11 @@ const listQuerySchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    source: { type: "string", enum: ["plan", "hcl"] },
+    // Every producer a repository can have (GP-102/GP-103 add the Kubernetes two).
+    source: {
+      type: "string",
+      enum: ["plan", "hcl", "k8s_manifest", "k8s_rendered"],
+    },
     // Coerced from the query string by Fastify's schema validation.
     pr_number: { type: "integer" },
   },
@@ -59,7 +64,7 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
     { schema: { params: idParamsSchema, querystring: listQuerySchema } },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const query = request.query as { source?: "plan" | "hcl"; pr_number?: number };
+      const query = request.query as { source?: SnapshotSource; pr_number?: number };
 
       const [repo] = await app.db
         .select({ id: repositories.id })
@@ -171,7 +176,8 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // Diff two docs snapshots (GP-40): what appeared / disappeared / moved between
-  // base (:id) and target (:otherId). Both must be hcl snapshots of one repo.
+  // base (:id) and target (:otherId). Both must document one repository's default
+  // branch, and both by the same producer.
   app.get(
     "/snapshots/:id/diff/:otherId",
     { schema: { params: diffParamsSchema } },
@@ -196,10 +202,18 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
           message: "snapshots belong to different repositories",
         });
       }
-      if (base.source !== "hcl" || target.source !== "hcl") {
+      // Two documentation snapshots of the same kind: "what changed in our infra
+      // since last time" (GP-40). Manifest snapshots answer it identically
+      // (GP-102) — but a plan is not a documentation snapshot, and Terraform and
+      // Kubernetes graphs share no address space, so neither pairing is a diff.
+      if (
+        base.source !== target.source ||
+        !DOCS_SOURCES.includes(base.source as SnapshotSource)
+      ) {
         return reply.code(422).send({
           error: "Unprocessable Entity",
-          message: "diff is only supported between documentation (hcl) snapshots",
+          message:
+            "diff is only supported between two documentation snapshots of the same repository kind",
         });
       }
 
