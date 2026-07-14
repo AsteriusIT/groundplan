@@ -9,11 +9,20 @@ import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { PageHeader } from "@/components/page-header";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { TourStyleSwitcher } from "@/components/tour-style-switcher";
+import { useTourStyle } from "@/tour/tour-style";
 
 const THEME_BLURB: Record<string, string> = {
   light: "Drafting paper — a light surface for bright rooms and projectors.",
   blueprint: "Cyanotype — the signature deep-blue drafting table.",
   carbon: "Carbon — near-neutral graphite, for when blue is too much.",
+};
+
+const TOUR_BLURB: Record<string, string> = {
+  spotlight:
+    "The diagram dims and a card is pinned to the resources each stop is about.",
+  guide:
+    "The whole tour lists in a rail beside the diagram — skim it, or jump to any stop.",
 };
 
 /**
@@ -73,6 +82,7 @@ function AccountCard() {
 
 function AppearanceCard() {
   const { theme } = useTheme();
+  const { style } = useTourStyle();
 
   return (
     <Section
@@ -83,6 +93,14 @@ function AppearanceCard() {
       <div className="flex items-center gap-6">
         <ThemeSwitcher className="w-80 shrink-0" />
         <p className="text-muted-foreground text-sm">{THEME_BLURB[theme]}</p>
+      </div>
+
+      {/* GP-79. Not an AI surface — it is a display preference, and it belongs
+          beside the theme for the same reason the theme does: Settings is where
+          you say how the product should look, and nowhere else is. */}
+      <div className="mt-5 flex items-center gap-6">
+        <TourStyleSwitcher className="w-80 shrink-0" />
+        <p className="text-muted-foreground text-sm">{TOUR_BLURB[style]}</p>
       </div>
     </Section>
   );

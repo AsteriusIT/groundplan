@@ -64,8 +64,12 @@ import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { SnapshotSelect } from "@/components/snapshot-select";
+import { TourLauncher } from "@/components/tour-launcher";
+import { TourRail } from "@/components/tour-rail";
 import { useAiStatus } from "@/lib/use-ai-status";
 import { networkProjection } from "@/lib/graph-layout";
+import { useTourStyle } from "@/tour/tour-style";
+import { useTourPlayer } from "@/tour/use-tour";
 
 type ListState =
   | { status: "loading" }
@@ -339,6 +343,26 @@ export function DocsPage() {
 
   const { view, setView } = useGraphView();
 
+  // GP-79: the guided tour of this estate. It plays on the lens it was written
+  // against — `adapted` when the repo has groups, so the tour can stop at "the
+  // storefront" instead of at seven addresses — and the server decides which.
+  const player = useTourPlayer(current?.id ?? "", { view, setView });
+  const { style: tourStyle } = useTourStyle();
+  const tourChrome =
+    player.step === null
+      ? null
+      : {
+          step: player.step,
+          index: player.index,
+          total: player.total,
+          model: player.model,
+          chrome: tourStyle,
+          onNext: player.next,
+          onPrev: player.prev,
+          onExit: player.exit,
+        };
+  const touring = player.status === "playing";
+
   // Network view (GP-44): project the current snapshot when ?view=network.
   const network = useMemo(
     () => (current && view === "network" ? networkProjection(current.graph) : null),
@@ -587,7 +611,11 @@ export function DocsPage() {
       {snapshots.length > 0 && (
         <div className="bg-card border-border flex items-center justify-between gap-4 border-b px-8 py-2.5">
           <div className="flex items-center gap-3">
-            {current && !compareMode && <ViewSwitcher variant="docs" />}
+            {/* A tour is written against one lens and plays on it — switching
+                mid-tour would strand the camera on a diagram the narration is not
+                about. So the switcher steps aside while one runs. */}
+            {current && !compareMode && !touring && <ViewSwitcher variant="docs" />}
+            {current && !compareMode && <TourLauncher player={player} />}
           </div>
           <div className="flex items-center gap-4">
             <SnapshotSelect
@@ -723,16 +751,33 @@ export function DocsPage() {
                       : undefined
                   }
                   highlightIds={previewIds ?? undefined}
+                  tour={tourChrome}
                 />
               )}
             </>
           )}
         </div>
 
+        {/* GP-79, guide style: the tour takes the rail. It is a narration of this
+            snapshot, and so are the panels beside it — three of them stacked in one
+            column would be three voices talking over each other. They come back the
+            moment the tour ends. */}
+        {player.tour && touring && tourStyle === "guide" && !focus && (
+          <TourRail
+            tour={player.tour}
+            index={player.index}
+            model={player.model}
+            onGoTo={player.goTo}
+            onNext={player.next}
+            onPrev={player.prev}
+            onExit={player.exit}
+          />
+        )}
+
         {/* GP-65. Keyed on the snapshot: each point in the timeline keeps its own
             explanation, so stepping back through history shows what *that*
             snapshot was, not the newest one's prose. */}
-        {current && explainOpen && !focus && (
+        {current && explainOpen && !focus && !touring && (
           <aside className="border-border bg-card w-80 shrink-0 overflow-y-auto border-l px-4 py-4">
             <AiPanel
               snapshotId={current.id}
@@ -745,7 +790,7 @@ export function DocsPage() {
 
         {/* GP-76: suggestions live here and nowhere else until a human answers
             them. Rendered only when the AI layer is on — no key, no AI surface. */}
-        {current && proposalsOpen && aiStatus?.enabled && !focus && (
+        {current && proposalsOpen && aiStatus?.enabled && !focus && !touring && (
           <ProposalInbox
             proposals={proposals}
             suggesting={suggesting}

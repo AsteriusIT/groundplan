@@ -2,6 +2,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
+import { TourStyleProvider } from "@/tour/tour-style";
+
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
@@ -122,13 +124,15 @@ function snapshot(id: string, nodeCount: number): Snapshot {
   };
 }
 
-function renderPage() {
+function renderPage(entry = "/projects/p1/repos/r1/docs") {
   return render(
-    <MemoryRouter initialEntries={["/projects/p1/repos/r1/docs"]}>
-      <Routes>
-        <Route path="/projects/:id/repos/:repoId/docs" element={<DocsPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <TourStyleProvider>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/projects/:id/repos/:repoId/docs" element={<DocsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </TourStyleProvider>,
   );
 }
 
@@ -263,13 +267,7 @@ it("renders the IAM table (no change column) at ?view=iam (GP-48)", async () => 
     },
   });
 
-  render(
-    <MemoryRouter initialEntries={["/projects/p1/repos/r1/docs?view=iam"]}>
-      <Routes>
-        <Route path="/projects/:id/repos/:repoId/docs" element={<DocsPage />} />
-      </Routes>
-    </MemoryRouter>,
-  );
+  renderPage("/projects/p1/repos/r1/docs?view=iam");
 
   expect(await screen.findByText("Owner")).toBeInTheDocument();
   // Docs context drops the change column, and the canvas is replaced.

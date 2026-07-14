@@ -2,6 +2,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
+import { TourStyleProvider } from "@/tour/tour-style";
+
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
@@ -123,16 +125,18 @@ const summary = (over: Partial<SnapshotSummary> = {}): SnapshotSummary => ({
   ...over,
 });
 
-function renderPage() {
+function renderPage(entry = "/projects/p1/repos/r1/pulls/5") {
   return render(
-    <MemoryRouter initialEntries={["/projects/p1/repos/r1/pulls/5"]}>
-      <Routes>
-        <Route
-          path="/projects/:id/repos/:repoId/pulls/:number"
-          element={<PullDetailPage />}
-        />
-      </Routes>
-    </MemoryRouter>,
+    <TourStyleProvider>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route
+            path="/projects/:id/repos/:repoId/pulls/:number"
+            element={<PullDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    </TourStyleProvider>,
   );
 }
 
@@ -197,16 +201,7 @@ it("renders the IAM table (with a change column) at ?view=iam (GP-48)", async ()
     },
   });
 
-  render(
-    <MemoryRouter initialEntries={["/projects/p1/repos/r1/pulls/5?view=iam"]}>
-      <Routes>
-        <Route
-          path="/projects/:id/repos/:repoId/pulls/:number"
-          element={<PullDetailPage />}
-        />
-      </Routes>
-    </MemoryRouter>,
-  );
+  renderPage("/projects/p1/repos/r1/pulls/5?view=iam");
 
   expect(await screen.findByText("Owner")).toBeInTheDocument();
   // PR context keeps the change column; the canvas is replaced by the table.
@@ -241,16 +236,7 @@ it("jumps from an IAM row to the plan-impact canvas with the node focused (GP-49
     },
   });
 
-  render(
-    <MemoryRouter initialEntries={["/projects/p1/repos/r1/pulls/5?view=iam"]}>
-      <Routes>
-        <Route
-          path="/projects/:id/repos/:repoId/pulls/:number"
-          element={<PullDetailPage />}
-        />
-      </Routes>
-    </MemoryRouter>,
-  );
+  renderPage("/projects/p1/repos/r1/pulls/5?view=iam");
 
   // Open the row's panel, then use its "View in plan-impact" action.
   fireEvent.click(await screen.findByText("Owner"));

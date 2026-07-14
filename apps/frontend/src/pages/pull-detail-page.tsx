@@ -25,8 +25,12 @@ import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { IamTable } from "@/components/iam-table";
 import { SnapshotSelect } from "@/components/snapshot-select";
+import { TourLauncher } from "@/components/tour-launcher";
+import { TourRail } from "@/components/tour-rail";
 import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
 import { networkProjection } from "@/lib/graph-layout";
+import { useTourStyle } from "@/tour/tour-style";
+import { useTourPlayer } from "@/tour/use-tour";
 
 type PageState =
   | { status: "loading" }
@@ -79,6 +83,25 @@ export function PullDetailPage() {
     },
     [setView],
   );
+
+  // GP-79: the guided tour of this change. The player owns which stop we are on;
+  // the preference owns what a stop looks like.
+  const snapshotId = graph.status === "ready" ? graph.snapshot.id : "";
+  const player = useTourPlayer(snapshotId, { view, setView });
+  const { style: tourStyle } = useTourStyle();
+  const tourChrome =
+    player.step === null
+      ? null
+      : {
+          step: player.step,
+          index: player.index,
+          total: player.total,
+          model: player.model,
+          chrome: tourStyle,
+          onNext: player.next,
+          onPrev: player.prev,
+          onExit: player.exit,
+        };
 
   const load = useCallback(() => {
     if (!repoId) return;
@@ -195,7 +218,13 @@ export function PullDetailPage() {
       {(graph.status === "ready" || snapshots.length > 1) && (
         <div className="bg-card border-border flex items-center justify-between gap-4 border-b px-8 py-2.5">
           <div className="flex items-center gap-3">
-            {graph.status === "ready" && <ViewSwitcher variant="plan" />}
+            {/* A tour is written against one lens and plays on it. Switching views
+                mid-tour would strand the camera on a diagram the narration is not
+                about, so the switcher steps aside while one runs. */}
+            {graph.status === "ready" && player.status !== "playing" && (
+              <ViewSwitcher variant="plan" />
+            )}
+            {graph.status === "ready" && <TourLauncher player={player} />}
           </div>
           <div className="flex items-center gap-4">
             {snapshots.length > 1 && (
@@ -234,27 +263,46 @@ export function PullDetailPage() {
                 variant="plan"
                 containerIds={network?.containerIds}
                 focusNodeId={focusNodeId}
+                tour={tourChrome}
               />
             )
           ) : (
             <CenteredNote>Loading diagram…</CenteredNote>
           )}
         </div>
-        {/* GP-36 deterministic change summary, docked as a right rail — with the
-            GP-64 AI summary above it (and nothing there when AI is off). */}
-        {graph.status === "ready" && !focus && (
-          <ChangeSummarySidebar
-            markdown={graph.snapshot.summaryMd}
-            prNumber={pull.number}
-            above={
-              <AiPanel
-                snapshotId={graph.snapshot.id}
-                kind="pr_summary"
-                title="AI summary"
-                cta="Generate AI summary"
-              />
-            }
+
+        {/* While a tour runs in guide style, it *is* the rail. The AI summary and
+            the change summary are not lost — they are what the rail goes back to
+            the moment the tour ends. Two stacked narrations of the same change,
+            competing for the same column, would be one too many. */}
+        {player.tour && player.status === "playing" && tourStyle === "guide" && !focus ? (
+          <TourRail
+            tour={player.tour}
+            index={player.index}
+            model={player.model}
+            onGoTo={player.goTo}
+            onNext={player.next}
+            onPrev={player.prev}
+            onExit={player.exit}
           />
+        ) : (
+          /* GP-36 deterministic change summary, docked as a right rail — with the
+             GP-64 AI summary above it (and nothing there when AI is off). */
+          graph.status === "ready" &&
+          !focus && (
+            <ChangeSummarySidebar
+              markdown={graph.snapshot.summaryMd}
+              prNumber={pull.number}
+              above={
+                <AiPanel
+                  snapshotId={graph.snapshot.id}
+                  kind="pr_summary"
+                  title="AI summary"
+                  cta="Generate AI summary"
+                />
+              }
+            />
+          )
         )}
       </div>
     </div>

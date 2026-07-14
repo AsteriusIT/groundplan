@@ -28,6 +28,7 @@ import type {
   Snapshot,
   SnapshotDiff,
   SnapshotSummary,
+  TourResponse,
   UpdateAnnotationInput,
   UpdateProjectInput,
   UpdateRepositoryInput,
@@ -462,6 +463,35 @@ export async function getAiGeneration(
 /** The endpoint `useCompletion` POSTs to in order to stream a generation. */
 export function aiCompletionUrl(snapshotId: string, kind: AiKind): string {
   return `${apiBase()}/snapshots/${encode(snapshotId)}/ai/${encode(kind)}`;
+}
+
+// --- Guided tours (GP-78) ---------------------------------------------------
+
+/**
+ * The tour a snapshot already has, or null if none has been generated. Like the
+ * prose, "not generated yet" is the normal state and not an error.
+ *
+ * There is no `kind` here on purpose: which tour you get follows from what the
+ * snapshot is, so the frontend cannot ask for the wrong one.
+ */
+export async function getTour(snapshotId: string): Promise<TourResponse | null> {
+  try {
+    return await request<TourResponse>(`/snapshots/${encode(snapshotId)}/tour`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** Generate a tour. Unlike the prose, this is JSON — there is nothing to stream. */
+export function generateTour(
+  snapshotId: string,
+  opts: { regenerate?: boolean } = {},
+): Promise<TourResponse> {
+  return request<TourResponse>(`/snapshots/${encode(snapshotId)}/tour`, {
+    method: "POST",
+    body: JSON.stringify({ regenerate: opts.regenerate === true }),
+  });
 }
 
 /**

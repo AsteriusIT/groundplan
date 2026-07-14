@@ -714,3 +714,79 @@ describe("adapted graphs", () => {
     );
   });
 });
+
+describe("the tour spotlight (GP-79)", () => {
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "aws_s3.a", x: 0, y: 0, width: 220, height: 56 },
+      { id: "aws_s3.b", x: 300, y: 0, width: 220, height: 56 },
+      {
+        id: "module.net",
+        x: 0,
+        y: 120,
+        width: 260,
+        height: 120,
+        children: [
+          { id: "module.net.aws_vpc.v", x: 16, y: 36, width: 220, height: 56 },
+        ],
+      },
+    ],
+  };
+
+  const view = (tourAnchors: ReadonlySet<string> | null) =>
+    elkToFlow(layout, graph, {
+      activeFilters: allFilters,
+      selectedId: null,
+      tourAnchors,
+    });
+
+  it("lights the stop and pushes everything else back", () => {
+    const { nodes } = view(new Set(["aws_s3.a"]));
+
+    const lit = nodes.find((n) => n.id === "aws_s3.a");
+    expect(lit?.data.dimmed).toBe(false);
+    expect(nodes.find((n) => n.id === "aws_s3.b")?.data.dimmed).toBe(true);
+    // Even a container dims: when the stop is one resource, leaving every module
+    // frame bright is a spotlight with the house lights still on.
+    expect(nodes.find((n) => n.id === "module.net")?.data.dimmed).toBe(true);
+  });
+
+  it("frames a whole module when the stop is the module", () => {
+    const { nodes } = view(new Set(["module.net"]));
+    expect(nodes.find((n) => n.id === "module.net")?.data.dimmed).toBe(false);
+    expect(nodes.find((n) => n.id === "aws_s3.a")?.data.dimmed).toBe(true);
+  });
+
+  it("dims nothing on the whole-diagram stop", () => {
+    // The opener and the closer are about the change as a whole. There is nothing
+    // to single out, so nothing recedes.
+    const { nodes } = view(new Set());
+    expect(nodes.every((n) => n.data.dimmed === false)).toBe(true);
+  });
+
+  it("lights an edge only when the stop is about both its ends", () => {
+    const both = view(new Set(["aws_s3.a", "aws_s3.b"]));
+    const edge = both.edges.find((e) => e.id === depEdgeId(graph.edges[1]!));
+    expect(edge?.data?.active).toBe(true);
+    expect(edge?.data?.dimmed).toBe(false);
+
+    // One end lit and one in the dark is not the point being made.
+    const one = view(new Set(["aws_s3.a"]));
+    const half = one.edges.find((e) => e.id === depEdgeId(graph.edges[1]!));
+    expect(half?.data?.active).toBe(false);
+    expect(half?.data?.dimmed).toBe(true);
+  });
+
+  it("outranks a selection — a narration must not flicker with the cursor", () => {
+    const { nodes } = elkToFlow(layout, graph, {
+      activeFilters: allFilters,
+      selectedId: "aws_s3.b",
+      hoveredId: "aws_s3.b",
+      tourAnchors: new Set(["aws_s3.a"]),
+    });
+
+    expect(nodes.find((n) => n.id === "aws_s3.a")?.data.dimmed).toBe(false);
+    expect(nodes.find((n) => n.id === "aws_s3.b")?.data.dimmed).toBe(true);
+  });
+});

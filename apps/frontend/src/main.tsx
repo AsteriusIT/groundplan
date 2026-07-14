@@ -11,6 +11,7 @@ import "@fontsource/ibm-plex-mono/600.css";
 
 import { AuthProvider } from "@/auth/auth-provider";
 import { ThemeProvider } from "@/theme/theme-provider";
+import { TourStyleProvider } from "@/tour/tour-style";
 import { loadConfig } from "@/config";
 import App from "./App.tsx";
 import "./index.css";
@@ -29,11 +30,13 @@ async function bootstrap(container: HTMLElement): Promise<void> {
   createRoot(container).render(
     <StrictMode>
       <ThemeProvider>
-        <BrowserRouter>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
-        </BrowserRouter>
+        <TourStyleProvider>
+          <BrowserRouter>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </BrowserRouter>
+        </TourStyleProvider>
       </ThemeProvider>
     </StrictMode>,
   );

@@ -502,3 +502,38 @@ export interface AiGeneration {
   outputTokens: number | null;
   createdAt: string;
 }
+
+// --- Guided tours (GP-78 / GP-79) -------------------------------------------
+
+/**
+ * The lens a tour was written against, and which the player switches to. A change
+ * tour is told on the raw diagram; a system tour on the adapted one when the repo
+ * has groups worth stopping at.
+ */
+export type TourView = "infra" | "adapted";
+
+/** One stop: the nodes the camera frames, and what the narrator says about them. */
+export interface TourStep {
+  /** Node ids. **Empty means the whole diagram** — the opening and closing stops. */
+  anchors: string[];
+  title: string;
+  /** Markdown (prose + inline code). Untrusted model output — render, never trust. */
+  body: string;
+}
+
+export interface Tour {
+  title: string;
+  view: TourView;
+  steps: TourStep[];
+}
+
+/** What `GET|POST /snapshots/:id/tour` answers with. */
+export interface TourResponse {
+  tour: Tour;
+  /** The model that wrote it — shown to the reader, because they should know. */
+  model: string;
+  /** True when it was replayed from the cache and no model was called. */
+  cached: boolean;
+  /** Stops the backend threw away because they pointed at nothing. */
+  dropped?: number;
+}

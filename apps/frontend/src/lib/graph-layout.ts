@@ -168,6 +168,16 @@ export type ViewState = {
   showHubEdges?: boolean;
   /** vnet/subnet ids that render as containers even when empty (GP-44). */
   containerIds?: ReadonlySet<string>;
+  /**
+   * GP-79: the nodes the current tour stop is about. When a tour is running this
+   * is the focus — it outranks hover and selection, because a narration that
+   * flickers every time the cursor drifts is not a narration.
+   *
+   * The spotlight is the existing dim, turned up: no scrim, no z-index surgery,
+   * just everything-but-this pushed back. An *empty* set is the whole-diagram
+   * stop (the opener and the closer), where nothing should dim at all.
+   */
+  tourAnchors?: ReadonlySet<string> | null;
 };
 
 const isModule = (node: GraphNode) => node.type === "module";
@@ -541,9 +551,14 @@ export function elkToFlow(
   const hubs = view.hubs ?? EMPTY_HUBS;
   const showHubEdges = view.showHubEdges ?? false;
   const containerIds = view.containerIds ?? EMPTY_HUBS;
+  // A tour stop outranks both: while one is running, the diagram is showing you
+  // what the narrator is talking about, and a stray hover must not redirect it.
+  // An empty set is the whole-diagram stop, which focuses nothing.
+  const touring =
+    view.tourAnchors && view.tourAnchors.size > 0 ? view.tourAnchors : null;
   // A selection is sticky, a hover is transient — but both focus the same way.
   // Selection wins, so hovering elsewhere can't yank you out of what you pinned.
-  const focusId = selectedId ?? view.hoveredId ?? null;
+  const focusId = touring ? null : (selectedId ?? view.hoveredId ?? null);
   const neighbors = focusId ? neighborhood(graph, focusId) : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
@@ -566,6 +581,10 @@ export function elkToFlow(
   }
 
   const dimmedOf = (node: GraphNode): boolean => {
+    // A tour stop is the only focus that dims a container: when the stop *is* a
+    // module or a group, the point is that box, and leaving every other frame lit
+    // would be a spotlight with the house lights on.
+    if (touring) return !touring.has(node.id);
     if (isModule(node)) return false; // containers stay lit
     if (!nodePassesFilters(node, activeFilters)) return true;
     if (activeCategories && !activeCategories.has(categorize(node.type))) return true;
@@ -632,6 +651,12 @@ export function elkToFlow(
     .map((edge) => {
       const touchesFocus =
         Boolean(focusId) && (edge.from === focusId || edge.to === focusId);
+      // Under a tour, only an edge *between two things the stop is about* is part
+      // of the story. An edge from a lit node out into the dark is not the point
+      // being made, and lighting it would draw the eye off the stop.
+      const inTour = touring
+        ? touring.has(edge.from) && touring.has(edge.to)
+        : false;
       const logical = edge.kind === "logical";
       // Colour/dash come from the relationship + inferred flag (GP-30), applied
       // by the RelationshipEdge component — no re-layout on selection. Drawn in
@@ -644,10 +669,11 @@ export function elkToFlow(
         type: "relationship",
         data: {
           rel: edgeRel(byId.get(edge.from), byId.get(edge.to)),
-          dimmed: Boolean(focusId) && !touchesFocus,
-          // Lit: this edge belongs to the node you are pointing at. Everything
-          // else recedes, so one relationship can be traced through a crossing.
-          active: touchesFocus,
+          dimmed: touring ? !inTour : Boolean(focusId) && !touchesFocus,
+          // Lit: this edge belongs to the node you are pointing at (or to the
+          // stop you are being shown). Everything else recedes, so one
+          // relationship can be traced through a crossing.
+          active: touring ? inTour : touchesFocus,
           inferred: edge.inferred === true,
           route: routes.get(depEdgeId(edge)),
           // A logical edge wears the annotation treatment — dashed, accent-toned,

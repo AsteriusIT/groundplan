@@ -15,6 +15,7 @@ import { getAiStatus } from "@/api/client";
 import type { AiStatus, User } from "@/api/types";
 import { resetAiStatus } from "@/lib/use-ai-status";
 import { ThemeProvider } from "@/theme/theme-provider";
+import { TourStyleProvider } from "@/tour/tour-style";
 import { SettingsPage } from "./settings-page";
 
 const getAiStatusMock = vi.mocked(getAiStatus);
@@ -28,11 +29,13 @@ function user(over: Partial<User> = {}): User {
   };
 }
 
-/** The theme card writes through the shared ThemeProvider. */
+/** The appearance card writes through the two display-preference providers. */
 function renderPage() {
   return render(
     <ThemeProvider>
-      <SettingsPage />
+      <TourStyleProvider>
+        <SettingsPage />
+      </TourStyleProvider>
     </ThemeProvider>,
   );
 }

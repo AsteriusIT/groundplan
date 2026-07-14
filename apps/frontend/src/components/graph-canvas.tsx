@@ -61,6 +61,9 @@ import {
   type AnnotateTool,
 } from "@/lib/annotate-tool";
 import { NotePanel } from "@/components/note-editor";
+import { TourSpotlight } from "@/components/tour-spotlight";
+import type { TourChrome } from "@/components/tour-chrome";
+import type { TourStyle } from "@/tour/tour-style";
 import {
   ALL_FILTERS,
   categoryCounts,
@@ -303,6 +306,7 @@ export function GraphCanvas({
   onDeleteAnnotation,
   onExpandGroup,
   highlightIds,
+  tour,
 }: {
   graph: Graph;
   variant?: "plan" | "docs";
@@ -332,6 +336,17 @@ export function GraphCanvas({
    * question. Transient, and never anything the user has committed to.
    */
   highlightIds?: ReadonlySet<string>;
+  /**
+   * GP-79: the tour stop currently being narrated, if one is. The canvas is what a
+   * tour *does* — it flies the camera to the stop's anchors and pushes everything
+   * else back — so it takes the stop, not the whole tour: it has no idea how many
+   * steps there are or where they came from, and it cannot advance one.
+   *
+   * `chrome: "spotlight"` additionally pins the card to the nodes in question,
+   * which has to happen in here because only a child of `<ReactFlow>` can. The
+   * guide rail lives outside the canvas and asks for nothing but the camera.
+   */
+  tour?: (TourChrome & { chrome: TourStyle }) | null;
 }) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
@@ -400,6 +415,18 @@ export function GraphCanvas({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // The stop's anchors, as a set, and only the ones this graph actually has. The
+  // backend already dropped stops it could not fly to, but the canvas may be
+  // showing a *filtered* or otherwise different graph than the one validated, and
+  // dimming everything because an anchor is missing would black out the diagram.
+  const tourAnchors = useMemo(() => {
+    if (!tour) return null;
+    const present = tour.step.anchors.filter((id) =>
+      graph.nodes.some((n) => n.id === id),
+    );
+    return new Set(present);
+  }, [tour, graph]);
+
   const elements = useMemo(
     () =>
       layout
@@ -412,9 +439,10 @@ export function GraphCanvas({
             hubs,
             showHubEdges,
             containerIds,
+            tourAnchors,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, tourAnchors],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
@@ -621,6 +649,10 @@ export function GraphCanvas({
 
   const handleNodeClick = useCallback(
     (_: unknown, node: FlowNode<GraphNodeData>) => {
+      // While a tour is running the canvas is being narrated, and a click that
+      // opens a detail panel over the stop is the diagram interrupting the guide.
+      // Exploring is what you do *after* the tour; Esc is always one key away.
+      if (tour) return;
       // A note pin selects its underlying resource (opens the panel + notes).
       if (node.type === "annotationNote") {
         const target = graph.nodes.find((n) => n.id === (node.data.nodeId as string));
@@ -654,7 +686,7 @@ export function GraphCanvas({
       if (marqueeSelecting) return;
       setSelected(graphNode);
     },
-    [annotate, tool.tool, marqueeSelecting, groupsPickable, graph, onExpandGroup],
+    [annotate, tool.tool, marqueeSelecting, groupsPickable, graph, onExpandGroup, tour],
   );
 
   // Rubber-band / shift-click selection drives the group and hide tools' picks.
@@ -686,6 +718,28 @@ export function GraphCanvas({
     const node = graph.nodes.find((n) => n.id === focusNodeId);
     if (node) flyTo(node);
   }, [focusNodeId, graph, flyTo]);
+
+  // The tour camera (GP-79). A stop with anchors frames exactly them — `fitView`
+  // takes a set, so a stop about three things frames all three, which is the whole
+  // reason a stop may name more than one. A stop with none frames the diagram: it
+  // is the opener or the closer, and it is talking about the change as a whole.
+  //
+  // Gated on `layout` because the coordinates do not exist until ELK has run —
+  // flying before then is a fitView over an empty graph, which lands nowhere.
+  const tourIndex = tour?.index ?? null;
+  useEffect(() => {
+    if (!layout || !tourAnchors) return;
+
+    const nodes = [...tourAnchors].map((id) => ({ id }));
+    void rfRef.current?.fitView(
+      nodes.length > 0
+        ? { nodes, duration: 600, maxZoom: 1.4, padding: 0.35 }
+        : { duration: 600 },
+    );
+    // A tour is a narration: the side panel from a click you made three stops ago
+    // has no business hanging over the thing you are being shown now.
+    setSelected(null);
+  }, [layout, tourIndex, tourAnchors]);
 
   const results = useMemo(() => searchNodes(graph.nodes, query, 10), [graph, query]);
 
@@ -748,6 +802,11 @@ export function GraphCanvas({
           lineWidth={1}
           color="var(--grid-strong)"
         />
+
+        {/* The spotlight's coach mark. In here because only a child of
+            `<ReactFlow>` can pin itself to a node; the guide rail wants no such
+            thing and lives outside the canvas entirely. */}
+        {tour?.chrome === "spotlight" ? <TourSpotlight tour={tour} /> : null}
       </ReactFlow>
 
       {/* Floating zoom toolbar (top-right). */}
