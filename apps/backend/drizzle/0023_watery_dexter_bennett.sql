@@ -1,0 +1,2 @@
+CREATE TYPE "public"."repository_iac_type" AS ENUM('terraform', 'kubernetes');--> statement-breakpoint
+ALTER TABLE "repositories" ADD COLUMN "iac_type" "repository_iac_type" DEFAULT 'terraform' NOT NULL;

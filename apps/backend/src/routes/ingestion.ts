@@ -151,6 +151,7 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
       const [repo] = await app.db
         .select({
           id: repositories.id,
+          iacType: repositories.iacType,
           webhookToken: repositories.webhookToken,
         })
         .from(repositories)
@@ -167,6 +168,17 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
         return reply
           .code(401)
           .send({ error: "Unauthorized", message: "invalid webhook token" });
+      }
+
+      // GP-101: this endpoint speaks Terraform. A kubernetes repository has no
+      // plan.json to send, so it is refused rather than left to accumulate events
+      // nothing will read. (GP-103 gives it its own payload and this branches.)
+      if (repo.iacType !== "terraform") {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message:
+            "this repository holds kubernetes manifests — send rendered manifests, not a Terraform plan",
+        });
       }
 
       const [row] = await app.db

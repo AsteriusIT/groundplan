@@ -46,6 +46,16 @@ export const docsRoutes: FastifyPluginAsync = async (app) => {
           .code(404)
           .send({ error: "Not Found", message: "repository not found" });
       }
+      // GP-101: this producer parses HCL. A kubernetes repository is told so
+      // plainly — a silently empty diagram is the one answer nobody can act on.
+      // (GP-102 gives it a producer of its own and this becomes a branch.)
+      if (repo.iacType !== "terraform") {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message:
+            "this repository holds kubernetes manifests — Terraform documentation does not apply to it",
+        });
+      }
 
       try {
         const snapshot = await generateDocsSnapshot(app, repo);

@@ -32,6 +32,19 @@ export const repositoryConnectionStatus = pgEnum(
   ["unverified", "ok", "failed"],
 );
 
+/**
+ * What a repository holds (GP-101). `terraform` is everything that came before
+ * and stays the default, so every existing row reads correctly with no backfill.
+ *
+ * One repository is one kind, not both (GP-100): a monorepo holding both can be
+ * attached twice with different paths, which costs one row and buys a rule we
+ * never have to reason around.
+ */
+export const repositoryIacType = pgEnum("repository_iac_type", [
+  "terraform",
+  "kubernetes",
+]);
+
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -50,6 +63,10 @@ export const repositories = pgTable("repositories", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   provider: repositoryProvider("provider").notNull(),
+  // What this repository holds (GP-101). Everything downstream — which producer
+  // runs on merge, which webhook payload is accepted, which views are offered —
+  // branches on this one column.
+  iacType: repositoryIacType("iac_type").notNull().default("terraform"),
   url: text("url").notNull(),
   defaultBranch: text("default_branch").notNull().default("main"),
   // Personal access token for cloning private repos. Stored ENCRYPTED at rest
@@ -75,10 +92,15 @@ export const repositories = pgTable("repositories", {
   // GP-60: long-form markdown "context" for this repository, shown on the docs
   // page and (read-only) in the share view.
   contextMd: text("context_md"),
-  // The subdirectory the repository's Terraform lives in; "" (the default) is
-  // the repository root. Stored normalized (see lib/repo-path). It selects the
+  // The subdirectory the repository's IaC lives in; "" (the default) is the
+  // repository root. Stored normalized (see lib/repo-path). It selects the
   // *entrypoint* of the HCL parse, the way `terraform -chdir` does — plan
   // snapshots arrive from CI as JSON and are unaffected.
+  //
+  // GP-101: the column does double duty — for an `iac_type: kubernetes` repo it
+  // is the manifests directory (the UI calls it "Manifests path"). It is not
+  // renamed: the meaning is "where the IaC lives", which it always was, and a
+  // rename would be migration churn for zero behaviour.
   terraformPath: text("terraform_path").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -91,6 +113,8 @@ export type PublicRepository = {
   id: string;
   projectId: string;
   provider: (typeof repositoryProvider.enumValues)[number];
+  /** What the repository holds (GP-101); set at creation, immutable in v1. */
+  iacType: (typeof repositoryIacType.enumValues)[number];
   url: string;
   defaultBranch: string;
   /** "***" when a PAT is stored, otherwise null. Never the token value. */
@@ -117,6 +141,7 @@ export function toPublicRepository(row: RepositoryRow): PublicRepository {
     id: row.id,
     projectId: row.projectId,
     provider: row.provider,
+    iacType: row.iacType,
     url: row.url,
     defaultBranch: row.defaultBranch,
     accessToken: row.accessToken ? "***" : null,

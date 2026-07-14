@@ -15,6 +15,13 @@ const idParamsSchema = {
   properties: { id: { type: "string", pattern: UUID_PATTERN } },
 };
 
+/**
+ * What a repository can be told to change. Absent by design: `iacType` (set at
+ * creation, immutable in v1 — GP-100 has no mixed repos), `url` and `provider`.
+ * Unknown keys are stripped by Fastify before the handler runs, so a request
+ * made up entirely of them updates nothing — which the handler answers as such
+ * rather than sending an empty UPDATE to Postgres.
+ */
 const updateRepositorySchema = {
   type: "object",
   additionalProperties: false,
@@ -76,6 +83,18 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
         return reply
           .code(404)
           .send({ error: "Not Found", message: "repository not found" });
+      }
+
+      // Everything the caller sent was stripped as unknown (`iacType`, say, which
+      // is immutable). Answering that plainly beats an empty UPDATE, which
+      // Postgres rejects and the caller would read as a server fault.
+      if (Object.keys(body).length === 0) {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message:
+            "nothing to update — a repository's provider, url and iacType are set when it is attached",
+          fields: [],
+        });
       }
 
       let terraformPath: string | undefined;

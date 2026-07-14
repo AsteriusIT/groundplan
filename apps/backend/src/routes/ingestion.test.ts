@@ -211,3 +211,49 @@ test("events list returns the last 20, newest first, without payload", async () 
     await app.close();
   }
 });
+
+// --- GP-101: a repository refuses operations meant for the other kind ---
+
+test("the plan webhook refuses a kubernetes repository", async () => {
+  const app = await buildApp(env);
+  try {
+    const p = await app.inject({
+      method: "POST",
+      url: "/api/v1/projects",
+      payload: { name: "WH", slug: uniqueSlug() },
+    });
+    const projectId = p.json().id;
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/v1/projects/${projectId}/repositories`,
+      payload: {
+        provider: "github",
+        url: "https://github.com/acme/manifests",
+        iacType: "kubernetes",
+      },
+    });
+    const { id: repoId, webhookToken } = r.json();
+
+    // Explicit beats silent-empty: a manifests repo has no plan.json to send,
+    // and saying so is more use than storing an event nothing will ever read.
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/webhooks/ci/${repoId}`,
+      headers: { "x-groundplan-token": webhookToken },
+      payload: validBody,
+    });
+    assert.equal(res.statusCode, 422);
+    assert.match(res.json().message, /kubernetes/);
+
+    // Nothing was stored — a refused delivery is not an event.
+    const events = await app.inject({
+      method: "GET",
+      url: `/api/v1/repositories/${repoId}/events`,
+    });
+    assert.deepEqual(events.json(), []);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});

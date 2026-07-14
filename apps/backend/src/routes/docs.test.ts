@@ -195,3 +195,38 @@ test("docs endpoints 404 for an unknown repo; latest 404 before generation", asy
     await app.close();
   }
 });
+
+// --- GP-101: HCL documentation is a Terraform thing ---
+
+test("generating documentation for a kubernetes repository is refused", async () => {
+  const app = await buildApp(env);
+  try {
+    const p = await app.inject({
+      method: "POST",
+      url: "/api/v1/projects",
+      payload: { name: "D", slug: `docs-k8s-${Date.now()}` },
+    });
+    const projectId = p.json().id;
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/v1/projects/${projectId}/repositories`,
+      payload: {
+        provider: "github",
+        url: fixtureUrl,
+        defaultBranch: "main",
+        iacType: "kubernetes",
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/repositories/${r.json().id}/docs/generate`,
+    });
+    assert.equal(res.statusCode, 422);
+    assert.match(res.json().message, /kubernetes/);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});

@@ -162,6 +162,13 @@
       "when": 1784056521437,
       "tag": "0022_bright_marten_broadcloak",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784061291125,
+      "tag": "0023_watery_dexter_bennett",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import {
   projects,
   pullRequests,
   repositories,
+  repositoryIacType,
   toPublicRepository,
 } from "../db/schema.js";
 import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.js";
@@ -63,10 +64,14 @@ const createRepositorySchema = {
     provider: { type: "string", enum: [...PROVIDERS] },
     url: { type: "string", minLength: 1, maxLength: 500 },
     defaultBranch: { type: "string", minLength: 1, maxLength: 200 },
+    // What the repository holds (GP-101). Omitted -> terraform, so every caller
+    // written before Kubernetes existed keeps working unchanged. Set once: there
+    // is no PATCH for it (GP-100 — a repo is one kind, not both).
+    iacType: { type: "string", enum: [...repositoryIacType.enumValues] },
     // Write-only: accepted here, never echoed back in any response.
     accessToken: { type: "string", minLength: 1, maxLength: 500 },
-    // Subdirectory the Terraform lives in; omitted/"" is the repository root.
-    // Shape is checked here, meaning (no escaping the repo) in normalizeTerraformPath.
+    // Subdirectory the IaC lives in; omitted/"" is the repository root. Shape is
+    // checked here, meaning (no escaping the repo) in normalizeTerraformPath.
     terraformPath: { type: "string", maxLength: 500 },
   },
 };
@@ -286,6 +291,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         provider?: Provider;
         url: string;
         defaultBranch?: string;
+        iacType?: (typeof repositoryIacType.enumValues)[number];
         accessToken?: string;
         terraformPath?: string;
       };
@@ -327,6 +333,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         .values({
           projectId: id,
           provider,
+          // Omitted -> DB default ("terraform"): the kind every repo was before.
+          iacType: body.iacType,
           url: body.url,
           // Omitted -> DB default ("main").
           defaultBranch: body.defaultBranch,
