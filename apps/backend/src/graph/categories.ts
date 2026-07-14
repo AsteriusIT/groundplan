@@ -83,6 +83,38 @@ const PREFIX_TO_CATEGORY: Record<string, Category> = {
   google_logging: "observability",
 };
 
+/**
+ * Bare Kubernetes kinds (GP-103), matched exactly rather than by prefix — they
+ * are PascalCase, so they can never collide with a snake_case Terraform type.
+ * The frontend has held the same table since GP-93; the backend needs it now
+ * that the change summary describes Kubernetes pull requests too, and without it
+ * every workload in a diagram would be filed under "Other".
+ */
+const KIND_TO_CATEGORY: Record<string, Category> = {
+  Pod: "compute",
+  Deployment: "compute",
+  ReplicaSet: "compute",
+  StatefulSet: "compute",
+  DaemonSet: "compute",
+  Job: "compute",
+  CronJob: "compute",
+  HorizontalPodAutoscaler: "compute",
+  Namespace: "compute",
+  Node: "compute",
+  Service: "network",
+  Ingress: "network",
+  NetworkPolicy: "network",
+  ConfigMap: "security",
+  Secret: "security",
+  PersistentVolume: "data",
+  PersistentVolumeClaim: "data",
+  ServiceAccount: "identity",
+  Role: "identity",
+  ClusterRole: "identity",
+  RoleBinding: "identity",
+  ClusterRoleBinding: "identity",
+};
+
 // Longest-first so e.g. aws_instance beats a hypothetical aws_ prefix.
 const SORTED_PREFIXES = Object.keys(PREFIX_TO_CATEGORY).sort(
   (a, b) => b.length - a.length,
@@ -99,8 +131,10 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   other: "Other",
 };
 
-/** Categorise a resource type; unknown / non-prefixed types → "other". */
+/** Categorise a resource type or Kubernetes kind; anything unknown → "other". */
 export function categorize(type: string): Category {
+  const kind = KIND_TO_CATEGORY[type];
+  if (kind) return kind;
   for (const prefix of SORTED_PREFIXES) {
     if (type === prefix || type.startsWith(`${prefix}_`)) {
       return PREFIX_TO_CATEGORY[prefix] as Category;

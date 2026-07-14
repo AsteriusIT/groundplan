@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import {
   graphSnapshots,
@@ -8,6 +8,7 @@ import {
   repositories,
   type PullRequestRow,
 } from "../db/schema.js";
+import { PR_SOURCES } from "../services/graph-snapshots.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -53,7 +54,11 @@ async function repoExists(app: FastifyInstance, id: string): Promise<boolean> {
   return Boolean(repo);
 }
 
-/** The most recent plan snapshot for each PR number (stats only, no graph). */
+/**
+ * The most recent head snapshot for each PR number (stats only, no graph) —
+ * a Terraform plan, or the manifests the CI rendered (GP-103). Which producer
+ * made it is the repository's business, not this list's.
+ */
 async function latestSnapshotsByPr(
   app: FastifyInstance,
   repositoryId: string,
@@ -69,7 +74,7 @@ async function latestSnapshotsByPr(
     .where(
       and(
         eq(graphSnapshots.repositoryId, repositoryId),
-        eq(graphSnapshots.source, "plan"),
+        inArray(graphSnapshots.source, PR_SOURCES),
       ),
     )
     .orderBy(desc(graphSnapshots.createdAt));

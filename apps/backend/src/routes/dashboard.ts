@@ -9,7 +9,7 @@ import {
   repositories,
 } from "../db/schema.js";
 import type { GraphStats } from "../graph/graph.js";
-import { DOCS_SOURCES } from "../services/graph-snapshots.js";
+import { DOCS_SOURCES, PR_SOURCES } from "../services/graph-snapshots.js";
 
 /** How much recent activity the dashboard shows. Fixed — no pagination (GP-67). */
 const RECENT_PRS = 10;
@@ -142,7 +142,9 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       .from(graphSnapshots)
       .where(
         and(
-          eq(graphSnapshots.source, "plan"),
+          // Every producer that describes a pull request's head (GP-103) — the
+          // chips count changes, and a change is a change whatever wrote it.
+          inArray(graphSnapshots.source, PR_SOURCES),
           inArray(graphSnapshots.repositoryId, repositoryIds),
           inArray(graphSnapshots.prNumber, prNumbers),
         ),

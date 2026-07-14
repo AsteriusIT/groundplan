@@ -1,12 +1,17 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import {
+  graphSnapshots,
   ingestionEvents,
   publicEventColumns,
   pullRequests,
   repositories,
+  type RepositoryRow,
 } from "../db/schema.js";
+import { changesFromBase } from "../graph/change-diff.js";
+import { mapK8sObjects, type K8sObject } from "../graph/k8s-mapper.js";
+import { InvalidManifestError, parseManifestStream } from "../graph/manifest-parser.js";
 import { isTerraformPlan, parsePlanToGraph } from "../graph/plan-parser.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
 import { postPrComment } from "../services/pr-comment.js";
@@ -22,6 +27,109 @@ type WebhookBody = {
   pr_state?: "open" | "closed";
   payload: Record<string, unknown>;
 };
+
+/**
+ * Producer A for Kubernetes (GP-103): the user's CI renders the pull request head
+ * (`helm template`, `kustomize build`, or plain `cat`) and posts the result. We map
+ * it, colour it against what main says today, and store it as the PR's snapshot.
+ *
+ * The base is the repository's **latest documentation snapshot of main** (GP-102),
+ * at the time we process this. A repository whose main has no diagram yet — its
+ * very first pull request, or a chart whose templates we cannot parse — compares
+ * against nothing, so everything reads as created. That is honest, and the snapshot
+ * records `base: "none"` so the reader knows which of the two they are looking at.
+ *
+ * Rendering happens in the user's CI and nowhere else. `helm` and `kustomize` are
+ * Go binaries with no credible Node implementation, and shelling out to them would
+ * put arbitrary chart code in our runtime — so we ingest what they produced, which
+ * is the same posture as ingesting a plan.json instead of running `terraform`.
+ */
+async function ingestManifests(
+  app: FastifyInstance,
+  repo: RepositoryRow,
+  body: WebhookBody,
+  objects: K8sObject[],
+): Promise<void> {
+  const head = mapK8sObjects(objects);
+
+  // Rendered manifests of **main** are that branch's documentation, not a review
+  // of it: they are stored exactly as the repository-parsing producer (GP-102)
+  // would have stored them. This is the only way a Helm chart or a kustomize
+  // overlay is ever documented — its templates are Go source, so there is nothing
+  // in the repository for us to read, and the render its CI already does is the
+  // truth. It also gives its pull requests something to be compared against.
+  if (body.event === "push") {
+    await replaceSnapshot(app, repo.id, "k8s_manifest", null, body.commit_sha);
+    await insertGraphSnapshot(app.db, {
+      repositoryId: repo.id,
+      source: "k8s_manifest",
+      ref: repo.defaultBranch,
+      commitSha: body.commit_sha,
+      prNumber: null,
+      graph: head,
+      extraStats: { trigger: "auto", rendered: true, objects: objects.length },
+    });
+    return;
+  }
+
+  const [base] = await app.db
+    .select()
+    .from(graphSnapshots)
+    .where(
+      and(
+        eq(graphSnapshots.repositoryId, repo.id),
+        eq(graphSnapshots.source, "k8s_manifest"),
+      ),
+    )
+    .orderBy(desc(graphSnapshots.createdAt))
+    .limit(1);
+
+  const prNumber = body.pr_number ?? null;
+  await replaceSnapshot(app, repo.id, "k8s_rendered", prNumber, body.commit_sha);
+
+  const snapshot = await insertGraphSnapshot(app.db, {
+    repositoryId: repo.id,
+    source: "k8s_rendered",
+    ref: body.ref,
+    commitSha: body.commit_sha,
+    prNumber,
+    graph: changesFromBase(base?.graph ?? null, head),
+    extraStats: {
+      base: base?.id ?? "none",
+      baseCommitSha: base?.commitSha ?? null,
+      objects: objects.length,
+    },
+  });
+
+  if (snapshot.prNumber !== null) {
+    app.runInBackground(postPrComment(app, snapshot));
+  }
+}
+
+/**
+ * Drop the snapshot a re-delivery is about to replace. CI retries, and two
+ * diagrams of one commit is not history — it is the same picture, twice.
+ */
+async function replaceSnapshot(
+  app: FastifyInstance,
+  repositoryId: string,
+  source: "k8s_manifest" | "k8s_rendered",
+  prNumber: number | null,
+  commitSha: string,
+): Promise<void> {
+  await app.db
+    .delete(graphSnapshots)
+    .where(
+      and(
+        eq(graphSnapshots.repositoryId, repositoryId),
+        eq(graphSnapshots.source, source),
+        prNumber === null
+          ? isNull(graphSnapshots.prNumber)
+          : eq(graphSnapshots.prNumber, prNumber),
+        eq(graphSnapshots.commitSha, commitSha),
+      ),
+    );
+}
 
 /**
  * Producer A: if the payload is a Terraform plan, parse it into a GraphSnapshot.
@@ -119,6 +227,9 @@ const webhookBodySchema = {
     pr_number: { type: "integer", minimum: 1 },
     pr_title: { type: "string", maxLength: 500 },
     pr_state: { type: "string", enum: ["open", "closed"] },
+    // What CI has to say. For a Terraform repository this is the plan.json
+    // itself; for a kubernetes one it is `{ manifests: "<rendered YAML>" }`
+    // (GP-103). A push carries neither — it only says that main moved.
     payload: { type: "object" },
   },
   // pr_number is mandatory for pull_request events.
@@ -149,11 +260,7 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
       const body = request.body as WebhookBody;
 
       const [repo] = await app.db
-        .select({
-          id: repositories.id,
-          iacType: repositories.iacType,
-          webhookToken: repositories.webhookToken,
-        })
+        .select()
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
       if (!repo) {
@@ -170,17 +277,49 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Unauthorized", message: "invalid webhook token" });
       }
 
-      // A push says main moved, which is true of both kinds of repository — the
-      // docs producer downstream knows which one to run (GP-102). A pull request,
-      // though, carries a Terraform plan, and a kubernetes repository has none to
-      // send: it is refused rather than left to accumulate events nothing reads.
-      // (GP-103 gives it a payload of its own and this becomes a branch.)
-      if (repo.iacType !== "terraform" && body.event !== "push") {
-        return reply.code(422).send({
-          error: "Unprocessable Entity",
-          message:
-            "this repository holds kubernetes manifests — send rendered manifests, not a Terraform plan",
-        });
+      const kubernetes = repo.iacType === "kubernetes";
+
+      // A pull request is where the two kinds of repository part company: one
+      // sends a Terraform plan, the other sends the manifests its CI rendered.
+      // Sending the wrong one is a CI misconfiguration, and it is told so now —
+      // at the point of failure, where `curl -sf` fails the step somebody is
+      // watching — rather than being stored and quietly never drawn.
+      let objects: K8sObject[] | null = null;
+      const rendered = kubernetes ? body.payload["manifests"] : undefined;
+      const sentManifests = typeof rendered === "string" && rendered.trim() !== "";
+
+      // A pull request MUST carry manifests — there is nothing else it could mean.
+      // A push MAY: a raw-YAML repository lets us read main ourselves (GP-102),
+      // while a chart or an overlay has nothing readable in it and sends the render
+      // its CI already did. Both are documentation of main; only the source differs.
+      if (kubernetes && (body.event === "pull_request" || sentManifests)) {
+        const manifests = rendered;
+        if (typeof manifests !== "string" || manifests.trim() === "") {
+          return reply.code(422).send({
+            error: "Unprocessable Entity",
+            message:
+              "this repository holds kubernetes manifests — send the rendered YAML as payload.manifests, not a Terraform plan",
+          });
+        }
+        try {
+          objects = parseManifestStream(manifests);
+        } catch (err) {
+          if (err instanceof InvalidManifestError) {
+            // Half a rendered stream is not something to store: unlike a repository
+            // walk, where one bad file is just a file, the body *is* the payload.
+            return reply
+              .code(422)
+              .send({ error: "Unprocessable Entity", message: err.message });
+          }
+          throw err;
+        }
+        if (objects.length === 0) {
+          return reply.code(422).send({
+            error: "Unprocessable Entity",
+            message:
+              "the rendered manifests held no Kubernetes objects — check the render step of your CI job",
+          });
+        }
       }
 
       const [row] = await app.db
@@ -194,12 +333,15 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
         })
         .returning({ id: ingestionEvents.id });
 
-      if (row) await ingestPlan(app, repositoryId, body, row.id);
+      if (objects) await ingestManifests(app, repo, body, objects);
+      else if (row && !kubernetes) await ingestPlan(app, repositoryId, body, row.id);
       await upsertPullRequest(app, repositoryId, body);
 
       // Living docs (GP-23): a push to the default branch regenerates the docs
       // snapshot in the background — the webhook still returns 202 immediately.
-      if (body.event === "push") {
+      // Unless CI has just handed us main already rendered, in which case reading
+      // the repository again would only overwrite the truth with a worse guess.
+      if (body.event === "push" && !sentManifests) {
         app.runInBackground(autoGenerateDocsOnPush(app, repositoryId, body));
       }
 
