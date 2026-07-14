@@ -110,7 +110,10 @@ export function AttachClusterDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      {/* A kubeconfig is a wide, tall thing to look at. Cap the height rather than
+          letting the dialog grow past the viewport and take the submit button with
+          it — a form you cannot reach the bottom of is not a form. */}
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         {created ? (
           <>
             <DialogHeader>
@@ -139,7 +142,11 @@ export function AttachClusterDialog({
                 Connect a Kubernetes cluster so Groundplan can draw its namespaces.
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            {/* `min-w-0`: this form is a grid item of the dialog, so its default
+                `min-width: auto` would size it to its widest child. A kubeconfig's
+                base64 lines are single unbroken ~1500-character tokens, which is
+                how the dialog ended up wider than the screen. */}
+            <form onSubmit={handleSubmit} className="min-w-0 space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="cluster-name">Cluster name</Label>
                 <Input
@@ -154,15 +161,22 @@ export function AttachClusterDialog({
 
               <div className="space-y-2">
                 <Label htmlFor="cluster-kubeconfig">Kubeconfig</Label>
+                {/* `field-sizing-fixed` overrides the primitive's
+                    `field-sizing-content`, which sizes a textarea to its content:
+                    fine for prose, ruinous for a pasted file — a kubeconfig's
+                    base64 lines are single unbroken ~1500-character tokens, so the
+                    box grew to swallow the whole dialog (and, before `min-w-0`
+                    below, the whole screen). Fixed, it keeps the height we asked
+                    for and the paste wraps and scrolls inside it. */}
                 <Textarea
                   id="cluster-kubeconfig"
                   value={kubeconfig}
                   onChange={(e) => setKubeconfig(e.target.value)}
                   placeholder="Paste the contents of your kubeconfig file"
-                  rows={8}
+                  rows={10}
                   spellCheck={false}
                   autoComplete="off"
-                  className="font-mono text-xs"
+                  className="field-sizing-fixed h-56 w-full min-w-0 resize-y overflow-auto font-mono text-xs"
                 />
                 <p className="text-muted-foreground text-xs">
                   Stored encrypted and never shown again. We use its{" "}
