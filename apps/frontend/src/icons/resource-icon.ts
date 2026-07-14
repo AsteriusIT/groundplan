@@ -1,36 +1,65 @@
 /**
- * Resource icon resolution chain (GP-29). Pure and unit-tested:
+ * Resource icon resolution chain (GP-29, extended GP-91 AWS). Pure and
+ * unit-tested:
  *
- *   exact azurerm type  →  azurerm type-prefix heuristic  →  category icon
+ *   exact vendor type  →  vendor type-prefix heuristic  →  category icon
  *   (GP-24)  →  generic cube.
  *
- * Only azurerm types try the Azure glyphs; any other provider skips straight to
- * the category icon, then the generic cube.
+ * Each provider tries its own glyphs only for its own types (`azurerm_*` →
+ * Azure, `aws_*` → AWS); any other provider skips straight to the category icon,
+ * then the generic cube. Adding a provider is a new `<provider>.ts` map + a
+ * branch here.
  */
 import { categorize, type Category } from "@/lib/resource-category";
 import type { AzureIconKey } from "@/icons/azure-icons";
 import { AZURERM_ICON_MAP, AZURERM_PREFIX_MAP } from "@/icons/azurerm";
+import type { AwsIconKey } from "@/icons/aws-icons";
+import { AWS_ICON_MAP, AWS_PREFIX_MAP } from "@/icons/aws";
 
 export type IconResolution =
   | { kind: "azure"; icon: AzureIconKey }
+  | { kind: "aws"; icon: AwsIconKey }
   | { kind: "category"; category: Exclude<Category, "other"> }
   | { kind: "generic" };
 
-// Longest-first so e.g. azurerm_virtual_machine_scale_set beats
-// azurerm_virtual_machine.
-const SORTED_PREFIXES = Object.keys(AZURERM_PREFIX_MAP).sort(
-  (a, b) => b.length - a.length,
-);
+/** Prefix keys sorted longest-first, so the most specific prefix wins. */
+function sortedByLengthDesc(map: Record<string, unknown>): string[] {
+  return Object.keys(map).sort((a, b) => b.length - a.length);
+}
+
+/** Exact type → icon, else longest matching type-prefix → icon, else undefined. */
+function lookupIcon<K extends string>(
+  type: string,
+  exact: Record<string, K>,
+  prefixes: Record<string, K>,
+  sortedPrefixes: string[],
+): K | undefined {
+  const hit = exact[type];
+  if (hit) return hit;
+  for (const prefix of sortedPrefixes) {
+    if (type === prefix || type.startsWith(`${prefix}_`)) {
+      return prefixes[prefix];
+    }
+  }
+  return undefined;
+}
+
+const AZURERM_SORTED = sortedByLengthDesc(AZURERM_PREFIX_MAP);
+const AWS_SORTED = sortedByLengthDesc(AWS_PREFIX_MAP);
 
 export function resolveResourceIcon(type: string): IconResolution {
   if (type.startsWith("azurerm_")) {
-    const exact = AZURERM_ICON_MAP[type];
-    if (exact) return { kind: "azure", icon: exact };
-    for (const prefix of SORTED_PREFIXES) {
-      if (type === prefix || type.startsWith(`${prefix}_`)) {
-        return { kind: "azure", icon: AZURERM_PREFIX_MAP[prefix] as AzureIconKey };
-      }
-    }
+    const icon = lookupIcon(
+      type,
+      AZURERM_ICON_MAP,
+      AZURERM_PREFIX_MAP,
+      AZURERM_SORTED,
+    );
+    if (icon) return { kind: "azure", icon };
+  }
+  if (type.startsWith("aws_")) {
+    const icon = lookupIcon(type, AWS_ICON_MAP, AWS_PREFIX_MAP, AWS_SORTED);
+    if (icon) return { kind: "aws", icon };
   }
   const category = categorize(type);
   if (category !== "other") return { kind: "category", category };

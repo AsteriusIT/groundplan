@@ -12,6 +12,7 @@ import { STATUS_META, type StatusKind } from "@/lib/status";
 import { CATEGORY_META } from "@/lib/resource-category";
 import type { GraphNode } from "@/api/types";
 import { AZURE_ICON_KEYS, azureIconUrl } from "@/icons/azure-icons";
+import { AWS_ICON_KEYS, awsIconUrl } from "@/icons/aws-icons";
 import type { EdgeRel } from "@/lib/graph-layout";
 import { ResourceIcon } from "@/components/resource-icon";
 import { NodeCard } from "@/components/graph-node";
@@ -156,6 +157,24 @@ const EDGE_SAMPLES: { rel: EdgeRel; label: string; stroke: string; dashed?: bool
   { rel: "removed", label: "removed", stroke: "text-delete", dashed: true },
   { rel: "impact", label: "impact-carrying", stroke: "text-impacted" },
   { rel: "neutral", label: "plain dependency", stroke: "text-edge" },
+];
+
+/** One provider's vendored icon set, erased to strings for the gallery grid. */
+function iconGallery<K extends string>(
+  label: string,
+  keys: readonly K[],
+  url: (key: K) => string | undefined,
+) {
+  return {
+    label,
+    keys: keys as readonly string[],
+    url: url as (key: string) => string | undefined,
+  };
+}
+
+const ICON_GALLERIES = [
+  iconGallery("Azure", AZURE_ICON_KEYS, azureIconUrl),
+  iconGallery("AWS", AWS_ICON_KEYS, awsIconUrl),
 ];
 
 export function StyleguidePage() {
@@ -307,34 +326,42 @@ export function StyleguidePage() {
 
           <Section eyebrow="04 · icons" title="Resource icons">
             <p className="text-muted-foreground -mt-2 max-w-xl text-sm">
-              Official Azure Architecture Icons (V24), rendered as-is (GP-29 —
-              see <code className="font-mono text-xs">ICONS.md</code>). Unmapped
-              types fall back to the lucide category icon, then a generic cube.
+              Official cloud provider icons, rendered as-is (Azure GP-29, AWS
+              GP-91 — see <code className="font-mono text-xs">ICONS.md</code>).
+              Unmapped types fall back to the lucide category icon, then a
+              generic cube.
             </p>
-            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
-              {AZURE_ICON_KEYS.map((key) => (
-                <div
-                  key={key}
-                  className="bg-canvas border-border flex flex-col items-center gap-2 rounded-md border p-3"
-                >
-                  <img
-                    src={azureIconUrl(key)}
-                    alt=""
-                    aria-hidden="true"
-                    draggable={false}
-                    className="size-6 object-contain"
-                  />
-                  <span className="text-faint text-center font-mono text-[10px] break-all">
-                    {key}
-                  </span>
+            {ICON_GALLERIES.map((gallery) => (
+              <div key={gallery.label} className="space-y-3">
+                <h3 className="text-muted-foreground font-mono text-[11px] tracking-[0.08em] uppercase">
+                  {gallery.label}
+                </h3>
+                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+                  {gallery.keys.map((key) => (
+                    <div
+                      key={key}
+                      className="bg-canvas border-border flex flex-col items-center gap-2 rounded-md border p-3"
+                    >
+                      <img
+                        src={gallery.url(key)}
+                        alt=""
+                        aria-hidden="true"
+                        draggable={false}
+                        className="size-6 object-contain"
+                      />
+                      <span className="text-faint text-center font-mono text-[10px] break-all">
+                        {key}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
             <div className="flex flex-wrap items-center gap-6">
               <div className="flex items-center gap-2">
-                <ResourceIcon type="aws_instance" className="text-cat-compute size-5" />
+                <ResourceIcon type="aws_eip" className="text-cat-network size-5" />
                 <span className="text-muted-foreground font-mono text-xs">
-                  aws_instance → category
+                  aws_eip → category
                 </span>
               </div>
               <div className="flex items-center gap-2">

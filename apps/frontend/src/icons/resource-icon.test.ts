@@ -55,22 +55,16 @@ describe("resolveResourceIcon (GP-29)", () => {
     });
   });
 
-  it("falls back to the category icon for a non-azurerm provider", () => {
-    expect(resolveResourceIcon("aws_instance")).toEqual({
+  it("falls back to the category icon for a type with a known category but no vendor icon", () => {
+    // aws_eip is categorised (network) but has no dedicated icon; google_* has
+    // no vendor map yet — both fall back to the lucide category glyph.
+    expect(resolveResourceIcon("aws_eip")).toEqual({
       kind: "category",
-      category: "compute",
+      category: "network",
     });
     expect(resolveResourceIcon("google_storage_bucket")).toEqual({
       kind: "category",
       category: "data",
-    });
-  });
-
-  it("falls back to the category icon for an unmapped azurerm type with a known category", () => {
-    // Not in either azurerm table, but categorize() knows the family.
-    expect(resolveResourceIcon("aws_kms_key")).toEqual({
-      kind: "category",
-      category: "security",
     });
   });
 

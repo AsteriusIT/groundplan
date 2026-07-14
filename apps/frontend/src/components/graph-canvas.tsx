@@ -86,6 +86,7 @@ import {
 } from "@/lib/resource-category";
 import { cn } from "@/lib/utils";
 import { NodeDetailsPanel } from "@/components/node-details-panel";
+import { ResourceIcon } from "@/components/resource-icon";
 import { ResourceFlowNode } from "@/components/graph-node";
 import { NetworkContainerNode } from "@/components/network-container-node";
 import { GroupContainerNode } from "@/components/group-container-node";
@@ -889,13 +890,19 @@ export function GraphCanvas({
                   <button
                     type="button"
                     onClick={() => flyTo(node)}
-                    className="hover:bg-accent flex w-full flex-col items-start px-2.5 py-1.5 text-left"
+                    className="hover:bg-accent flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
                   >
-                    <span className="font-mono text-xs font-medium">
-                      {shortType(node.type)}
-                    </span>
-                    <span className="text-muted-foreground truncate font-mono text-[10px]">
-                      {node.id}
+                    <ResourceIcon
+                      type={node.type}
+                      className="text-muted-foreground size-4 shrink-0"
+                    />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="font-mono text-xs font-medium">
+                        {shortType(node.type)}
+                      </span>
+                      <span className="text-muted-foreground truncate font-mono text-[10px]">
+                        {node.id}
+                      </span>
                     </span>
                   </button>
                 </li>
