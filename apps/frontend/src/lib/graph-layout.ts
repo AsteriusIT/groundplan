@@ -196,11 +196,10 @@ export function moduleOptions(graph: Graph): string[] {
   if (graph.nodes.some((n) => !isModule(n) && n.module_path.length === 0)) {
     set.add("root");
   }
-  // "root" on its own is not a choice — unticking it would hide the whole
-  // diagram, and a filter with one box tells the reader nothing they can act on.
-  // A Kubernetes graph (GP-105) is always this: manifests have no modules. So is
-  // a Terraform repository that never wrote one.
-  if (set.size === 1 && set.has("root")) return [];
+  // Every option a node can fall under, always — the canvas seeds `activeModules`
+  // from this list, so a key missing here is a node dimmed forever with no
+  // checkbox to bring it back. Whether a one-option list is worth *showing* is the
+  // canvas's business, not this function's (see the Module filter section).
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 

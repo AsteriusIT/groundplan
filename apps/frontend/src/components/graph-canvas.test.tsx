@@ -547,3 +547,47 @@ it("a logical edge may be drawn without a label", async () => {
     anchors: ["azurerm_virtual_network.main", "aws_s3_bucket.data"],
   });
 });
+
+/**
+ * A graph with no modules — every Kubernetes one, and any Terraform repository
+ * that never wrote a module. The Module filter has nothing to offer it, but the
+ * nodes must still be *shown*: the canvas seeds `activeModules` from the same
+ * option list it renders the checkboxes from, so an option list that drops "root"
+ * dims the whole diagram with no box left to bring it back (the "0 of 35 shown"
+ * bug).
+ */
+const modulelessGraph: Graph = {
+  version: 7,
+  nodes: [
+    {
+      id: "Namespace/prod",
+      name: "prod",
+      type: "Namespace",
+      provider: "kubernetes",
+      module_path: [],
+      change: null,
+    },
+    {
+      id: "prod/Deployment/api",
+      name: "api",
+      type: "Deployment",
+      provider: "kubernetes",
+      module_path: [],
+      change: null,
+      parent_id: "Namespace/prod",
+    },
+  ],
+  edges: [{ from: "Namespace/prod", to: "prod/Deployment/api", kind: "contains" }],
+};
+
+it("shows every node of a module-less graph, and offers no Module filter for it", async () => {
+  render(<GraphCanvas graph={modulelessGraph} variant="docs" />);
+  await screen.findByText("node:api");
+
+  // The diagram is lit. Nothing is dimmed by a filter nobody can see. (The
+  // namespace is a container, and containers are not counted as resources.)
+  expect(screen.getByText(/1 of 1 shown/)).toBeInTheDocument();
+
+  openFilters();
+  expect(screen.queryByText("Module")).not.toBeInTheDocument();
+});

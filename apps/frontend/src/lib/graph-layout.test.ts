@@ -9,6 +9,8 @@ import {
   ELK_ROOT_OPTIONS,
   elkToFlow,
   moduleCounts,
+  moduleOptions,
+  categoryOptions,
   exposedNodeIds,
   neighborhood,
   networkProjection,
@@ -788,5 +790,51 @@ describe("the tour spotlight (GP-79)", () => {
 
     expect(nodes.find((n) => n.id === "aws_s3.a")?.data.dimmed).toBe(false);
     expect(nodes.find((n) => n.id === "aws_s3.b")?.data.dimmed).toBe(true);
+  });
+});
+
+/**
+ * The filters are seeded from the option lists — `new Set(moduleOptions(graph))`,
+ * `new Set(categoryOptions(graph))` — so an option list that omits a node's key
+ * does not hide a checkbox: it dims the node, permanently, with no way to get it
+ * back. A graph with no modules at all (every Kubernetes graph, and any Terraform
+ * repository that never wrote one) is exactly that case.
+ */
+describe("the filter options the canvas seeds itself from", () => {
+  const moduleless: Graph = {
+    version: 7,
+    nodes: [
+      {
+        id: "Namespace/prod",
+        name: "prod",
+        type: "Namespace",
+        provider: "kubernetes",
+        module_path: [],
+        change: null,
+      },
+      {
+        id: "prod/Deployment/api",
+        name: "api",
+        type: "Deployment",
+        provider: "kubernetes",
+        module_path: [],
+        change: null,
+        parent_id: "Namespace/prod",
+      },
+    ],
+    edges: [{ from: "Namespace/prod", to: "prod/Deployment/api", kind: "contains" }],
+  };
+
+  it("cover every node of a graph with no modules, so none of it is dimmed", () => {
+    const layout = { id: "root", children: moduleless.nodes.map((n) => ({ id: n.id, x: 0, y: 0, width: 10, height: 10 })) } as ElkGraphNode;
+
+    const { nodes } = elkToFlow(layout, moduleless, {
+      activeFilters: allFilters,
+      activeCategories: new Set(categoryOptions(moduleless)),
+      activeModules: new Set(moduleOptions(moduleless)),
+      selectedId: null,
+    });
+
+    expect(nodes.filter((n) => n.data.dimmed)).toEqual([]);
   });
 });

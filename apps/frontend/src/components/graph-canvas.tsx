@@ -969,7 +969,12 @@ export function GraphCanvas({
                 </FilterSection>
               )}
 
-              {moduleOpts.length > 0 && (
+              {/* One option is not a choice: a lone "root" box would only ever
+                  hide the entire diagram. A Kubernetes graph is always this (a
+                  manifest has no modules), and so is a Terraform repository that
+                  never wrote one — but `activeModules` still covers them, or the
+                  dim pass would hide what no checkbox could bring back. */}
+              {moduleOpts.length > 1 && (
                 <FilterSection title="Module">
                   {moduleOpts.map((mod) => (
                     <CheckRow
