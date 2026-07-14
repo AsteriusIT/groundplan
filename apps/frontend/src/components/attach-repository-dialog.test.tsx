@@ -21,6 +21,7 @@ const created: CreatedRepository = {
   id: "r1",
   projectId: "p1",
   provider: "gitlab",
+  iacType: "terraform",
   url: "https://gitlab.com/acme/infra",
   defaultBranch: "main",
   accessToken: null,
@@ -130,4 +131,65 @@ it("submits the auto-detected provider when not overridden", async () => {
       expect.objectContaining({ provider: "gitlab" }),
     ),
   );
+});
+
+// --- GP-104: what's in this repository? ---
+
+it("attaches a Terraform repository unless told otherwise", async () => {
+  open();
+
+  await typeUrl("https://github.com/acme/infra");
+  expect(screen.getByRole("button", { name: "Terraform" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(screen.getByLabelText("Terraform path")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /^attach repository$/i }));
+  await waitFor(() =>
+    expect(createMock).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ iacType: "terraform" }),
+    ),
+  );
+});
+
+it("a Kubernetes repository renames the path field, because it is not Terraform's", async () => {
+  open();
+
+  await typeUrl("https://github.com/acme/manifests");
+  fireEvent.click(screen.getByRole("button", { name: "Kubernetes" }));
+
+  // Same field, same validation — a different thing to say about it.
+  expect(screen.queryByLabelText("Terraform path")).not.toBeInTheDocument();
+  const path = screen.getByLabelText("Manifests path");
+  fireEvent.change(path, { target: { value: "deploy/prod" } });
+
+  fireEvent.click(screen.getByRole("button", { name: /^attach repository$/i }));
+  await waitFor(() =>
+    expect(createMock).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ iacType: "kubernetes", terraformPath: "deploy/prod" }),
+    ),
+  );
+});
+
+it("a Kubernetes repository is set up with manifest snippets, not plan ones", async () => {
+  createMock.mockResolvedValue({ ...created, iacType: "kubernetes" });
+  open();
+
+  await typeUrl("https://github.com/acme/manifests");
+  fireEvent.click(screen.getByRole("button", { name: "Kubernetes" }));
+  fireEvent.click(screen.getByRole("button", { name: /^attach repository$/i }));
+
+  // The success step asks the only question that changes the workflow: how does
+  // this repository's YAML get made?
+  expect(await screen.findByRole("group", { name: "Manifest flavour" })).toBeInTheDocument();
+
+  const workflow = () => document.querySelector("pre")?.textContent ?? "";
+  expect(workflow()).toContain("payload:{manifests:$manifests}");
+  expect(workflow()).not.toContain("terraform plan");
+
+  fireEvent.click(screen.getByRole("button", { name: "Helm" }));
+  expect(workflow()).toContain("helm template . -f values.yaml");
 });

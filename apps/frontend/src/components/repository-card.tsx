@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CiSetupBlock } from "@/components/ci-setup-block";
+import { IAC_PATH_LABELS, IAC_TYPE_LABELS } from "@/lib/iac-type";
 import {
   ConnectionStatusDot,
   connectionErrorMessage,
@@ -106,6 +107,9 @@ export function RepositoryCard({
           </p>
           <p className="text-muted-foreground mt-1 ml-4 flex items-center gap-2 font-mono text-xs">
             <span className="capitalize">{repo.provider}</span>
+            {/* What it holds (GP-101). Read-only: it is set when the repository
+                is attached and never changes. */}
+            <span>{IAC_TYPE_LABELS[repo.iacType]}</span>
             <span className="inline-flex items-center gap-1">
               <GitBranch className="size-3" />
               {repo.defaultBranch}
@@ -114,7 +118,7 @@ export function RepositoryCard({
             {repo.terraformPath && (
               <span
                 className="inline-flex items-center gap-1"
-                title="Terraform root — where the documentation parse starts"
+                title={`${IAC_PATH_LABELS[repo.iacType]} — where the documentation parse starts`}
               >
                 <FolderTree className="size-3" />
                 {repo.terraformPath}
@@ -210,7 +214,7 @@ export function RepositoryCard({
 
       {showCi && (
         <div className="border-t border-border p-4">
-          <CiSetupBlock webhookUrl={webhookUrl(repo.id)} />
+          <CiSetupBlock webhookUrl={webhookUrl(repo.id)} iacType={repo.iacType} />
         </div>
       )}
 

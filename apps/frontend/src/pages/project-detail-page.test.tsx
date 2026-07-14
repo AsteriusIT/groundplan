@@ -62,6 +62,7 @@ function repo(over: Partial<Repository> = {}): Repository {
     id: "r1",
     projectId: "p1",
     provider: "github",
+    iacType: "terraform",
     url: "https://github.com/acme/infra",
     defaultBranch: "main",
     accessToken: null,

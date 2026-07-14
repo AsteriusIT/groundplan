@@ -6,7 +6,8 @@ import {
   verifyRepository,
   webhookUrl,
 } from "@/api/client";
-import type { CreatedRepository, Provider } from "@/api/types";
+import type { CreatedRepository, IacType, Provider } from "@/api/types";
+import { IAC_TYPES } from "@/lib/iac-type";
 import {
   detectProvider,
   PROVIDER_LABELS,
@@ -48,6 +49,9 @@ export function AttachRepositoryDialog({
   // wins and persists across later URL edits (GP-52).
   const [providerOverride, setProviderOverride] = useState<Provider | null>(null);
   const [branch, setBranch] = useState("main");
+  // What the repository holds (GP-101). Asked once, here, because it is set at
+  // attach time and never changes: a repository is one kind, not both.
+  const [iacType, setIacType] = useState<IacType>("terraform");
   const [terraformPath, setTerraformPath] = useState("");
   const [pat, setPat] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -57,11 +61,13 @@ export function AttachRepositoryDialog({
 
   const provider = providerOverride ?? detectProvider(url);
   const patHelp = PROVIDER_PAT_HELP[provider];
+  const kubernetes = iacType === "kubernetes";
 
   function reset() {
     setUrl("");
     setProviderOverride(null);
     setBranch("main");
+    setIacType("terraform");
     setTerraformPath("");
     setPat("");
     setSubmitting(false);
@@ -93,6 +99,7 @@ export function AttachRepositoryDialog({
         provider,
         url: url.trim(),
         defaultBranch: branch.trim() || "main",
+        iacType,
         accessToken: pat.trim() || undefined,
         terraformPath: terraformPath.trim() || undefined,
       });
@@ -126,7 +133,9 @@ export function AttachRepositoryDialog({
             <DialogHeader>
               <DialogTitle className="font-display">Repository attached</DialogTitle>
               <DialogDescription>
-                Wire up your CI to send Terraform plans to Groundplan.
+                {created.iacType === "kubernetes"
+                  ? "Wire up your CI to send rendered manifests to Groundplan."
+                  : "Wire up your CI to send Terraform plans to Groundplan."}
               </DialogDescription>
             </DialogHeader>
             <div className="min-w-0 space-y-4">
@@ -141,6 +150,7 @@ export function AttachRepositoryDialog({
               <CiSetupBlock
                 webhookUrl={webhookUrl(created.id)}
                 webhookToken={created.webhookToken}
+                iacType={created.iacType}
               />
             </div>
             <DialogFooter>
@@ -152,7 +162,7 @@ export function AttachRepositoryDialog({
             <DialogHeader>
               <DialogTitle className="font-display">Attach repository</DialogTitle>
               <DialogDescription>
-                Connect a repository so Groundplan can read its Terraform.
+                Connect a repository so Groundplan can read its infrastructure.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -210,17 +220,53 @@ export function AttachRepositoryDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="repo-terraform-path">Terraform path</Label>
+                <Label htmlFor="repo-iac-type">What&apos;s in this repository?</Label>
+                <div
+                  id="repo-iac-type"
+                  role="group"
+                  aria-label="What's in this repository?"
+                  className="flex gap-1"
+                >
+                  {IAC_TYPES.map(({ id, label }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={iacType === id}
+                      onClick={() => setIacType(id)}
+                      className={cn(
+                        "rounded-md border px-3 py-1.5 text-sm transition-colors",
+                        iacType === id
+                          ? "border-primary bg-accent-soft text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Set once, when the repository is attached — a repository is one
+                  kind, not both. Attach a monorepo twice, with different paths.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="repo-terraform-path">
+                  {kubernetes ? "Manifests path" : "Terraform path"}
+                </Label>
                 <Input
                   id="repo-terraform-path"
                   value={terraformPath}
                   onChange={(e) => setTerraformPath(e.target.value)}
-                  placeholder="Optional — e.g. infra/azure"
+                  placeholder={
+                    kubernetes ? "Optional — e.g. deploy/prod" : "Optional — e.g. infra/azure"
+                  }
                   autoComplete="off"
                 />
                 <p className="text-muted-foreground text-xs">
-                  The directory your Terraform lives in. Leave empty if it sits at
-                  the repository root.
+                  The directory your {kubernetes ? "manifests live" : "Terraform lives"}{" "}
+                  in. Leave empty if {kubernetes ? "they sit" : "it sits"} at the
+                  repository root.
                 </p>
               </div>
 

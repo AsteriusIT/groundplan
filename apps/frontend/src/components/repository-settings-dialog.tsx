@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { IAC_PATH_LABELS } from "@/lib/iac-type";
 
 /**
  * One home for a repository's set-once configuration: the access token, the
@@ -151,7 +152,9 @@ export function RepositorySettingsDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="repo-settings-tf-path">Terraform path</Label>
+            <Label htmlFor="repo-settings-tf-path">
+              {IAC_PATH_LABELS[repository.iacType]}
+            </Label>
             <Input
               id="repo-settings-tf-path"
               value={tfPath}
@@ -159,12 +162,21 @@ export function RepositorySettingsDialog({
               placeholder="Repository root"
               autoComplete="off"
             />
-            <p className="text-muted-foreground text-xs">
-              The directory your Terraform lives in, e.g.{" "}
-              <span className="font-mono">infra/azure</span>. Leave empty for the
-              repository root. Applies to the next documentation snapshot; plans
-              come from your CI and are unaffected.
-            </p>
+            {repository.iacType === "kubernetes" ? (
+              <p className="text-muted-foreground text-xs">
+                The directory your manifests live in, e.g.{" "}
+                <span className="font-mono">deploy/prod</span>. Leave empty for the
+                repository root. Applies to the next documentation snapshot; what
+                your CI renders comes rendered and is unaffected.
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                The directory your Terraform lives in, e.g.{" "}
+                <span className="font-mono">infra/azure</span>. Leave empty for the
+                repository root. Applies to the next documentation snapshot; plans
+                come from your CI and are unaffected.
+              </p>
+            )}
           </div>
 
           {/* GP-38: opt in to GitHub PR comments; surface the last failure. */}

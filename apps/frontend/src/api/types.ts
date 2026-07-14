@@ -19,10 +19,15 @@ export interface Project {
   createdAt: string;
 }
 
+/** What a repository holds (GP-101). Set when it is attached; immutable after. */
+export type IacType = "terraform" | "kubernetes";
+
 export interface Repository {
   id: string;
   projectId: string;
   provider: Provider;
+  /** Terraform, or Kubernetes manifests (GP-101). Decides every producer below. */
+  iacType: IacType;
   url: string;
   defaultBranch: string;
   /** "***" when a PAT is stored, else null. Never the token value. */
@@ -36,9 +41,12 @@ export interface Repository {
   /** GP-60: long-form markdown context for this repository, or null. */
   contextMd: string | null;
   /**
-   * Subdirectory the Terraform lives in; "" is the repository root. It moves the
-   * entrypoint of the documentation parse (like `terraform -chdir`); plan
-   * snapshots come from CI and ignore it.
+   * Subdirectory the IaC lives in; "" is the repository root. It moves the
+   * entrypoint of the documentation parse (like `terraform -chdir`); what CI
+   * sends comes rendered and ignores it.
+   *
+   * The name is the column's (GP-101): for a kubernetes repository this is the
+   * manifests directory, and the UI calls it "Manifests path".
    */
   terraformPath: string;
   createdAt: string;
@@ -130,7 +138,33 @@ export type ChangeKind = "create" | "update" | "delete" | "noop";
 /** v5: `logical` is a human-drawn relationship the code cannot express (GP-72). */
 export type EdgeKind = "depends_on" | "contains" | "logical";
 /** `k8s_namespace` is a live read of one namespace of a cluster (GP-97). */
-export type SnapshotSource = "plan" | "hcl" | "k8s_namespace";
+/**
+ * Which producer made a graph. The Kubernetes trio mirrors the Terraform pair
+ * (GP-100): `k8s_manifest` is a repository's YAML documented from main (the HCL
+ * of Kubernetes, GP-102), `k8s_rendered` is what a pull request's CI rendered
+ * (its plan.json, GP-103), and `k8s_namespace` is a live cluster read (GP-97).
+ */
+export type SnapshotSource =
+  | "plan"
+  | "hcl"
+  | "k8s_namespace"
+  | "k8s_manifest"
+  | "k8s_rendered";
+
+/** Every source whose graph is Kubernetes — the Terraform lenses do not apply. */
+const KUBERNETES_SOURCES: ReadonlySet<SnapshotSource> = new Set([
+  "k8s_namespace",
+  "k8s_manifest",
+  "k8s_rendered",
+]);
+
+/**
+ * Is this snapshot a Kubernetes one (GP-105)? The question every view that offers
+ * a Terraform lens — network, IAM, adapted, C4 — has to ask before offering it.
+ */
+export function isKubernetesSource(source: SnapshotSource): boolean {
+  return KUBERNETES_SOURCES.has(source);
+}
 export type PullRequestState = "open" | "closed";
 
 /** v3: one masked before/after attribute change on a node (GP-32). */
@@ -215,6 +249,15 @@ export interface GraphNode {
    * them. Metadata only: a Secret's data never reaches a node.
    */
   labels?: Record<string, string>;
+  /**
+   * v7: a Kubernetes object's own content, flattened to `path → value` — e.g.
+   * `spec.template.spec.containers[0].image` (GP-102). It is what lets one
+   * manifest graph be diffed against another when there is no plan to ask
+   * (GP-103); a Secret's values are masked in it, as they are everywhere else.
+   */
+  attributes?: Record<string, string>;
+  /** v7: true when the attribute list was capped. */
+  attributes_truncated?: boolean;
 }
 
 export interface GraphEdge {
@@ -231,7 +274,7 @@ export interface GraphEdge {
 
 export interface Graph {
   /** 6 adds node labels — a Kubernetes namespace read (GP-96). All additive. */
-  version: 1 | 2 | 3 | 4 | 5 | 6;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
@@ -526,9 +569,11 @@ export interface CreateRepositoryInput {
   provider: Provider;
   url: string;
   defaultBranch?: string;
+  /** What the repository holds (GP-101). Omitted -> terraform. Set once. */
+  iacType?: IacType;
   /** Optional token for cloning private repos (write-only server-side). */
   accessToken?: string;
-  /** Subdirectory the Terraform lives in; omitted/"" is the repository root. */
+  /** Subdirectory the IaC lives in; omitted/"" is the repository root. */
   terraformPath?: string;
 }
 
