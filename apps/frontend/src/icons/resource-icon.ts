@@ -15,10 +15,13 @@ import type { AzureIconKey } from "@/icons/azure-icons";
 import { AZURERM_ICON_MAP, AZURERM_PREFIX_MAP } from "@/icons/azurerm";
 import type { AwsIconKey } from "@/icons/aws-icons";
 import { AWS_ICON_MAP, AWS_PREFIX_MAP } from "@/icons/aws";
+import type { GcpIconKey } from "@/icons/gcp-icons";
+import { GCP_ICON_MAP, GCP_PREFIX_MAP } from "@/icons/gcp";
 
 export type IconResolution =
   | { kind: "azure"; icon: AzureIconKey }
   | { kind: "aws"; icon: AwsIconKey }
+  | { kind: "gcp"; icon: GcpIconKey }
   | { kind: "category"; category: Exclude<Category, "other"> }
   | { kind: "generic" };
 
@@ -46,6 +49,7 @@ function lookupIcon<K extends string>(
 
 const AZURERM_SORTED = sortedByLengthDesc(AZURERM_PREFIX_MAP);
 const AWS_SORTED = sortedByLengthDesc(AWS_PREFIX_MAP);
+const GCP_SORTED = sortedByLengthDesc(GCP_PREFIX_MAP);
 
 export function resolveResourceIcon(type: string): IconResolution {
   if (type.startsWith("azurerm_")) {
@@ -60,6 +64,18 @@ export function resolveResourceIcon(type: string): IconResolution {
   if (type.startsWith("aws_")) {
     const icon = lookupIcon(type, AWS_ICON_MAP, AWS_PREFIX_MAP, AWS_SORTED);
     if (icon) return { kind: "aws", icon };
+  }
+  if (type.startsWith("google_") || type.startsWith("google-beta_")) {
+    // `google-beta` aliases share the same terraform type names — normalise the
+    // provider prefix so both flow through one table.
+    const normalised = type.replace(/^google-beta_/, "google_");
+    const icon = lookupIcon(
+      normalised,
+      GCP_ICON_MAP,
+      GCP_PREFIX_MAP,
+      GCP_SORTED,
+    );
+    if (icon) return { kind: "gcp", icon };
   }
   const category = categorize(type);
   if (category !== "other") return { kind: "category", category };

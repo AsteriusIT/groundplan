@@ -1,4 +1,4 @@
-# Resource icons (GP-29, GP-91)
+# Resource icons (GP-29, GP-91, GP-92)
 
 Groundplan draws a per-resource-type icon on every node. This document records
 what those icons are, where they come from, and the licensing basis for shipping
@@ -35,6 +35,21 @@ EventBridge / Step Functions (messaging), CloudWatch (observability).
   "AWS Architecture Icons" asset package; the SVGs are used as-is, renamed to
   service keys).
 
+### GCP (GP-92)
+
+The **official Google Cloud product icons**, under
+[`src/icons/gcp/`](src/icons/gcp/), covering the common estate: Compute Engine /
+Cloud Functions / Cloud Run (compute), VPC / Cloud Load Balancing / Cloud DNS /
+Cloud NAT / Cloud Router / firewall / external IP (network), Cloud Storage /
+persistent disk (storage), Cloud SQL / Firestore / Bigtable / Memorystore /
+BigQuery (data), IAM (identity), Pub/Sub (messaging), GKE / Artifact Registry
+(containers), Cloud KMS / Secret Manager (security), Cloud Monitoring
+(observability).
+
+- Source: <https://cloud.google.com/icons> (the official "Google Cloud icons"
+  download; the SVGs are used as-is, renamed to product keys). `google-beta`
+  aliases resolve through the same table.
+
 ## Licensing
 
 ### Azure
@@ -56,8 +71,18 @@ Groundplan renders each icon **as-is via an `<img>`** in its architecture diagra
 views — never recoloured, redrawn, or used as a standalone AWS logo. The project
 owner reviewed and accepted this use.
 
-Do **not** edit the SVGs in `src/icons/azure/` or `src/icons/aws/`, and do not
-repurpose them as a standalone icon library outside the diagram views.
+### GCP
+
+Google's [Google Cloud icons](https://cloud.google.com/icons) are provided for
+building architecture diagrams and technical documentation. Groundplan renders
+each icon **as-is via an `<img>`** in its architecture diagram views — never
+recoloured, redrawn, or used as a standalone Google Cloud logo. All
+rights/ownership remain with Google. The project owner reviewed and accepted this
+use.
+
+Do **not** edit the SVGs in `src/icons/azure/`, `src/icons/aws/` or
+`src/icons/gcp/`, and do not repurpose them as a standalone icon library outside
+the diagram views.
 
 ## The mapping mechanism (provider-generic)
 
@@ -68,30 +93,32 @@ one renderer.
 - Per-provider mapping tables — an `<ICON>_ICON_MAP` (exact type → icon) and an
   `<ICON>_PREFIX_MAP` (type-prefix → icon heuristic):
   [`src/icons/azurerm.ts`](src/icons/azurerm.ts),
-  [`src/icons/aws.ts`](src/icons/aws.ts).
+  [`src/icons/aws.ts`](src/icons/aws.ts),
+  [`src/icons/gcp.ts`](src/icons/gcp.ts).
 - Per-provider vendored icon modules — resolve an icon key to its bundled asset
   URL (`import.meta.glob` over `./<provider>/*.svg`, keyed via the shared
   [`src/icons/icon-assets.ts`](src/icons/icon-assets.ts) helper):
   [`src/icons/azure-icons.ts`](src/icons/azure-icons.ts),
-  [`src/icons/aws-icons.ts`](src/icons/aws-icons.ts).
+  [`src/icons/aws-icons.ts`](src/icons/aws-icons.ts),
+  [`src/icons/gcp-icons.ts`](src/icons/gcp-icons.ts).
 - [`src/icons/resource-icon.ts`](src/icons/resource-icon.ts) —
   `resolveResourceIcon(type)`, a pure, unit-tested function implementing the
   chain **exact type → type-prefix heuristic → category icon (GP-24) → generic
-  cube.** Only `azurerm_*` types try the Azure icons and only `aws_*` types try
-  the AWS icons; any other provider falls back to its lucide category icon, then
-  a cube.
+  cube.** Each provider tries its own icons only for its own types (`azurerm_*` →
+  Azure, `aws_*` → AWS, `google_*` / `google-beta_*` → GCP); any other provider
+  falls back to its lucide category icon, then a cube.
 - [`src/components/resource-icon.tsx`](src/components/resource-icon.tsx) — the
   `<ResourceIcon type=… />` renderer.
 
-Adding GCP/Kubernetes later is a new `gcp.ts` / `kubernetes.ts` map (pointing at
-that provider's official icon set) plus a branch in the resolver.
+Adding Kubernetes later is a new `kubernetes.ts` map (pointing at that provider's
+official icon set) plus a branch in the resolver.
 
 ## Fallbacks
 
-- **Unmapped mapped-provider type** (`azurerm_*`, `aws_*`) → nearest family via
-  the prefix heuristic, else the lucide category icon (compute/network/data/…),
-  else a cube.
-- **Unmapped provider** (`google_*`, …) → lucide category icon, else cube.
+- **Unmapped mapped-provider type** (`azurerm_*`, `aws_*`, `google_*`) → nearest
+  family via the prefix heuristic, else the lucide category icon
+  (compute/network/data/…), else a cube.
+- **Unmapped provider** → lucide category icon, else cube.
 
 The lucide fallbacks are colour-tinted by category token; only the official
 vendor icons are rendered unmodified.

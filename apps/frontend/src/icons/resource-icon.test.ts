@@ -56,15 +56,16 @@ describe("resolveResourceIcon (GP-29)", () => {
   });
 
   it("falls back to the category icon for a type with a known category but no vendor icon", () => {
-    // aws_eip is categorised (network) but has no dedicated icon; google_* has
-    // no vendor map yet — both fall back to the lucide category glyph.
+    // Both are categorised but have no dedicated icon, so they fall back to the
+    // lucide category glyph: aws_eip → network, google_logging_metric →
+    // observability.
     expect(resolveResourceIcon("aws_eip")).toEqual({
       kind: "category",
       category: "network",
     });
-    expect(resolveResourceIcon("google_storage_bucket")).toEqual({
+    expect(resolveResourceIcon("google_logging_metric")).toEqual({
       kind: "category",
-      category: "data",
+      category: "observability",
     });
   });
 
