@@ -203,6 +203,9 @@ export function PullDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* GP-79. Leads the header, as it does on the docs page: on a change
+                  you have not read yet, this is the thing to press. */}
+              {graph.status === "ready" && <TourLauncher player={player} />}
               {graph.status === "ready" && (
                 <ExportMenu
                   snapshotId={graph.snapshot.id}
@@ -224,7 +227,6 @@ export function PullDetailPage() {
             {graph.status === "ready" && player.status !== "playing" && (
               <ViewSwitcher variant="plan" />
             )}
-            {graph.status === "ready" && <TourLauncher player={player} />}
           </div>
           <div className="flex items-center gap-4">
             {snapshots.length > 1 && (

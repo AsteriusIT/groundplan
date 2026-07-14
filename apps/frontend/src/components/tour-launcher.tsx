@@ -25,17 +25,14 @@ export function TourLauncher({ player }: { player: TourPlayer }) {
 
   return (
     <div className="flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => player.start()}
-        disabled={loading}
-        className="h-7 gap-1.5 px-2.5 text-xs"
-      >
+      {/* The one filled button in a row of outlines. Everything else in this
+          header is something you *might* do to a diagram you already understand;
+          this is the thing to press when you do not yet. */}
+      <Button onClick={() => player.start()} disabled={loading}>
         {loading ? (
-          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
         ) : (
-          <Route className="size-3.5" aria-hidden="true" />
+          <Route className="size-4" aria-hidden="true" />
         )}
         {loading ? "Building tour…" : "Take the tour"}
       </Button>

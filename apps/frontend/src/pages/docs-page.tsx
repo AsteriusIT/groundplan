@@ -524,6 +524,10 @@ export function DocsPage() {
                 Eight equal-weight buttons is eight decisions on every visit. */}
             {snapshots.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
+                {/* GP-79. Leads the "what you do to the diagram" group: a tour is
+                    how you meet a system you have never seen, so it comes before
+                    the tools for interrogating one you already know. */}
+                {current && !compareMode && <TourLauncher player={player} />}
                 {canCompare && (
                   <Button
                     variant={compareMode ? "default" : "outline"}
@@ -615,7 +619,6 @@ export function DocsPage() {
                 mid-tour would strand the camera on a diagram the narration is not
                 about. So the switcher steps aside while one runs. */}
             {current && !compareMode && !touring && <ViewSwitcher variant="docs" />}
-            {current && !compareMode && <TourLauncher player={player} />}
           </div>
           <div className="flex items-center gap-4">
             <SnapshotSelect
