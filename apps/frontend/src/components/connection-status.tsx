@@ -1,7 +1,11 @@
 import { CheckCircle2, CircleDashed, XCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { ConnectionStatus, VerifyErrorKind } from "@/api/types";
+import type {
+  ConnectionStatus,
+  K8sErrorKind,
+  VerifyErrorKind,
+} from "@/api/types";
 
 const STATUS = {
   ok: {
@@ -76,5 +80,23 @@ export function connectionErrorMessage(kind: VerifyErrorKind): string {
       return "Repository not found — check the URL and default branch.";
     case "network":
       return "Could not reach the repository — check the URL is reachable.";
+  }
+}
+
+/**
+ * The same, for a cluster (GP-95/GP-98). A separate function rather than a
+ * cleverly parameterised one: every message here names the thing the reader must
+ * go and fix, and "the repository" is never the right noun for a cluster.
+ */
+export function clusterErrorMessage(kind: K8sErrorKind): string {
+  switch (kind) {
+    case "auth_failed":
+      return "The cluster rejected the credentials — check the kubeconfig's user has read access.";
+    case "not_found":
+      return "The cluster's API server answered, but not to us — check the server URL in the kubeconfig.";
+    case "network":
+      return "Could not reach the cluster — check the API server is reachable from Groundplan.";
+    case "invalid_config":
+      return "The kubeconfig could not be read — check it is complete and has a current context.";
   }
 }

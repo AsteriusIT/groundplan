@@ -11,13 +11,17 @@ import type {
   AiStatus,
   Annotation,
   AnnotationStatus,
+  Cluster,
+  ClusterVerifyResult,
   CreateAnnotationInput,
+  CreateClusterInput,
   ProposalRun,
   CreatedRepository,
   CreateProjectInput,
   CreateRepositoryInput,
   CreateShareLinkInput,
   Dashboard,
+  UpdateClusterInput,
   Project,
   PublicSnapshotView,
   PullDetail,
@@ -232,6 +236,46 @@ export function verifyRepository(id: string): Promise<VerifyResult> {
 
 export function deleteRepository(id: string): Promise<void> {
   return request<void>(`/repositories/${encode(id)}`, { method: "DELETE" });
+}
+
+// --- Kubernetes clusters (GP-95) --------------------------------------------
+
+export function listClusters(projectId: string): Promise<Cluster[]> {
+  return request<Cluster[]>(`/projects/${encode(projectId)}/clusters`);
+}
+
+/**
+ * Attach a cluster. The kubeconfig goes up once and never comes back — the
+ * response masks it, which is why `Cluster.kubeconfig` is typed as the mask.
+ */
+export function createCluster(
+  projectId: string,
+  input: CreateClusterInput,
+): Promise<Cluster> {
+  return request<Cluster>(`/projects/${encode(projectId)}/clusters`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function updateCluster(
+  id: string,
+  input: UpdateClusterInput,
+): Promise<Cluster> {
+  return request<Cluster>(`/clusters/${encode(id)}`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+export function verifyCluster(id: string): Promise<ClusterVerifyResult> {
+  return request<ClusterVerifyResult>(`/clusters/${encode(id)}/verify`, {
+    method: "POST",
+  });
+}
+
+export function deleteCluster(id: string): Promise<void> {
+  return request<void>(`/clusters/${encode(id)}`, { method: "DELETE" });
 }
 
 /**

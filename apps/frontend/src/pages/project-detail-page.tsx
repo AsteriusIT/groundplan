@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Ellipsis, Plug, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Boxes, Ellipsis, Plug, Plus, Trash2, TriangleAlert } from "lucide-react";
 
 import {
   ApiError,
   getProject,
+  listClusters,
   listRepositories,
   listRepositoryActivity,
   updateProject,
 } from "@/api/client";
 import type {
+  Cluster,
   CreatedRepository,
   Project,
   Repository,
@@ -24,7 +26,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ContextSection } from "@/components/context-section";
 import { PageHeader } from "@/components/page-header";
+import { AttachClusterDialog } from "@/components/attach-cluster-dialog";
 import { AttachRepositoryDialog } from "@/components/attach-repository-dialog";
+import { ClusterCard } from "@/components/cluster-card";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { RepositoryCard } from "@/components/repository-card";
 
@@ -39,6 +43,10 @@ export function ProjectDetailPage() {
   const [activity, setActivity] = useState<Map<string, RepositoryActivity>>(
     new Map(),
   );
+  // Clusters (GP-98) load beside the repositories rather than with them: a
+  // project that has one and not the other is normal, and a failure to list one
+  // must not blank the other.
+  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const navigate = useNavigate();
@@ -65,6 +73,8 @@ export function ProjectDetailPage() {
     listRepositoryActivity(id)
       .then((rows) => setActivity(new Map(rows.map((r) => [r.repositoryId, r]))))
       .catch(() => setActivity(new Map()));
+
+    listClusters(id).then(setClusters).catch(() => setClusters([]));
   }, [id]);
 
   useEffect(() => {
@@ -96,6 +106,18 @@ export function ProjectDetailPage() {
         ? { ...prev, repos: prev.repos.filter((r) => r.id !== repoId) }
         : prev,
     );
+  }, []);
+
+  const handleClusterAttached = useCallback((cluster: Cluster) => {
+    setClusters((prev) => [cluster, ...prev]);
+  }, []);
+
+  const handleClusterChanged = useCallback((updated: Cluster) => {
+    setClusters((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  }, []);
+
+  const handleClusterDeleted = useCallback((clusterId: string) => {
+    setClusters((prev) => prev.filter((c) => c.id !== clusterId));
   }, []);
 
   // GP-60: save the project's long-form context (optimistic).
@@ -221,7 +243,91 @@ export function ProjectDetailPage() {
             </ul>
           </section>
         )}
+
+        {/* Clusters (GP-98). A second section rather than a second tab: a repo
+            and a cluster are two things this project is made of, and you should
+            be able to see both without choosing between them. */}
+        {state.status === "ready" && (
+          <section className="mt-8 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="font-display text-sm font-semibold">
+                Clusters{" "}
+                <span className="text-muted-foreground font-mono font-normal">
+                  ({clusters.length})
+                </span>
+              </h2>
+              {clusters.length > 0 && (
+                <AttachClusterDialog
+                  projectId={state.project.id}
+                  onAttached={handleClusterAttached}
+                  trigger={
+                    <Button size="sm" variant="outline">
+                      <Plus className="size-4" />
+                      Attach cluster
+                    </Button>
+                  }
+                />
+              )}
+            </div>
+
+            {clusters.length === 0 ? (
+              <ClustersEmptyState
+                projectId={state.project.id}
+                onAttached={handleClusterAttached}
+              />
+            ) : (
+              <ul className="space-y-3">
+                {clusters.map((cluster) => (
+                  <li key={cluster.id}>
+                    <ClusterCard
+                      cluster={cluster}
+                      onChanged={handleClusterChanged}
+                      onDeleted={handleClusterDeleted}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * No clusters yet: one sentence and one button (the dashboard's rule). An empty
+ * table would be a table that tells you nothing about what a cluster is *for*.
+ */
+function ClustersEmptyState({
+  projectId,
+  onAttached,
+}: {
+  projectId: string;
+  onAttached: (cluster: Cluster) => void;
+}) {
+  return (
+    <div className="bg-card/40 flex flex-col items-center gap-4 rounded-md border border-dashed border-border px-8 py-10 text-center">
+      <div className="bg-accent text-primary grid size-10 place-items-center rounded-sm">
+        <Boxes className="size-5" />
+      </div>
+      <div className="space-y-1">
+        <p className="font-display text-sm font-semibold">No clusters attached</p>
+        <p className="text-muted-foreground max-w-md text-sm">
+          Attach a Kubernetes cluster to draw a namespace as a diagram — the same
+          canvas, read live from the cluster instead of from Terraform.
+        </p>
+      </div>
+      <AttachClusterDialog
+        projectId={projectId}
+        onAttached={onAttached}
+        trigger={
+          <Button variant="outline">
+            <Plus className="size-4" />
+            Attach a cluster
+          </Button>
+        }
+      />
     </div>
   );
 }

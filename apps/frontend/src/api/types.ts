@@ -79,6 +79,44 @@ export type VerifyResult =
   | { ok: true; default_branch_found: boolean }
   | { ok: false; error: VerifyErrorKind };
 
+// --- Kubernetes clusters (GP-95 / GP-97) ------------------------------------
+
+/** Why a cluster check failed. `invalid_config` = the kubeconfig itself is bad. */
+export type K8sErrorKind = VerifyErrorKind | "invalid_config";
+
+/**
+ * A Kubernetes cluster attached to a project (GP-95). The kubeconfig is
+ * write-only: it is never returned, so this type says so — the only value the
+ * field can ever hold is the mask.
+ */
+export interface Cluster {
+  id: string;
+  projectId: string;
+  name: string;
+  /** Always "***". The kubeconfig you sent is never sent back. */
+  kubeconfig: "***";
+  connectionStatus: ConnectionStatus;
+  verifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreateClusterInput {
+  name: string;
+  /** The kubeconfig YAML. Write-only server-side; we use its current context. */
+  kubeconfig: string;
+}
+
+export interface UpdateClusterInput {
+  name?: string;
+  /** Replace-only: a new kubeconfig overwrites the stored one and re-verifies. */
+  kubeconfig?: string;
+}
+
+/** Result of POST /clusters/:id/verify. */
+export type ClusterVerifyResult =
+  | { ok: true; version: string | null }
+  | { ok: false; error: K8sErrorKind };
+
 /** The current user, as returned by GET /me (note: snake_case display_name). */
 export interface User {
   id: string;
