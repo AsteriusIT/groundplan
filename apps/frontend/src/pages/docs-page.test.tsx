@@ -562,3 +562,86 @@ it("accepting a proposal is what puts it on the diagram — nothing before that"
   fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
   expect(acceptAnnotationMock).toHaveBeenCalledWith("p1");
 });
+
+// --- GP-105: the docs page of a manifests repository ---
+
+const k8sRepo: Repository = { ...repo, iacType: "kubernetes" };
+
+/** A manifest docs snapshot (GP-102): namespace containers, no Terraform anything. */
+function k8sSnapshot(id: string): Snapshot {
+  return {
+    ...summary(id, `${id}sha`, "auto"),
+    source: "k8s_manifest",
+    summaryMd: "No changes.",
+    graph: {
+      version: 7,
+      nodes: [
+        {
+          id: "Namespace/prod",
+          name: "prod",
+          type: "Namespace",
+          provider: "kubernetes",
+          module_path: [],
+          change: null,
+        },
+        {
+          id: "prod/Deployment/api",
+          name: "api",
+          type: "Deployment",
+          provider: "kubernetes",
+          module_path: [],
+          change: null,
+          parent_id: "Namespace/prod",
+        },
+      ],
+      edges: [{ from: "Namespace/prod", to: "prod/Deployment/api", kind: "contains" }],
+    },
+  };
+}
+
+it("asks for the snapshots the repository's own producer makes", async () => {
+  getRepositoryMock.mockResolvedValue(k8sRepo);
+  listSnapshotsMock.mockResolvedValue([{ ...summary("s1", "aaa", "auto"), source: "k8s_manifest" }]);
+  getSnapshotMock.mockResolvedValue(k8sSnapshot("s1"));
+
+  renderPage();
+
+  await screen.findByTestId("canvas");
+  // A manifests repository has no `hcl` snapshots and never will — asking for
+  // them would show it an empty docs page forever.
+  expect(listSnapshotsMock).toHaveBeenCalledWith("r1", { source: "k8s_manifest" });
+});
+
+it("draws a manifest snapshot, and offers it no lens it cannot fill", async () => {
+  getRepositoryMock.mockResolvedValue(k8sRepo);
+  listSnapshotsMock.mockResolvedValue([{ ...summary("s1", "aaa", "auto"), source: "k8s_manifest" }]);
+  getSnapshotMock.mockResolvedValue(k8sSnapshot("s1"));
+
+  // Deep-linked to a lens that reads Terraform semantics a manifest has none of.
+  renderPage("/projects/p1/repos/r1/docs?view=network");
+
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("2 nodes");
+  for (const lens of [/^network$/i, /^iam$/i, /^adapted$/i, /^c4$/i]) {
+    expect(screen.queryByRole("button", { name: lens })).not.toBeInTheDocument();
+  }
+
+  // Nor the surfaces the epic does not extend to Kubernetes: you annotate
+  // Terraform addresses, and the AI layer is grounded in Terraform snapshots.
+  expect(screen.queryByRole("button", { name: /annotate/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /share/i })).not.toBeInTheDocument();
+});
+
+it("tells a fresh manifests repository where its diagram will come from", async () => {
+  getRepositoryMock.mockResolvedValue(k8sRepo);
+  listSnapshotsMock.mockResolvedValue([]);
+
+  renderPage();
+
+  // The one thing a Helm user needs to be told before they wonder why main is
+  // blank: templates aren't manifests, so their diagram comes from their CI.
+  expect(await screen.findByText(/YAML manifests/i)).toBeInTheDocument();
+  expect(screen.getByText(/Helm chart or a kustomize overlay/i)).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /generate documentation/i }),
+  ).toBeInTheDocument();
+});

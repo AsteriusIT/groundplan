@@ -26,11 +26,20 @@ const VIEWS: ReadonlySet<GraphView> = new Set<GraphView>([
 /**
  * Read/write the `?view` query param (default "infra"). Kept in the URL — like
  * the `?compare` param — so deep links and share links land on the right view.
+ *
+ * A view the current graph does not have falls back to `infra` rather than
+ * rendering empty: a deep link from a Terraform diagram to `?view=network`, followed
+ * on a Kubernetes one, lands on the diagram (the rule GP-99 set for the cluster
+ * page). The param is left in the URL untouched — it is simply not read.
  */
-export function useGraphView(): { view: GraphView; setView: (v: GraphView) => void } {
+export function useGraphView(
+  allowed?: readonly GraphView[],
+): { view: GraphView; setView: (v: GraphView) => void } {
   const [params, setParams] = useSearchParams();
   const raw = params.get("view") as GraphView | null;
-  const view: GraphView = raw && VIEWS.has(raw) ? raw : "infra";
+  const offered = allowed ?? [...VIEWS];
+  const view: GraphView =
+    raw && VIEWS.has(raw) && offered.includes(raw) ? raw : "infra";
   const setView = (next: GraphView): void => {
     const updated = new URLSearchParams(params);
     if (next === "infra") updated.delete("view");
@@ -60,19 +69,48 @@ const LABELS: Record<Exclude<GraphView, "infra">, string> = {
 };
 
 /**
- * The view tabs (GP-44/GP-48/GP-74/GP-77). Underlined-tab styling.
+ * Which lenses a graph can honestly be looked through.
  *
  * Adapted and C4 appear on the docs page only. A pull request asks "what does
  * this change do", and the honest answer to that is the generated graph — an
  * annotation layer that hides and renames things is the wrong lens for reviewing
  * a diff.
+ *
+ * A **Kubernetes** graph (GP-105) gets the diagram and nothing else. `network`
+ * and `iam` read Terraform semantics — vnet containment, Azure role assignments —
+ * that a manifest simply does not have, and there is no annotation layer on a
+ * Kubernetes snapshot yet, so `adapted` and `c4` would fold over nothing. Drawn
+ * anyway they would all be empty, and an empty lens is worse than a missing one:
+ * it tells the reader their system has no network and no permissions, which is a
+ * lie shaped like information. This is the rule GP-99 set for the cluster page,
+ * stated once, where every caller can reach it.
  */
-export function ViewSwitcher({ variant = "plan" }: { variant?: ViewSwitcherVariant }) {
-  const { view, setView } = useGraphView();
-  const keys: GraphView[] =
-    variant === "docs"
-      ? ["infra", "adapted", "c4", "network", "iam"]
-      : ["infra", "network", "iam"];
+export function viewsFor(
+  variant: ViewSwitcherVariant,
+  kubernetes: boolean,
+): GraphView[] {
+  if (kubernetes) return ["infra"];
+  return variant === "docs"
+    ? ["infra", "adapted", "c4", "network", "iam"]
+    : ["infra", "network", "iam"];
+}
+
+/**
+ * The view tabs (GP-44/GP-48/GP-74/GP-77). Underlined-tab styling.
+ *
+ * With only one view to offer there is nothing to switch, so the switcher removes
+ * itself rather than presenting a single tab that does nothing when pressed.
+ */
+export function ViewSwitcher({
+  variant = "plan",
+  kubernetes = false,
+}: {
+  variant?: ViewSwitcherVariant;
+  kubernetes?: boolean;
+}) {
+  const keys = viewsFor(variant, kubernetes);
+  const { view, setView } = useGraphView(keys);
+  if (keys.length < 2) return null;
 
   const options = keys.map((key) => ({
     key,

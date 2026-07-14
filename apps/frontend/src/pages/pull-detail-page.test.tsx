@@ -266,3 +266,103 @@ it("offers a snapshot dropdown when the PR has more than one", async () => {
   expect(screen.getByRole("menuitem", { name: /newsha22/i })).toBeInTheDocument();
   expect(screen.getByRole("menuitem", { name: /oldsha11/i })).toBeInTheDocument();
 });
+
+// --- GP-105: a Kubernetes pull request, reviewed on the same page ---
+
+/** What GP-103 stores for a rendered manifests PR: an ordinary coloured graph. */
+const k8sSnapshot: Snapshot = {
+  ...snapshot,
+  source: "k8s_rendered",
+  stats: {
+    nodes: 3,
+    edges: 2,
+    changes: { create: 1, update: 1, delete: 1, noop: 0, unchanged: 0 },
+  },
+  summaryMd: "**~1 updated, +1 created, −1 destroyed**",
+  graph: {
+    version: 7,
+    nodes: [
+      {
+        id: "Namespace/prod",
+        name: "prod",
+        type: "Namespace",
+        provider: "kubernetes",
+        module_path: [],
+        change: "noop",
+      },
+      {
+        id: "prod/Deployment/api",
+        name: "api",
+        type: "Deployment",
+        provider: "kubernetes",
+        module_path: [],
+        change: "update",
+        parent_id: "Namespace/prod",
+        attribute_diff: [
+          {
+            key: "spec.template.spec.containers[0].image",
+            before: "acme/api:1.4.0",
+            after: "acme/api:1.5.0",
+          },
+        ],
+      },
+      {
+        id: "prod/Service/api",
+        name: "api",
+        type: "Service",
+        provider: "kubernetes",
+        module_path: [],
+        change: "create",
+        parent_id: "Namespace/prod",
+      },
+    ],
+    edges: [
+      { from: "Namespace/prod", to: "prod/Deployment/api", kind: "contains" },
+      { from: "Namespace/prod", to: "prod/Service/api", kind: "contains" },
+    ],
+  },
+};
+
+it("draws a kubernetes pull request on the same canvas, with its own summary", async () => {
+  getRepositoryMock.mockResolvedValue({ ...repo, iacType: "kubernetes" });
+  getPullMock.mockResolvedValue(pull());
+  getSnapshotMock.mockResolvedValue(k8sSnapshot);
+  listSnapshotsMock.mockResolvedValue([summary({ source: "k8s_rendered" })]);
+
+  renderPage();
+
+  // The renderer needed no changes: a manifest snapshot is a GraphSnapshot.
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("3 nodes");
+  // And the deterministic summary is the one the PR comment carries.
+  expect(screen.getByText(/1 updated, \+1 created/i)).toBeInTheDocument();
+});
+
+it("offers a kubernetes pull request no Terraform lens, and ignores one asked for in the URL", async () => {
+  getRepositoryMock.mockResolvedValue({ ...repo, iacType: "kubernetes" });
+  getPullMock.mockResolvedValue(pull());
+  getSnapshotMock.mockResolvedValue(k8sSnapshot);
+  listSnapshotsMock.mockResolvedValue([summary({ source: "k8s_rendered" })]);
+
+  // A deep link from a Terraform diagram, followed on a Kubernetes one.
+  renderPage("/projects/p1/repos/r1/pulls/5?view=network");
+
+  // It lands on the diagram rather than on an empty lens (the GP-99 rule).
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("3 nodes");
+  expect(screen.queryByRole("button", { name: /^network$/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^iam$/i })).not.toBeInTheDocument();
+  // With one view to offer, there is nothing to switch.
+  expect(screen.queryByRole("group", { name: "Graph view" })).not.toBeInTheDocument();
+});
+
+it("still offers a Terraform pull request its lenses", async () => {
+  getRepositoryMock.mockResolvedValue(repo);
+  getPullMock.mockResolvedValue(pull());
+  getSnapshotMock.mockResolvedValue(snapshot);
+  listSnapshotsMock.mockResolvedValue([summary()]);
+
+  renderPage();
+
+  expect(await screen.findByTestId("canvas")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^network$/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^iam$/i })).toBeInTheDocument();
+});

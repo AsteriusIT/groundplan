@@ -16,6 +16,7 @@ import type {
   Snapshot,
   SnapshotSummary,
 } from "@/api/types";
+import { isKubernetesSource } from "@/api/types";
 import { formatDate, repoName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AiPanel } from "@/components/ai-panel";
@@ -27,7 +28,7 @@ import { IamTable } from "@/components/iam-table";
 import { SnapshotSelect } from "@/components/snapshot-select";
 import { TourLauncher } from "@/components/tour-launcher";
 import { TourRail } from "@/components/tour-rail";
-import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
+import { ViewSwitcher, useGraphView, viewsFor } from "@/components/view-switcher";
 import { networkProjection } from "@/lib/graph-layout";
 import { useTourStyle } from "@/tour/tour-style";
 import { useTourPlayer } from "@/tour/use-tour";
@@ -65,8 +66,14 @@ export function PullDetailPage() {
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const { focus } = useFocusMode();
 
+  // What this pull request is a review *of* decides which lenses it can be seen
+  // through, and whether the AI layer has anything grounded to say about it
+  // (GP-105): a Kubernetes snapshot gets the diagram, and only the diagram.
+  const kubernetes =
+    graph.status === "ready" && isKubernetesSource(graph.snapshot.source);
+
   // Network view (GP-44): project the ready snapshot when ?view=network.
-  const { view, setView } = useGraphView();
+  const { view, setView } = useGraphView(viewsFor("plan", kubernetes));
   const network = useMemo(
     () =>
       graph.status === "ready" && view === "network"
@@ -205,7 +212,9 @@ export function PullDetailPage() {
             <div className="flex items-center gap-2">
               {/* GP-79. Leads the header, as it does on the docs page: on a change
                   you have not read yet, this is the thing to press. */}
-              {graph.status === "ready" && <TourLauncher player={player} />}
+              {graph.status === "ready" && !kubernetes && (
+                <TourLauncher player={player} />
+              )}
               {graph.status === "ready" && (
                 <ExportMenu
                   snapshotId={graph.snapshot.id}
@@ -225,7 +234,7 @@ export function PullDetailPage() {
                 mid-tour would strand the camera on a diagram the narration is not
                 about, so the switcher steps aside while one runs. */}
             {graph.status === "ready" && player.status !== "playing" && (
-              <ViewSwitcher variant="plan" />
+              <ViewSwitcher variant="plan" kubernetes={kubernetes} />
             )}
           </div>
           <div className="flex items-center gap-4">
@@ -296,12 +305,18 @@ export function PullDetailPage() {
               markdown={graph.snapshot.summaryMd}
               prNumber={pull.number}
               above={
-                <AiPanel
-                  snapshotId={graph.snapshot.id}
-                  kind="pr_summary"
-                  title="AI summary"
-                  cta="Generate AI summary"
-                />
+                // The AI layer is grounded in Terraform snapshots and their
+                // repository context (GP-62..GP-65); it has nothing to say about a
+                // Kubernetes one yet, and the deterministic summary below stands on
+                // its own — as it is meant to.
+                kubernetes ? undefined : (
+                  <AiPanel
+                    snapshotId={graph.snapshot.id}
+                    kind="pr_summary"
+                    title="AI summary"
+                    cta="Generate AI summary"
+                  />
+                )
               }
             />
           )

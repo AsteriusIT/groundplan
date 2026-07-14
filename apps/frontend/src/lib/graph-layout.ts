@@ -196,6 +196,11 @@ export function moduleOptions(graph: Graph): string[] {
   if (graph.nodes.some((n) => !isModule(n) && n.module_path.length === 0)) {
     set.add("root");
   }
+  // "root" on its own is not a choice — unticking it would hide the whole
+  // diagram, and a filter with one box tells the reader nothing they can act on.
+  // A Kubernetes graph (GP-105) is always this: manifests have no modules. So is
+  // a Terraform repository that never wrote one.
+  if (set.size === 1 && set.has("root")) return [];
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 

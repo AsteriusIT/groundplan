@@ -62,7 +62,7 @@ import { OrphanReview } from "@/components/orphan-review";
 import { ProposalInbox } from "@/components/proposal-inbox";
 import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
-import { ViewSwitcher, useGraphView } from "@/components/view-switcher";
+import { ViewSwitcher, useGraphView, viewsFor } from "@/components/view-switcher";
 import { WarningsNotice } from "@/components/warnings-notice";
 import { SnapshotSelect } from "@/components/snapshot-select";
 import { TourLauncher } from "@/components/tour-launcher";
@@ -71,6 +71,7 @@ import { useAiStatus } from "@/lib/use-ai-status";
 import { networkProjection } from "@/lib/graph-layout";
 import { useTourStyle } from "@/tour/tour-style";
 import { useTourPlayer } from "@/tour/use-tour";
+import { docsSourceFor } from "@/lib/iac-type";
 
 type ListState =
   | { status: "loading" }
@@ -122,10 +123,14 @@ export function DocsPage() {
     (selectNewest = true) => {
       if (!repoId) return;
       setList({ status: "loading" });
+      // Which producer documents this repository is the repository's own answer
+      // (GP-101), so the repo is read first and the list asked for accordingly —
+      // a manifests repo has no `hcl` snapshots and never will.
       getRepository(repoId)
-        .then(setRepo)
-        .catch(() => {});
-      listSnapshots(repoId, { source: "hcl" })
+        .then((repository) => {
+          setRepo(repository);
+          return listSnapshots(repoId, { source: docsSourceFor(repository.iacType) });
+        })
         .then((snapshots) => {
           if (snapshots.length === 0) {
             setList({ status: "empty" });
@@ -322,6 +327,11 @@ export function DocsPage() {
     }
   }, [repoId, loadList]);
 
+  // What this repository holds decides what can honestly be shown of it (GP-105):
+  // the Terraform lenses, the annotation layer and the AI surfaces all read
+  // semantics a manifest does not have. The diagram itself needs no such caveat.
+  const kubernetes = repo?.iacType === "kubernetes";
+
   const snapshots = list.status === "ready" ? list.snapshots : [];
   const latestId = snapshots[0]?.id ?? null;
   const viewingOld = Boolean(selectedId && latestId && selectedId !== latestId);
@@ -342,7 +352,7 @@ export function DocsPage() {
     [annotations, current],
   );
 
-  const { view, setView } = useGraphView();
+  const { view, setView } = useGraphView(viewsFor("docs", kubernetes));
 
   // GP-79: the guided tour of this estate. It plays on the lens it was written
   // against — `adapted` when the repo has groups, so the tour can stop at "the
@@ -528,7 +538,9 @@ export function DocsPage() {
                 {/* GP-79. Leads the "what you do to the diagram" group: a tour is
                     how you meet a system you have never seen, so it comes before
                     the tools for interrogating one you already know. */}
-                {current && !compareMode && <TourLauncher player={player} />}
+                {current && !compareMode && !kubernetes && (
+                  <TourLauncher player={player} />
+                )}
                 {canCompare && (
                   <Button
                     variant={compareMode ? "default" : "outline"}
@@ -538,11 +550,15 @@ export function DocsPage() {
                     {compareMode ? "Exit compare" : "Compare"}
                   </Button>
                 )}
-                {current && !compareMode && view === "infra" && <AnnotateToggle />}
+                {/* You annotate Terraform addresses; a manifest graph has none, and
+                    the layer does not reach it yet (GP-100). */}
+                {current && !compareMode && !kubernetes && view === "infra" && (
+                  <AnnotateToggle />
+                )}
 
                 <span className="bg-border mx-1 h-5 w-px" aria-hidden="true" />
 
-                {repoId && (
+                {repoId && !kubernetes && (
                   <ShareDialog repositoryId={repoId} currentSnapshotId={selectedId} />
                 )}
                 {current && (
@@ -560,7 +576,7 @@ export function DocsPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
                     {/* GP-65. Absent entirely when the AI layer is off — not disabled. */}
-                    {current && aiStatus?.enabled && (
+                    {current && aiStatus?.enabled && !kubernetes && (
                       <DropdownMenuCheckboxItem
                         checked={explainOpen}
                         onCheckedChange={(v) => setExplainOpen(Boolean(v))}
@@ -570,7 +586,7 @@ export function DocsPage() {
                       </DropdownMenuCheckboxItem>
                     )}
                     {/* GP-76. Same rule: no AI layer, no AI surface. */}
-                    {current && aiStatus?.enabled && (
+                    {current && aiStatus?.enabled && !kubernetes && (
                       <DropdownMenuCheckboxItem
                         checked={proposalsOpen}
                         onCheckedChange={(v) => setProposalsOpen(Boolean(v))}
@@ -619,7 +635,9 @@ export function DocsPage() {
             {/* A tour is written against one lens and plays on it — switching
                 mid-tour would strand the camera on a diagram the narration is not
                 about. So the switcher steps aside while one runs. */}
-            {current && !compareMode && !touring && <ViewSwitcher variant="docs" />}
+            {current && !compareMode && !touring && (
+              <ViewSwitcher variant="docs" kubernetes={kubernetes} />
+            )}
           </div>
           <div className="flex items-center gap-4">
             <SnapshotSelect
@@ -692,7 +710,11 @@ export function DocsPage() {
           )}
 
           {list.status === "empty" && (
-            <EmptyState generating={generating} onGenerate={generate} />
+            <EmptyState
+              generating={generating}
+              onGenerate={generate}
+              kubernetes={kubernetes}
+            />
           )}
 
           {snapshots.length > 0 && compareActive && comparePair && (
@@ -859,9 +881,11 @@ function NoGroupsState({ onAnnotate }: { onAnnotate: () => void }) {
 function EmptyState({
   generating,
   onGenerate,
+  kubernetes,
 }: {
   generating: boolean;
   onGenerate: () => void;
+  kubernetes: boolean;
 }) {
   return (
     <div className="grid h-full place-items-center p-8">
@@ -873,8 +897,9 @@ function EmptyState({
           Document this repository
         </h2>
         <p className="text-muted-foreground mt-2 text-sm">
-          Groundplan clones the default branch and statically parses its Terraform
-          into a resource diagram — no plan required.
+          {kubernetes
+            ? "Groundplan clones the default branch and reads its YAML manifests into a diagram. If this repository is a Helm chart or a kustomize overlay, there is nothing readable to clone — its diagram comes from your CI rendering it on merge (see the repository's CI setup)."
+            : "Groundplan clones the default branch and statically parses its Terraform into a resource diagram — no plan required."}
         </p>
         <Button className="mt-5" onClick={onGenerate} disabled={generating}>
           {generating ? (

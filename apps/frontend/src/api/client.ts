@@ -30,6 +30,7 @@ import type {
   RepositoryActivity,
   ShareLink,
   Snapshot,
+  SnapshotSource,
   SnapshotDiff,
   SnapshotSummary,
   TourResponse,
@@ -343,7 +344,11 @@ export function getPull(
 
 export function listSnapshots(
   repositoryId: string,
-  opts: { source?: "plan" | "hcl"; prNumber?: number } = {},
+  opts: {
+    /** A repository's snapshots come from whichever producer it has (GP-102). */
+    source?: Exclude<SnapshotSource, "k8s_namespace">;
+    prNumber?: number;
+  } = {},
 ): Promise<SnapshotSummary[]> {
   const params = new URLSearchParams();
   if (opts.source) params.set("source", opts.source);

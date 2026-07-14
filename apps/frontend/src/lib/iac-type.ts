@@ -28,3 +28,12 @@ export const IAC_PATH_LABELS: Record<IacType, string> = {
   terraform: "Terraform path",
   kubernetes: "Manifests path",
 };
+
+/**
+ * Which producer documents a repository's default branch (GP-102). The docs page
+ * asks for these and only these: a manifests repository has no `hcl` snapshots and
+ * never will, and a Terraform one has no `k8s_manifest` ones.
+ */
+export function docsSourceFor(iacType: IacType): "hcl" | "k8s_manifest" {
+  return iacType === "kubernetes" ? "k8s_manifest" : "hcl";
+}
