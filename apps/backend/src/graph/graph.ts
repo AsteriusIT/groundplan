@@ -117,6 +117,13 @@ export type GraphNode = {
   annotation_group?: boolean;
   /** v5: resources behind a group collapsed to one node (C4, GP-77). */
   member_count?: number;
+  /**
+   * v6: the resource's own labels, as the cluster reported them (GP-96).
+   * Kubernetes says what a thing *is* in its labels — which is why they are shown
+   * rather than the attribute bag a Terraform resource would carry. Metadata only:
+   * a Secret's data never reaches a node (see k8s-mapper).
+   */
+  labels?: Record<string, string>;
 };
 
 export type GraphEdge = {
@@ -141,10 +148,11 @@ export type Graph = {
    * 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node
    * parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47);
    * 5 adds the annotation-adapted projection — logical edges, group containers,
-   * display labels, notes (GP-72/GP-77).
+   * display labels, notes (GP-72/GP-77); 6 adds node labels, which is how a
+   * Kubernetes namespace read says what a workload is (GP-96).
    * All stay valid — every version bump is additive/optional.
    */
-  version: 1 | 2 | 3 | 4 | 5;
+  version: 1 | 2 | 3 | 4 | 5 | 6;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };

@@ -170,6 +170,12 @@ export interface GraphNode {
   annotation_group?: boolean;
   /** v5: resources behind a group collapsed to a single node (C4, GP-77). */
   member_count?: number;
+  /**
+   * v6: the resource's own labels, as the cluster reported them (GP-96).
+   * Kubernetes says what a thing *is* in its labels — so the detail panel shows
+   * them. Metadata only: a Secret's data never reaches a node.
+   */
+  labels?: Record<string, string>;
 }
 
 export interface GraphEdge {
@@ -185,7 +191,8 @@ export interface GraphEdge {
 }
 
 export interface Graph {
-  version: 1 | 2 | 3 | 4 | 5;
+  /** 6 adds node labels — a Kubernetes namespace read (GP-96). All additive. */
+  version: 1 | 2 | 3 | 4 | 5 | 6;
   nodes: GraphNode[];
   edges: GraphEdge[];
 }

@@ -65,12 +65,39 @@ test("validateGraph rejects an edge with an unknown kind", () => {
   assert.equal(res.valid, false);
 });
 
-test("validateGraph accepts v2..v5 but rejects an unknown version", () => {
+test("validateGraph accepts v2..v6 but rejects an unknown version", () => {
   assert.equal(validateGraph({ ...validGraph, version: 2 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 3 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 4 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 5 }).valid, true);
-  assert.equal(validateGraph({ ...validGraph, version: 6 }).valid, false);
+  // v6 (GP-96) adds node labels. Every bump is additive, so v1 stays valid too.
+  assert.equal(validateGraph({ ...validGraph, version: 6 }).valid, true);
+  assert.equal(validateGraph({ ...validGraph, version: 7 }).valid, false);
+});
+
+test("validateGraph accepts v6 node labels, and rejects non-string values", () => {
+  const labelled = {
+    version: 6,
+    nodes: [
+      {
+        id: "Deployment/api",
+        name: "api",
+        type: "Deployment",
+        provider: "kubernetes",
+        module_path: [],
+        change: null,
+        labels: { app: "api" },
+      },
+    ],
+    edges: [],
+  };
+  assert.equal(validateGraph(labelled).valid, true);
+
+  const bad = {
+    ...labelled,
+    nodes: [{ ...labelled.nodes[0], labels: { replicas: 3 } }],
+  };
+  assert.equal(validateGraph(bad).valid, false);
 });
 
 test("validateGraph accepts a v4 graph with parent_id containment", () => {
