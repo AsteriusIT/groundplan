@@ -23,6 +23,8 @@ const diffSnapshotsMock = vi.mocked(diffSnapshots);
 const targetSnapshot: Snapshot = {
   id: "s1",
   repositoryId: "r1",
+  clusterId: null,
+  namespace: null,
   source: "hcl",
   ref: "main",
   commitSha: "a4e2b77f",

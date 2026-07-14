@@ -13,6 +13,8 @@ function summary(
   return {
     id,
     repositoryId: "r1",
+    clusterId: null,
+    namespace: null,
     source: "hcl",
     ref: "main",
     commitSha,

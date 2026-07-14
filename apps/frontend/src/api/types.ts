@@ -129,7 +129,8 @@ export interface User {
 export type ChangeKind = "create" | "update" | "delete" | "noop";
 /** v5: `logical` is a human-drawn relationship the code cannot express (GP-72). */
 export type EdgeKind = "depends_on" | "contains" | "logical";
-export type SnapshotSource = "plan" | "hcl";
+/** `k8s_namespace` is a live read of one namespace of a cluster (GP-97). */
+export type SnapshotSource = "plan" | "hcl" | "k8s_namespace";
 export type PullRequestState = "open" | "closed";
 
 /** v3: one masked before/after attribute change on a node (GP-32). */
@@ -255,10 +256,21 @@ export interface GraphStats {
   trigger?: "manual" | "auto";
 }
 
-/** Snapshot list item — metadata + stats, never the graph body. */
+/**
+ * Snapshot list item — metadata + stats, never the graph body.
+ *
+ * A snapshot is *of* a repository or *of* a cluster's namespace, never both: the
+ * Terraform sources carry `repositoryId`, a Kubernetes read carries `clusterId`
+ * and `namespace`. A live read has no commit, so `commitSha` is empty there and
+ * `ref` is the namespace.
+ */
 export interface SnapshotSummary {
   id: string;
-  repositoryId: string;
+  repositoryId: string | null;
+  /** Set for `k8s_namespace` snapshots (GP-97); null for the Terraform sources. */
+  clusterId: string | null;
+  /** The namespace this snapshot is of; null for the Terraform sources. */
+  namespace: string | null;
   source: SnapshotSource;
   ref: string;
   commitSha: string;

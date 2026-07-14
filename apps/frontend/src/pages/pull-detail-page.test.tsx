@@ -93,6 +93,8 @@ function pull(over: Partial<PullDetail> = {}): PullDetail {
 const snapshot: Snapshot = {
   id: "s1",
   repositoryId: "r1",
+  clusterId: null,
+  namespace: null,
   source: "plan",
   ref: "refs/heads/feat",
   commitSha: "abcdef1234567",
@@ -116,6 +118,8 @@ const snapshot: Snapshot = {
 const summary = (over: Partial<SnapshotSummary> = {}): SnapshotSummary => ({
   id: "s1",
   repositoryId: "r1",
+  clusterId: null,
+  namespace: null,
   source: "plan",
   ref: "refs/heads/feat",
   commitSha: "abcdef1234567",

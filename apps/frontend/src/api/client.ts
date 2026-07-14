@@ -278,6 +278,44 @@ export function deleteCluster(id: string): Promise<void> {
   return request<void>(`/clusters/${encode(id)}`, { method: "DELETE" });
 }
 
+export function getCluster(id: string): Promise<Cluster> {
+  return request<Cluster>(`/clusters/${encode(id)}`);
+}
+
+// --- Kubernetes namespaces & snapshots (GP-97) ------------------------------
+
+/** The cluster's namespaces, read live. 502 when the cluster is unreachable. */
+export function listClusterNamespaces(clusterId: string): Promise<string[]> {
+  return request<{ namespaces: string[] }>(
+    `/clusters/${encode(clusterId)}/namespaces`,
+  ).then((res) => res.namespaces);
+}
+
+/**
+ * Read the namespace and store it as a snapshot. Always user-triggered: a diagram
+ * of a live cluster is a read of somebody's production, and it happens when they
+ * ask for it. 409 while one is already running.
+ */
+export function generateNamespaceSnapshot(
+  clusterId: string,
+  namespace: string,
+): Promise<Snapshot> {
+  return request<Snapshot>(
+    `/clusters/${encode(clusterId)}/namespaces/${encode(namespace)}/snapshots`,
+    { method: "POST", body: {} },
+  );
+}
+
+/** This namespace's snapshots, newest first (GP-26's shape, for a cluster). */
+export function listNamespaceSnapshots(
+  clusterId: string,
+  namespace: string,
+): Promise<SnapshotSummary[]> {
+  return request<SnapshotSummary[]>(
+    `/clusters/${encode(clusterId)}/namespaces/${encode(namespace)}/snapshots`,
+  );
+}
+
 /**
  * Absolute URL CI posts plan.json to (GP-5). Uses the configured API origin, or
  * the current origin in dev — so the copy-paste snippet is always usable.

@@ -120,7 +120,12 @@ export function NodeDetailsPanel({
           </SidePanelSection>
         )}
 
-        <SidePanelSection label="Terraform address">
+        {/* A Kubernetes node's id is `Kind/name` (GP-96), not a Terraform address.
+            Calling it one would be the panel telling the reader something untrue
+            about where the thing came from. */}
+        <SidePanelSection
+          label={node.provider === "kubernetes" ? "Resource" : "Terraform address"}
+        >
           <div className="flex items-start gap-1.5">
             <code className="bg-accent-soft text-primary min-w-0 flex-1 rounded-md px-2 py-1.5 font-mono text-xs break-all">
               {node.id}
@@ -128,6 +133,25 @@ export function NodeDetailsPanel({
             <CopyButton value={node.id} label="Copy" className="shrink-0" />
           </div>
         </SidePanelSection>
+
+        {/* Kubernetes says what a thing *is* in its labels (GP-96), so they are
+            worth as much here as an attribute diff is on a plan. */}
+        {node.labels && Object.keys(node.labels).length > 0 && (
+          <SidePanelSection label="Labels">
+            <ul className="flex flex-wrap gap-1.5">
+              {Object.entries(node.labels)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, value]) => (
+                  <li
+                    key={key}
+                    className="bg-accent-soft text-ink rounded-md px-2 py-1 font-mono text-[11px]"
+                  >
+                    <span className="text-muted-foreground">{key}</span>={value}
+                  </li>
+                ))}
+            </ul>
+          </SidePanelSection>
+        )}
 
         {node.module_path.length > 0 && (
           <SidePanelSection label="Module">

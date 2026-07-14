@@ -14,6 +14,15 @@ import { buttonVariants } from "@/components/ui/button";
 
 const shortSha = (sha: string) => sha.slice(0, 8);
 
+/**
+ * What identifies a snapshot in the list. A Terraform snapshot is of a commit, so
+ * it is named by one; a Kubernetes namespace read (GP-97) is of a moment, and the
+ * moment is already in the row beside it — so it says what it is instead of
+ * showing eight blank characters where a sha would be.
+ */
+const snapshotLabel = (snap: SnapshotSummary) =>
+  snap.commitSha ? shortSha(snap.commitSha) : "live read";
+
 export function SnapshotSelect({
   snapshots,
   selectedIds,
@@ -64,7 +73,7 @@ export function SnapshotSelect({
             .map((id) => shortSha(snapshots.find((s) => s.id === id)?.commitSha ?? id))
             .join(" ⇄ ")
     : selected
-      ? `${shortSha(selected.commitSha)}${selected.stats.trigger ? ` · ${selected.stats.trigger.toUpperCase()}` : ""} · ${formatDate(selected.createdAt)}`
+      ? `${snapshotLabel(selected)}${selected.stats.trigger ? ` · ${selected.stats.trigger.toUpperCase()}` : ""} · ${formatDate(selected.createdAt)}`
       : "Select snapshot";
 
   return (
@@ -111,7 +120,7 @@ export function SnapshotSelect({
                 {isSelected && <Check className="text-primary size-3.5" />}
               </span>
               <span className="font-mono text-xs font-medium">
-                {shortSha(snap.commitSha)}
+                {snapshotLabel(snap)}
               </span>
               {trigger && (
                 <span
