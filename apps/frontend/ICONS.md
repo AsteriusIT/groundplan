@@ -65,6 +65,23 @@ the Terraform `kubernetes_*` provider types and the bare native kinds
   icon set (the `unlabeled` resource + infrastructure glyphs), used as-is,
   renamed to kind keys.
 
+### The Kubernetes mark
+
+The **official Kubernetes logo** (the blue helm wheel) at
+[`src/icons/kubernetes-logo.svg`](src/icons/kubernetes-logo.svg), rendered by
+`components/kubernetes-mark.tsx` as the sidebar's **Clusters** icon.
+
+- Source: the [CNCF artwork repository](https://github.com/cncf/artwork)
+  (`projects/kubernetes/icon/color/kubernetes-icon-color.svg`), used as-is via an
+  `<img>` — never recoloured, redrawn, or restyled.
+- It sits *outside* `src/icons/kubernetes/`, which is glob-keyed by Kubernetes
+  **kind**. A logo is not a kind, and adding it there would put a `logo` entry in
+  the kind lookup table.
+- Because it is unmodified, it does not inherit `currentColor` the way the lucide
+  nav icons beside it do: it stays brand blue whether its nav item is active or
+  not. That is the trade — the nav says "active" with a border, a tint and a label
+  weight, none of which need the icon's help.
+
 ## Licensing
 
 ### Azure
@@ -103,9 +120,17 @@ Commons Attribution 4.0 International) — see the
 Attribution: **© The Kubernetes Authors, CC-BY-4.0.** Groundplan renders each
 icon **as-is via an `<img>`** in its architecture diagram views, unmodified.
 
+The **Kubernetes mark** (`src/icons/kubernetes-logo.svg`) comes from the CNCF
+artwork repository, also under CC-BY-4.0, but it is additionally a **trademark of
+the Linux Foundation**. It is used here nominatively — to label the part of the
+product that reads Kubernetes clusters — never as a Groundplan mark, never to
+imply endorsement or affiliation, and never altered. See the
+[Linux Foundation trademark usage guidelines](https://www.linuxfoundation.org/legal/trademark-usage).
+
 Do **not** edit the SVGs in `src/icons/azure/`, `src/icons/aws/`,
-`src/icons/gcp/` or `src/icons/kubernetes/`, and do not repurpose them as a
-standalone icon library outside the diagram views.
+`src/icons/gcp/` or `src/icons/kubernetes/`, nor `src/icons/kubernetes-logo.svg`,
+and do not repurpose them as a standalone icon library outside the views that
+render them.
 
 ## The mapping mechanism (provider-generic)
 

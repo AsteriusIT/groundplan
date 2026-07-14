@@ -48,6 +48,19 @@ it("highlights the active route and not the others", () => {
   );
 });
 
+it("puts Clusters beside Projects — a cluster is not inside one", () => {
+  renderSidebar({}, "/clusters");
+
+  const clusters = screen.getByRole("link", { name: "Clusters" });
+  expect(clusters).toHaveAttribute("href", "/clusters");
+  expect(clusters).toHaveAttribute("aria-current", "page");
+
+  // The four top-level places, in order.
+  expect(
+    screen.getAllByRole("link").map((a) => a.textContent),
+  ).toEqual(["Dashboard", "Projects", "Clusters", "Settings"]);
+});
+
 it("signs out from the user card", () => {
   const value = renderSidebar();
   fireEvent.click(screen.getByRole("button", { name: /sign out/i }));

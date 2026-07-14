@@ -31,7 +31,6 @@ import {
   verifyRepository,
 } from "@/api/client";
 import type {
-  Cluster,
   CreatedRepository,
   Project,
   Repository,
@@ -117,47 +116,15 @@ beforeEach(() => {
   listClustersMock.mockResolvedValue([]);
 });
 
-// --- Clusters (GP-98) ------------------------------------------------------
-
-const cluster: Cluster = {
-  id: "c1",
-  projectId: "p1",
-  name: "production",
-  kubeconfig: "***",
-  connectionStatus: "ok",
-  verifiedAt: "2026-07-14T10:00:00.000Z",
-  createdAt: "2026-07-14T09:00:00.000Z",
-};
-
-it("a project with no clusters gets one CTA, not an empty table", async () => {
+it("a project is repositories — clusters live at the top level, not in here", async () => {
   listRepositoriesMock.mockResolvedValue([repo()]);
-  renderPage();
-
-  expect(await screen.findByText(/no clusters attached/i)).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: /attach a cluster/i }),
-  ).toBeInTheDocument();
-  expect(screen.queryByRole("table")).not.toBeInTheDocument();
-});
-
-it("lists attached clusters with their connection status", async () => {
-  listRepositoriesMock.mockResolvedValue([repo()]);
-  listClustersMock.mockResolvedValue([cluster]);
-  renderPage();
-
-  expect(await screen.findByText("production")).toBeInTheDocument();
-  // Status is on the row (as a dot with an accessible name), never the kubeconfig.
-  expect(screen.getAllByRole("img", { name: /connected/i }).length).toBeGreaterThan(0);
-  expect(document.body.textContent).not.toContain("***");
-});
-
-it("a failed cluster list leaves the repositories alone", async () => {
-  listRepositoriesMock.mockResolvedValue([repo()]);
-  listClustersMock.mockRejectedValue(new ApiError(500, "boom"));
   renderPage();
 
   expect(await screen.findByText("acme/infra")).toBeInTheDocument();
-  expect(await screen.findByText(/no clusters attached/i)).toBeInTheDocument();
+  // Clusters moved out: they are peers of a project, not parts of one. The page
+  // must not grow the section back — nor go asking the API for them.
+  expect(screen.queryByText(/cluster/i)).not.toBeInTheDocument();
+  expect(listClustersMock).not.toHaveBeenCalled();
 });
 
 it("shows a loading state", () => {

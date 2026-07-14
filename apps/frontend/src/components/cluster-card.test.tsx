@@ -17,7 +17,6 @@ const deleteMock = vi.mocked(deleteCluster);
 
 const cluster: Cluster = {
   id: "c1",
-  projectId: "p1",
   name: "production",
   kubeconfig: "***",
   connectionStatus: "ok",

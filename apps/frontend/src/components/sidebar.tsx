@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Boxes, LayoutDashboard, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { KubernetesMark } from "./kubernetes-mark";
 import { Logo } from "./logo";
 import { UserCard } from "./user-card";
 
@@ -12,9 +13,16 @@ type NavEntry = {
   icon: ComponentType<{ className?: string }>;
 };
 
+/**
+ * Clusters sits beside Projects, not inside one. A project is a unit of code
+ * review — repositories, their pull requests, the main branch we document. A live
+ * cluster is a running thing you read; it has no PR and no commit, and it never
+ * belonged under a project (see pages/clusters-page).
+ */
 const NAV: NavEntry[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/projects", label: "Projects", icon: Boxes },
+  { to: "/clusters", label: "Clusters", icon: KubernetesMark },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

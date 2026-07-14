@@ -42,7 +42,6 @@ const getSnapshotMock = vi.mocked(getSnapshot);
 
 const cluster: Cluster = {
   id: "c1",
-  projectId: "p1",
   name: "production",
   kubeconfig: "***",
   connectionStatus: "ok",
@@ -101,14 +100,14 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   return { ...summary(), graph, summaryMd: "", ...over };
 }
 
-function renderPage(path = "/projects/p1/clusters/c1") {
+function renderPage(path = "/clusters/c1") {
   return render(
     <MemoryRouter initialEntries={[path]}>
       {/* In the app the page renders inside the layout's main region; axe should
           see it in one here too, rather than floating in a bare document. */}
       <main>
         <Routes>
-          <Route path="/projects/:id/clusters/:clusterId" element={<ClusterPage />} />
+          <Route path="/clusters/:id" element={<ClusterPage />} />
         </Routes>
       </main>
     </MemoryRouter>,
@@ -215,7 +214,7 @@ it("a clean read shows no warnings notice", async () => {
 
 it("offers no Terraform lenses, and ignores one asked for in the URL", async () => {
   listSnapshotsMock.mockResolvedValue([summary()]);
-  renderPage("/projects/p1/clusters/c1?view=network");
+  renderPage("/clusters/c1?view=network");
 
   // The infra canvas is what a k8s snapshot has — the other views are lenses on
   // Terraform semantics, and empty ones would be noise.

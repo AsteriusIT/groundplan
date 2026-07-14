@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/app-layout";
 import { RequireAuth } from "@/components/require-auth";
 import { CallbackPage } from "@/pages/callback-page";
 import { ClusterPage } from "@/pages/cluster-page";
+import { ClustersPage } from "@/pages/clusters-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { DocsPage } from "@/pages/docs-page";
 import { LoginPage } from "@/pages/login-page";
@@ -66,13 +67,11 @@ function App() {
           path="/projects/:id/repos/:repoId/docs"
           element={<DocsPage />}
         />
-        {/* The Kubernetes view (GP-99). Nested under its project like the docs
-            and PR views — a cluster belongs to a project, and the sidebar is for
-            the top-level places, not for every diagram you can reach. */}
-        <Route
-          path="/projects/:id/clusters/:clusterId"
-          element={<ClusterPage />}
-        />
+        {/* Clusters are a top-level place, beside projects rather than inside
+            one: a cluster has no PR to review and no commit to document, which is
+            all a project is for. */}
+        <Route path="/clusters" element={<ClustersPage />} />
+        <Route path="/clusters/:id" element={<ClusterPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

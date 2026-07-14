@@ -308,6 +308,18 @@ Local dev needs Postgres up first: `docker compose up -d`.
   annotation in any status. Each carries a one-sentence `reason`, shown to the
   reviewer — a suggestion you judge without knowing why it was made is one you
   rubber-stamp.
+- **Live clusters are top-level (GP-95..GP-99):** a `clusters` row belongs to **no
+  project**, and the sidebar says so — Dashboard / Projects / **Clusters** /
+  Settings. A project is a unit of code review (repositories, their PRs, the main
+  branch we document); a live cluster has no PR to diff and no commit to document,
+  so filing it under one bought nothing and cost a cascade that deleted somebody's
+  clusters along with the project. The API is flat (`GET|POST /clusters`,
+  `/clusters/:id`, `/clusters/:id/namespaces/...`) and the list is the whole estate
+  — when an ownership model lands, `routes/clusters.ts` scopes beside
+  `routes/dashboard.ts`. Kubernetes **manifests repositories** are a different
+  thing and stay inside their project: they are Git repos, and PR review is what a
+  project is _for_. The kubeconfig follows the repository-PAT rules exactly —
+  encrypted at rest, write-only, masked through `toPublicCluster`, never logged.
 - **Kubernetes Git flow (GP-100..GP-105):** a repository declares what it holds —
   `repositories.iac_type` is `terraform` (default, unchanged) or `kubernetes` —
   and every producer choice branches on it. Set at attach time, immutable.

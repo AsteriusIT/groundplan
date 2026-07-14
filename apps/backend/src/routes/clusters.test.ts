@@ -2,6 +2,11 @@
  * Cluster CRUD (GP-95). Integration tests over the real HTTP + Postgres path
  * (`docker compose up -d`), with the cluster verifier injected — nothing here
  * touches a network, and no test ever needs a Kubernetes cluster.
+ *
+ * A cluster is a top-level thing: it belongs to no project, so the list is the
+ * whole estate. Test files share one database and run in parallel, so nothing
+ * here asserts on the *length* of that list — only on whether a given cluster is
+ * in it.
  */
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
@@ -48,15 +53,17 @@ function stubVerify(result: K8sVerifyResult = { ok: true, version: "v1.31.0" }) 
   return { verify, seen };
 }
 
-async function createProject(app: FastifyInstance, auth: { authorization: string }) {
+async function listClusters(
+  app: FastifyInstance,
+  auth: { authorization: string },
+) {
   const res = await app.inject({
-    method: "POST",
-    url: "/api/v1/projects",
+    method: "GET",
+    url: "/api/v1/clusters",
     headers: auth,
-    payload: { name: "K8s Project", slug: `k8s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` },
   });
-  assert.equal(res.statusCode, 201);
-  return res.json().id as string;
+  assert.equal(res.statusCode, 200);
+  return res.json() as Array<{ id: string; kubeconfig: string }>;
 }
 
 test("attach a cluster: created verified, kubeconfig masked everywhere", async () => {
@@ -64,18 +71,17 @@ test("attach a cluster: created verified, kubeconfig masked everywhere", async (
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
   try {
-    const projectId = await createProject(app, auth);
-
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/clusters`,
+      url: "/api/v1/clusters",
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
     assert.equal(created.statusCode, 201);
     const cluster = created.json();
     assert.equal(cluster.name, "prod");
-    assert.equal(cluster.projectId, projectId);
+    // A cluster is nobody's child — nothing in its shape says otherwise.
+    assert.equal(cluster.projectId, undefined);
     // Write-only: masked in the create response…
     assert.equal(cluster.kubeconfig, "***");
     // …and auto-verified on create, like a repository with a PAT (GP-11).
@@ -94,14 +100,9 @@ test("attach a cluster: created verified, kubeconfig masked everywhere", async (
     assert.equal(got.statusCode, 200);
     assert.equal(got.json().kubeconfig, "***");
 
-    const list = await app.inject({
-      method: "GET",
-      url: `/api/v1/projects/${projectId}/clusters`,
-      headers: auth,
-    });
-    assert.equal(list.statusCode, 200);
-    assert.equal(list.json().length, 1);
-    assert.equal(list.json()[0].kubeconfig, "***");
+    const listed = (await listClusters(app, auth)).find((c) => c.id === cluster.id);
+    assert.ok(listed, "an attached cluster is in the estate-wide list");
+    assert.equal(listed.kubeconfig, "***");
 
     // The row holds ciphertext, not the YAML anybody pasted.
     const { rows } = await app.pool.query<{ kubeconfig: string }>(
@@ -122,10 +123,9 @@ test("an unreachable cluster is stored as failed, not an HTTP error", async () =
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
   try {
-    const projectId = await createProject(app, auth);
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/clusters`,
+      url: "/api/v1/clusters",
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -150,10 +150,11 @@ test("a malformed kubeconfig is a 422 and stores nothing", async () => {
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
   try {
-    const projectId = await createProject(app, auth);
+    const before = await listClusters(app, auth);
+
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/clusters`,
+      url: "/api/v1/clusters",
       headers: auth,
       payload: { name: "broken", kubeconfig: "not: [a: kubeconfig" },
     });
@@ -161,12 +162,11 @@ test("a malformed kubeconfig is a 422 and stores nothing", async () => {
     assert.equal(res.json().error, "Unprocessable Entity");
     assert.deepEqual(seen, []); // never verified — it never got that far
 
-    const list = await app.inject({
-      method: "GET",
-      url: `/api/v1/projects/${projectId}/clusters`,
-      headers: auth,
-    });
-    assert.deepEqual(list.json(), []);
+    const after = await listClusters(app, auth);
+    assert.ok(
+      !after.some((c) => !before.some((b) => b.id === c.id)),
+      "a refused kubeconfig leaves no cluster behind",
+    );
   } finally {
     await app.close();
   }
@@ -177,10 +177,9 @@ test("replacing the kubeconfig re-verifies; renaming does not", async () => {
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
   try {
-    const projectId = await createProject(app, auth);
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/clusters`,
+      url: "/api/v1/clusters",
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -226,15 +225,28 @@ test("replacing the kubeconfig re-verifies; renaming does not", async () => {
   }
 });
 
-test("deleting a project cascades to its clusters", async () => {
+test("a cluster outlives the deletion of a project", async () => {
   const { verify } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
   try {
-    const projectId = await createProject(app, auth);
+    // Clusters used to hang off a project, and a project delete took them with
+    // it — along with every namespace ever read from them. They are peers now,
+    // and a project knows nothing about them.
+    const project = await app.inject({
+      method: "POST",
+      url: "/api/v1/projects",
+      headers: auth,
+      payload: {
+        name: "K8s Project",
+        slug: `k8s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      },
+    });
+    assert.equal(project.statusCode, 201);
+
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/clusters`,
+      url: "/api/v1/clusters",
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -242,17 +254,17 @@ test("deleting a project cascades to its clusters", async () => {
 
     const deleted = await app.inject({
       method: "DELETE",
-      url: `/api/v1/projects/${projectId}`,
+      url: `/api/v1/projects/${project.json().id}`,
       headers: auth,
     });
     assert.equal(deleted.statusCode, 204);
 
-    const gone = await app.inject({
+    const still = await app.inject({
       method: "GET",
       url: `/api/v1/clusters/${id}`,
       headers: auth,
     });
-    assert.equal(gone.statusCode, 404);
+    assert.equal(still.statusCode, 200);
   } finally {
     await app.close();
   }
@@ -263,10 +275,9 @@ test("deleting a cluster removes it; unknown ids are 404", async () => {
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
   try {
-    const projectId = await createProject(app, auth);
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/clusters`,
+      url: "/api/v1/clusters",
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -294,10 +305,7 @@ test("clusters are behind auth like every other protected route", async () => {
   const { verify } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   try {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/v1/clusters/00000000-0000-0000-0000-000000000000",
-    });
+    const res = await app.inject({ method: "GET", url: "/api/v1/clusters" });
     assert.equal(res.statusCode, 401);
   } finally {
     await app.close();

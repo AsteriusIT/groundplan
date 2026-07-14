@@ -93,13 +93,14 @@ export type VerifyResult =
 export type K8sErrorKind = VerifyErrorKind | "invalid_config";
 
 /**
- * A Kubernetes cluster attached to a project (GP-95). The kubeconfig is
+ * An attached Kubernetes cluster (GP-95). It belongs to **no project** — a
+ * project holds repositories, whose PRs we review; a cluster is a running thing
+ * we read, and it lives at the top level beside them. The kubeconfig is
  * write-only: it is never returned, so this type says so — the only value the
  * field can ever hold is the mask.
  */
 export interface Cluster {
   id: string;
-  projectId: string;
   name: string;
   /** Always "***". The kubeconfig you sent is never sent back. */
   kubeconfig: "***";

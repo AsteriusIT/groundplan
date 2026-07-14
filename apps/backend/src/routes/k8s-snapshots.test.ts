@@ -101,24 +101,16 @@ function stubReader(overrides: Partial<K8sReader> = {}): K8sReader {
   };
 }
 
+/** A cluster stands on its own — attaching one needs no project to hang it from. */
 async function attachCluster(app: FastifyInstance, auth: { authorization: string }) {
-  const project = await app.inject({
-    method: "POST",
-    url: "/api/v1/projects",
-    headers: auth,
-    payload: {
-      name: "K8s",
-      slug: `k8s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    },
-  });
   const cluster = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${project.json().id}/clusters`,
+    url: "/api/v1/clusters",
     headers: auth,
     payload: { name: "prod", kubeconfig: KUBECONFIG },
   });
   assert.equal(cluster.statusCode, 201);
-  return { projectId: project.json().id as string, clusterId: cluster.json().id as string };
+  return { clusterId: cluster.json().id as string };
 }
 
 test("list a cluster's namespaces", async () => {

@@ -34,11 +34,9 @@ import {
  * before they paste, not in a doc they will never open.
  */
 export function AttachClusterDialog({
-  projectId,
   trigger,
   onAttached,
 }: {
-  projectId: string;
   trigger: ReactNode;
   onAttached: (cluster: Cluster) => void;
 }) {
@@ -81,10 +79,7 @@ export function AttachClusterDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const cluster = await createCluster(projectId, {
-        name: name.trim(),
-        kubeconfig,
-      });
+      const cluster = await createCluster({ name: name.trim(), kubeconfig });
       // The API auto-verifies on create; a failure deserves a reason, not a chip
       // that just says no.
       if (cluster.connectionStatus === "failed") {

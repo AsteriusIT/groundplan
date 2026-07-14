@@ -20,7 +20,7 @@ import {
 import { DeleteClusterDialog } from "@/components/delete-cluster-dialog";
 
 /**
- * One cluster on the project page (GP-98) — the repository row's twin, for the
+ * One cluster on the Clusters page (GP-98) — the repository row's twin, for the
  * same reason it looks like one: attaching a cluster and attaching a repository
  * are the same act, and a person who has done one should recognise the other.
  *
@@ -80,7 +80,7 @@ export function ClusterCard({
 
         <div className="flex items-center gap-1.5">
           <Button variant="outline" size="sm" asChild>
-            <Link to={`/projects/${cluster.projectId}/clusters/${cluster.id}`}>
+            <Link to={`/clusters/${cluster.id}`}>
               <Boxes className="size-3.5" />
               Namespaces
             </Link>

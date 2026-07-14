@@ -45,7 +45,8 @@ const PAGE = 10;
  *     cluster. It happens when a person asks for it, not when a page mounts.
  */
 export function ClusterPage() {
-  const { id, clusterId } = useParams<{ id: string; clusterId: string }>();
+  // `/clusters/:id` — the cluster stands alone, so its id is the only one here.
+  const { id: clusterId } = useParams<{ id: string }>();
   const [cluster, setCluster] = useState<Cluster | null>(null);
   const [namespaces, setNamespaces] = useState<NamespaceState>({ status: "loading" });
   const [selectedNs, setSelectedNs] = useState<string>("");
@@ -171,11 +172,11 @@ export function ClusterPage() {
           <div className="min-w-0">
             <p className="text-muted-foreground flex items-center gap-2 font-mono text-[11px] tracking-[0.14em] uppercase">
               <Link
-                to={`/projects/${id}`}
+                to="/clusters"
                 className="hover:text-foreground inline-flex items-center gap-0.5"
               >
                 <ChevronLeft className="size-3.5" />
-                Back to project
+                All clusters
               </Link>
               <span className="text-faint">/</span>
               Kubernetes

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from "fastify";
 import { desc, eq } from "drizzle-orm";
 
-import { clusters, projects, toPublicCluster, type ClusterRow } from "../db/schema.js";
+import { clusters, toPublicCluster, type ClusterRow } from "../db/schema.js";
 import { InvalidKubeconfigError, parseKubeconfig } from "../lib/kubeconfig.js";
 import { verifyClusterAndStore } from "../services/cluster-verification.js";
 
@@ -49,8 +49,8 @@ async function loadCluster(
   return row;
 }
 
-function notFound(reply: FastifyReply, what: "cluster" | "project") {
-  return reply.code(404).send({ error: "Not Found", message: `${what} not found` });
+function notFound(reply: FastifyReply) {
+  return reply.code(404).send({ error: "Not Found", message: "cluster not found" });
 }
 
 /**
@@ -71,45 +71,31 @@ function rejectMalformed(reply: FastifyReply, err: unknown) {
 }
 
 /**
- * Clusters (GP-95): a project's Kubernetes clusters, attached with a write-only,
- * encrypted kubeconfig. Every read goes through `toPublicCluster`, so no response
- * can leak one by omission.
+ * Clusters (GP-95): the Kubernetes clusters we can read, attached with a
+ * write-only, encrypted kubeconfig. Every read goes through `toPublicCluster`, so
+ * no response can leak one by omission.
+ *
+ * A cluster is a top-level thing — a peer of a project, not a part of one (see
+ * `db/schema.clusters`) — so the list below is the whole estate, exactly like the
+ * dashboard's. There is no per-user ownership model yet; when one lands, this is
+ * where a cluster gets scoped.
  *
  * Protected by the global auth hook — nothing to wire here.
  */
 export const clusterRoutes: FastifyPluginAsync = async (app) => {
-  app.get(
-    "/projects/:id/clusters",
-    { schema: { params: idParamsSchema } },
-    async (request, reply) => {
-      const { id } = request.params as { id: string };
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, id));
-      if (!project) return notFound(reply, "project");
-
-      const rows = await app.db
-        .select()
-        .from(clusters)
-        .where(eq(clusters.projectId, id))
-        .orderBy(desc(clusters.createdAt));
-      return rows.map(toPublicCluster);
-    },
-  );
+  app.get("/clusters", async () => {
+    const rows = await app.db
+      .select()
+      .from(clusters)
+      .orderBy(desc(clusters.createdAt));
+    return rows.map(toPublicCluster);
+  });
 
   app.post(
-    "/projects/:id/clusters",
-    { schema: { params: idParamsSchema, body: createClusterSchema } },
+    "/clusters",
+    { schema: { body: createClusterSchema } },
     async (request, reply) => {
-      const { id } = request.params as { id: string };
       const body = request.body as { name: string; kubeconfig: string };
-
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, id));
-      if (!project) return notFound(reply, "project");
 
       try {
         parseKubeconfig(body.kubeconfig);
@@ -120,7 +106,6 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
       const [inserted] = await app.db
         .insert(clusters)
         .values({
-          projectId: id,
           name: body.name,
           kubeconfig: app.encryptor.encrypt(body.kubeconfig),
         })
@@ -140,7 +125,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const cluster = await loadCluster(app, id);
-      if (!cluster) return notFound(reply, "cluster");
+      if (!cluster) return notFound(reply);
       return toPublicCluster(cluster);
     },
   );
@@ -153,7 +138,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
       const body = request.body as { name?: string; kubeconfig?: string };
 
       const existing = await loadCluster(app, id);
-      if (!existing) return notFound(reply, "cluster");
+      if (!existing) return notFound(reply);
 
       const replacingCredentials = body.kubeconfig !== undefined;
       if (replacingCredentials) {
@@ -192,7 +177,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const cluster = await loadCluster(app, id);
-      if (!cluster) return notFound(reply, "cluster");
+      if (!cluster) return notFound(reply);
 
       const { result } = await verifyClusterAndStore(app, cluster);
       if (result.ok) return { ok: true, version: result.version };
@@ -209,7 +194,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
         .delete(clusters)
         .where(eq(clusters.id, id))
         .returning({ id: clusters.id });
-      if (deleted.length === 0) return notFound(reply, "cluster");
+      if (deleted.length === 0) return notFound(reply);
       return reply.code(204).send();
     },
   );

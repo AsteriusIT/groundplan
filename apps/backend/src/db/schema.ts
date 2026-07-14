@@ -168,9 +168,16 @@ export const clusterConnectionStatus = pgEnum("cluster_connection_status", [
 ]);
 
 /**
- * A Kubernetes cluster a project can read (GP-95) — the repository + PAT pattern
+ * A Kubernetes cluster we can read (GP-95) — the repository + PAT pattern
  * (GP-3/GP-11) pointed at a cluster instead of a git remote, deliberately, so
  * nothing about secret handling is invented here.
+ *
+ * A cluster belongs to **no project**. A project is a unit of code review — it
+ * holds repositories, whose pull requests we diff and whose main branch we
+ * document. A cluster is not code: it has no PR, no docs-of-main, no annotation
+ * layer, and its snapshots already hang off the cluster itself (see the
+ * `graph_snapshots` owner check). Filing it under a project bought nothing and
+ * cost a cascade that deleted somebody's clusters when they deleted the project.
  *
  * The kubeconfig is ENCRYPTED at rest (AES-256-GCM, see lib/encryption) and
  * WRITE-ONLY: it is set through the API and never returned — responses mask it
@@ -179,9 +186,6 @@ export const clusterConnectionStatus = pgEnum("cluster_connection_status", [
  */
 export const clusters = pgTable("clusters", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   /** AES-256-GCM ciphertext of the kubeconfig YAML. Never plaintext, never logged. */
   kubeconfig: text("kubeconfig").notNull(),
@@ -199,7 +203,6 @@ export type ClusterRow = typeof clusters.$inferSelect;
 
 export type PublicCluster = {
   id: string;
-  projectId: string;
   name: string;
   /** Always "***" — a stored kubeconfig is never handed back, in any response. */
   kubeconfig: "***";
@@ -217,7 +220,6 @@ export type PublicCluster = {
 export function toPublicCluster(row: ClusterRow): PublicCluster {
   return {
     id: row.id,
-    projectId: row.projectId,
     name: row.name,
     kubeconfig: "***",
     connectionStatus: row.connectionStatus,
@@ -650,14 +652,6 @@ export function toPublicAiGeneration(row: AiGenerationRow): PublicAiGeneration {
 
 export const projectsRelations = relations(projects, ({ many }) => ({
   repositories: many(repositories),
-  clusters: many(clusters),
-}));
-
-export const clustersRelations = relations(clusters, ({ one }) => ({
-  project: one(projects, {
-    fields: [clusters.projectId],
-    references: [projects.id],
-  }),
 }));
 
 export const repositoriesRelations = relations(repositories, ({ one, many }) => ({

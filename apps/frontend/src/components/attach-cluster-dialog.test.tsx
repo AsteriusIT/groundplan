@@ -18,7 +18,6 @@ const KUBECONFIG = "apiVersion: v1\nkind: Config\ncurrent-context: prod\n";
 
 const attached: Cluster = {
   id: "c1",
-  projectId: "p1",
   name: "prod",
   kubeconfig: "***",
   connectionStatus: "ok",
@@ -34,7 +33,6 @@ beforeEach(() => {
 function open(onAttached = vi.fn()) {
   render(
     <AttachClusterDialog
-      projectId="p1"
       onAttached={onAttached}
       trigger={<button>Attach cluster</button>}
     />,
@@ -58,10 +56,8 @@ it("attaches a cluster and reports it verified", async () => {
   fireEvent.click(screen.getByRole("button", { name: /^attach cluster$/i }));
 
   await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
-  expect(createMock).toHaveBeenCalledWith("p1", {
-    name: "prod",
-    kubeconfig: KUBECONFIG,
-  });
+  // No project rides along — a cluster belongs to nobody.
+  expect(createMock).toHaveBeenCalledWith({ name: "prod", kubeconfig: KUBECONFIG });
   expect(await screen.findByText(/connected/i)).toBeInTheDocument();
 
   // It joins the list when the dialog closes, not while it is still open — the
@@ -119,7 +115,6 @@ it("surfaces a rejected kubeconfig without losing what was typed", async () => {
 it("has no accessibility violations", async () => {
   const { baseElement } = render(
     <AttachClusterDialog
-      projectId="p1"
       onAttached={vi.fn()}
       trigger={<button>Attach cluster</button>}
     />,

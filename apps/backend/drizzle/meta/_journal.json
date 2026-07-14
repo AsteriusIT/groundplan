@@ -176,6 +176,13 @@
       "when": 1784062141098,
       "tag": "0024_wild_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784064969863,
+      "tag": "0025_cynical_mentor",
+      "breakpoints": true
     }
   ]
 }

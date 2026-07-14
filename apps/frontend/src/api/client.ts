@@ -241,22 +241,17 @@ export function deleteRepository(id: string): Promise<void> {
 
 // --- Kubernetes clusters (GP-95) --------------------------------------------
 
-export function listClusters(projectId: string): Promise<Cluster[]> {
-  return request<Cluster[]>(`/projects/${encode(projectId)}/clusters`);
+/** Every attached cluster. A cluster is nobody's child — there is nothing to scope by. */
+export function listClusters(): Promise<Cluster[]> {
+  return request<Cluster[]>("/clusters");
 }
 
 /**
  * Attach a cluster. The kubeconfig goes up once and never comes back — the
  * response masks it, which is why `Cluster.kubeconfig` is typed as the mask.
  */
-export function createCluster(
-  projectId: string,
-  input: CreateClusterInput,
-): Promise<Cluster> {
-  return request<Cluster>(`/projects/${encode(projectId)}/clusters`, {
-    method: "POST",
-    body: input,
-  });
+export function createCluster(input: CreateClusterInput): Promise<Cluster> {
+  return request<Cluster>("/clusters", { method: "POST", body: input });
 }
 
 export function updateCluster(
