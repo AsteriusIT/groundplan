@@ -308,6 +308,42 @@ Local dev needs Postgres up first: `docker compose up -d`.
   annotation in any status. Each carries a one-sentence `reason`, shown to the
   reviewer — a suggestion you judge without knowing why it was made is one you
   rubber-stamp.
+- **Kubernetes Git flow (GP-100..GP-105):** a repository declares what it holds —
+  `repositories.iac_type` is `terraform` (default, unchanged) or `kubernetes` —
+  and every producer choice branches on it. Set at attach time, immutable.
+  - `terraform_path` does double duty: for a kubernetes repo it is the manifests
+    directory (the UI calls it "Manifests path"). Not renamed, deliberately.
+  - **One Kubernetes mapper.** `graph/k8s-mapper.mapK8sObjects(objects)` maps a
+    _set of objects_, whatever their source: a live namespace read (GP-97),
+    a repo's YAML (GP-102), or CI-rendered output (GP-103). `mapNamespace` is now
+    a thin adapter over it. Node ids are **namespace-qualified**
+    (`prod/Deployment/api`) because a manifests repo holds many namespaces, and
+    references resolve _within_ a namespace, as Kubernetes resolves them.
+    Every well-formed object is a node (CRDs included); edges are drawn only for
+    the shapes we understand.
+  - **Snapshot sources mirror the Terraform pair:** `k8s_manifest` = docs of main
+    (the HCL of Kubernetes), `k8s_rendered` = a PR head (its plan.json),
+    `k8s_namespace` = a live cluster. `services/graph-snapshots` owns the mapping
+    (`docsSourceFor`/`prSourceFor`, `DOCS_SOURCES`/`PR_SOURCES`) — never re-derive
+    it in a `where` clause.
+  - **No plan means diff-by-comparison.** Graph v7 adds node `attributes` (the
+    object flattened to `path → value`), and `graph/change-diff.changesFromBase`
+    colours a head graph against the repo's latest docs snapshot of main. It is
+    _not_ `graph/diff.ts` (GP-40), which answers a different question and would
+    mispair a cross-namespace delete+create as a "move". A snapshot records the
+    base it used (`stats.base`, `"none"` when main has no diagram yet).
+  - **We never run `helm`/`kustomize`.** They are Go binaries; rendering happens in
+    the user's CI, which POSTs the YAML as `payload.manifests` to the same webhook
+    (on a `pull_request` → the PR snapshot; on a `push` → the docs of main, which
+    is the _only_ way a chart or an overlay is ever documented). Raw-YAML repos are
+    parsed from the clone instead. A body we cannot read is a 422 that stores
+    nothing.
+  - A Secret's _values_ never reach a graph, even from a manifest that hands them
+    over in the clear — so a rotated value is invisible to the diff, while a new
+    key is not. That is the price of never holding it, and it is the right way round.
+  - Frontend: a Kubernetes snapshot gets the **diagram and nothing else** —
+    `viewsFor()` (view-switcher) is the one place that decides; annotate, AI, tours
+    and share links are absent, and the deterministic summary carries the review.
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,
