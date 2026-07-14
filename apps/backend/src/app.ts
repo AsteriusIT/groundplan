@@ -37,6 +37,7 @@ import { repositoryFileRoutes } from "./routes/repository-files.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { shareRoutes } from "./routes/share-links.js";
 import { snapshotRoutes } from "./routes/snapshots.js";
+import { tourRoutes } from "./routes/tours.js";
 
 export type VerifyConnection = (source: RepoSource) => Promise<VerifyResult>;
 
@@ -148,6 +149,7 @@ export async function buildApp(
   await app.register(docsRoutes, { prefix: "/api/v1" });
   await app.register(annotationRoutes, { prefix: "/api/v1" });
   await app.register(aiRoutes, { prefix: "/api/v1" });
+  await app.register(tourRoutes, { prefix: "/api/v1" });
   await app.register(dashboardRoutes, { prefix: "/api/v1" });
 
   return app;

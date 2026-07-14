@@ -14,6 +14,7 @@
 import type { AnnotationRow, RepositoryRow } from "../db/schema.js";
 import { categorize, CATEGORY_LABEL, shortType } from "../graph/categories.js";
 import type { Graph, GraphNode } from "../graph/graph.js";
+import { changesSubgraph } from "../graph/subgraph.js";
 
 /** The human-written context (GP-60) around a repository and its project. */
 export type ContextInput = {
@@ -386,4 +387,147 @@ export function existingAnnotationSection(rows: AnnotationRow[]): string[] {
     "## Annotations that already exist (do not repeat these)",
     ...lines,
   ];
+}
+
+/** Where a node stands in the change — the column a tour stop is really about. */
+function changeState(node: GraphNode): string {
+  if (node.change === "create") return "created";
+  if (node.change === "update") return "updated";
+  if (node.change === "delete") return "deleted";
+  if (node.impacted === true) return "impacted (unchanged, depends on a change)";
+  return "unchanged";
+}
+
+export type ChangeTourInput = {
+  prNumber: number | null;
+  /** The deterministic GP-36 change summary. */
+  summaryMd: string;
+  graph: Graph;
+  context: ContextInput;
+};
+
+/**
+ * The brief for a change tour (GP-78).
+ *
+ * Like the proposer's, this brief must name every anchorable thing exactly — a
+ * tour stop is a set of node ids, and an id the model never saw is a stop the
+ * player cannot fly to. Unlike the proposer's, the anchorable set is *not* the
+ * whole estate: a tour of a pull request stops in the neighbourhood of the change,
+ * so we hand it `changesSubgraph` — the changed and impacted nodes, their one-hop
+ * dependencies and the modules that hold them. That is both what a tour should
+ * visit and, conveniently, a brief that stays small on a large estate.
+ */
+export function buildChangeTourInput(input: ChangeTourInput): string {
+  const scope = changesSubgraph(input.graph);
+  const heading =
+    input.prNumber === null
+      ? "# Infrastructure change to tour"
+      : `# Infrastructure change to tour (PR #${input.prNumber})`;
+
+  const table = [
+    "## Stops you may anchor to (use these ids, exactly as written)",
+    "| id | type | in this change | module |",
+    "| --- | --- | --- | --- |",
+    ...scope.nodes
+      .map((n) => {
+        const module = n.module_path.length > 0 ? n.module_path.join(".") : "root";
+        const kind = n.type === "module" ? "module (a container)" : n.type;
+        return `| \`${n.id}\` | ${kind} | ${changeState(n)} | ${module} |`;
+      })
+      .sort((a, b) => (a < b ? -1 : 1)),
+  ];
+
+  const blocks: string[][] = [
+    [heading],
+    section("Deterministic change summary", input.summaryMd),
+    categoryStatsSection(input.graph.nodes),
+    riskSection(input.graph.nodes),
+    table,
+    containmentSection(scope.nodes),
+    dependencySection(scope),
+    contextSection(input.context),
+  ];
+  return blocks
+    .filter((lines) => lines.length > 0)
+    .map((lines) => lines.join("\n"))
+    .join("\n\n");
+}
+
+export type SystemTourInput = {
+  repo: Pick<RepositoryRow, "url" | "defaultBranch">;
+  /**
+   * The graph the tour will *play against* — the adapted projection when the repo
+   * has groups, so the model can stop at "the storefront" rather than at seven
+   * addresses. Anchors are validated against this same graph.
+   */
+  graph: Graph;
+  context: ContextInput;
+  annotations: AnnotationRow[];
+};
+
+/**
+ * The brief for a system tour (GP-78) — the docs-page counterpart.
+ *
+ * The graph here may be the adapted projection, so the anchor table lists three
+ * kinds of stop: a group the team named, a Terraform module, or a single resource.
+ * They are separated in the table because they are not equivalent — a tour that
+ * stops at a group is showing someone a *system*, which is the whole point, and
+ * one that stops at a resource is showing them a detail.
+ */
+export function buildSystemTourInput(input: SystemTourInput): string {
+  const nodes = input.graph.nodes;
+  // A group container synthesised from a `group` annotation (GP-72), not a
+  // Terraform module and not a resource.
+  const groups = nodes.filter((n) => n.annotation_group === true);
+  const modules = nodes.filter((n) => n.type === "module");
+  const resources = nodes.filter(
+    (n) => n.type !== "module" && n.annotation_group !== true,
+  );
+
+  const memberOf = new Map<string, number>();
+  for (const edge of input.graph.edges) {
+    if (edge.kind !== "contains") continue;
+    memberOf.set(edge.from, (memberOf.get(edge.from) ?? 0) + 1);
+  }
+
+  const table = [
+    "## Stops you may anchor to (use these ids, exactly as written)",
+    "| id | what it is | holds |",
+    "| --- | --- | --- |",
+    ...groups.map((n) => {
+      const members = n.member_count ?? memberOf.get(n.id) ?? 0;
+      const label = n.display_label ?? n.name;
+      return `| \`${n.id}\` | group the team named: "${label}" | ${members} resources |`;
+    }),
+    ...modules
+      .map((n) => `| \`${n.id}\` | Terraform module | ${memberOf.get(n.id) ?? 0} resources |`)
+      .sort((a, b) => (a < b ? -1 : 1)),
+    ...resources
+      .map((n) => {
+        const category = CATEGORY_LABEL[categorize(n.type)];
+        const label = n.display_label ? ` (the team calls it "${n.display_label}")` : "";
+        return `| \`${n.id}\` | ${n.type} — ${category}${label} | |`;
+      })
+      .sort((a, b) => (a < b ? -1 : 1)),
+  ];
+
+  const blocks: string[][] = [
+    ["# Infrastructure to tour"],
+    [
+      "## Repository",
+      `- Source: \`${input.repo.url}\` (branch \`${input.repo.defaultBranch}\`)`,
+      `- Resources: ${resources.length}`,
+    ],
+    table,
+    inventorySection(resources),
+    containmentSection(nodes),
+    dependencySection(input.graph),
+    standingRiskSection(nodes),
+    contextSection(input.context),
+    annotationSection(input.annotations),
+  ];
+  return blocks
+    .filter((lines) => lines.length > 0)
+    .map((lines) => lines.join("\n"))
+    .join("\n\n");
 }

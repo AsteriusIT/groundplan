@@ -439,6 +439,11 @@ export const aiGenerationKind = pgEnum("ai_generation_kind", [
   // Not prose: the proposer's raw JSON (GP-75), cached under the same key so a
   // second ask for the same snapshot costs nothing.
   "annotation_proposals",
+  // Also JSON: a guided tour of a snapshot (GP-78). Which one you get is decided
+  // by the snapshot's source — a plan is a change to walk through, an hcl
+  // snapshot is a system to be shown around.
+  "change_tour",
+  "system_tour",
 ]);
 
 /**

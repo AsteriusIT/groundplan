@@ -25,12 +25,18 @@ import type { AppEnv } from "../config/env.js";
 import { aiGenerations, type AiGenerationRow } from "../db/schema.js";
 
 /**
- * What we generate. The first two are prose *about* a snapshot; the third
- * (GP-75) is not prose at all but structured suggestions — it rides the same
- * rails anyway, because the things that make this layer safe (a versioned prompt
- * file, a content-keyed cache, an injectable provider) are the same either way.
+ * What we generate. The first two are prose *about* a snapshot; the rest are not
+ * prose at all but structured JSON — suggestions (GP-75) and guided tours
+ * (GP-78). They ride the same rails anyway, because the things that make this
+ * layer safe (a versioned prompt file, a content-keyed cache, an injectable
+ * provider) are the same either way.
  */
-export type AiKind = "pr_summary" | "docs_explain" | "annotation_proposals";
+export type AiKind =
+  | "pr_summary"
+  | "docs_explain"
+  | "annotation_proposals"
+  | "change_tour"
+  | "system_tour";
 
 export type AiUsage = {
   inputTokens: number | null;
@@ -93,6 +99,8 @@ const PROMPT_FILES: Record<AiKind, string> = {
   pr_summary: "pr-summary.md",
   docs_explain: "docs-explain.md",
   annotation_proposals: "annotation-proposals.md",
+  change_tour: "change-tour.md",
+  system_tour: "system-tour.md",
 };
 
 export type Prompt = {
@@ -235,6 +243,22 @@ const inFlight = new Set<string>();
 const lockKey = (kind: AiKind, targetId: string) => `${kind}:${targetId}`;
 
 /**
+ * Take the in-flight lock for a target, or throw `AiInFlightError` if someone
+ * already holds it. **Call this synchronously, before your first await** — a lock
+ * acquired after one is a lock two callers can both walk past.
+ *
+ * Returns the release function. `streamGeneration` uses this for prose; the JSON
+ * generators (GP-75, GP-78) use it directly, because a double-clicked "Generate"
+ * button should cost one generation, whatever shape the output has.
+ */
+export function acquireGenerationLock(kind: AiKind, targetId: string): () => void {
+  const key = lockKey(kind, targetId);
+  if (inFlight.has(key)) throw new AiInFlightError();
+  inFlight.add(key);
+  return () => inFlight.delete(key);
+}
+
+/**
  * Generate prose and cache it: yields chunks as they arrive, then persists the
  * complete output with its token usage. A failed or abandoned generation
  * persists nothing — a cached error would be served forever.
@@ -250,9 +274,7 @@ export function streamGeneration(
   const { kind, targetId } = opts;
   if (!provider.model) throw new AiDisabledError();
 
-  const key = lockKey(kind, targetId);
-  if (inFlight.has(key)) throw new AiInFlightError();
-  inFlight.add(key);
+  const release = acquireGenerationLock(kind, targetId);
 
   const model = provider.model;
   const { system, version } = loadPrompt(kind);
@@ -287,7 +309,7 @@ export function streamGeneration(
         // ours — keep it rather than fail a stream the client already received.
         .onConflictDoNothing();
     } finally {
-      inFlight.delete(key);
+      release();
     }
   }
 
