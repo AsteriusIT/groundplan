@@ -154,7 +154,9 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
 
     const latest = new Map<string, { snapshot: SnapshotRef; risk: Risk }>();
     for (const row of rows) {
-      if (row.prNumber === null) continue;
+      // A plan snapshot always has both (it came from a repository's CI); the
+      // types allow neither, because a Kubernetes snapshot has a cluster instead.
+      if (row.prNumber === null || row.repositoryId === null) continue;
       latest.set(prKey(row.repositoryId, row.prNumber), {
         snapshot: { id: row.id, stats: row.stats, createdAt: row.createdAt },
         risk: {

@@ -13,6 +13,7 @@ import {
   type AzureDevOpsClient,
 } from "./services/azure-devops.js";
 import { realAiProvider, type AiProvider } from "./services/ai.js";
+import { realK8sReader, type K8sReader } from "./services/k8s-reader.js";
 import { realK8sVerify, type K8sVerify } from "./services/k8s-verify.js";
 import { authPlugin } from "./plugins/auth.js";
 import { backgroundPlugin } from "./plugins/background.js";
@@ -21,6 +22,7 @@ import { registerErrorHandler } from "./plugins/error-handler.js";
 import { aiRoutes } from "./routes/ai.js";
 import { annotationRoutes } from "./routes/annotations.js";
 import { clusterRoutes } from "./routes/clusters.js";
+import { k8sSnapshotRoutes } from "./routes/k8s-snapshots.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import {
   verifyConnection as realVerifyConnection,
@@ -63,6 +65,8 @@ declare module "fastify" {
     ai: AiProvider;
     /** Checks a Kubernetes cluster is reachable (GP-95); injectable in tests. */
     k8sVerify: K8sVerify;
+    /** Lists namespaces and reads one (GP-97); injectable in tests. */
+    k8s: K8sReader;
   }
 }
 
@@ -83,6 +87,8 @@ export type BuildAppOptions = {
   ai?: AiProvider;
   /** Inject a cluster verifier (tests). Defaults to the real `/version` check. */
   k8sVerify?: K8sVerify;
+  /** Inject a cluster reader (tests). Defaults to the real Kubernetes client. */
+  k8s?: K8sReader;
 };
 
 /** Pretty logs in dev, structured JSON in prod, silent in tests. */
@@ -133,6 +139,7 @@ export async function buildApp(
   // Cluster reachability (GP-95). Injected in tests, so the Kubernetes epic is
   // exercised end-to-end without a cluster — and CI never reaches one.
   app.decorate("k8sVerify", opts.k8sVerify ?? realK8sVerify);
+  app.decorate("k8s", opts.k8s ?? realK8sReader);
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.
   await app.register(authPlugin, {
@@ -150,6 +157,7 @@ export async function buildApp(
   await app.register(projectRoutes, { prefix: "/api/v1" });
   await app.register(repositoryRoutes, { prefix: "/api/v1" });
   await app.register(clusterRoutes, { prefix: "/api/v1" });
+  await app.register(k8sSnapshotRoutes, { prefix: "/api/v1" });
   await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
   await app.register(snapshotRoutes, { prefix: "/api/v1" });

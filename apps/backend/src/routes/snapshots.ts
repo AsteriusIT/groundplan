@@ -139,10 +139,17 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "snapshot not found" });
       }
 
-      const layer = await app.db
-        .select()
-        .from(annotations)
-        .where(eq(annotations.repositoryId, row.repositoryId));
+      // Annotations are anchored to Terraform addresses and belong to a
+      // repository. A Kubernetes snapshot (GP-97) has neither, so its adapted
+      // projection is a fold over an empty layer — which is the graph itself. It
+      // answers rather than 404s: "nothing has been said about this" is a fact,
+      // and the caller gets a snapshot in the shape it asked for.
+      const layer = row.repositoryId
+        ? await app.db
+            .select()
+            .from(annotations)
+            .where(eq(annotations.repositoryId, row.repositoryId))
+        : [];
 
       const adapted = projectAdapted(row.graph, layer);
       const graph =

@@ -155,6 +155,13 @@
       "when": 1784056014146,
       "tag": "0021_calm_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784056521437,
+      "tag": "0022_bright_marten_broadcloak",
+      "breakpoints": true
     }
   ]
 }

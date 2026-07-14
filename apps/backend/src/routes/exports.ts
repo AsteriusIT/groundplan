@@ -41,10 +41,14 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
           .send({ error: "Not Found", message: "snapshot not found" });
       }
 
-      const [repo] = await app.db
-        .select({ url: repositories.url })
-        .from(repositories)
-        .where(eq(repositories.id, snapshot.repositoryId));
+      // The repository URL is only a caption on the render. A Kubernetes snapshot
+      // (GP-97) has a cluster instead of a repository, and exports fine without it.
+      const [repo] = snapshot.repositoryId
+        ? await app.db
+            .select({ url: repositories.url })
+            .from(repositories)
+            .where(eq(repositories.id, snapshot.repositoryId))
+        : [];
 
       const { body, contentType, cached } = await cachedSnapshotExport(
         app.exportCacheDir,

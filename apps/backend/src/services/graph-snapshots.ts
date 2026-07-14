@@ -8,17 +8,21 @@ import {
 } from "../graph/graph.js";
 import { summarize } from "../graph/summarize.js";
 
-export type SnapshotSource = "plan" | "hcl";
+export type SnapshotSource = "plan" | "hcl" | "k8s_namespace";
 
-export type InsertSnapshotInput = {
-  repositoryId: string;
+/** What the snapshot is *of*: a repository's Terraform, or a cluster's namespace. */
+type SnapshotOwner =
+  | { repositoryId: string; clusterId?: never; namespace?: never }
+  | { clusterId: string; namespace: string; repositoryId?: never };
+
+export type InsertSnapshotInput = SnapshotOwner & {
   source: SnapshotSource;
   ref: string;
   commitSha: string;
   /** Set for plan snapshots tied to a PR; null/omitted for docs snapshots. */
   prNumber?: number | null;
   graph: Graph;
-  /** Extra fields merged into `stats` (e.g. HCL parse `warnings`). */
+  /** Extra fields merged into `stats` (e.g. HCL parse / RBAC `warnings`). */
   extraStats?: Record<string, unknown>;
 };
 
@@ -38,7 +42,10 @@ export async function insertGraphSnapshot(
   const [row] = await db
     .insert(graphSnapshots)
     .values({
-      repositoryId: input.repositoryId,
+      // Exactly one owner, which the table's check constraint also insists on.
+      repositoryId: input.repositoryId ?? null,
+      clusterId: input.clusterId ?? null,
+      namespace: input.namespace ?? null,
       source: input.source,
       ref: input.ref,
       commitSha: input.commitSha,

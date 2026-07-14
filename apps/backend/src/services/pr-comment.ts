@@ -94,7 +94,8 @@ export async function postPrComment(
   app: FastifyInstance,
   snapshot: GraphSnapshotRow,
 ): Promise<void> {
-  if (snapshot.prNumber === null) return;
+  // Only a plan snapshot from a repository's CI has a pull request to comment on.
+  if (snapshot.prNumber === null || snapshot.repositoryId === null) return;
 
   const [repo] = await app.db
     .select()

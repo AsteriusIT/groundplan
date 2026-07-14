@@ -56,10 +56,17 @@ const idParamsSchema = {
   properties: { id: { type: "string", pattern: UUID_PATTERN } },
 };
 
-/** What a snapshot's source makes it a tour *of*. */
-const KIND_FOR_SOURCE: Record<GraphSnapshotRow["source"], TourKind> = {
+/**
+ * What a snapshot's source makes it a tour *of*. A Kubernetes namespace read
+ * (GP-97) has no tour: the AI layer is grounded in Terraform snapshots and their
+ * repository context, and `load` below — which joins through `repositories` —
+ * cannot return one. It is spelled out rather than left to the join, so the next
+ * producer has to decide what its tour is instead of inheriting one by accident.
+ */
+const KIND_FOR_SOURCE: Record<GraphSnapshotRow["source"], TourKind | null> = {
   plan: "change_tour",
   hcl: "system_tour",
+  k8s_namespace: null,
 };
 
 type Prepared = {
@@ -85,8 +92,9 @@ async function prepare(
   snapshot: GraphSnapshotRow,
   repo: RepositoryRow,
   context: ContextInput,
-): Promise<Prepared> {
+): Promise<Prepared | null> {
   const kind = KIND_FOR_SOURCE[snapshot.source];
+  if (kind === null) return null; // a snapshot nothing here knows how to narrate
 
   if (kind === "change_tour") {
     return {
@@ -197,6 +205,7 @@ export const tourRoutes: FastifyPluginAsync = async (app) => {
       if (!loaded) return reply.code(404).send(notFound);
 
       const prepared = await prepare(app, loaded.snapshot, loaded.repo, loaded.context);
+      if (!prepared) return reply.code(404).send(notFound);
       const row = await readCached(app.db, {
         kind: prepared.kind,
         targetId: id,
@@ -234,6 +243,7 @@ export const tourRoutes: FastifyPluginAsync = async (app) => {
       if (!loaded) return reply.code(404).send(notFound);
 
       const prepared = await prepare(app, loaded.snapshot, loaded.repo, loaded.context);
+      if (!prepared) return reply.code(404).send(notFound);
 
       if (body.regenerate === true) {
         await deleteCached(app.db, prepared.kind, id);

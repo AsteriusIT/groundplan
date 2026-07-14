@@ -6,6 +6,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   integer,
   jsonb,
   pgEnum,
@@ -245,35 +246,61 @@ export const publicEventColumns = {
 export const graphSnapshotSource = pgEnum("graph_snapshot_source", [
   "plan",
   "hcl",
+  // GP-97: one namespace of a live Kubernetes cluster, read and mapped (GP-96).
+  // Additive — the two Terraform sources keep their names and their meaning.
+  "k8s_namespace",
 ]);
 
 /**
- * A versioned, source-agnostic graph of Terraform resources (GP-12). Produced
- * either from a plan.json (`source=plan`, PR flow) or a static HCL parse
- * (`source=hcl`, docs flow). Everything in the product renders from `graph`.
+ * A versioned, source-agnostic graph (GP-12). Produced from a plan.json
+ * (`source=plan`, PR flow), a static HCL parse (`source=hcl`, docs flow), or a
+ * live Kubernetes namespace read (`source=k8s_namespace`, GP-97). Everything in
+ * the product renders from `graph` — which is exactly why a third producer needed
+ * no new table and no new read path.
+ *
+ * A snapshot belongs to a **repository or a cluster, never both and never
+ * neither** — the check constraint below is that sentence, enforced. `namespace`
+ * is set only for the Kubernetes kind, and `ref` carries the namespace name there
+ * (a live read has no commit, so `commit_sha` is empty).
  */
-export const graphSnapshots = pgTable("graph_snapshots", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  repositoryId: uuid("repository_id")
-    .notNull()
-    .references(() => repositories.id, { onDelete: "cascade" }),
-  source: graphSnapshotSource("source").notNull(),
-  ref: text("ref").notNull(),
-  commitSha: text("commit_sha").notNull(),
-  /** Set for plan snapshots tied to a pull request; null for docs snapshots. */
-  prNumber: integer("pr_number"),
-  graph: jsonb("graph").$type<Graph>().notNull(),
-  /** Node/edge/change counts (+ optional warnings), computed on insert. */
-  stats: jsonb("stats").$type<GraphStats & Record<string, unknown>>().notNull(),
-  /**
-   * Deterministic, rule-based Markdown change summary (GP-36), computed on
-   * insert. Rendered at the top of the PR view and by the PR comment (GP-38).
-   */
-  summaryMd: text("summary_md").notNull().default(""),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const graphSnapshots = pgTable(
+  "graph_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Set for plan/hcl snapshots; null for a Kubernetes namespace read. */
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    /** Set for `k8s_namespace` snapshots; null for the Terraform sources. */
+    clusterId: uuid("cluster_id").references(() => clusters.id, {
+      onDelete: "cascade",
+    }),
+    /** The namespace this snapshot is of; null for the Terraform sources. */
+    namespace: text("namespace"),
+    source: graphSnapshotSource("source").notNull(),
+    ref: text("ref").notNull(),
+    commitSha: text("commit_sha").notNull(),
+    /** Set for plan snapshots tied to a pull request; null for docs snapshots. */
+    prNumber: integer("pr_number"),
+    graph: jsonb("graph").$type<Graph>().notNull(),
+    /** Node/edge/change counts (+ optional warnings), computed on insert. */
+    stats: jsonb("stats").$type<GraphStats & Record<string, unknown>>().notNull(),
+    /**
+     * Deterministic, rule-based Markdown change summary (GP-36), computed on
+     * insert. Rendered at the top of the PR view and by the PR comment (GP-38).
+     */
+    summaryMd: text("summary_md").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "graph_snapshots_owner_check",
+      sql`(${t.repositoryId} is not null) <> (${t.clusterId} is not null)`,
+    ),
+  ],
+);
 
 export type GraphSnapshotRow = typeof graphSnapshots.$inferSelect;
 
@@ -281,6 +308,8 @@ export type GraphSnapshotRow = typeof graphSnapshots.$inferSelect;
 export const publicSnapshotColumns = {
   id: graphSnapshots.id,
   repositoryId: graphSnapshots.repositoryId,
+  clusterId: graphSnapshots.clusterId,
+  namespace: graphSnapshots.namespace,
   source: graphSnapshots.source,
   ref: graphSnapshots.ref,
   commitSha: graphSnapshots.commitSha,
