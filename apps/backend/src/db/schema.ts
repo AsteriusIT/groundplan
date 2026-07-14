@@ -129,6 +129,77 @@ export function toPublicRepository(row: RepositoryRow): PublicRepository {
   };
 }
 
+/**
+ * The same three states as a repository's connection check (GP-11), for the same
+ * reason. A separate Postgres enum rather than a shared one: the two travel
+ * independently, and a type named `repository_connection_status` on a cluster
+ * column would be a lie we could never rename away (enum values are forever).
+ */
+export const clusterConnectionStatus = pgEnum("cluster_connection_status", [
+  "unverified",
+  "ok",
+  "failed",
+]);
+
+/**
+ * A Kubernetes cluster a project can read (GP-95) — the repository + PAT pattern
+ * (GP-3/GP-11) pointed at a cluster instead of a git remote, deliberately, so
+ * nothing about secret handling is invented here.
+ *
+ * The kubeconfig is ENCRYPTED at rest (AES-256-GCM, see lib/encryption) and
+ * WRITE-ONLY: it is set through the API and never returned — responses mask it
+ * as "***" (see toPublicCluster) and it is never logged. Only the **current
+ * context** of the file is ever used (GP-95, lib/kubeconfig).
+ */
+export const clusters = pgTable("clusters", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** AES-256-GCM ciphertext of the kubeconfig YAML. Never plaintext, never logged. */
+  kubeconfig: text("kubeconfig").notNull(),
+  /** Result of the last reachability check (`/version`), GP-95. */
+  connectionStatus: clusterConnectionStatus("connection_status")
+    .notNull()
+    .default("unverified"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type ClusterRow = typeof clusters.$inferSelect;
+
+export type PublicCluster = {
+  id: string;
+  projectId: string;
+  name: string;
+  /** Always "***" — a stored kubeconfig is never handed back, in any response. */
+  kubeconfig: "***";
+  connectionStatus: (typeof clusterConnectionStatus.enumValues)[number];
+  verifiedAt: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * Map a cluster row to its API shape. Like `toPublicRepository`, this is the ONE
+ * way a cluster reaches a response: masking here rather than omitting by hand at
+ * each call site is what makes "the kubeconfig never leaves" a property of the
+ * code instead of a habit.
+ */
+export function toPublicCluster(row: ClusterRow): PublicCluster {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    name: row.name,
+    kubeconfig: "***",
+    connectionStatus: row.connectionStatus,
+    verifiedAt: row.verifiedAt,
+    createdAt: row.createdAt,
+  };
+}
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   oidcSubject: text("oidc_subject").notNull().unique(),
@@ -512,6 +583,14 @@ export function toPublicAiGeneration(row: AiGenerationRow): PublicAiGeneration {
 
 export const projectsRelations = relations(projects, ({ many }) => ({
   repositories: many(repositories),
+  clusters: many(clusters),
+}));
+
+export const clustersRelations = relations(clusters, ({ one }) => ({
+  project: one(projects, {
+    fields: [clusters.projectId],
+    references: [projects.id],
+  }),
 }));
 
 export const repositoriesRelations = relations(repositories, ({ one, many }) => ({

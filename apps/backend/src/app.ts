@@ -13,12 +13,14 @@ import {
   type AzureDevOpsClient,
 } from "./services/azure-devops.js";
 import { realAiProvider, type AiProvider } from "./services/ai.js";
+import { realK8sVerify, type K8sVerify } from "./services/k8s-verify.js";
 import { authPlugin } from "./plugins/auth.js";
 import { backgroundPlugin } from "./plugins/background.js";
 import { dbPlugin } from "./plugins/db.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import { aiRoutes } from "./routes/ai.js";
 import { annotationRoutes } from "./routes/annotations.js";
+import { clusterRoutes } from "./routes/clusters.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import {
   verifyConnection as realVerifyConnection,
@@ -59,6 +61,8 @@ declare module "fastify" {
     publicBaseUrl: string;
     /** The AI layer's model access (GP-62). `model === null` = layer disabled. */
     ai: AiProvider;
+    /** Checks a Kubernetes cluster is reachable (GP-95); injectable in tests. */
+    k8sVerify: K8sVerify;
   }
 }
 
@@ -77,6 +81,8 @@ export type BuildAppOptions = {
   azureDevOps?: AzureDevOpsClient;
   /** Inject an AI provider (tests). Defaults to the real one (off without a key). */
   ai?: AiProvider;
+  /** Inject a cluster verifier (tests). Defaults to the real `/version` check. */
+  k8sVerify?: K8sVerify;
 };
 
 /** Pretty logs in dev, structured JSON in prod, silent in tests. */
@@ -124,6 +130,9 @@ export async function buildApp(
   // AI layer (GP-62). Without AI_API_KEY the real provider reports model: null,
   // so /ai/status says disabled and no generation route can reach a model.
   app.decorate("ai", opts.ai ?? realAiProvider(env));
+  // Cluster reachability (GP-95). Injected in tests, so the Kubernetes epic is
+  // exercised end-to-end without a cluster — and CI never reaches one.
+  app.decorate("k8sVerify", opts.k8sVerify ?? realK8sVerify);
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.
   await app.register(authPlugin, {
@@ -140,6 +149,7 @@ export async function buildApp(
   await app.register(meRoutes, { prefix: "/api/v1" });
   await app.register(projectRoutes, { prefix: "/api/v1" });
   await app.register(repositoryRoutes, { prefix: "/api/v1" });
+  await app.register(clusterRoutes, { prefix: "/api/v1" });
   await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
   await app.register(snapshotRoutes, { prefix: "/api/v1" });
