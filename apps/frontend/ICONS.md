@@ -1,4 +1,4 @@
-# Resource icons (GP-29, GP-91, GP-92)
+# Resource icons (GP-29, GP-91, GP-92, GP-93)
 
 Groundplan draws a per-resource-type icon on every node. This document records
 what those icons are, where they come from, and the licensing basis for shipping
@@ -50,6 +50,21 @@ BigQuery (data), IAM (identity), Pub/Sub (messaging), GKE / Artifact Registry
   download; the SVGs are used as-is, renamed to product keys). `google-beta`
   aliases resolve through the same table.
 
+### Kubernetes (GP-93)
+
+The **Kubernetes community icon set** (the recognisable blue heptagon kind
+glyphs), under [`src/icons/kubernetes/`](src/icons/kubernetes/), covering the
+common kinds: Pod, Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, CronJob,
+HorizontalPodAutoscaler, Service, Ingress, NetworkPolicy, ConfigMap, Secret,
+PersistentVolume(Claim), ServiceAccount, Role/ClusterRole, RoleBinding/
+ClusterRoleBinding, Namespace, Node. The mapping table has **two key spaces**:
+the Terraform `kubernetes_*` provider types and the bare native kinds
+(`Deployment`, …) resolve to the same icons, so both producers render identically.
+
+- Source: the [`kubernetes/community`](https://github.com/kubernetes/community/tree/master/icons)
+  icon set (the `unlabeled` resource + infrastructure glyphs), used as-is,
+  renamed to kind keys.
+
 ## Licensing
 
 ### Azure
@@ -80,9 +95,17 @@ recoloured, redrawn, or used as a standalone Google Cloud logo. All
 rights/ownership remain with Google. The project owner reviewed and accepted this
 use.
 
-Do **not** edit the SVGs in `src/icons/azure/`, `src/icons/aws/` or
-`src/icons/gcp/`, and do not repurpose them as a standalone icon library outside
-the diagram views.
+### Kubernetes
+
+The Kubernetes community icon set is licensed under **CC-BY-4.0** (Creative
+Commons Attribution 4.0 International) — see the
+[`kubernetes/community` icons LICENSE](https://github.com/kubernetes/community/tree/master/icons).
+Attribution: **© The Kubernetes Authors, CC-BY-4.0.** Groundplan renders each
+icon **as-is via an `<img>`** in its architecture diagram views, unmodified.
+
+Do **not** edit the SVGs in `src/icons/azure/`, `src/icons/aws/`,
+`src/icons/gcp/` or `src/icons/kubernetes/`, and do not repurpose them as a
+standalone icon library outside the diagram views.
 
 ## The mapping mechanism (provider-generic)
 
@@ -94,31 +117,37 @@ one renderer.
   `<ICON>_PREFIX_MAP` (type-prefix → icon heuristic):
   [`src/icons/azurerm.ts`](src/icons/azurerm.ts),
   [`src/icons/aws.ts`](src/icons/aws.ts),
-  [`src/icons/gcp.ts`](src/icons/gcp.ts).
+  [`src/icons/gcp.ts`](src/icons/gcp.ts),
+  [`src/icons/kubernetes.ts`](src/icons/kubernetes.ts) (two key spaces — Terraform
+  types + bare kinds).
 - Per-provider vendored icon modules — resolve an icon key to its bundled asset
   URL (`import.meta.glob` over `./<provider>/*.svg`, keyed via the shared
   [`src/icons/icon-assets.ts`](src/icons/icon-assets.ts) helper):
   [`src/icons/azure-icons.ts`](src/icons/azure-icons.ts),
   [`src/icons/aws-icons.ts`](src/icons/aws-icons.ts),
-  [`src/icons/gcp-icons.ts`](src/icons/gcp-icons.ts).
+  [`src/icons/gcp-icons.ts`](src/icons/gcp-icons.ts),
+  [`src/icons/kubernetes-icons.ts`](src/icons/kubernetes-icons.ts).
 - [`src/icons/resource-icon.ts`](src/icons/resource-icon.ts) —
   `resolveResourceIcon(type)`, a pure, unit-tested function implementing the
   chain **exact type → type-prefix heuristic → category icon (GP-24) → generic
   cube.** Each provider tries its own icons only for its own types (`azurerm_*` →
-  Azure, `aws_*` → AWS, `google_*` / `google-beta_*` → GCP); any other provider
-  falls back to its lucide category icon, then a cube.
+  Azure, `aws_*` → AWS, `google_*` / `google-beta_*` → GCP, `kubernetes_*` and
+  bare kinds → Kubernetes); any other type falls back to its lucide category
+  icon, then a cube.
 - [`src/components/resource-icon.tsx`](src/components/resource-icon.tsx) — the
   `<ResourceIcon type=… />` renderer.
 
-Adding Kubernetes later is a new `kubernetes.ts` map (pointing at that provider's
-official icon set) plus a branch in the resolver.
+Adding another provider is a new `<provider>.ts` map + `<provider>-icons.ts`
+module (pointing at that provider's official icon set) plus a branch in the
+resolver.
 
 ## Fallbacks
 
-- **Unmapped mapped-provider type** (`azurerm_*`, `aws_*`, `google_*`) → nearest
-  family via the prefix heuristic, else the lucide category icon
-  (compute/network/data/…), else a cube.
-- **Unmapped provider** → lucide category icon, else cube.
+- **Unmapped mapped-provider type** (`azurerm_*`, `aws_*`, `google_*`,
+  `kubernetes_*`) → nearest family via the prefix heuristic, else the lucide
+  category icon (compute/network/data/…), else a cube.
+- **Unmapped type** (a CRD kind, a Helm release, …) → lucide category icon, else
+  cube.
 
 The lucide fallbacks are colour-tinted by category token; only the official
 vendor icons are rendered unmodified.

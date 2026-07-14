@@ -14,6 +14,10 @@ import type { GraphNode } from "@/api/types";
 import { AZURE_ICON_KEYS, azureIconUrl } from "@/icons/azure-icons";
 import { AWS_ICON_KEYS, awsIconUrl } from "@/icons/aws-icons";
 import { GCP_ICON_KEYS, gcpIconUrl } from "@/icons/gcp-icons";
+import {
+  KUBERNETES_ICON_KEYS,
+  kubernetesIconUrl,
+} from "@/icons/kubernetes-icons";
 import type { EdgeRel } from "@/lib/graph-layout";
 import { ResourceIcon } from "@/components/resource-icon";
 import { NodeCard } from "@/components/graph-node";
@@ -177,6 +181,7 @@ const ICON_GALLERIES = [
   iconGallery("Azure", AZURE_ICON_KEYS, azureIconUrl),
   iconGallery("AWS", AWS_ICON_KEYS, awsIconUrl),
   iconGallery("GCP", GCP_ICON_KEYS, gcpIconUrl),
+  iconGallery("Kubernetes", KUBERNETES_ICON_KEYS, kubernetesIconUrl),
 ];
 
 export function StyleguidePage() {
@@ -328,8 +333,8 @@ export function StyleguidePage() {
 
           <Section eyebrow="04 · icons" title="Resource icons">
             <p className="text-muted-foreground -mt-2 max-w-xl text-sm">
-              Official cloud provider icons, rendered as-is (Azure GP-29, AWS
-              GP-91, GCP GP-92 — see{" "}
+              Official provider icons, rendered as-is (Azure GP-29, AWS GP-91,
+              GCP GP-92, Kubernetes GP-93 — see{" "}
               <code className="font-mono text-xs">ICONS.md</code>). Unmapped
               types fall back to the lucide category icon, then a generic cube.
             </p>

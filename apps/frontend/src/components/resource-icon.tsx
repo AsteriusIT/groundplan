@@ -1,8 +1,9 @@
 /**
- * ResourceIcon (GP-29, extended GP-91 AWS / GP-92 GCP) — renders the icon for a
- * resource type via the resolution chain: an official vendor icon (Azure / AWS /
- * GCP, rendered as-is via <img>, never recoloured), else the lucide category
- * icon, else a generic cube. Vendor icons are colour by design and sit in a
+ * ResourceIcon (GP-29, extended GP-91 AWS / GP-92 GCP / GP-93 Kubernetes) —
+ * renders the icon for a resource type via the resolution chain: an official
+ * vendor icon (Azure / AWS / GCP / Kubernetes, rendered as-is via <img>, never
+ * recoloured), else the lucide category icon, else a generic cube. Vendor icons
+ * are colour by design and sit in a
  * neutral zone of the node; the `className` sizes them (a `text-*` colour passed
  * for the fallbacks is simply ignored by the <img>).
  */
@@ -11,6 +12,7 @@ import { Box } from "lucide-react";
 import { awsIconUrl } from "@/icons/aws-icons";
 import { azureIconUrl } from "@/icons/azure-icons";
 import { gcpIconUrl } from "@/icons/gcp-icons";
+import { kubernetesIconUrl } from "@/icons/kubernetes-icons";
 import {
   resolveResourceIcon,
   type IconResolution,
@@ -27,6 +29,8 @@ function vendorIconUrl(res: IconResolution): string | undefined {
       return awsIconUrl(res.icon);
     case "gcp":
       return gcpIconUrl(res.icon);
+    case "kubernetes":
+      return kubernetesIconUrl(res.icon);
     default:
       return undefined;
   }

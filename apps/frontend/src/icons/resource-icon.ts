@@ -17,11 +17,17 @@ import type { AwsIconKey } from "@/icons/aws-icons";
 import { AWS_ICON_MAP, AWS_PREFIX_MAP } from "@/icons/aws";
 import type { GcpIconKey } from "@/icons/gcp-icons";
 import { GCP_ICON_MAP, GCP_PREFIX_MAP } from "@/icons/gcp";
+import type { KubernetesIconKey } from "@/icons/kubernetes-icons";
+import {
+  KUBERNETES_ICON_MAP,
+  KUBERNETES_PREFIX_MAP,
+} from "@/icons/kubernetes";
 
 export type IconResolution =
   | { kind: "azure"; icon: AzureIconKey }
   | { kind: "aws"; icon: AwsIconKey }
   | { kind: "gcp"; icon: GcpIconKey }
+  | { kind: "kubernetes"; icon: KubernetesIconKey }
   | { kind: "category"; category: Exclude<Category, "other"> }
   | { kind: "generic" };
 
@@ -50,6 +56,25 @@ function lookupIcon<K extends string>(
 const AZURERM_SORTED = sortedByLengthDesc(AZURERM_PREFIX_MAP);
 const AWS_SORTED = sortedByLengthDesc(AWS_PREFIX_MAP);
 const GCP_SORTED = sortedByLengthDesc(GCP_PREFIX_MAP);
+const KUBERNETES_SORTED = sortedByLengthDesc(KUBERNETES_PREFIX_MAP);
+
+/**
+ * Kubernetes has two key spaces in one table: Terraform types (`kubernetes_*`,
+ * matched exactly then by prefix for versioned variants) and bare native kinds
+ * (`Deployment`, matched exactly only). Bare kinds are PascalCase, so they never
+ * collide with a snake_case Terraform type from another provider.
+ */
+function resolveKubernetes(type: string): KubernetesIconKey | undefined {
+  if (type.startsWith("kubernetes_")) {
+    return lookupIcon(
+      type,
+      KUBERNETES_ICON_MAP,
+      KUBERNETES_PREFIX_MAP,
+      KUBERNETES_SORTED,
+    );
+  }
+  return KUBERNETES_ICON_MAP[type];
+}
 
 export function resolveResourceIcon(type: string): IconResolution {
   if (type.startsWith("azurerm_")) {
@@ -77,6 +102,8 @@ export function resolveResourceIcon(type: string): IconResolution {
     );
     if (icon) return { kind: "gcp", icon };
   }
+  const k8sIcon = resolveKubernetes(type);
+  if (k8sIcon) return { kind: "kubernetes", icon: k8sIcon };
   const category = categorize(type);
   if (category !== "other") return { kind: "category", category };
   return { kind: "generic" };
