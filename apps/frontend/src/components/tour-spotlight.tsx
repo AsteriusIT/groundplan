@@ -19,6 +19,21 @@ import { cn } from "@/lib/utils";
 
 import type { TourChrome } from "./tour-chrome";
 
+/** The card's own width (`w-72`) plus its offset from the node, plus a margin. */
+export const COACH_MARK_WIDTH = 288;
+const COACH_MARK_OFFSET = 20;
+
+/**
+ * The canvas room the coach mark needs on the right of a stop.
+ *
+ * `NodeToolbar` does not flip when it runs out of space — it just gets clipped by
+ * the canvas. Rather than teach the card to dodge, the *camera* leaves it a lane:
+ * the tour's `fitView` pads this much off the right, so the stop is framed left of
+ * centre and the card always lands on clear canvas. Framing is the camera's job,
+ * and this is a framing problem.
+ */
+export const COACH_MARK_GUTTER = COACH_MARK_WIDTH + COACH_MARK_OFFSET + 32;
+
 function StepCard({ tour, className }: { tour: TourChrome; className?: string }) {
   const { step, index, total } = tour;
   const last = index === total - 1;
@@ -108,7 +123,7 @@ export function TourSpotlight({ tour }: { tour: TourChrome }) {
       nodeId={anchors}
       isVisible
       position={Position.Right}
-      offset={20}
+      offset={COACH_MARK_OFFSET}
     >
       <StepCard tour={tour} />
     </NodeToolbar>

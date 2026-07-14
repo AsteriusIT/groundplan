@@ -61,7 +61,7 @@ import {
   type AnnotateTool,
 } from "@/lib/annotate-tool";
 import { NotePanel } from "@/components/note-editor";
-import { TourSpotlight } from "@/components/tour-spotlight";
+import { COACH_MARK_GUTTER, TourSpotlight } from "@/components/tour-spotlight";
 import type { TourChrome } from "@/components/tour-chrome";
 import type { TourStyle } from "@/tour/tour-style";
 import {
@@ -727,19 +727,29 @@ export function GraphCanvas({
   // Gated on `layout` because the coordinates do not exist until ELK has run —
   // flying before then is a fitView over an empty graph, which lands nowhere.
   const tourIndex = tour?.index ?? null;
+  const tourChrome = tour?.chrome ?? null;
   useEffect(() => {
     if (!layout || !tourAnchors) return;
+
+    // In the spotlight, the card sits to the right of the stop — so the camera
+    // leaves it a lane rather than framing the stop dead-centre and letting the
+    // card fall off the edge of the canvas. `NodeToolbar` does not flip; framing
+    // is the camera's job anyway.
+    const padding =
+      tourChrome === "spotlight"
+        ? { top: "12%" as const, bottom: "12%" as const, left: "12%" as const, right: `${COACH_MARK_GUTTER}px` as const }
+        : 0.3;
 
     const nodes = [...tourAnchors].map((id) => ({ id }));
     void rfRef.current?.fitView(
       nodes.length > 0
-        ? { nodes, duration: 600, maxZoom: 1.4, padding: 0.35 }
+        ? { nodes, duration: 600, maxZoom: 1.4, padding }
         : { duration: 600 },
     );
     // A tour is a narration: the side panel from a click you made three stops ago
     // has no business hanging over the thing you are being shown now.
     setSelected(null);
-  }, [layout, tourIndex, tourAnchors]);
+  }, [layout, tourIndex, tourAnchors, tourChrome]);
 
   const results = useMemo(() => searchNodes(graph.nodes, query, 10), [graph, query]);
 
