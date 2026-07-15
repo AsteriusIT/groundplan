@@ -1,7 +1,27 @@
 {
   "name": "@asteriusit/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Send a Terraform plan.json to Groundplan from CI (`groundplan push-plan`).",
+  "license": "MIT",
+  "author": "AsteriusIT",
+  "homepage": "https://github.com/AsteriusIT/groundplan/tree/main/packages/cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AsteriusIT/groundplan.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/AsteriusIT/groundplan/issues"
+  },
+  "keywords": [
+    "groundplan",
+    "terraform",
+    "infrastructure-as-code",
+    "iac",
+    "ci",
+    "terraform-plan",
+    "diagram"
+  ],
   "type": "module",
   "bin": {
     "groundplan": "dist/index.js"
@@ -12,12 +32,16 @@
   "engines": {
     "node": ">=20"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
