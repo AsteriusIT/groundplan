@@ -1,0 +1,27 @@
+{
+  "name": "@groundplan/cli",
+  "version": "0.0.0",
+  "description": "Send a Terraform plan.json to Groundplan from CI (`groundplan push-plan`).",
+  "type": "module",
+  "bin": {
+    "groundplan": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
