@@ -261,7 +261,11 @@ export function ClusterPage() {
       )}
 
       {current && (
-        <WarningsNotice warnings={current.stats.warnings ?? []} dismissible />
+        <WarningsNotice
+          warnings={current.stats.warnings ?? []}
+          unresolvedReferences={current.stats.unresolvedReferences ?? []}
+          dismissible
+        />
       )}
 
       <div className="min-h-0 flex-1">

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import type { ClusterRow, GraphSnapshotRow } from "../db/schema.js";
+import type { UnresolvedReference } from "../graph/graph.js";
 import { mapNamespace } from "../graph/k8s-mapper.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
 
@@ -42,14 +43,19 @@ export async function generateNamespaceSnapshot(
     const kubeconfig = app.encryptor.decrypt(cluster.kubeconfig);
     const { resources, warnings } = await app.k8s.readNamespace(kubeconfig, namespace);
 
+    const unresolved: UnresolvedReference[] = [];
+    const graph = mapNamespace(resources, { unresolved });
     return await insertGraphSnapshot(app.db, {
       clusterId: cluster.id,
       namespace,
       source: "k8s_namespace",
       ref: namespace,
       commitSha: "",
-      graph: mapNamespace(resources),
-      extraStats: { warnings },
+      graph,
+      extraStats: {
+        warnings,
+        ...(unresolved.length > 0 ? { unresolvedReferences: unresolved } : {}),
+      },
     });
   } finally {
     generating.delete(lock);

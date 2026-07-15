@@ -296,6 +296,18 @@ export interface Graph {
   edges: GraphEdge[];
 }
 
+/**
+ * A reference a producer saw but could not resolve to a node — a Terraform
+ * resource pointing at an address that was never parsed, or a Kubernetes workload
+ * mounting a ConfigMap absent from its namespace. Read via the "N references could
+ * not be resolved" dialog, mirroring the backend `UnresolvedReference`.
+ */
+export interface UnresolvedReference {
+  from: string;
+  ref: string;
+  reason?: string;
+}
+
 export interface GraphStats {
   nodes: number;
   edges: number;
@@ -312,6 +324,8 @@ export interface GraphStats {
   };
   /** Present on docs (hcl) snapshots — skipped files etc. */
   warnings?: string[];
+  /** References that resolved to no node in the graph — read in a dialog. */
+  unresolvedReferences?: UnresolvedReference[];
   /** Docs snapshots: how it was produced (GP-23/GP-26). */
   trigger?: "manual" | "auto";
 }

@@ -36,7 +36,7 @@
  * in the file — has them masked here (see `attributesOf`). The graph is stored and
  * served; it is not a place to keep somebody's password.
  */
-import type { Graph, GraphEdge, GraphNode } from "./graph.js";
+import type { Graph, GraphEdge, GraphNode, UnresolvedReference } from "./graph.js";
 import { render } from "./attribute-diff.js";
 
 /**
@@ -302,7 +302,10 @@ function ingressBackends(ingress: K8sObject): string[] {
  * Terraform resource's parent by walking references. Here containment is a fact,
  * not an inference — an object names its namespace — so it is a direct assignment.
  */
-export function mapK8sObjects(objects: K8sObject[]): Graph {
+export function mapK8sObjects(
+  objects: K8sObject[],
+  out?: { unresolved: UnresolvedReference[] },
+): Graph {
   const nodes: GraphNode[] = [];
   const namespaceIds = new Map<string, string>();
 
@@ -386,10 +389,25 @@ export function mapK8sObjects(objects: K8sObject[]): Graph {
     if (node.parent_id) edges.push({ from: node.parent_id, to: node.id, kind: "contains" });
   }
 
+  // A named reference (a mounted ConfigMap, an Ingress backend) to an object that
+  // is not on the diagram is not drawn — but it is worth reading, so it is
+  // captured here rather than dropped silently. A selector that matches nothing is
+  // *not* one of these: it names no object, so it never reaches `link`.
+  const unresolved: UnresolvedReference[] = [];
+  const seenUnresolved = new Set<string>();
+
   /** Draw an edge only when both ends are on the diagram, and in one namespace. */
   const link = (namespace: string, from: string, kind: string, name: string): void => {
     const to = nodeId(namespace, kind, name);
-    if (!present.has(from) || !present.has(to) || from === to) return;
+    if (!present.has(from) || from === to) return;
+    if (!present.has(to)) {
+      const key = `${from} ${to}`;
+      if (!seenUnresolved.has(key)) {
+        seenUnresolved.add(key);
+        unresolved.push({ from, ref: to, reason: `no ${kind} '${name}' in this namespace` });
+      }
+      return;
+    }
     edges.push({ from, to, kind: "depends_on", inferred: true });
   };
 
@@ -433,6 +451,14 @@ export function mapK8sObjects(objects: K8sObject[]): Graph {
       const target = at<{ kind?: string; name?: string }>(object, "spec", "scaleTargetRef");
       if (target?.kind && target.name) link(namespace, id, target.kind, target.name);
     }
+  }
+
+  if (out) {
+    out.unresolved.push(
+      ...unresolved.sort(
+        (a, b) => a.from.localeCompare(b.from) || a.ref.localeCompare(b.ref),
+      ),
+    );
   }
 
   return {
@@ -499,7 +525,10 @@ const LIVE_KINDS: [keyof K8sResourceSet, string][] = [
  * returns, which say their kind in the *name of the list* rather than in each
  * object, since the API server drops `kind` from items inside a List.
  */
-export function mapNamespace(resources: K8sResourceSet): Graph {
+export function mapNamespace(
+  resources: K8sResourceSet,
+  out?: { unresolved: UnresolvedReference[] },
+): Graph {
   const objects: K8sObject[] = [
     { kind: "Namespace", metadata: { name: resources.namespace } },
   ];
@@ -512,5 +541,5 @@ export function mapNamespace(resources: K8sResourceSet): Graph {
       });
     }
   }
-  return mapK8sObjects(objects);
+  return mapK8sObjects(objects, out);
 }

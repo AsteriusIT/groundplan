@@ -29,6 +29,7 @@ import { SnapshotSelect } from "@/components/snapshot-select";
 import { TourLauncher } from "@/components/tour-launcher";
 import { TourRail } from "@/components/tour-rail";
 import { ViewSwitcher, useGraphView, viewsFor } from "@/components/view-switcher";
+import { WarningsNotice } from "@/components/warnings-notice";
 import { networkProjection } from "@/lib/graph-layout";
 import { useTourStyle } from "@/tour/tour-style";
 import { useTourPlayer } from "@/tour/use-tour";
@@ -251,6 +252,13 @@ export function PullDetailPage() {
             <FocusToggle />
           </div>
         </div>
+      )}
+
+      {graph.status === "ready" && (
+        <WarningsNotice
+          warnings={graph.snapshot.stats.warnings ?? []}
+          unresolvedReferences={graph.snapshot.stats.unresolvedReferences ?? []}
+        />
       )}
 
       <div className="flex min-h-0 flex-1">

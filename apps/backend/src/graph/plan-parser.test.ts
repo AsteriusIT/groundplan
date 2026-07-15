@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { computeGraphStats, validateGraph, type Graph, type GraphNode } from "./graph.js";
+import {
+  computeGraphStats,
+  validateGraph,
+  type Graph,
+  type GraphNode,
+  type UnresolvedReference,
+} from "./graph.js";
 import { isTerraformPlan, parsePlanToGraph } from "./plan-parser.js";
 
 function readJson(rel: string): unknown {
@@ -24,6 +30,54 @@ for (const name of ["simple", "modules", "replace", "plan-expressions", "attribu
     assert.equal(JSON.stringify(graph), JSON.stringify(parsePlanToGraph(plan)));
   });
 }
+
+test("a reference to a resource absent from the plan is captured; data refs are not", () => {
+  const plan = {
+    format_version: "1.0",
+    resource_changes: [
+      {
+        address: "aws_s3_bucket.logs",
+        mode: "managed",
+        type: "aws_s3_bucket",
+        name: "logs",
+        provider_name: "registry.terraform.io/hashicorp/aws",
+        change: { actions: ["create"], before: null, after: {} },
+      },
+    ],
+    configuration: {
+      root_module: {
+        resources: [
+          {
+            address: "aws_s3_bucket.logs",
+            expressions: {
+              // A bucket that is not in the plan (its type IS present, so this is
+              // a real dangling reference), and a data source (excluded from a
+              // plan graph on purpose — not a dangling reference).
+              replication: { references: ["aws_s3_bucket.other.arn", "aws_s3_bucket.other"] },
+              region: {
+                references: ["data.aws_region.current.name", "data.aws_region.current"],
+              },
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  const out = { unresolved: [] as UnresolvedReference[] };
+  parsePlanToGraph(plan, out);
+
+  const captured = out.unresolved.find(
+    (u) => u.from === "aws_s3_bucket.logs" && u.ref.includes("aws_s3_bucket.other"),
+  );
+  assert.ok(
+    captured,
+    `expected the absent bucket ref captured, got ${JSON.stringify(out.unresolved)}`,
+  );
+  assert.ok(captured.reason, "an unresolved reference explains itself");
+  // The data-source reference is intentionally excluded, so it must NOT appear.
+  assert.ok(!out.unresolved.some((u) => u.ref.includes("data.aws_region")));
+});
 
 test("expression references connect the previously floating chain (GP-20)", () => {
   const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));

@@ -32,12 +32,18 @@ import type {
   Identity,
   NsgRule,
   RoleAssignment,
+  UnresolvedReference,
 } from "./graph.js";
 import { attachIam, type ExtractedIam } from "./iam.js";
 import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 export type HclFile = { path: string; content: string };
-export type HclParseResult = { graph: Graph; warnings: string[] };
+export type HclParseResult = {
+  graph: Graph;
+  warnings: string[];
+  /** References that pointed at no parsed block — the "could not resolve" list. */
+  unresolvedReferences: UnresolvedReference[];
+};
 
 type Block = { type: string; labels: string[]; body: string };
 
@@ -538,30 +544,22 @@ export function parseHclRepo(
     instancesByBase: buildInstancesByBase(resourceIds),
   };
 
-  // Build dependency sources (explicit + expression-inferred) and count refs
-  // that look real but don't resolve to any parsed block.
-  let unresolved = 0;
+  // Build dependency sources (explicit + expression-inferred). The edge builder
+  // resolves them; references that look real but resolve to no parsed block are
+  // captured (not just counted) so the reader can read exactly which ones.
   const sources: DependencySource[] = [];
   for (const ps of ctx.pendingSources) {
     const refs: RawRef[] = [];
     for (const r of extractDependsOn(ps.body)) refs.push({ ref: r, inferred: false });
     for (const r of extractReferences(ps.body)) refs.push({ ref: r, inferred: true });
-
-    const seen = new Set<string>();
-    for (const { ref } of refs) {
-      if (seen.has(ref)) continue;
-      seen.add(ref);
-      if (
-        isReferenceable(ref, ctx.resourceTypes) &&
-        resolveReference(ps.prefix, ref, edgeCtx).length === 0
-      ) {
-        unresolved += 1;
-      }
-    }
     sources.push({ fromBase: ps.fromBase, prefix: ps.prefix, refs });
   }
 
-  const dependsOnEdges = buildDependencyEdges(sources, edgeCtx);
+  const unresolvedRefs: UnresolvedReference[] = [];
+  const dependsOnEdges = buildDependencyEdges(sources, edgeCtx, {
+    referenceable: (ref) => isReferenceable(ref, ctx.resourceTypes),
+    out: unresolvedRefs,
+  });
 
   // Network containment (GP-42): set parent_id on nodes with a single unambiguous
   // vnet/subnet parent. Mutates the node objects still held in ctx.nodes.
@@ -581,10 +579,11 @@ export function parseHclRepo(
       compareStrings(a.to, b.to),
   );
 
-  const warnings = [...ctx.warnings];
-  if (unresolved > 0) {
-    warnings.push(`${unresolved} reference(s) could not be resolved to a resource`);
-  }
+  // Unresolved references are no longer an opaque count in `warnings`: they carry
+  // their `from → ref` so the reader can open the list and see each one.
+  const unresolvedReferences = unresolvedRefs
+    .map((u) => ({ ...u, reason: "no matching resource, data source, or module" }))
+    .sort((a, b) => compareStrings(a.from, b.from) || compareStrings(a.ref, b.ref));
 
   // v4 when any node carries containment, NSG, or IAM payload; else v1 (docs stay v1).
   const isV4 = (n: GraphNode): boolean =>
@@ -594,5 +593,9 @@ export function parseHclRepo(
     n.role_assignment !== undefined ||
     n.identity !== undefined;
   const version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
-  return { graph: { version, nodes, edges }, warnings: warnings.sort(compareStrings) };
+  return {
+    graph: { version, nodes, edges },
+    warnings: [...ctx.warnings].sort(compareStrings),
+    unresolvedReferences,
+  };
 }

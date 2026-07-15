@@ -10,6 +10,7 @@ import {
   type RepositoryRow,
 } from "../db/schema.js";
 import { changesFromBase } from "../graph/change-diff.js";
+import type { UnresolvedReference } from "../graph/graph.js";
 import { mapK8sObjects, type K8sObject } from "../graph/k8s-mapper.js";
 import { InvalidManifestError, parseManifestStream } from "../graph/manifest-parser.js";
 import { isTerraformPlan, parsePlanToGraph } from "../graph/plan-parser.js";
@@ -50,7 +51,10 @@ async function ingestManifests(
   body: WebhookBody,
   objects: K8sObject[],
 ): Promise<void> {
-  const head = mapK8sObjects(objects);
+  const unresolved: UnresolvedReference[] = [];
+  const head = mapK8sObjects(objects, { unresolved });
+  const unresolvedStats =
+    unresolved.length > 0 ? { unresolvedReferences: unresolved } : {};
 
   // Rendered manifests of **main** are that branch's documentation, not a review
   // of it: they are stored exactly as the repository-parsing producer (GP-102)
@@ -67,7 +71,12 @@ async function ingestManifests(
       commitSha: body.commit_sha,
       prNumber: null,
       graph: head,
-      extraStats: { trigger: "auto", rendered: true, objects: objects.length },
+      extraStats: {
+        trigger: "auto",
+        rendered: true,
+        objects: objects.length,
+        ...unresolvedStats,
+      },
     });
     return;
   }
@@ -98,6 +107,7 @@ async function ingestManifests(
       base: base?.id ?? "none",
       baseCommitSha: base?.commitSha ?? null,
       objects: objects.length,
+      ...unresolvedStats,
     },
   });
 
@@ -144,7 +154,8 @@ async function ingestPlan(
 ): Promise<void> {
   if (!isTerraformPlan(body.payload)) return;
   try {
-    const graph = parsePlanToGraph(body.payload);
+    const unresolved: UnresolvedReference[] = [];
+    const graph = parsePlanToGraph(body.payload, { unresolved });
     const snapshot = await insertGraphSnapshot(app.db, {
       repositoryId,
       source: "plan",
@@ -152,6 +163,9 @@ async function ingestPlan(
       commitSha: body.commit_sha,
       prNumber: body.pr_number ?? null,
       graph,
+      ...(unresolved.length > 0
+        ? { extraStats: { unresolvedReferences: unresolved } }
+        : {}),
     });
     // GP-38: post/update the GitHub PR comment in the background (gated by the
     // per-repo flag inside postPrComment; never blocks or fails ingestion).

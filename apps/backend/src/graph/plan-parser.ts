@@ -34,6 +34,7 @@ import type {
   Identity,
   NsgRule,
   RoleAssignment,
+  UnresolvedReference,
 } from "./graph.js";
 import { attachIam, type ExtractedIam } from "./iam.js";
 import { propagateImpact } from "./impact.js";
@@ -412,8 +413,29 @@ function extractPlanIam(
   return extracted;
 }
 
-/** Parse a Terraform plan into a GraphSnapshot graph (deterministic ordering). */
-export function parsePlanToGraph(plan: unknown): Graph {
+/**
+ * Would this reference point at a managed resource in the plan (vs. an attribute
+ * name, a `var.`/`local.`, or a `data.` source)? Data reads are excluded from a
+ * plan's graph on purpose (they carry no change), so a reference to one is not a
+ * dangling reference — only a ref to a real resource type or module that is
+ * absent counts as one worth reporting.
+ */
+function planReferenceable(ref: string, resourceTypes: ReadonlySet<string>): boolean {
+  if (ref.startsWith("data.")) return false;
+  if (ref.startsWith("module.")) return true;
+  const firstType = (ref.split(".")[0] ?? "").replace(/\[.*\]$/, "");
+  return resourceTypes.has(firstType);
+}
+
+/**
+ * Parse a Terraform plan into a GraphSnapshot graph (deterministic ordering).
+ * When `out` is given, references that resolve to no node in the plan are
+ * collected into `out.unresolved` (the "could not resolve" list, GP).
+ */
+export function parsePlanToGraph(
+  plan: unknown,
+  out?: { unresolved: UnresolvedReference[] },
+): Graph {
   const p = (plan ?? {}) as { resource_changes?: unknown; configuration?: unknown };
   const changes = Array.isArray(p.resource_changes) ? p.resource_changes : [];
 
@@ -481,9 +503,13 @@ export function parsePlanToGraph(plan: unknown): Graph {
   // Resource / module id sets + instance map for dependency resolution.
   const resourceIds = new Set<string>();
   const moduleIds = new Set<string>();
+  const resourceTypes = new Set<string>();
   for (const node of nodesById.values()) {
     if (node.type === "module") moduleIds.add(node.id);
-    else resourceIds.add(node.id);
+    else {
+      resourceIds.add(node.id);
+      resourceTypes.add(node.type);
+    }
   }
 
   const sources: DependencySource[] = [];
@@ -498,7 +524,17 @@ export function parsePlanToGraph(plan: unknown): Graph {
     moduleIds,
     instancesByBase: buildInstancesByBase(resourceIds),
   };
-  const dependsOnEdges = buildDependencyEdges(sources, edgeCtx);
+  const collected: UnresolvedReference[] = [];
+  const dependsOnEdges = buildDependencyEdges(
+    sources,
+    edgeCtx,
+    out
+      ? {
+          referenceable: (ref) => planReferenceable(ref, resourceTypes),
+          out: collected,
+        }
+      : undefined,
+  );
 
   // Network containment (GP-42): set parent_id on nodes with a single unambiguous
   // vnet/subnet parent. Mutates the node objects still held in nodesById.
@@ -534,5 +570,14 @@ export function parsePlanToGraph(plan: unknown): Graph {
   let version: Graph["version"] = 2;
   if (withImpact.nodes.some((n) => n.attribute_diff !== undefined)) version = 3;
   if (withImpact.nodes.some(isV4)) version = 4;
+
+  if (out) {
+    out.unresolved.push(
+      ...collected
+        .map((u) => ({ ...u, reason: "no matching resource or module in the plan" }))
+        .sort((a, b) => compareStrings(a.from, b.from) || compareStrings(a.ref, b.ref)),
+    );
+  }
+
   return { ...withImpact, version };
 }

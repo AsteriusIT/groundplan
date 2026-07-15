@@ -170,6 +170,23 @@ export type Graph = {
   edges: GraphEdge[];
 };
 
+/**
+ * A reference a producer saw but could not resolve to a node in the graph — a
+ * Terraform resource pointing at an address that was never parsed, or a
+ * Kubernetes workload mounting a ConfigMap that is not in its namespace. Every
+ * producer *discards* these when it builds edges; captured here they become a
+ * readable list beside the snapshot (the "N references could not be resolved"
+ * dialog) instead of vanishing. Rides in the stored `stats` alongside `warnings`.
+ */
+export type UnresolvedReference = {
+  /** The node the reference is *from*: a Terraform address or a `ns/Kind/name`. */
+  from: string;
+  /** What it pointed at that we could not find. */
+  ref: string;
+  /** Why it did not resolve — shown to the reader so the list explains itself. */
+  reason?: string;
+};
+
 export type GraphStats = {
   nodes: number;
   edges: number;

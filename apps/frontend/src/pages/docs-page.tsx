@@ -687,7 +687,10 @@ export function DocsPage() {
       )}
 
       {current && !compareActive && (
-        <WarningsNotice warnings={current.stats.warnings ?? []} />
+        <WarningsNotice
+          warnings={current.stats.warnings ?? []}
+          unresolvedReferences={current.stats.unresolvedReferences ?? []}
+        />
       )}
 
       {current && !compareMode && (

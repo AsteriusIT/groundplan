@@ -169,8 +169,13 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
         graph,
         // The counts describe the graph we are handing back, not the one we
         // started from — a hidden node is not in this picture, so it is not in
-        // this picture's stats. Warnings are about the *parse*, so they survive.
-        stats: { ...computeGraphStats(graph), warnings: row.stats.warnings ?? [] },
+        // this picture's stats. Warnings and unresolved references are about the
+        // *parse*, so they survive.
+        stats: {
+          ...computeGraphStats(graph),
+          warnings: row.stats.warnings ?? [],
+          unresolvedReferences: row.stats.unresolvedReferences ?? [],
+        },
       };
     },
   );

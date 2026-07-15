@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { assertValidGraph, computeGraphStats, type GraphEdge } from "./graph.js";
+import {
+  assertValidGraph,
+  computeGraphStats,
+  type GraphEdge,
+  type UnresolvedReference,
+} from "./graph.js";
 import { mapK8sObjects, mapNamespace, type K8sResourceSet } from "./k8s-mapper.js";
 
 /**
@@ -335,6 +340,40 @@ test("an ingress pointing at a service that does not exist draws no edge", () =>
     [],
   );
   assert.ok(graph.nodes.some((n) => n.id === "payments/Ingress/public"));
+});
+
+test("named references to absent objects are captured; a matchless selector is not", () => {
+  const resources = fixture();
+  // A new workload that mounts a ConfigMap nobody declared.
+  resources.deployments.push({
+    metadata: { name: "ghost", namespace: "payments" },
+    spec: {
+      selector: { matchLabels: { app: "ghost" } },
+      template: {
+        metadata: { labels: { app: "ghost" } },
+        spec: {
+          volumes: [{ name: "c", configMap: { name: "missing-config" } }],
+          containers: [{ name: "ghost", image: "acme/ghost:1" }],
+        },
+      },
+    },
+  });
+
+  const out = { unresolved: [] as UnresolvedReference[] };
+  mapNamespace(resources, out);
+
+  // The mounted-but-absent ConfigMap is captured, with its target and a reason.
+  const ghost = out.unresolved.find((u) => u.from === "payments/Deployment/ghost");
+  assert.ok(
+    ghost,
+    `expected the missing ConfigMap captured, got ${JSON.stringify(out.unresolved)}`,
+  );
+  assert.match(ghost.ref, /ConfigMap\/missing-config/);
+  assert.ok(ghost.reason, "an unresolved reference explains itself");
+
+  // orphan-svc's selector matches nothing — that names no object, so it is a valid
+  // empty state, NOT an unresolved reference.
+  assert.ok(!out.unresolved.some((u) => u.from === "payments/Service/orphan-svc"));
 });
 
 test("an empty namespace is a valid graph with one node — not a failure", () => {

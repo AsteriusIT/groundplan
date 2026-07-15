@@ -7,7 +7,7 @@ import {
   type GraphSnapshotRow,
   type RepositoryRow,
 } from "../db/schema.js";
-import type { Graph } from "../graph/graph.js";
+import type { Graph, UnresolvedReference } from "../graph/graph.js";
 import { parseHclRepo } from "../graph/hcl-parser.js";
 import { mapK8sObjects } from "../graph/k8s-mapper.js";
 import { isManifestPath, parseManifests } from "../graph/manifest-parser.js";
@@ -68,8 +68,16 @@ type Produced = { graph: Graph; extraStats: Record<string, unknown> };
  * (`../modules/shared`) resolves — only the starting directory moves.
  */
 function produceHcl(files: RepoTextFile[], repo: RepositoryRow): Produced {
-  const { graph, warnings } = parseHclRepo(files, { rootDir: repo.terraformPath });
-  return { graph, extraStats: { warnings } };
+  const { graph, warnings, unresolvedReferences } = parseHclRepo(files, {
+    rootDir: repo.terraformPath,
+  });
+  return {
+    graph,
+    extraStats: {
+      warnings,
+      ...(unresolvedReferences.length > 0 ? { unresolvedReferences } : {}),
+    },
+  };
 }
 
 /**
@@ -82,12 +90,15 @@ function produceHcl(files: RepoTextFile[], repo: RepositoryRow): Produced {
 function produceManifests(files: RepoTextFile[], repo: RepositoryRow): Produced {
   const result = parseManifests(files, { rootDir: repo.terraformPath });
   if (result.objects.length === 0) throw new NoManifestsError(result.warnings);
+  const unresolved: UnresolvedReference[] = [];
+  const graph = mapK8sObjects(result.objects, { unresolved });
   return {
-    graph: mapK8sObjects(result.objects),
+    graph,
     extraStats: {
       warnings: result.warnings,
       skippedDocuments: result.skippedDocuments,
       skippedFiles: result.skippedFiles,
+      ...(unresolved.length > 0 ? { unresolvedReferences: unresolved } : {}),
     },
   };
 }

@@ -127,14 +127,28 @@ test("attaches role-assignment triples, privileged flags, and identities from HC
   });
 });
 
-test("unresolved references are dropped and counted in stats.warnings", () => {
-  const { graph, warnings } = parseHclRepo(readRepo("hcl-expressions"));
+test("unresolved references are captured (readable list), not just counted", () => {
+  const { graph, warnings, unresolvedReferences } = parseHclRepo(
+    readRepo("hcl-expressions"),
+  );
   // azurerm_virtual_network.secondary is referenced but not declared.
   assert.ok(!graph.nodes.some((n) => n.id.includes("secondary")));
+
+  // It is no longer an opaque count in warnings — it is a structured entry a
+  // reader can open, carrying the target it could not find.
   assert.ok(
-    warnings.some((w) => /1 reference\(s\) could not be resolved/.test(w)),
-    `expected an unresolved-reference warning, got ${JSON.stringify(warnings)}`,
+    !warnings.some((w) => /could not be resolved/.test(w)),
+    `unresolved refs should not be a warning string, got ${JSON.stringify(warnings)}`,
   );
+  const secondary = unresolvedReferences.find((u) =>
+    u.ref.includes("azurerm_virtual_network.secondary"),
+  );
+  assert.ok(
+    secondary,
+    `expected a captured unresolved reference, got ${JSON.stringify(unresolvedReferences)}`,
+  );
+  assert.ok(secondary.from.length > 0, "an unresolved reference names its source");
+  assert.ok(secondary.reason, "an unresolved reference explains itself");
 });
 
 test("a registry module source becomes a single leaf node (no recursion)", () => {
