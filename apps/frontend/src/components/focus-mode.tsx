@@ -39,7 +39,7 @@ const FocusModeContext = createContext<FocusMode>({
  * Escape leaves, and so does a route change: you should never land on a new
  * page with the navigation missing.
  */
-export function FocusModeProvider({ children }: { children: ReactNode }) {
+export function FocusModeProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [focus, setFocus] = useState(false);
   const { pathname } = useLocation();
 
@@ -88,7 +88,7 @@ export function useFocusMode(): FocusMode {
  * Enter/leave fullscreen. Lives in the view strip — the one piece of chrome that
  * survives focus mode — so the way out is always on screen.
  */
-export function FocusToggle({ className }: { className?: string }) {
+export function FocusToggle({ className }: Readonly<{ className?: string }>) {
   const { focus, available, enter, exit } = useFocusMode();
   if (!available) return null;
 

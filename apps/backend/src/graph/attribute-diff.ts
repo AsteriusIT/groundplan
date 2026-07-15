@@ -37,8 +37,10 @@ const MAX_VALUE_LENGTH = 200;
 /** Marker for a nested change — we never render the structure itself. */
 const DEEP_MARKER = "{…}";
 
-const compareStrings = (a: string, b: string): number =>
-  a < b ? -1 : a > b ? 1 : 0;
+const compareStrings = (a: string, b: string): number => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
 
 /** Only real objects (not arrays, not null) carry per-key flag maps. */
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -121,24 +123,17 @@ export function computeAttributeDiff(
     if (!include) continue;
 
     // Sensitive wins over everything so plaintext never reaches the row.
-    const before: string | null =
-      changeKind === "create"
-        ? null
-        : sensitive
-          ? "(sensitive)"
-          : bRaw === undefined
-            ? null
-            : render(bRaw);
-    const after: string | null =
-      changeKind === "delete"
-        ? null
-        : sensitive
-          ? "(sensitive)"
-          : unknown
-            ? "(known after apply)"
-            : aRaw === undefined
-              ? null
-              : render(aRaw);
+    let before: string | null;
+    if (changeKind === "create") before = null;
+    else if (sensitive) before = "(sensitive)";
+    else if (bRaw === undefined) before = null;
+    else before = render(bRaw);
+    let after: string | null;
+    if (changeKind === "delete") after = null;
+    else if (sensitive) after = "(sensitive)";
+    else if (unknown) after = "(known after apply)";
+    else if (aRaw === undefined) after = null;
+    else after = render(aRaw);
 
     if (before === null && after === null) continue;
     rows.push({ key, before, after });

@@ -22,13 +22,13 @@ export function WarningsNotice({
   warnings,
   unresolvedReferences = [],
   dismissible = false,
-}: {
+}: Readonly<{
   warnings: string[];
   /** References that resolved to nothing — surfaced as a link to a dialog. */
   unresolvedReferences?: UnresolvedReference[];
   /** A live cluster read is repeated; its warnings should not be permanent. */
   dismissible?: boolean;
-}) {
+}>) {
   const [expanded, setExpanded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -44,8 +44,7 @@ export function WarningsNotice({
   const only = warnings.length === 1 ? warnings[0] : null;
 
   return (
-    <div
-      role="status"
+    <output
       className="border-warning/40 bg-warning-soft text-warning flex items-start gap-2 border-b px-4 py-2 text-xs"
     >
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
@@ -88,6 +87,6 @@ export function WarningsNotice({
           <X className="size-3.5" />
         </button>
       )}
-    </div>
+    </output>
   );
 }

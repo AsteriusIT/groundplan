@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type ReactNode, type SyntheticEvent, useState } from "react";
 
 import {
   ApiError,
@@ -38,11 +38,11 @@ export function AttachRepositoryDialog({
   projectId,
   trigger,
   onAttached,
-}: {
+}: Readonly<{
   projectId: string;
   trigger: ReactNode;
   onAttached: (repo: CreatedRepository) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   // null = follow URL auto-detection; a value is an explicit user override that
@@ -86,7 +86,7 @@ export function AttachRepositoryDialog({
     }
   }
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
     if (!url.trim()) {
       setError("Enter the repository URL.");
@@ -221,9 +221,8 @@ export function AttachRepositoryDialog({
 
               <div className="space-y-2">
                 <Label htmlFor="repo-iac-type">What&apos;s in this repository?</Label>
-                <div
+                <fieldset
                   id="repo-iac-type"
-                  role="group"
                   aria-label="What's in this repository?"
                   className="flex gap-1"
                 >
@@ -243,7 +242,7 @@ export function AttachRepositoryDialog({
                       {label}
                     </button>
                   ))}
-                </div>
+                </fieldset>
                 <p className="text-muted-foreground text-xs">
                   Set once, when the repository is attached — a repository is one
                   kind, not both. Attach a monorepo twice, with different paths.

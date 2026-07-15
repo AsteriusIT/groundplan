@@ -4,7 +4,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/auth/use-auth";
 
 /** Gate protected routes: redirect to /login when not authenticated. */
-export function RequireAuth({ children }: { children: ReactNode }) {
+export function RequireAuth({ children }: Readonly<{ children: ReactNode }>) {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 

@@ -208,7 +208,7 @@ export async function getFile(
       throw new PathTraversalError();
     }
     const stat = await fs.stat(abs).catch(() => null);
-    if (!stat || !stat.isFile()) return null;
+    if (!stat?.isFile()) return null;
     const content = await fs.readFile(abs);
     const contentType =
       mime.contentType(path.basename(abs)) || "application/octet-stream";
@@ -241,7 +241,7 @@ export async function listRemoteHeads(
   const heads = new Map<string, string>();
   for (const line of stdout.split("\n")) {
     const [sha, ref] = line.split("\t");
-    if (!sha || !ref || !ref.startsWith(prefix)) continue;
+    if (!sha || !ref?.startsWith(prefix)) continue;
     heads.set(ref.slice(prefix.length), sha);
   }
   return heads;

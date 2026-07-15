@@ -47,7 +47,7 @@ const API = "https://api.github.com";
 
 /** Parse `owner` / `repo` from a GitHub repository URL. */
 export function parseGitHubRepo(url: string): { owner: string; repo: string } | null {
-  const cleaned = url.replace(/\.git$/, "").replace(/\/+$/, "");
+  const cleaned = url.replace(/\.git$/, "").replace(/(?=(\/+))\1$/, "");
   const match = /github\.com[/:]([^/]+)\/([^/]+)$/.exec(cleaned);
   if (!match) return null;
   return { owner: match[1]!, repo: match[2]! };

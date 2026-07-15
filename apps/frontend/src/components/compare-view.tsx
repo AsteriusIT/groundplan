@@ -26,13 +26,13 @@ export function CompareView({
   baseId,
   targetId,
   onExit,
-}: {
+}: Readonly<{
   /** The older snapshot (base). */
   baseId: string;
   /** The newer snapshot (target) — its layout is rendered. */
   targetId: string;
   onExit: () => void;
-}) {
+}>) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [focusId, setFocusId] = useState<string | null>(null);
 
@@ -98,11 +98,11 @@ function CompareSummary({
   diff,
   onFocus,
   onExit,
-}: {
+}: Readonly<{
   diff: SnapshotDiff;
   onFocus: (id: string) => void;
   onExit: () => void;
-}) {
+}>) {
   const empty = diffIsEmpty(diff);
   return (
     <div className="bg-card z-10 border-b border-border px-6 py-3">
@@ -175,11 +175,11 @@ function DiffList({
   title,
   tone,
   children,
-}: {
+}: Readonly<{
   title: string;
   tone: "create" | "delete";
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <details className="min-w-40">
       <summary

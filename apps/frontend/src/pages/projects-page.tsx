@@ -110,10 +110,10 @@ export function ProjectsPage() {
 function ProjectCard({
   project,
   onDeleted,
-}: {
+}: Readonly<{
   project: Project;
   onDeleted: (id: string) => void;
-}) {
+}>) {
   return (
     <div className="group relative">
       <Link to={`/projects/${project.id}`} className="block">
@@ -153,6 +153,15 @@ function ProjectCard({
   );
 }
 
+const SKELETON_KEYS = [
+  "skeleton-1",
+  "skeleton-2",
+  "skeleton-3",
+  "skeleton-4",
+  "skeleton-5",
+  "skeleton-6",
+];
+
 function ProjectsSkeleton() {
   return (
     <div
@@ -161,9 +170,9 @@ function ProjectsSkeleton() {
       aria-live="polite"
     >
       <span className="sr-only">Loading projects…</span>
-      {Array.from({ length: 6 }).map((_, i) => (
+      {SKELETON_KEYS.map((key) => (
         <div
-          key={i}
+          key={key}
           aria-hidden="true"
           className="bg-card rounded-md border border-border p-6"
         >
@@ -176,7 +185,9 @@ function ProjectsSkeleton() {
   );
 }
 
-function EmptyState({ onCreated }: { onCreated: (project: Project) => void }) {
+function EmptyState({
+  onCreated,
+}: Readonly<{ onCreated: (project: Project) => void }>) {
   return (
     <div className="bg-card/40 mx-auto flex max-w-md flex-col items-center gap-4 rounded-md border border-dashed border-border px-8 py-16 text-center">
       <div className="bg-accent text-primary grid size-12 place-items-center rounded-sm">
@@ -204,10 +215,10 @@ function EmptyState({ onCreated }: { onCreated: (project: Project) => void }) {
 function ErrorState({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <div
       role="alert"

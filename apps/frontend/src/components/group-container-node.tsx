@@ -26,12 +26,12 @@ export function GroupContainer({
   graphNode,
   dimmed = false,
   aiProvenance = false,
-}: {
+}: Readonly<{
   graphNode: GraphNode;
   dimmed?: boolean;
   /** The group came from an accepted AI proposal (GP-76). Said, permanently. */
   aiProvenance?: boolean;
-}) {
+}>) {
   const memberCount = graphNode.member_count;
   const collapsed = memberCount !== undefined;
   const noteCount = graphNode.notes?.length ?? 0;

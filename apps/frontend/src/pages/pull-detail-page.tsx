@@ -173,6 +173,38 @@ export function PullDetailPage() {
 
   const { repo, pull, snapshots } = state;
 
+  // The canvas render decision, lifted out of the JSX so it reads as one
+  // if/else chain instead of a stack of nested ternaries.
+  let canvasContent: React.ReactNode;
+  if (!pull.latestSnapshot && graph.status !== "ready") {
+    canvasContent = <NoSnapshot parseError={pull.parseError} />;
+  } else if (graph.status === "error") {
+    canvasContent = (
+      <CenteredNote>
+        <ErrorBlock message={graph.message} onRetry={load} />
+      </CenteredNote>
+    );
+  } else if (graph.status === "ready") {
+    canvasContent =
+      view === "iam" ? (
+        <IamTable
+          graph={graph.snapshot.graph}
+          variant="plan"
+          onViewInPlanImpact={viewInPlanImpact}
+        />
+      ) : (
+        <GraphCanvas
+          graph={network ? network.graph : graph.snapshot.graph}
+          variant="plan"
+          containerIds={network?.containerIds}
+          focusNodeId={focusNodeId}
+          tour={tourChrome}
+        />
+      );
+  } else {
+    canvasContent = <CenteredNote>Loading diagram…</CenteredNote>;
+  }
+
   // The gridded paper is the diagram's surface — the IAM view is a table, and a
   // table on drafting paper is just a table that is harder to read.
   return (
@@ -263,31 +295,7 @@ export function PullDetailPage() {
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 flex-1">
-          {!pull.latestSnapshot && graph.status !== "ready" ? (
-            <NoSnapshot parseError={pull.parseError} />
-          ) : graph.status === "error" ? (
-            <CenteredNote>
-              <ErrorBlock message={graph.message} onRetry={load} />
-            </CenteredNote>
-          ) : graph.status === "ready" ? (
-            view === "iam" ? (
-              <IamTable
-                graph={graph.snapshot.graph}
-                variant="plan"
-                onViewInPlanImpact={viewInPlanImpact}
-              />
-            ) : (
-              <GraphCanvas
-                graph={network ? network.graph : graph.snapshot.graph}
-                variant="plan"
-                containerIds={network?.containerIds}
-                focusNodeId={focusNodeId}
-                tour={tourChrome}
-              />
-            )
-          ) : (
-            <CenteredNote>Loading diagram…</CenteredNote>
-          )}
+          {canvasContent}
         </div>
 
         {/* While a tour runs in guide style, it *is* the rail. The AI summary and
@@ -334,7 +342,7 @@ export function PullDetailPage() {
   );
 }
 
-function NoSnapshot({ parseError }: { parseError: string | null }) {
+function NoSnapshot({ parseError }: Readonly<{ parseError: string | null }>) {
   return (
     <div className="grid h-full place-items-center p-8">
       <div className="max-w-md text-center">
@@ -364,7 +372,7 @@ function NoSnapshot({ parseError }: { parseError: string | null }) {
   );
 }
 
-function CenteredNote({ children }: { children: React.ReactNode }) {
+function CenteredNote({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="text-muted-foreground grid h-full place-items-center p-8 text-sm">
       {children}
@@ -375,10 +383,10 @@ function CenteredNote({ children }: { children: React.ReactNode }) {
 function ErrorBlock({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <div
       role="alert"

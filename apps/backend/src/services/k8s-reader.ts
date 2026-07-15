@@ -194,7 +194,7 @@ export const realK8sReader: K8sReader = {
       return list.items
         .map((ns) => ns.metadata?.name)
         .filter((name): name is string => Boolean(name))
-        .sort();
+        .sort((a, b) => a.localeCompare(b));
     } catch (err) {
       if (err instanceof K8sUnreachableError) throw err;
       throw new K8sUnreachableError(classifyK8sError(err));

@@ -84,7 +84,7 @@ export function DashboardPage() {
   );
 }
 
-function Estate({ data }: { data: Dashboard }) {
+function Estate({ data }: Readonly<{ data: Dashboard }>) {
   const { stats, recentPrs, recentDocsSnapshots, orphanRepositories } = data;
   // Worst-hit repository first (GP-67), so the card lands on the review that
   // matters most when several repositories have drifted.
@@ -160,14 +160,14 @@ function StatCard({
   value,
   to,
   tone = "neutral",
-}: {
+}: Readonly<{
   icon: LucideIcon;
   label: string;
   value: number;
   /** Makes the card a link. Omit for a card with nowhere useful to go. */
   to?: string;
   tone?: "neutral" | "warning";
-}) {
+}>) {
   const warning = tone === "warning";
   const body = (
     <>
@@ -218,13 +218,13 @@ function Section({
   description,
   empty,
   children,
-}: {
+}: Readonly<{
   title: string;
   description: string;
   /** Set when there is nothing to list — shown instead of the rows. */
   empty?: string;
   children: ReactNode;
-}) {
+}>) {
   return (
     <section>
       <div className="mb-3">
@@ -244,7 +244,7 @@ function Section({
   );
 }
 
-function PullRow({ pull }: { pull: DashboardPull }) {
+function PullRow({ pull }: Readonly<{ pull: DashboardPull }>) {
   return (
     <li>
       <Link
@@ -301,7 +301,7 @@ function PullRow({ pull }: { pull: DashboardPull }) {
   );
 }
 
-function DocsRow({ snapshot }: { snapshot: DashboardDocsSnapshot }) {
+function DocsRow({ snapshot }: Readonly<{ snapshot: DashboardDocsSnapshot }>) {
   return (
     <li>
       <Link
@@ -359,10 +359,10 @@ function FirstRepositoryCta() {
 function ErrorState({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <div
       role="alert"

@@ -34,12 +34,12 @@ export type ParsedKubeconfig = {
 
 type ContextEntry = {
   name?: unknown;
-  context?: { cluster?: unknown; namespace?: unknown } | undefined;
+  context?: { cluster?: unknown; namespace?: unknown };
 };
 
 type ClusterEntry = {
   name?: unknown;
-  cluster?: { server?: unknown } | undefined;
+  cluster?: { server?: unknown };
 };
 
 function asArray(value: unknown): unknown[] {

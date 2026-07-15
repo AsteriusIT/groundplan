@@ -6,12 +6,12 @@ export function ChangeChips({
   changes,
   impacted,
   className,
-}: {
+}: Readonly<{
   changes: GraphStats["changes"] | undefined;
   /** Unchanged-but-impacted count (GP-22/GP-24). Shown as `!n` when > 0. */
   impacted?: number;
   className?: string;
-}) {
+}>) {
   const c = changes ?? { create: 0, update: 0, delete: 0, noop: 0, unchanged: 0 };
   const chips: { key: string; text: string; n: number; color: string }[] = [
     { key: "create", text: `+${c.create}`, n: c.create, color: "text-create" },

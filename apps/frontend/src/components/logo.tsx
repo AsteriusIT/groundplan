@@ -1,5 +1,5 @@
 /** Blueprint-style connected-nodes mark. Inherits color via `currentColor`. */
-export function Logo({ className }: { className?: string }) {
+export function Logo({ className }: Readonly<{ className?: string }>) {
   return (
     <svg
       viewBox="0 0 32 32"

@@ -21,7 +21,7 @@ export function computeInternetExposed(rules: readonly NsgRule[]): boolean {
 /** Normalize a port range value to `"80"`, `"80-443"`, or `"*"`. Passthrough. */
 export function normalizePorts(raw: unknown): string {
   if (raw === undefined || raw === null) return "*";
-  const s = String(raw).trim();
+  const s = String(raw as string | number).trim();
   return s === "" ? "*" : s;
 }
 
@@ -47,7 +47,9 @@ export function attachNsg(
     node.rules = rules;
     node.internet_exposed = computeInternetExposed(rules);
     if (data.associatedIds.length > 0) {
-      node.associated_ids = [...new Set(data.associatedIds)].sort();
+      node.associated_ids = [...new Set(data.associatedIds)].sort((a, b) =>
+        a.localeCompare(b),
+      );
     }
   }
 }

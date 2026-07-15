@@ -187,12 +187,12 @@ function Section({
   title,
   description,
   children,
-}: {
+}: Readonly<{
   icon: ReactNode;
   title: string;
   description: string;
   children: ReactNode;
-}) {
+}>) {
   return (
     <section className="bg-card rounded-md border border-border">
       <header className="border-b border-border px-5 py-3.5">

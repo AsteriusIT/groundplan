@@ -19,13 +19,13 @@ export function NotePanel({
   onCreate,
   onUpdate,
   onDelete,
-}: {
+}: Readonly<{
   notes: Annotation[];
   readOnly?: boolean;
   onCreate: (body: string) => void;
   onUpdate: (id: string, body: string) => void;
   onDelete: (id: string) => void;
-}) {
+}>) {
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -125,11 +125,11 @@ function IconButton({
   label,
   onClick,
   children,
-}: {
+}: Readonly<{
   label: string;
   onClick: () => void;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <button
       type="button"

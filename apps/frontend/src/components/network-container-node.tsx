@@ -20,12 +20,12 @@ export function NetworkContainer({
   graphNode,
   dimmed = false,
   exposed = false,
-}: {
+}: Readonly<{
   graphNode: GraphNode;
   dimmed?: boolean;
   /** GP-45: this subnet is guarded by an internet-exposed NSG. */
   exposed?: boolean;
-}) {
+}>) {
   const isVnet = graphNode.type === "azurerm_virtual_network";
   const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
   const layer = isVnet ? "vnet" : shortType(graphNode.type);

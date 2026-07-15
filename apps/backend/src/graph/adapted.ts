@@ -434,8 +434,9 @@ function aggregateEdges(edges: GraphEdge[], rep: Representatives): GraphEdge[] {
   return [...merged.values()].map(({ from, to, kind, count, labels }) => {
     // One label survives a merge only when it is the only thing being said.
     // Otherwise the honest label is how many relationships this line stands for.
+    const aggregateLabel = count > 1 ? `×${count}` : undefined;
     const label =
-      labels.size === 1 && count === 1 ? [...labels][0] : count > 1 ? `×${count}` : undefined;
+      labels.size === 1 && count === 1 ? [...labels][0] : aggregateLabel;
     return {
       from,
       to,

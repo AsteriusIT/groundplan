@@ -58,8 +58,8 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
  * because refusing those costs a retry and buys nothing.
  */
 export function parseProposals(text: string): RawProposal[] {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  const body = (fenced?.[1] ?? text).trim();
+  const fenced = /```(?:json)?(?=(\s*))\1([\s\S]*?)```/i.exec(text);
+  const body = (fenced?.[2] ?? text).trim();
 
   // The outermost {...} in whatever came back.
   const start = body.indexOf("{");

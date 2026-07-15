@@ -20,8 +20,10 @@ const IMPACTED_CAP = 5;
 /** Changed-attribute keys shown per updated node before the trailing "…". */
 const KEYS_SHOWN = 3;
 
-const byId = (a: { id: string }, b: { id: string }): number =>
-  a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+const byId = (a: { id: string }, b: { id: string }): number => {
+  if (a.id < b.id) return -1;
+  return a.id > b.id ? 1 : 0;
+};
 
 const isResource = (n: GraphNode): boolean => n.type !== "module";
 

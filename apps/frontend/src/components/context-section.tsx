@@ -19,7 +19,7 @@ export function ContextSection({
   bare = false,
   onSave,
   onClose,
-}: {
+}: Readonly<{
   markdown: string | null;
   title?: string;
   /** One line saying who reads this and where it shows up. */
@@ -29,7 +29,7 @@ export function ContextSection({
   bare?: boolean;
   onSave?: (markdown: string) => void;
   onClose?: () => void;
-}) {
+}>) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -138,11 +138,11 @@ export function ContextRail({
   markdown,
   onSave,
   onClose,
-}: {
+}: Readonly<{
   markdown: string | null;
   onSave: (markdown: string) => void;
   onClose: () => void;
-}) {
+}>) {
   return (
     <aside className="border-border bg-card w-80 shrink-0 overflow-y-auto border-l px-4 py-4">
       <ContextSection markdown={markdown} bare onSave={onSave} onClose={onClose} />
@@ -150,7 +150,7 @@ export function ContextRail({
   );
 }
 
-function Header({ title, hint }: { title: string; hint?: string }) {
+function Header({ title, hint }: Readonly<{ title: string; hint?: string }>) {
   return (
     <div className="space-y-0.5">
       <p className="text-muted-foreground font-mono text-[10px] tracking-[0.14em] uppercase">

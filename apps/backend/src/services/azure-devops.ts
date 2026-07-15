@@ -73,14 +73,19 @@ export function parseAzureDevOpsRepo(
     return null;
   }
   if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-  const path = u.pathname.replace(/\.git$/, "").replace(/^\/+|\/+$/g, "");
+  const raw = u.pathname.replace(/\.git$/, "");
+  let lo = 0;
+  let hi = raw.length;
+  while (lo < hi && raw[lo] === "/") lo++;
+  while (hi > lo && raw[hi - 1] === "/") hi--;
+  const path = raw.slice(lo, hi);
   const marker = "/_git/";
   const idx = path.indexOf(marker);
   if (idx === -1) return null;
 
-  const repo = path.slice(idx + marker.length).split("/").filter(Boolean)[0];
+  const repo = path.slice(idx + marker.length).split("/").find(Boolean);
   const leftParts = path.slice(0, idx).split("/").filter(Boolean);
-  const project = leftParts[leftParts.length - 1];
+  const project = leftParts.at(-1);
   if (!repo || !project) return null;
 
   const basePath = leftParts.slice(0, -1).join("/");

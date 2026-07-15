@@ -14,7 +14,7 @@ import kubernetesLogo from "@/icons/kubernetes-logo.svg";
  * It lives outside `src/icons/kubernetes/`, which is glob-keyed by Kubernetes
  * *kind* (pod, deployment, …). A logo is not a kind.
  */
-export function KubernetesMark({ className }: { className?: string }) {
+export function KubernetesMark({ className }: Readonly<{ className?: string }>) {
   return (
     <img src={kubernetesLogo} alt="" aria-hidden="true" className={className} />
   );

@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type ReactNode, type SyntheticEvent, useState } from "react";
 
 import { ApiError, createProject } from "@/api/client";
 import type { Project } from "@/api/types";
@@ -19,10 +19,10 @@ import { Label } from "@/components/ui/label";
 export function CreateProjectDialog({
   trigger,
   onCreated,
-}: {
+}: Readonly<{
   trigger: ReactNode;
   onCreated: (project: Project) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -39,7 +39,7 @@ export function CreateProjectDialog({
     }
   }
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
     if (!slug) {
       setError("Enter a name with at least one letter or number.");

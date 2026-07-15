@@ -24,9 +24,15 @@ if (!window.matchMedia) {
 
 if (!("ResizeObserver" in globalThis)) {
   globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    observe() {
+      // no-op: jsdom stub, ResizeObserver never fires in tests
+    }
+    unobserve() {
+      // no-op: jsdom stub, ResizeObserver never fires in tests
+    }
+    disconnect() {
+      // no-op: jsdom stub, ResizeObserver never fires in tests
+    }
   };
 }
 

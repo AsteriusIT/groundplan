@@ -88,6 +88,12 @@ type GraphState =
 const PAGE = 10;
 const shortSha = (sha: string) => sha.slice(0, 8);
 
+/** Swap the annotation matching `id` for `updated`, leaving the rest in place. */
+const replaceById =
+  (id: string, updated: Annotation) =>
+  (prev: Annotation[]): Annotation[] =>
+    prev.map((a) => (a.id === id ? updated : a));
+
 export function DocsPage() {
   const { id, repoId } = useParams<{ id: string; repoId: string }>();
   const [repo, setRepo] = useState<Repository | null>(null);
@@ -186,9 +192,7 @@ export function DocsPage() {
         prev.map((a) => (a.id === id ? { ...a, ...input } : a)),
       );
       updateAnnotation(id, input)
-        .then((updated) =>
-          setAnnotations((prev) => prev.map((a) => (a.id === id ? updated : a))),
-        )
+        .then((updated) => setAnnotations(replaceById(id, updated)))
         .catch(reloadAnnotations);
     },
     [reloadAnnotations],
@@ -245,9 +249,7 @@ export function DocsPage() {
         prev.map((a) => (a.id === id ? { ...a, status: "resolved" as const } : a)),
       );
       acceptAnnotation(id)
-        .then((updated) =>
-          setAnnotations((prev) => prev.map((a) => (a.id === id ? updated : a))),
-        )
+        .then((updated) => setAnnotations(replaceById(id, updated)))
         .catch(reloadAnnotations);
     },
     [reloadAnnotations],
@@ -262,9 +264,7 @@ export function DocsPage() {
         ),
       );
       updateAnnotation(id, { label, status: "resolved" })
-        .then((updated) =>
-          setAnnotations((prev) => prev.map((a) => (a.id === id ? updated : a))),
-        )
+        .then((updated) => setAnnotations(replaceById(id, updated)))
         .catch(reloadAnnotations);
     },
     [reloadAnnotations],
@@ -430,7 +430,8 @@ export function DocsPage() {
   }, [view]);
 
   /** The snapshot on the canvas: the adapted projection, or the generated graph. */
-  const shown = adaptedView ? (adapted.status === "ready" ? adapted.snapshot : null) : current;
+  const adaptedShown = adapted.status === "ready" ? adapted.snapshot : null;
+  const shown = adaptedView ? adaptedShown : current;
   // GP-49: a node to select on the canvas, set when jumping from the IAM view.
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const viewInPlanImpact = useCallback(
@@ -500,11 +501,8 @@ export function DocsPage() {
     }
   }, [compareMode, compareSel, searchParams, setSearchParams]);
 
-  const timelineSelected = compareMode
-    ? compareSel
-    : selectedId
-      ? [selectedId]
-      : [];
+  const singleSelected = selectedId ? [selectedId] : [];
+  const timelineSelected = compareMode ? compareSel : singleSelected;
 
   // The gridded paper is the diagram's surface — the IAM view is a table, and a
   // table on drafting paper is just a table that is harder to read.
@@ -654,8 +652,7 @@ export function DocsPage() {
       )}
 
       {snapshots.length > 0 && !compareActive && compareMode && (
-        <div
-          role="status"
+        <output
           className="bg-accent border-border flex items-center justify-center gap-3 border-b px-4 py-2 text-xs"
         >
           Compare mode — pick {2 - compareSel.length} more snapshot
@@ -667,12 +664,11 @@ export function DocsPage() {
           >
             Cancel
           </button>
-        </div>
+        </output>
       )}
 
       {snapshots.length > 0 && !compareActive && !compareMode && viewingOld && (
-        <div
-          role="status"
+        <output
           className="bg-warning-soft text-warning border-warning/40 flex items-center justify-center gap-3 border-b px-4 py-2 text-xs"
         >
           Viewing snapshot {shortSha(selectedId ?? "")} — not the latest.
@@ -683,7 +679,7 @@ export function DocsPage() {
           >
             Back to latest
           </button>
-        </div>
+        </output>
       )}
 
       {current && !compareActive && (
@@ -858,7 +854,7 @@ function hasGroups(graph: Graph): boolean {
  * built out of the groups a human drew, and this repository has none yet. Say
  * that, and point at the thing that fixes it.
  */
-function NoGroupsState({ onAnnotate }: { onAnnotate: () => void }) {
+function NoGroupsState({ onAnnotate }: Readonly<{ onAnnotate: () => void }>) {
   return (
     <div className="grid h-full place-items-center p-8">
       <div className="max-w-md text-center">
@@ -885,11 +881,11 @@ function EmptyState({
   generating,
   onGenerate,
   kubernetes,
-}: {
+}: Readonly<{
   generating: boolean;
   onGenerate: () => void;
   kubernetes: boolean;
-}) {
+}>) {
   return (
     <div className="grid h-full place-items-center p-8">
       <div className="max-w-md text-center">
@@ -917,7 +913,7 @@ function EmptyState({
   );
 }
 
-function Centered({ children }: { children: React.ReactNode }) {
+function Centered({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="text-muted-foreground grid h-full place-items-center p-8 text-sm">
       {children}
@@ -928,10 +924,10 @@ function Centered({ children }: { children: React.ReactNode }) {
 function ErrorBlock({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <div
       role="alert"

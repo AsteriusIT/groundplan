@@ -455,7 +455,7 @@ export function mapK8sObjects(
 
   if (out) {
     out.unresolved.push(
-      ...unresolved.sort(
+      ...unresolved.toSorted(
         (a, b) => a.from.localeCompare(b.from) || a.ref.localeCompare(b.ref),
       ),
     );

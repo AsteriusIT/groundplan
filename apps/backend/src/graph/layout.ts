@@ -62,8 +62,8 @@ interface ElkEdge {
 // elkjs ships a CJS bundle whose default export IS the ELK constructor, but the
 // bundled .d.ts trips NodeNext's ESM/CJS interop — so bind it through a narrow
 // cast to the single method we use.
-const ELK = ElkBundled as unknown as {
-  new (): { layout(graph: ElkNode): Promise<ElkNode> };
+const ELK = ElkBundled as unknown as new () => {
+  layout(graph: ElkNode): Promise<ElkNode>;
 };
 const elk = new ELK();
 
@@ -133,7 +133,7 @@ function toElkGraph(graph: Graph): ElkNode {
   }
 
   for (const elkNode of elkById.values()) {
-    if (elkNode.children && elkNode.children.length === 0) {
+    if (elkNode.children?.length === 0) {
       delete elkNode.children;
       delete elkNode.layoutOptions;
       elkNode.width = MODULE_LEAF_WIDTH;

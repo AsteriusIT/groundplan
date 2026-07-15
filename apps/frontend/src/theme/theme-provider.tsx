@@ -55,19 +55,22 @@ function applyTheme(theme: Theme): void {
   else delete root.dataset.theme;
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(resolveInitialTheme);
+export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const [themeState, setThemeState] = useState<Theme>(resolveInitialTheme);
 
   useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+    applyTheme(themeState);
+  }, [themeState]);
 
   const setTheme = useCallback((next: Theme) => {
     localStorage.setItem(THEME_STORAGE_KEY, next);
     setThemeState(next);
   }, []);
 
-  const value = useMemo(() => ({ theme, setTheme }), [theme, setTheme]);
+  const value = useMemo(
+    () => ({ theme: themeState, setTheme }),
+    [themeState, setTheme],
+  );
 
   return <ThemeContext value={value}>{children}</ThemeContext>;
 }

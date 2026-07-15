@@ -52,7 +52,7 @@ const URL_BY_KEY = iconUrlMap(MODULES);
 /** All vendored Kubernetes icon keys (used by the /styleguide gallery). */
 export const KUBERNETES_ICON_KEYS = [
   ...URL_BY_KEY.keys(),
-].sort() as KubernetesIconKey[];
+].sort((a, b) => a.localeCompare(b)) as KubernetesIconKey[];
 
 /** The asset URL for a vendored Kubernetes icon. */
 export function kubernetesIconUrl(key: KubernetesIconKey): string | undefined {

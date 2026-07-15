@@ -16,12 +16,11 @@ const OPTIONS: { theme: Theme; label: string; icon: LucideIcon }[] = [
   { theme: "carbon", label: "Carbon", icon: Moon },
 ];
 
-export function ThemeSwitcher({ className }: { className?: string }) {
+export function ThemeSwitcher({ className }: Readonly<{ className?: string }>) {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div
-      role="group"
+    <fieldset
       aria-label="Theme"
       className={cn(
         "border-border flex gap-0.5 rounded-md border p-0.5",
@@ -50,6 +49,6 @@ export function ThemeSwitcher({ className }: { className?: string }) {
           </button>
         );
       })}
-    </div>
+    </fieldset>
   );
 }

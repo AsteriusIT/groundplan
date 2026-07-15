@@ -60,7 +60,7 @@ function scanTopLevelBlocks(src: string): Block[] {
   const n = src.length;
   let i = 0;
 
-  const isIdent = (c: string) => /[A-Za-z0-9_.\-]/.test(c);
+  const isIdent = (c: string) => /[A-Za-z0-9_.-]/.test(c);
 
   function skipTrivia(): void {
     while (i < n) {
@@ -184,7 +184,7 @@ function extractDependsOn(body: string): string[] {
 
 // Dotted identifier chains (with optional [index]) — reference-shaped tokens.
 const REFERENCE_RE =
-  /[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)+/g;
+  /[A-Za-z_]\w*(?:\[[^\]]*\])?(?:\.[A-Za-z_]\w*(?:\[[^\]]*\])?)+/g;
 
 /** Every reference-shaped token in an attribute body (over-extraction is fine). */
 function extractReferences(body: string): string[] {
@@ -244,8 +244,11 @@ function resolveLocalDir(baseDir: string, source: string): string {
   return parts.join("/");
 }
 
-const compareStrings = (a: string, b: string): number =>
-  a < b ? -1 : a > b ? 1 : 0;
+const compareStrings = (a: string, b: string): number => {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+};
 
 type PendingSource = { fromBase: string; prefix: string; body: string };
 
@@ -435,7 +438,7 @@ function hclIdentityIds(
       if (ctx.nodes.get(id)?.type === "azurerm_user_assigned_identity") ids.add(id);
     }
   }
-  return [...ids].sort();
+  return [...ids].sort(compareStrings);
 }
 
 /** Collect role-assignment triples and managed-identity payloads from HCL bodies. */
@@ -571,8 +574,8 @@ export function parseHclRepo(
   // IAM payload (GP-47): role-assignment triples, identities, privileged flag.
   attachIam([...ctx.nodes.values()], extractHclIam(ctx, edgeCtx));
 
-  const nodes = [...ctx.nodes.values()].sort((a, b) => compareStrings(a.id, b.id));
-  const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].sort(
+  const nodes = [...ctx.nodes.values()].toSorted((a, b) => compareStrings(a.id, b.id));
+  const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].toSorted(
     (a, b) =>
       compareStrings(a.kind, b.kind) ||
       compareStrings(a.from, b.from) ||

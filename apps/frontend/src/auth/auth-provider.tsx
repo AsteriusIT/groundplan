@@ -17,11 +17,11 @@ import { createUserManager } from "./user-manager";
 export function AuthProvider({
   children,
   userManager,
-}: {
+}: Readonly<{
   children: ReactNode;
   /** Injectable for tests; defaults to the real Keycloak-backed manager. */
   userManager?: UserManager;
-}) {
+}>) {
   const [manager] = useState(() => userManager ?? createUserManager());
   const oidcUserRef = useRef<OidcUser | null>(null);
   const [user, setUser] = useState<User | null>(null);

@@ -9,11 +9,11 @@ export function CopyButton({
   value,
   label = "Copy",
   className,
-}: {
+}: Readonly<{
   value: string;
   label?: string;
   className?: string;
-}) {
+}>) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {

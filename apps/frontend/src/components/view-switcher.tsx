@@ -104,10 +104,10 @@ export function viewsFor(
 export function ViewSwitcher({
   variant = "plan",
   kubernetes = false,
-}: {
+}: Readonly<{
   variant?: ViewSwitcherVariant;
   kubernetes?: boolean;
-}) {
+}>) {
   const keys = viewsFor(variant, kubernetes);
   const { view, setView } = useGraphView(keys);
   if (keys.length < 2) return null;
@@ -118,7 +118,7 @@ export function ViewSwitcher({
   }));
 
   return (
-    <div className="flex items-center gap-4" role="group" aria-label="Graph view">
+    <fieldset className="flex items-center gap-4" aria-label="Graph view">
       {options.map((o) => (
         <button
           key={o.key}
@@ -135,6 +135,6 @@ export function ViewSwitcher({
           {o.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }

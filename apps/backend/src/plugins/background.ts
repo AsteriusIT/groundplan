@@ -26,10 +26,10 @@ export const backgroundPlugin = fp(async (app) => {
   });
 
   app.decorate("flushBackgroundTasks", async () => {
-    await Promise.allSettled([...pending]);
+    await Promise.allSettled(pending);
   });
 
   app.addHook("onClose", async () => {
-    await Promise.allSettled([...pending]);
+    await Promise.allSettled(pending);
   });
 });

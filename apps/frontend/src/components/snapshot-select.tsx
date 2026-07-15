@@ -30,14 +30,14 @@ export function SnapshotSelect({
   compareMode,
   onSelect,
   onShowMore,
-}: {
+}: Readonly<{
   snapshots: SnapshotSummary[];
   selectedIds: string[];
   visible: number;
   compareMode: boolean;
   onSelect: (id: string) => void;
   onShowMore: () => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDetailsElement>(null);
 
@@ -64,17 +64,24 @@ export function SnapshotSelect({
   };
 
   const selected = snapshots.find((s) => selectedIds.includes(s.id)) ?? null;
-  const triggerLabel = compareMode
-    ? selectedIds.length === 0
-      ? "Compare — pick 2"
-      : selectedIds.length === 1
-        ? "Pick 1 more"
-        : selectedIds
-            .map((id) => shortSha(snapshots.find((s) => s.id === id)?.commitSha ?? id))
-            .join(" ⇄ ")
-    : selected
-      ? `${snapshotLabel(selected)}${selected.stats.trigger ? ` · ${selected.stats.trigger.toUpperCase()}` : ""} · ${formatDate(selected.createdAt)}`
-      : "Select snapshot";
+
+  const compareLabel = () => {
+    if (selectedIds.length === 0) return "Compare — pick 2";
+    if (selectedIds.length === 1) return "Pick 1 more";
+    return selectedIds
+      .map((id) => shortSha(snapshots.find((s) => s.id === id)?.commitSha ?? id))
+      .join(" ⇄ ");
+  };
+
+  const selectedLabel = () => {
+    if (!selected) return "Select snapshot";
+    const triggerSuffix = selected.stats.trigger
+      ? ` · ${selected.stats.trigger.toUpperCase()}`
+      : "";
+    return `${snapshotLabel(selected)}${triggerSuffix} · ${formatDate(selected.createdAt)}`;
+  };
+
+  const triggerLabel = compareMode ? compareLabel() : selectedLabel();
 
   return (
     <details ref={ref} open={open} className="relative">

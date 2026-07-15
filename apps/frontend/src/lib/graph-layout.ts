@@ -412,7 +412,7 @@ export function toElkGraph(
   }
 
   for (const [id, elk] of elkById) {
-    if (elk.children && elk.children.length === 0) {
+    if (elk.children?.length === 0) {
       resolveEmptyContainer(elk, forced.has(id));
     }
   }

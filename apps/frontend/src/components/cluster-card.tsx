@@ -31,11 +31,11 @@ export function ClusterCard({
   cluster,
   onChanged,
   onDeleted,
-}: {
+}: Readonly<{
   cluster: Cluster;
   onChanged: (cluster: Cluster) => void;
   onDeleted: (id: string) => void;
-}) {
+}>) {
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);

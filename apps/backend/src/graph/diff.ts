@@ -33,8 +33,10 @@ export interface GraphDiff {
 
 const isResource = (n: GraphNode): boolean => n.type !== "module";
 const bareAddress = (n: GraphNode): string => `${n.type}.${n.name}`;
-const byId = (a: { id: string }, b: { id: string }): number =>
-  a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+const byId = (a: { id: string }, b: { id: string }): number => {
+  if (a.id < b.id) return -1;
+  return a.id > b.id ? 1 : 0;
+};
 
 const toDiffNode = (n: GraphNode): DiffNode => ({
   id: n.id,
@@ -94,5 +96,6 @@ export function diffGraphs(base: Graph, target: Graph): GraphDiff {
     .map(toDiffNode)
     .sort(byId);
 
-  return { added, removed, moved: moved.sort(byId), unchangedCount };
+  moved.sort(byId);
+  return { added, removed, moved, unchangedCount };
 }

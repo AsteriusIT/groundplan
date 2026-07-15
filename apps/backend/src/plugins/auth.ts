@@ -68,7 +68,7 @@ export const authPlugin = fp<AuthPluginOptions>(async (app, opts) => {
     if (isExempt(request.routeOptions?.url)) return;
 
     const header = request.headers.authorization;
-    if (!header || !header.startsWith("Bearer ")) return unauthorized(reply);
+    if (!header?.startsWith("Bearer ")) return unauthorized(reply);
     const token = header.slice("Bearer ".length).trim();
 
     let subject: string;
@@ -82,12 +82,12 @@ export const authPlugin = fp<AuthPluginOptions>(async (app, opts) => {
       if (!payload.sub) return unauthorized(reply);
       subject = payload.sub;
       email = typeof payload.email === "string" ? payload.email : null;
+      const fallbackName =
+        typeof payload.preferred_username === "string"
+          ? payload.preferred_username
+          : null;
       displayName =
-        typeof payload.name === "string"
-          ? payload.name
-          : typeof payload.preferred_username === "string"
-            ? payload.preferred_username
-            : null;
+        typeof payload.name === "string" ? payload.name : fallbackName;
     } catch (err) {
       request.log.warn({ err }, "auth: token verification failed");
       return unauthorized(reply);

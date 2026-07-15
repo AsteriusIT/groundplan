@@ -30,11 +30,11 @@ export function Chip({
   variant = "neutral",
   className,
   children,
-}: {
+}: Readonly<{
   variant?: ChipVariant;
   className?: string;
   children: ReactNode;
-}) {
+}>) {
   return (
     <span
       className={cn(

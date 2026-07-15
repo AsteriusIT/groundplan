@@ -37,7 +37,7 @@ export interface ExportRequest {
 
 /** `owner/repo` from a git URL, for the title block. */
 export function repoLabel(url: string): string {
-  const cleaned = url.replace(/\.git$/, "").replace(/\/+$/, "");
+  const cleaned = url.replace(/\.git$/, "").replace(/(?<!\/)\/+$/, "");
   const parts = cleaned.split("/").filter(Boolean);
   return parts.slice(-2).join("/") || cleaned;
 }

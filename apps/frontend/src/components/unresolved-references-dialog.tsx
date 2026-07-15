@@ -22,9 +22,9 @@ import {
  */
 export function UnresolvedReferencesDialog({
   references,
-}: {
+}: Readonly<{
   references: UnresolvedReference[];
-}) {
+}>) {
   if (references.length === 0) return null;
 
   return (

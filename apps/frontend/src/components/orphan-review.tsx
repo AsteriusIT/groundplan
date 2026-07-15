@@ -54,12 +54,12 @@ export function OrphanReview({
   graph,
   onReanchor,
   onDelete,
-}: {
+}: Readonly<{
   orphans: Orphan[];
   graph: Graph;
   onReanchor: (id: string, anchors: string[]) => void;
   onDelete: (id: string) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [kept, setKept] = useState<ReadonlySet<string>>(new Set());
 
@@ -68,9 +68,8 @@ export function OrphanReview({
 
   const n = shown.length;
   return (
-    <div
-      role="status"
-      className="bg-warning-soft text-warning border-b border-warning/40 px-4 py-2"
+    <output
+      className="block bg-warning-soft text-warning border-b border-warning/40 px-4 py-2"
     >
       <div className="flex items-center justify-center gap-2">
         <TriangleAlert className="size-4" />
@@ -103,7 +102,7 @@ export function OrphanReview({
           ))}
         </ul>
       )}
-    </div>
+    </output>
   );
 }
 
@@ -114,14 +113,14 @@ function OrphanRow({
   onReanchor,
   onKeep,
   onDelete,
-}: {
+}: Readonly<{
   annotation: Annotation;
   missing: string[];
   graph: Graph;
   onReanchor: (missingAnchor: string, replacement: string) => void;
   onKeep: () => void;
   onDelete: () => void;
-}) {
+}>) {
   const Icon = TYPE_ICON[annotation.type];
   return (
     <li className="border-warning/40 bg-warning/5 rounded-md border px-3 py-2">
@@ -172,11 +171,11 @@ function MissingAnchor({
   address,
   graph,
   onPick,
-}: {
+}: Readonly<{
   address: string;
   graph: Graph;
   onPick: (replacement: string) => void;
-}) {
+}>) {
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const results = query ? searchNodes(graph.nodes, query, 8) : [];

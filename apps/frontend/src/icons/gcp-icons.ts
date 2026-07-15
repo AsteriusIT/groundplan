@@ -52,7 +52,9 @@ const MODULES = import.meta.glob<string>("./gcp/*.svg", {
 const URL_BY_KEY = iconUrlMap(MODULES);
 
 /** All vendored GCP icon keys (used by the /styleguide gallery). */
-export const GCP_ICON_KEYS = [...URL_BY_KEY.keys()].sort() as GcpIconKey[];
+export const GCP_ICON_KEYS = [...URL_BY_KEY.keys()].sort((a, b) =>
+  a.localeCompare(b),
+) as GcpIconKey[];
 
 /** The asset URL for a vendored GCP icon. */
 export function gcpIconUrl(key: GcpIconKey): string | undefined {

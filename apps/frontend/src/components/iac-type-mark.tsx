@@ -22,11 +22,11 @@ export function IacTypeMark({
   iacType,
   className,
   alt = "",
-}: {
+}: Readonly<{
   iacType: IacType;
   className?: string;
   alt?: string;
-}) {
+}>) {
   return (
     <img
       src={LOGO[iacType]}

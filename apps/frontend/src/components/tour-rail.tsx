@@ -26,7 +26,7 @@ export function TourRail({
   onNext,
   onPrev,
   onExit,
-}: {
+}: Readonly<{
   tour: Tour;
   index: number;
   model: string | null;
@@ -34,7 +34,7 @@ export function TourRail({
   onNext: () => void;
   onPrev: () => void;
   onExit: () => void;
-}) {
+}>) {
   const total = tour.steps.length;
   const last = index === total - 1;
 

@@ -392,8 +392,9 @@ export function listSnapshots(
   if (opts.source) params.set("source", opts.source);
   if (opts.prNumber !== undefined) params.set("pr_number", String(opts.prNumber));
   const query = params.toString();
+  const querySuffix = query ? `?${query}` : "";
   return request<SnapshotSummary[]>(
-    `/repositories/${encode(repositoryId)}/snapshots${query ? `?${query}` : ""}`,
+    `/repositories/${encode(repositoryId)}/snapshots${querySuffix}`,
   );
 }
 

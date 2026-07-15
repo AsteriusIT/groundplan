@@ -40,7 +40,7 @@ export function changesSubgraph(graph: Graph): Graph {
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
   }
-  for (const id of [...keep]) {
+  for (const id of keep) {
     let parent = parentOf.get(id);
     while (parent && !keep.has(parent)) {
       keep.add(parent);

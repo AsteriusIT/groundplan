@@ -215,13 +215,13 @@ function CheckRow({
   onToggle,
   count,
   children,
-}: {
+}: Readonly<{
   checked: boolean;
   onToggle: () => void;
   /** How many resources this option covers — what unticking it will cost you. */
   count?: number;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <label className="flex cursor-pointer items-center gap-1.5 text-xs">
       <input
@@ -245,7 +245,7 @@ function CheckRow({
  * expression-inferred reference vs an explicit `depends_on` (GP-20) — but nothing
  * on screen said so, which turns a deterministic encoding into a guess.
  */
-function EdgeLegend({ variant }: { variant: "plan" | "docs" }) {
+function EdgeLegend({ variant }: Readonly<{ variant: "plan" | "docs" }>) {
   return (
     <div className="bg-card/90 text-muted-foreground absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-1.5 shadow-sm backdrop-blur">
       {variant === "plan" &&
@@ -308,7 +308,7 @@ export function GraphCanvas({
   onExpandGroup,
   highlightIds,
   tour,
-}: {
+}: Readonly<{
   graph: Graph;
   variant?: "plan" | "docs";
   /** When set/changed, select that node and fly to it (GP-40 compare lists). */
@@ -348,7 +348,7 @@ export function GraphCanvas({
    * guide rail lives outside the canvas and asks for nothing but the camera.
    */
   tour?: (TourChrome & { chrome: TourStyle }) | null;
-}) {
+}>) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
   const hubs = useMemo(() => detectHubs(graph), [graph]);
@@ -1046,7 +1046,7 @@ export function GraphCanvas({
           here we only render the tool palette + contextual actions. */}
       {annotate && (
         <div className="bg-card/95 absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border border-border px-2 py-1.5 shadow-sm backdrop-blur">
-          <div role="group" aria-label="Annotate tools" className="flex items-center gap-1">
+          <fieldset aria-label="Annotate tools" className="flex items-center gap-1">
             <ToolButton label="Select" active={tool.tool === "select"} onClick={() => setTool("select")}>
               <MousePointer2 className="size-4" />
             </ToolButton>
@@ -1062,7 +1062,7 @@ export function GraphCanvas({
             <ToolButton label="Hide" active={tool.tool === "hide"} onClick={() => setTool("hide")}>
               <EyeOff className="size-4" />
             </ToolButton>
-          </div>
+          </fieldset>
 
           {tool.tool === "select" && (
             <span className="text-muted-foreground px-1 text-xs">
@@ -1185,12 +1185,12 @@ function ToolButton({
   active,
   onClick,
   children,
-}: {
+}: Readonly<{
   label: string;
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <button
       type="button"
@@ -1218,7 +1218,7 @@ function LabelForm({
   onChange,
   onSubmit,
   onCancel,
-}: {
+}: Readonly<{
   label: string;
   submitLabel: string;
   value: string;
@@ -1227,7 +1227,7 @@ function LabelForm({
   onChange: (v: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-1">
       <input
@@ -1273,11 +1273,11 @@ function AnnotationRow({
   annotation,
   onRelabel,
   onDelete,
-}: {
+}: Readonly<{
   annotation: Annotation;
   onRelabel: (label: string) => void;
   onDelete: () => void;
-}) {
+}>) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(annotation.label ?? "");
   const Icon = ROW_ICON[annotation.type] ?? Group;
@@ -1346,10 +1346,10 @@ function AnnotationRow({
 function FilterSection({
   title,
   children,
-}: {
+}: Readonly<{
   title: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="mb-2 last:mb-0">
       <p className="text-muted-foreground mb-1 font-mono text-[10px] tracking-wide uppercase">
@@ -1365,12 +1365,12 @@ function ToolbarButton({
   onClick,
   className,
   children,
-}: {
+}: Readonly<{
   label: string;
   onClick: () => void;
   className?: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <button
       type="button"

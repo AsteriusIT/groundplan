@@ -13,12 +13,12 @@ export function SidePanel({
   children,
   className,
   label,
-}: {
+}: Readonly<{
   children: ReactNode;
   className?: string;
   /** Accessible name for the panel region. */
   label?: string;
-}) {
+}>) {
   return (
     <aside
       aria-label={label}
@@ -35,10 +35,10 @@ export function SidePanel({
 export function SidePanelHeader({
   children,
   onClose,
-}: {
+}: Readonly<{
   children: ReactNode;
   onClose?: () => void;
-}) {
+}>) {
   return (
     <div className="border-border flex items-start justify-between gap-2 border-b px-4 py-3">
       <div className="min-w-0 flex-1">{children}</div>
@@ -60,10 +60,10 @@ export function SidePanelHeader({
 export function SidePanelBody({
   children,
   className,
-}: {
+}: Readonly<{
   children: ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <div
       className={cn(
@@ -80,12 +80,12 @@ export function SidePanelSection({
   label,
   children,
   className,
-}: {
+}: Readonly<{
   /** Mono uppercase label; omit for an unlabelled block. */
   label?: ReactNode;
   children: ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <section className={className}>
       {label && (

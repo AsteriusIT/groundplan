@@ -123,7 +123,7 @@ function moduleNodeChain(moduleAddress: string): GraphNode[] {
 function shortProvider(providerName: unknown): string | null {
   if (typeof providerName !== "string" || providerName === "") return null;
   const segments = providerName.split("/");
-  return segments[segments.length - 1] || null;
+  return segments.at(-1) || null;
 }
 
 function asString(value: unknown): string {
@@ -185,8 +185,10 @@ function collectSources(
   }
 }
 
-const compareStrings = (a: string, b: string): number =>
-  a < b ? -1 : a > b ? 1 : 0;
+const compareStrings = (a: string, b: string): number => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
 
 const sortEdges = (a: GraphEdge, b: GraphEdge): number =>
   compareStrings(a.kind, b.kind) ||
@@ -338,7 +340,7 @@ function resolveIdentityIds(
       if (nodesById.get(id)?.type === "azurerm_user_assigned_identity") ids.add(id);
     }
   }
-  return [...ids].sort();
+  return [...ids].sort(compareStrings);
 }
 
 /** The first `identity {}` block object from a plan `after.identity` value. */
@@ -489,7 +491,7 @@ export function parsePlanToGraph(
           });
         }
       }
-      const deepest = chain[chain.length - 1];
+      const deepest = chain.at(-1);
       if (deepest) {
         containsEdges.set(`${deepest.id} ${id}`, {
           from: deepest.id,

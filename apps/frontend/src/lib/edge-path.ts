@@ -96,7 +96,7 @@ export function orthogonalPath(
     const after = towards(corner, pts[i + 1]!, RADIUS);
     d += ` L ${before.x},${before.y} Q ${corner.x},${corner.y} ${after.x},${after.y}`;
   }
-  const end = pts[pts.length - 1]!;
+  const end = pts.at(-1)!;
   d += ` L ${end.x},${end.y}`;
   return d;
 }

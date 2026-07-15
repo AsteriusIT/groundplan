@@ -4,7 +4,7 @@ export function slugify(input: string): string {
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|(?<!-)-+$/g, "");
 }
 
 /** Up to two initials for an avatar, from a display name or email. */
@@ -18,7 +18,7 @@ export function initials(name: string | null, email: string | null): string {
 /** Reduce a git remote URL to its `owner/repo` path (best effort). */
 export function repoName(url: string): string {
   const clean = (p: string) =>
-    p.replace(/\.git$/, "").replace(/^\/+/, "").replace(/\/+$/, "");
+    p.replace(/\.git$/, "").replace(/^\/+/, "").replace(/(?<!\/)\/+$/, "");
 
   // scp-like syntax: git@host:owner/repo(.git) — path is after the colon.
   const scp = /^[^/@]+@[^:/]+:(.+)$/.exec(url.trim());

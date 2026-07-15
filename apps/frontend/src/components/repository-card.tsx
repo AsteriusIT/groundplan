@@ -59,13 +59,13 @@ export function RepositoryCard({
   activity,
   onChanged,
   onDeleted,
-}: {
+}: Readonly<{
   repo: Repository;
   /** Undefined while activity is loading, or if the call failed. */
   activity?: RepositoryActivity;
   onChanged: (repo: Repository) => void;
   onDeleted: (id: string) => void;
-}) {
+}>) {
   const [showCi, setShowCi] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -277,11 +277,11 @@ function ActivityStrip({
   activity,
   prCommentsFailed,
   onCiSetup,
-}: {
+}: Readonly<{
   activity: RepositoryActivity;
   prCommentsFailed: boolean;
   onCiSetup: () => void;
-}) {
+}>) {
   const { openPrs, lastSnapshotAt, lastEventAt } = activity;
 
   if (!lastEventAt && !lastSnapshotAt && openPrs === 0) {
@@ -318,10 +318,10 @@ function ActivityStrip({
 function Fact({
   label,
   children,
-}: {
+}: Readonly<{
   label: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-1.5">
       <dt>{label}</dt>

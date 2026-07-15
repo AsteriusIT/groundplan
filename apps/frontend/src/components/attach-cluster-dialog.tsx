@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type ReactNode, type SyntheticEvent, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 
 import { ApiError, createCluster, verifyCluster } from "@/api/client";
@@ -36,10 +36,10 @@ import {
 export function AttachClusterDialog({
   trigger,
   onAttached,
-}: {
+}: Readonly<{
   trigger: ReactNode;
   onAttached: (cluster: Cluster) => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [kubeconfig, setKubeconfig] = useState("");
@@ -65,7 +65,7 @@ export function AttachClusterDialog({
     }
   }
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
     if (!name.trim()) {
       setError("Name this cluster.");

@@ -11,7 +11,7 @@
  * a `[index]` suffix for `count`/`for_each` instances (`web[0]`, `web["key"]`).
  */
 const SEGMENT = String.raw`[A-Za-z_][A-Za-z0-9_-]*(?:\[[^\]\s]+\])?`;
-const ADDRESS = new RegExp(`^${SEGMENT}(?:\\.${SEGMENT})+$`);
+const ADDRESS = new RegExp(String.raw`^${SEGMENT}(?:\.${SEGMENT})+$`);
 
 /** True when `value` looks like a Terraform resource address (format only). */
 export function isTerraformAddress(value: string): boolean {

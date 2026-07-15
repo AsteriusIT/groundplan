@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useAiStatus } from "@/lib/use-ai-status";
 import type { TourPlayer } from "@/tour/use-tour";
 
-export function TourLauncher({ player }: { player: TourPlayer }) {
+export function TourLauncher({ player }: Readonly<{ player: TourPlayer }>) {
   const status = useAiStatus();
 
   // No key, no model, no button. The feature does not exist rather than existing

@@ -33,8 +33,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       } else {
         flags[body] = true;
       }
-    } else if (command === undefined) {
-      command = arg;
+    } else {
+      command ??= arg;
     }
   }
 

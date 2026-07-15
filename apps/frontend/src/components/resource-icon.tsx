@@ -39,10 +39,10 @@ function vendorIconUrl(res: IconResolution): string | undefined {
 export function ResourceIcon({
   type,
   className,
-}: {
+}: Readonly<{
   type: string;
   className?: string;
-}) {
+}>) {
   const res = resolveResourceIcon(type);
 
   const url = vendorIconUrl(res);

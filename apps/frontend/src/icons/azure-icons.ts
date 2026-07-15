@@ -55,7 +55,9 @@ for (const [path, url] of Object.entries(MODULES)) {
 }
 
 /** All vendored icon keys (used by the /styleguide gallery). */
-export const AZURE_ICON_KEYS = [...URL_BY_KEY.keys()].sort() as AzureIconKey[];
+export const AZURE_ICON_KEYS = [...URL_BY_KEY.keys()].sort((a, b) =>
+  a.localeCompare(b),
+) as AzureIconKey[];
 
 /** The asset URL for a vendored Azure icon. */
 export function azureIconUrl(key: AzureIconKey): string | undefined {

@@ -21,12 +21,12 @@ export function DeleteClusterDialog({
   open,
   onOpenChange,
   onConfirm,
-}: {
+}: Readonly<{
   name: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => Promise<void>;
-}) {
+}>) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

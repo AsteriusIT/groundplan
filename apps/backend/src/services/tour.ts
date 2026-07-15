@@ -88,8 +88,8 @@ export type RawTour = { title: string; steps: RawStep[] };
  * because refusing those costs a retry and buys nothing.
  */
 export function parseTour(raw: string): RawTour {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
-  const body = (fenced?.[1] ?? raw).trim();
+  const fenced = /```(?:json)?(?=(\s*))\1([\s\S]*?)```/i.exec(raw);
+  const body = (fenced?.[2] ?? raw).trim();
 
   const start = body.indexOf("{");
   const end = body.lastIndexOf("}");

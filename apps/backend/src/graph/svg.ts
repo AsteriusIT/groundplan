@@ -72,11 +72,11 @@ function nodeStyle(node: GraphNode): { fill: string; stroke: string; dashed: boo
 /** Escape the five XML-significant characters. */
 export function esc(text: string): string {
   return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 /** Truncate a label to a character budget with an ellipsis. */

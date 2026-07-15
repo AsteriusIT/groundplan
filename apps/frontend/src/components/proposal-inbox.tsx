@@ -64,7 +64,7 @@ export function ProposalInbox({
   onDismiss,
   onPreview,
   onClose,
-}: ProposalInboxProps) {
+}: Readonly<ProposalInboxProps>) {
   const groups = proposals.filter((p) => p.type === "group");
 
   return (
@@ -156,13 +156,13 @@ function ProposalRow({
   onEdit,
   onDismiss,
   onPreview,
-}: {
+}: Readonly<{
   proposal: Annotation;
   onAccept: () => void;
   onEdit: (label: string) => void;
   onDismiss: () => void;
   onPreview: (anchors: string[] | null) => void;
-}) {
+}>) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(proposal.label ?? "");
   const Icon = TYPE_ICON[proposal.type];
@@ -254,12 +254,12 @@ function RowButton({
   label,
   variant = "plain",
   children,
-}: {
+}: Readonly<{
   onClick: () => void;
   label: string;
   variant?: "accept" | "plain";
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <button
       type="button"

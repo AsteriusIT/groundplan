@@ -15,11 +15,11 @@ export function StatusBadge({
   kind,
   size = "md",
   className,
-}: {
+}: Readonly<{
   kind: StatusKind;
   size?: "sm" | "md";
   className?: string;
-}) {
+}>) {
   const meta = STATUS_META[kind];
   return (
     <span

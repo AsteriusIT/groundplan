@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type ReactNode, type SyntheticEvent, useState } from "react";
 
 import { ApiError, deleteProject } from "@/api/client";
 import type { Project } from "@/api/types";
@@ -21,14 +21,14 @@ export function DeleteProjectDialog({
   open: controlledOpen,
   onOpenChange,
   onDeleted,
-}: {
+}: Readonly<{
   project: Pick<Project, "id" | "name">;
   /** Omit when opening from a menu item — drive `open` instead. */
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onDeleted: (id: string) => void;
-}) {
+}>) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -47,7 +47,7 @@ export function DeleteProjectDialog({
     }
   }
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
     if (!confirmed) return;
     setSubmitting(true);

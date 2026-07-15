@@ -134,7 +134,7 @@ export function ClustersPage() {
  * No clusters yet: one sentence and one button (the dashboard's rule). An empty
  * table would be a table that tells you nothing about what a cluster is *for*.
  */
-function EmptyState({ onAttached }: { onAttached: (cluster: Cluster) => void }) {
+function EmptyState({ onAttached }: Readonly<{ onAttached: (cluster: Cluster) => void }>) {
   return (
     <div className="bg-card/40 mx-auto flex max-w-md flex-col items-center gap-4 rounded-md border border-dashed border-border px-8 py-16 text-center">
       <div className="bg-accent text-primary grid size-12 place-items-center rounded-sm">
@@ -165,10 +165,10 @@ function EmptyState({ onAttached }: { onAttached: (cluster: Cluster) => void }) 
 function ErrorState({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <div
       role="alert"

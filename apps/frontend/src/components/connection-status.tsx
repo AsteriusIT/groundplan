@@ -37,7 +37,9 @@ const DOT = {
  * of competing with the buttons. The label stays available to screen readers
  * and on hover — the colour alone is never the message.
  */
-export function ConnectionStatusDot({ status }: { status: ConnectionStatus }) {
+export function ConnectionStatusDot({
+  status,
+}: Readonly<{ status: ConnectionStatus }>) {
   const { label } = STATUS[status];
   return (
     <span
@@ -54,9 +56,9 @@ export function ConnectionStatusDot({ status }: { status: ConnectionStatus }) {
 /** Small pill showing a repository's last connection-check result (GP-11). */
 export function ConnectionStatusBadge({
   status,
-}: {
+}: Readonly<{
   status: ConnectionStatus;
-}) {
+}>) {
   const { label, icon: Icon, className } = STATUS[status];
   return (
     <span

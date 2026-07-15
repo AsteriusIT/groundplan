@@ -178,8 +178,8 @@ export function ClusterPage() {
                 <ChevronLeft className="size-3.5" />
                 All clusters
               </Link>
-              <span className="text-faint">/</span>
-              Kubernetes
+              <span className="text-faint">/</span>{/*
+              */}Kubernetes
             </p>
             <h1 className="font-display truncate text-xl font-semibold">
               {cluster?.name ?? "Cluster"}
@@ -251,13 +251,12 @@ export function ClusterPage() {
       )}
 
       {busy && (
-        <div
-          role="status"
+        <output
           className="bg-accent border-border flex items-center justify-center gap-3 border-b px-4 py-2 text-xs"
         >
           This namespace is already being read — the diagram will be ready in a
           moment.
-        </div>
+        </output>
       )}
 
       {current && (
@@ -300,7 +299,7 @@ export function ClusterPage() {
  * than showing a canvas holding one lonely container and letting the reader
  * wonder what broke.
  */
-function NothingToDraw({ namespace }: { namespace: string }) {
+function NothingToDraw({ namespace }: Readonly<{ namespace: string }>) {
   return (
     <div className="grid h-full place-items-center p-8">
       <div className="max-w-md text-center">
@@ -325,11 +324,11 @@ function EmptyState({
   namespace,
   generating,
   onGenerate,
-}: {
+}: Readonly<{
   namespace: string;
   generating: boolean;
   onGenerate: () => void;
-}) {
+}>) {
   return (
     <div className="grid h-full place-items-center p-8">
       <div className="max-w-md text-center">
@@ -356,7 +355,7 @@ function EmptyState({
   );
 }
 
-function Centered({ children }: { children: React.ReactNode }) {
+function Centered({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="text-muted-foreground grid h-full place-items-center p-8 text-sm">
       {children}

@@ -12,7 +12,7 @@ import { Sparkles } from "lucide-react";
 import { Chip } from "@/components/ui/chip";
 import { cn } from "@/lib/utils";
 
-export function AiBadge({ className }: { className?: string }) {
+export function AiBadge({ className }: Readonly<{ className?: string }>) {
   return (
     <Chip
       variant="accent"

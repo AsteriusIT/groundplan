@@ -170,12 +170,12 @@ function Field({
   value,
   mono = true,
   copyLabel,
-}: {
+}: Readonly<{
   label: string;
   value: string;
   mono?: boolean;
   copyLabel: string;
-}) {
+}>) {
   return (
     <div className="space-y-1.5">
       <p className="text-muted-foreground font-mono text-[11px] tracking-wide uppercase">
@@ -375,7 +375,7 @@ function KubernetesSetup({
       )}
 
       <div className="space-y-1.5">
-        <div role="group" aria-label="Manifest flavour" className="flex gap-1">
+        <fieldset aria-label="Manifest flavour" className="flex gap-1">
           {MANIFEST_FLAVOURS.map(({ id, label }) => (
             <button
               key={id}
@@ -392,7 +392,7 @@ function KubernetesSetup({
               {label}
             </button>
           ))}
-        </div>
+        </fieldset>
         <p className="text-muted-foreground text-xs">
           {docsFromCi(flavour)
             ? "Templates aren't manifests, so Groundplan can't read this repository's diagram from its files — main's documentation comes from your CI rendering it on merge, exactly as pull requests do."

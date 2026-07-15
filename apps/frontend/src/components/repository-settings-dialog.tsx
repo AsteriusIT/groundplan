@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type SubmitEvent, useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 
 import { ApiError, updateRepository } from "@/api/client";
@@ -33,12 +33,12 @@ export function RepositorySettingsDialog({
   open,
   onOpenChange,
   onUpdated,
-}: {
+}: Readonly<{
   repository: Repository;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdated: (repo: Repository) => void;
-}) {
+}>) {
   const [pat, setPat] = useState("");
   const [branch, setBranch] = useState(repository.defaultBranch);
   const [tfPath, setTfPath] = useState(repository.terraformPath);
@@ -86,7 +86,7 @@ export function RepositorySettingsDialog({
   };
   const dirty = Object.keys(patch).length > 0;
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     if (!dirty) {
       handleOpenChange(false);
@@ -189,7 +189,7 @@ export function RepositorySettingsDialog({
                 onChange={(e) => setPrComments(e.target.checked)}
               />
               <span>
-                Comment on GitHub pull requests
+                Comment on GitHub pull requests{/* */}
                 <span className="text-muted-foreground block text-xs">
                   Posts the change summary back to the PR when a plan arrives.
                   Needs a token with write access.

@@ -54,13 +54,13 @@ export function IamTable({
   graph,
   variant,
   onViewInPlanImpact,
-}: {
+}: Readonly<{
   graph: Graph;
   /** "plan" shows the change column + row tint; "docs" omits both. */
   variant: "plan" | "docs";
   /** GP-49: jump to the plan-impact view with `node` selected (preserved). */
   onViewInPlanImpact?: (node: GraphNode) => void;
-}) {
+}>) {
   const showChange = variant === "plan";
   const [query, setQuery] = useState("");
   const [privilegedOnly, setPrivilegedOnly] = useState(false);
@@ -115,8 +115,15 @@ export function IamTable({
         : { key, dir: "asc" },
     );
 
-  const arrow = (key: SortKey): string =>
-    sort.key === key ? (sort.dir === "asc" ? " ↑" : " ↓") : "";
+  const arrow = (key: SortKey): string => {
+    if (sort.key !== key) return "";
+    return sort.dir === "asc" ? " ↑" : " ↓";
+  };
+
+  const ariaSort = (key: SortKey): "ascending" | "descending" | "none" => {
+    if (sort.key !== key) return "none";
+    return sort.dir === "asc" ? "ascending" : "descending";
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -160,13 +167,7 @@ export function IamTable({
                 <th
                   key={col.key}
                   scope="col"
-                  aria-sort={
-                    sort.key === col.key
-                      ? sort.dir === "asc"
-                        ? "ascending"
-                        : "descending"
-                      : "none"
-                  }
+                  aria-sort={ariaSort(col.key)}
                   className="px-8 py-2.5 text-left font-mono text-[11px] tracking-[0.12em] uppercase"
                 >
                   <button
@@ -269,11 +270,11 @@ function CellValue({
   value,
   target,
   onSelect,
-}: {
+}: Readonly<{
   value: string;
   target?: GraphNode;
   onSelect: (node: GraphNode) => void;
-}) {
+}>) {
   if (target) {
     return (
       <button

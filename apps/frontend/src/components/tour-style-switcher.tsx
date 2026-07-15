@@ -17,12 +17,11 @@ const OPTIONS: { style: TourStyle; label: string; icon: LucideIcon }[] = [
   { style: "guide", label: "Guide", icon: ListOrdered },
 ];
 
-export function TourStyleSwitcher({ className }: { className?: string }) {
+export function TourStyleSwitcher({ className }: Readonly<{ className?: string }>) {
   const { style, setStyle } = useTourStyle();
 
   return (
-    <div
-      role="group"
+    <fieldset
       aria-label="Tour style"
       className={cn(
         "border-border flex gap-0.5 rounded-md border p-0.5",
@@ -51,6 +50,6 @@ export function TourStyleSwitcher({ className }: { className?: string }) {
           </button>
         );
       })}
-    </div>
+    </fieldset>
   );
 }

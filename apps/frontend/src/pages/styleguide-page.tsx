@@ -46,11 +46,11 @@ function Swatch({
   name,
   token,
   swatchClass,
-}: {
+}: Readonly<{
   name: string;
   token: string;
   swatchClass: string;
-}) {
+}>) {
   const hex = useCssVar(token);
   return (
     <div className="flex items-center gap-3">
@@ -71,10 +71,10 @@ function Swatch({
 function Group({
   title,
   children,
-}: {
+}: Readonly<{
   title: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div>
       <h3 className="text-muted-foreground mb-3 font-mono text-[11px] font-medium tracking-[0.08em] uppercase">
@@ -91,11 +91,11 @@ function Section({
   title,
   eyebrow,
   children,
-}: {
+}: Readonly<{
   title: string;
   eyebrow: string;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <section className="border-border border-t pt-10">
       <p className="text-primary font-mono text-[11px] tracking-[0.12em] uppercase">

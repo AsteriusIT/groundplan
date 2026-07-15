@@ -42,10 +42,10 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
 export function ChangeSummary({
   markdown,
   className,
-}: {
+}: Readonly<{
   markdown: string;
   className?: string;
-}) {
+}>) {
   const lines = markdown.split("\n");
   return (
     <div className={cn("text-muted-foreground space-y-1 text-xs leading-relaxed", className)}>
@@ -89,11 +89,11 @@ export function ChangeSummarySidebar({
   markdown,
   prNumber,
   above,
-}: {
+}: Readonly<{
   markdown: string;
   prNumber?: number;
   above?: ReactNode;
-}) {
+}>) {
   const empty = !markdown || markdown === "No changes.";
   return (
     <aside className="border-border bg-card flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l px-4 py-4">
@@ -122,7 +122,7 @@ export function ChangeSummarySidebar({
 }
 
 /** A collapsible "Change summary" panel — used at the top of the PR view. */
-export function ChangeSummaryPanel({ markdown }: { markdown: string }) {
+export function ChangeSummaryPanel({ markdown }: Readonly<{ markdown: string }>) {
   if (!markdown || markdown === "No changes.") {
     return (
       <p className="text-muted-foreground mt-3 text-sm">

@@ -34,7 +34,7 @@ function makeKeys() {
 let keyMaterial: ReturnType<typeof makeKeys> | undefined;
 
 async function keys() {
-  if (!keyMaterial) keyMaterial = makeKeys();
+  keyMaterial ??= makeKeys();
   return keyMaterial;
 }
 

@@ -82,11 +82,11 @@ function PullRow({
   projectId,
   repoId,
   pull,
-}: {
+}: Readonly<{
   projectId: string;
   repoId: string;
   pull: PullSummary;
-}) {
+}>) {
   return (
     <Link
       to={`/projects/${projectId}/repos/${repoId}/pulls/${pull.number}`}
@@ -142,10 +142,10 @@ function EmptyState() {
 function ErrorState({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <div
       role="alert"

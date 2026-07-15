@@ -225,7 +225,7 @@ export const annotationRoutes: FastifyPluginAsync = async (app) => {
           })
           .from(graphSnapshots)
           .where(eq(graphSnapshots.id, query.snapshotId));
-        if (!snapshot || snapshot.repositoryId !== id) {
+        if (snapshot?.repositoryId !== id) {
           return reply
             .code(404)
             .send({ error: "Not Found", message: "snapshot not found" });

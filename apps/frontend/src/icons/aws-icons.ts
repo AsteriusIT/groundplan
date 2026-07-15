@@ -61,7 +61,9 @@ const MODULES = import.meta.glob<string>("./aws/*.svg", {
 const URL_BY_KEY = iconUrlMap(MODULES);
 
 /** All vendored AWS icon keys (used by the /styleguide gallery). */
-export const AWS_ICON_KEYS = [...URL_BY_KEY.keys()].sort() as AwsIconKey[];
+export const AWS_ICON_KEYS = [...URL_BY_KEY.keys()].sort((a, b) =>
+  a.localeCompare(b),
+) as AwsIconKey[];
 
 /** The asset URL for a vendored AWS icon. */
 export function awsIconUrl(key: AwsIconKey): string | undefined {

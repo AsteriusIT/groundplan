@@ -95,7 +95,7 @@ export function loadEnv(): AppEnv {
       (nodeEnv === "production" ? "" : DEV_ENCRYPTION_KEY),
     exportCacheDir:
       process.env.EXPORT_CACHE_DIR ?? join(tmpdir(), "groundplan-exports"),
-    publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, ""),
+    publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/(?=(\/+))\1$/, ""),
     aiApiKey: process.env.AI_API_KEY ?? "",
     aiModel: process.env.AI_MODEL ?? DEFAULT_AI_MODEL,
     refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),

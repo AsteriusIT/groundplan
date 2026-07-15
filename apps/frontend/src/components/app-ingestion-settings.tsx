@@ -80,6 +80,13 @@ export function AppIngestionSettings() {
 
   const isSet = status?.appWebhookTokenSet ?? false;
 
+  let rotateLabel: string;
+  if (busy) {
+    rotateLabel = "Working…";
+  } else {
+    rotateLabel = isSet ? "Regenerate" : "Generate token";
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -117,7 +124,7 @@ export function AppIngestionSettings() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={() => void rotate()} disabled={busy}>
-          {busy ? "Working…" : isSet ? "Regenerate" : "Generate token"}
+          {rotateLabel}
         </Button>
         {isSet && (
           <Button

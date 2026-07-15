@@ -17,13 +17,13 @@ export function ExportMenu({
   snapshotId,
   filenameBase,
   includeChangesScope = false,
-}: {
+}: Readonly<{
   snapshotId: string;
   /** Base name for the downloaded file, e.g. `infra-2c9f8061`. */
   filenameBase: string;
   /** Offer a "changes only" variant (PR view). */
   includeChangesScope?: boolean;
-}) {
+}>) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

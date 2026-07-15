@@ -59,9 +59,11 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((err: unknown) => {
+try {
+  await main();
+} catch (err: unknown) {
   const exitCode = err instanceof CliError ? err.exitCode : 1;
   const message = err instanceof Error ? err.message : String(err);
   process.stderr.write(`✗ ${message}\n`);
   process.exit(exitCode);
-});
+}

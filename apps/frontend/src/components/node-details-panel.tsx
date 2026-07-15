@@ -37,7 +37,7 @@ export function NodeDetailsPanel({
   onSelect,
   showChange = true,
   footer,
-}: {
+}: Readonly<{
   graph: Graph;
   node: GraphNode;
   onClose: () => void;
@@ -46,7 +46,7 @@ export function NodeDetailsPanel({
   showChange?: boolean;
   /** Optional action bar pinned below the scrolling body (e.g. cross-view jump). */
   footer?: ReactNode;
-}) {
+}>) {
   const status = statusOf(node.change);
   const impacted = showChange && node.impacted === true;
   const ancestor = impacted ? nearestChangedAncestor(graph, node.id) : null;
@@ -207,11 +207,11 @@ function WhyImpacted({
   ancestor,
   distance,
   onSelect,
-}: {
+}: Readonly<{
   ancestor: ChangedAncestor;
   distance: number;
   onSelect: (node: GraphNode) => void;
-}) {
+}>) {
   const label = (n: GraphNode) => `${shortType(n.type)}.${n.name}`;
   const throughHop = distance > 1 && ancestor.firstHop.id !== ancestor.node.id;
   return (
@@ -252,7 +252,7 @@ function WhyImpacted({
  * internet source are tinted with the exposure token and flagged, so a reviewer
  * sees exactly which rule opens the group to the internet.
  */
-function SecurityRules({ rules }: { rules: FlaggedRule[] }) {
+function SecurityRules({ rules }: Readonly<{ rules: FlaggedRule[] }>) {
   return (
     <div className="border-border divide-border divide-y rounded-md border font-mono text-[11px]">
       {rules.map(({ rule, internet }) => (
@@ -287,10 +287,10 @@ const SPECIAL_VALUES = new Set(["(sensitive)", "(known after apply)"]);
 function ValueBadge({
   value,
   side,
-}: {
+}: Readonly<{
   value: string | null;
   side: "before" | "after";
-}) {
+}>) {
   if (value === null) return <span className="text-faint">—</span>;
   if (SPECIAL_VALUES.has(value)) {
     return (
@@ -311,7 +311,7 @@ function ValueBadge({
   );
 }
 
-function ChangeRow({ row }: { row: AttributeDiffRow }) {
+function ChangeRow({ row }: Readonly<{ row: AttributeDiffRow }>) {
   return (
     <div className="flex flex-col gap-1 px-2.5 py-1.5">
       <span className="text-ink font-mono text-[11px] font-medium break-all">
@@ -332,13 +332,13 @@ function ConnectionList({
   onSelect,
   empty,
   className,
-}: {
+}: Readonly<{
   title: string;
   nodes: GraphNode[];
   onSelect: (node: GraphNode) => void;
   empty: string;
   className?: string;
-}) {
+}>) {
   return (
     <div className={className}>
       <p className="text-faint mb-1 font-mono text-[10px] tracking-wide uppercase">
@@ -362,16 +362,13 @@ function ConnectionList({
 function ConnectionRow({
   node,
   onSelect,
-}: {
+}: Readonly<{
   node: GraphNode;
   onSelect: (node: GraphNode) => void;
-}) {
+}>) {
   const status = statusOf(node.change);
-  const dot = status
-    ? STATUS_META[status].bg
-    : node.impacted
-      ? "bg-impacted"
-      : "bg-edge";
+  const impactedDot = node.impacted ? "bg-impacted" : "bg-edge";
+  const dot = status ? STATUS_META[status].bg : impactedDot;
   const catClass = CATEGORY_META[categorize(node.type)].className;
   return (
     <button

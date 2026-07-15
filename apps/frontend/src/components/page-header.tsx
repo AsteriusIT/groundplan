@@ -9,7 +9,7 @@ export function PageHeader({
   backTo,
   backLabel,
   actions,
-}: {
+}: Readonly<{
   eyebrow?: string;
   title: string;
   description?: string;
@@ -17,7 +17,7 @@ export function PageHeader({
   backTo?: string;
   backLabel?: string;
   actions?: ReactNode;
-}) {
+}>) {
   return (
     <header className="bg-card flex items-start justify-between gap-4 border-b border-border px-8 py-6">
       <div>

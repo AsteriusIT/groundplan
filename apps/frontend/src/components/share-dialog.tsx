@@ -28,11 +28,11 @@ import {
 export function ShareDialog({
   repositoryId,
   currentSnapshotId,
-}: {
+}: Readonly<{
   repositoryId: string;
   /** The snapshot currently open — offered as the "pin this version" target. */
   currentSnapshotId: string | null;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [loading, setLoading] = useState(false);
@@ -83,6 +83,36 @@ export function ShareDialog({
     }
   };
 
+  const linksSection =
+    links.length === 0 ? (
+      <p className="text-muted-foreground text-sm">No active share links yet.</p>
+    ) : (
+      <ul className="divide-y divide-border">
+        {links.map((link) => (
+          <li key={link.id} className="flex items-center gap-2 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-mono text-xs">{shareUrl(link.token)}</p>
+              <p className="text-muted-foreground text-[11px]">
+                {link.kind === "docs_latest" ? "Always latest" : "Pinned snapshot"}
+              </p>
+            </div>
+            <CopyButton value={shareUrl(link.token)} label="Copy" className="shrink-0" />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              aria-label="Revoke link"
+              disabled={busy}
+              onClick={() => revoke(link.id)}
+            >
+              <Trash2 className="text-destructive size-4" />
+            </Button>
+          </li>
+        ))}
+      </ul>
+    );
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -127,33 +157,8 @@ export function ShareDialog({
             <p className="text-muted-foreground flex items-center gap-2 text-sm">
               <Loader2 className="size-4 animate-spin" /> Loading links…
             </p>
-          ) : links.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No active share links yet.</p>
           ) : (
-            <ul className="divide-y divide-border">
-              {links.map((link) => (
-                <li key={link.id} className="flex items-center gap-2 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-xs">{shareUrl(link.token)}</p>
-                    <p className="text-muted-foreground text-[11px]">
-                      {link.kind === "docs_latest" ? "Always latest" : "Pinned snapshot"}
-                    </p>
-                  </div>
-                  <CopyButton value={shareUrl(link.token)} label="Copy" className="shrink-0" />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0"
-                    aria-label="Revoke link"
-                    disabled={busy}
-                    onClick={() => revoke(link.id)}
-                  >
-                    <Trash2 className="text-destructive size-4" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            linksSection
           )}
         </div>
       </DialogContent>

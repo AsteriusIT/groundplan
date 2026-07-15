@@ -45,14 +45,14 @@ export function AiPanel({
   kind,
   title,
   cta,
-}: {
+}: Readonly<{
   snapshotId: string;
   kind: AiKind;
   /** The rail heading, e.g. "AI summary". */
   title: string;
   /** The button that triggers the first generation. */
   cta: string;
-}) {
+}>) {
   const status = useAiStatus();
   const [loadingCached, setLoadingCached] = useState(true);
 

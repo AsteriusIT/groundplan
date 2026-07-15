@@ -36,8 +36,7 @@ export function propagateImpact(graph: Graph): Graph {
       queue.push(node.id);
     }
   }
-  for (let head = 0; head < queue.length; head++) {
-    const id = queue[head]!;
+  for (const id of queue) {
     const next = distance.get(id)! + 1;
     for (const dependent of dependentsOf.get(id) ?? []) {
       if (!distance.has(dependent)) {

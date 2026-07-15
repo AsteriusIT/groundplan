@@ -44,7 +44,11 @@ export function connectionsOf(graph: Graph, nodeId: string): Connections {
     [...ids]
       .map((id) => byId.get(id))
       .filter((n): n is GraphNode => n !== undefined)
-      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      .sort((a, b) => {
+        if (a.id < b.id) return -1;
+        if (a.id > b.id) return 1;
+        return 0;
+      });
   return { dependencies: resolve(depIds), dependents: resolve(dependentIds) };
 }
 
@@ -74,13 +78,18 @@ export function nearestChangedAncestor(
     if (list) list.push(edge.to);
     else deps.set(edge.from, [edge.to]);
   }
-  for (const list of deps.values()) list.sort();
+  for (const list of deps.values()) {
+    list.sort((a, b) => {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    });
+  }
 
   const distance = new Map<string, number>([[nodeId, 0]]);
   const firstHop = new Map<string, string>();
   const queue: string[] = [nodeId];
-  for (let head = 0; head < queue.length; head++) {
-    const current = queue[head] as string;
+  for (const current of queue) {
     const d = distance.get(current) as number;
     for (const next of deps.get(current) ?? []) {
       if (distance.has(next)) continue;

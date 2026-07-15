@@ -34,12 +34,15 @@ const COACH_MARK_OFFSET = 20;
  */
 export const COACH_MARK_GUTTER = COACH_MARK_WIDTH + COACH_MARK_OFFSET + 32;
 
-function StepCard({ tour, className }: { tour: TourChrome; className?: string }) {
+function StepCard({
+  tour,
+  className,
+}: Readonly<{ tour: TourChrome; className?: string }>) {
   const { step, index, total } = tour;
   const last = index === total - 1;
 
   return (
-    <div
+    <section
       className={cn(
         "border-border bg-panel w-72 rounded-lg border p-3 shadow-lg",
         className,
@@ -47,7 +50,6 @@ function StepCard({ tour, className }: { tour: TourChrome; className?: string })
       // The tour is a narration, not part of the diagram: a click inside the card
       // must not fall through to the canvas and deselect what it is talking about.
       onClick={(e) => e.stopPropagation()}
-      role="group"
       aria-label={`Tour step ${index + 1} of ${total}`}
     >
       <div className="mb-1 flex items-start justify-between gap-2">
@@ -86,11 +88,11 @@ function StepCard({ tour, className }: { tour: TourChrome; className?: string })
           </Button>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
-function Dots({ index, total }: { index: number; total: number }) {
+function Dots({ index, total }: Readonly<{ index: number; total: number }>) {
   return (
     <div className="flex items-center gap-1" aria-hidden="true">
       {Array.from({ length: total }, (_, i) => (
@@ -107,7 +109,7 @@ function Dots({ index, total }: { index: number; total: number }) {
 }
 
 /** The coach mark. Must be rendered as a child of `<ReactFlow>`. */
-export function TourSpotlight({ tour }: { tour: TourChrome }) {
+export function TourSpotlight({ tour }: Readonly<{ tour: TourChrome }>) {
   const anchors = tour.step.anchors;
 
   if (anchors.length === 0) {

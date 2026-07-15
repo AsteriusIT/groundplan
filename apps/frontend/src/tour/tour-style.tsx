@@ -44,15 +44,22 @@ export function resolveInitialTourStyle(): TourStyle {
   return "spotlight";
 }
 
-export function TourStyleProvider({ children }: { children: ReactNode }) {
-  const [style, setStyleState] = useState<TourStyle>(resolveInitialTourStyle);
+export function TourStyleProvider({
+  children,
+}: Readonly<{ children: ReactNode }>) {
+  const [styleState, setStyleState] = useState<TourStyle>(
+    resolveInitialTourStyle,
+  );
 
   const setStyle = useCallback((next: TourStyle) => {
     localStorage.setItem(TOUR_STYLE_STORAGE_KEY, next);
     setStyleState(next);
   }, []);
 
-  const value = useMemo(() => ({ style, setStyle }), [style, setStyle]);
+  const value = useMemo(
+    () => ({ style: styleState, setStyle }),
+    [styleState, setStyle],
+  );
 
   return <TourStyleContext value={value}>{children}</TourStyleContext>;
 }

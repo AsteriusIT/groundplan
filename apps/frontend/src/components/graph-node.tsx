@@ -39,7 +39,7 @@ export function NodeCard({
   exposed = false,
   hiddenByAnnotation = false,
   renameLabel,
-}: {
+}: Readonly<{
   graphNode: GraphNode;
   selected?: boolean;
   /** GP-58: picked as a link endpoint / group member in annotate mode. */
@@ -59,13 +59,15 @@ export function NodeCard({
   hiddenByAnnotation?: boolean;
   /** GP-73: the name a `rename` annotation will give this node in Adapted. */
   renameLabel?: string;
-}) {
+}>) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
   const isDelete = graphNode.change === "delete";
   const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
   // The projection has the last word: a node it renames shows that name here too.
   const displayName = graphNode.display_label ?? renameLabel ?? graphNode.name;
+  // Extracted out of the hub title to avoid a nested ternary (S3358).
+  const hubHiddenPlural = hubHiddenCount === 1 ? "" : "s";
 
   return (
     <div
@@ -152,7 +154,7 @@ export function NodeCard({
           className="bg-muted text-muted-foreground inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10px]"
           title={
             hubHiddenCount > 0
-              ? `${hubHiddenCount} hidden connection${hubHiddenCount === 1 ? "" : "s"} — select to reveal`
+              ? `${hubHiddenCount} hidden connection${hubHiddenPlural} — select to reveal`
               : "hub — connections shown"
           }
         >
@@ -161,15 +163,16 @@ export function NodeCard({
         </span>
       )}
 
-      {status ? (
+      {status && (
         <StatusBadge kind={status} size="sm" className="absolute -top-2 -right-2" />
-      ) : impacted ? (
+      )}
+      {!status && impacted && (
         <StatusBadge
           kind="impacted"
           size="sm"
           className="absolute -top-2 -right-2"
         />
-      ) : null}
+      )}
 
       {/* GP-45: internet-exposure warning — a distinct shield badge (top-left so
           it never collides with the status/impacted badge on the right). */}

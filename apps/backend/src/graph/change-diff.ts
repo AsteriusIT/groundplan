@@ -109,8 +109,8 @@ export function changesFromBase(base: Graph | null, head: Graph): Graph {
 
   return {
     version: 7,
-    nodes: nodes.sort((a, b) => a.id.localeCompare(b.id)),
-    edges: edges.sort(
+    nodes: nodes.toSorted((a, b) => a.id.localeCompare(b.id)),
+    edges: edges.toSorted(
       (a, b) =>
         a.kind.localeCompare(b.kind) ||
         a.from.localeCompare(b.from) ||

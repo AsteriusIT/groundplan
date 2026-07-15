@@ -230,10 +230,10 @@ export function ProjectDetailPage() {
 function EmptyState({
   projectId,
   onAttached,
-}: {
+}: Readonly<{
   projectId: string;
   onAttached: (repo: CreatedRepository) => void;
-}) {
+}>) {
   return (
     <div className="bg-card/40 mx-auto flex max-w-md flex-col items-center gap-4 rounded-md border border-dashed border-border px-8 py-16 text-center">
       <div className="bg-accent text-primary grid size-12 place-items-center rounded-sm">
@@ -262,10 +262,10 @@ function EmptyState({
 function ErrorState({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <div
       role="alert"

@@ -40,8 +40,10 @@ export function contextSection(ctx: ContextInput): string[] {
 
 const isResource = (n: GraphNode): boolean => n.type !== "module";
 
-const byId = (a: GraphNode, b: GraphNode): number =>
-  a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+const byId = (a: GraphNode, b: GraphNode): number => {
+  if (a.id < b.id) return -1;
+  return a.id > b.id ? 1 : 0;
+};
 
 /**
  * `- Compute: 2 created, 1 deleted` — the change set counted by category, so
@@ -211,8 +213,9 @@ export function containmentSection(nodes: GraphNode[]): string[] {
       .sort((a, b) => (a.id < b.id ? -1 : 1));
     for (const kid of kids) {
       const grandkids = childrenOf.get(kid.id);
+      const noun = grandkids?.length === 1 ? "resource" : "resources";
       const count = grandkids
-        ? ` — contains ${grandkids.length} ${grandkids.length === 1 ? "resource" : "resources"}`
+        ? ` — contains ${grandkids.length} ${noun}`
         : "";
       lines.push(`${"  ".repeat(depth)}- \`${kid.id}\`${count}`);
       // Two levels of nesting (vnet ⊃ subnet) is the shape; below that we
@@ -236,9 +239,9 @@ export function standingRiskSection(nodes: GraphNode[]): string[] {
 
   const lines: string[] = [];
   for (const node of exposed) {
-    const attached = node.associated_ids?.length
-      ? ` — attached to ${node.associated_ids.map((a) => `\`${a}\``).join(", ")}`
-      : "";
+    const ids = node.associated_ids ?? [];
+    const quoted = ids.map((a) => `\`${a}\``).join(", ");
+    const attached = ids.length ? ` — attached to ${quoted}` : "";
     lines.push(`- Reachable from the internet: \`${node.id}\`${attached}`);
   }
   for (const node of privileged) {

@@ -101,7 +101,7 @@ export async function postPrComment(
     .select()
     .from(repositories)
     .where(eq(repositories.id, snapshot.repositoryId));
-  if (!repo || !repo.prCommentsEnabled) return; // flag off → zero provider calls
+  if (!repo?.prCommentsEnabled) return; // flag off → zero provider calls
 
   const port = resolvePort(app, repo.provider);
   if (!port) {

@@ -63,7 +63,9 @@ export function parseGitLabRepo(
     return null;
   }
   if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-  const projectPath = u.pathname.replace(/\.git$/, "").replace(/^\/+|\/+$/g, "");
+  // The trailing-slash trim uses an atomic group (lookahead + backreference)
+  // instead of `\/+$` so it cannot cause non-linear backtracking (S8786).
+  const projectPath = u.pathname.replace(/\.git$/, "").replace(/^\/+|(?=(\/+))\1$/g, "");
   if (!projectPath.includes("/")) return null; // need at least group/repo
   return { apiBase: `${u.origin}/api/v4`, projectPath };
 }
