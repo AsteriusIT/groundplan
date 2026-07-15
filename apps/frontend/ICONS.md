@@ -82,6 +82,19 @@ The **official Kubernetes logo** (the blue helm wheel) at
   not. That is the trade — the nav says "active" with a border, a tint and a label
   weight, none of which need the icon's help.
 
+### The IaC type marks (Terraform / Kubernetes)
+
+A repository shows what it holds (GP-101) as a chip carrying the official
+**Terraform** or **Kubernetes** logo, picked by its `iacType` and rendered by
+`components/iac-type-mark.tsx`.
+
+- Terraform mark: [`src/icons/terraform-logo.svg`](src/icons/terraform-logo.svg),
+  the official Terraform logomark (the indigo parallelograms), used **as-is via an
+  `<img>`** — never recoloured or redrawn.
+- The Kubernetes side reuses [`src/icons/kubernetes-logo.svg`](src/icons/kubernetes-logo.svg)
+  (the same mark the sidebar uses).
+- Both sit *outside* the kind-keyed glob folders: a logo is not a kind.
+
 ## Licensing
 
 ### Azure
@@ -127,10 +140,18 @@ product that reads Kubernetes clusters — never as a Groundplan mark, never to
 imply endorsement or affiliation, and never altered. See the
 [Linux Foundation trademark usage guidelines](https://www.linuxfoundation.org/legal/trademark-usage).
 
+### Terraform
+
+The **Terraform logo** (`src/icons/terraform-logo.svg`) is a **trademark of
+HashiCorp**. It is used here nominatively — to label a repository whose
+infrastructure is Terraform — never as a Groundplan mark, never to imply
+endorsement or affiliation, and never altered (rendered as-is via an `<img>`). See
+HashiCorp's [trademark policy](https://www.hashicorp.com/trademark-policy).
+
 Do **not** edit the SVGs in `src/icons/azure/`, `src/icons/aws/`,
-`src/icons/gcp/` or `src/icons/kubernetes/`, nor `src/icons/kubernetes-logo.svg`,
-and do not repurpose them as a standalone icon library outside the views that
-render them.
+`src/icons/gcp/` or `src/icons/kubernetes/`, nor `src/icons/kubernetes-logo.svg`
+or `src/icons/terraform-logo.svg`, and do not repurpose them as a standalone icon
+library outside the views that render them.
 
 ## The mapping mechanism (provider-generic)
 

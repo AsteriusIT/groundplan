@@ -31,7 +31,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Chip } from "@/components/ui/chip";
 import { CiSetupBlock } from "@/components/ci-setup-block";
+import { IacTypeMark } from "@/components/iac-type-mark";
 import { IngestionStatus } from "@/components/ingestion-status";
 import { IAC_PATH_LABELS, IAC_TYPE_LABELS } from "@/lib/iac-type";
 import {
@@ -127,8 +129,12 @@ export function RepositoryCard({
           <p className="text-muted-foreground mt-1 ml-4 flex items-center gap-2 font-mono text-xs">
             <span className="capitalize">{repo.provider}</span>
             {/* What it holds (GP-101). Read-only: it is set when the repository
-                is attached and never changes. */}
-            <span>{IAC_TYPE_LABELS[repo.iacType]}</span>
+                is attached and never changes. The official logo makes the kind
+                legible at a glance; the label stays for the screen reader. */}
+            <Chip variant="neutral">
+              <IacTypeMark iacType={repo.iacType} className="size-3.5" />
+              {IAC_TYPE_LABELS[repo.iacType]}
+            </Chip>
             <span className="inline-flex items-center gap-1">
               <GitBranch className="size-3" />
               {repo.defaultBranch}
