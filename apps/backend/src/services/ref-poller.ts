@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { remoteRefs, repositories, type RepositoryRow } from "../db/schema.js";
 import { listRemoteHeads } from "./repo-files.js";
 import { regenerateDocsForSha } from "./repo-docs.js";
+import { closePullRequestsForBranch } from "./pull-requests.js";
 
 /**
  * The three git facts the poller reports (GP-107). `MainUpdated` is the default
@@ -191,6 +192,7 @@ export async function dispatchGitEvent(
     case "BranchUpdated":
       break;
     case "BranchDeleted":
+      await closePullRequestsForBranch(app, repo, event.branch);
       break;
   }
 }

@@ -450,6 +450,14 @@ export const pullRequests = pgTable(
     number: integer("number").notNull(),
     title: text("title"),
     state: pullRequestState("state").notNull().default("open"),
+    /**
+     * When the PR was soft-closed (GP-109) — set the moment the ref poller sees
+     * its branch deleted from the remote, null while open. Git decides existence;
+     * closing keeps every snapshot and diagram, so the past stays viewable.
+     * Merged vs cancelled is not distinguished — a squash merge makes it
+     * undecidable from git alone, so we store nothing and the UI says "Closed".
+     */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
     sourceRef: text("source_ref").notNull(),
     latestCommitSha: text("latest_commit_sha").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })

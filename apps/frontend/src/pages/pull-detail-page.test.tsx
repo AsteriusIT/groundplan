@@ -73,6 +73,7 @@ function pull(over: Partial<PullDetail> = {}): PullDetail {
     number: 5,
     title: "Add VPC",
     state: "open",
+    closedAt: null,
     sourceRef: "refs/heads/feat",
     latestCommitSha: "abcdef1234567",
     createdAt: "2026-01-02T00:00:00.000Z",

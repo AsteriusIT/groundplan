@@ -30,6 +30,20 @@ const pullParamsSchema = {
   },
 };
 
+/**
+ * The PR list is filtered by state (GP-109). It defaults to `open`, because a
+ * closed PR is history: git has decided its branch is gone, and the day-to-day
+ * list is what is still in flight. `?status=closed` returns the history; `all`
+ * returns both.
+ */
+const listQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    status: { type: "string", enum: ["open", "closed", "all"], default: "open" },
+  },
+};
+
 type SnapshotSummary = { id: string; stats: unknown; createdAt: Date };
 
 function toPublicPull(row: PullRequestRow) {
@@ -39,6 +53,8 @@ function toPublicPull(row: PullRequestRow) {
     number: row.number,
     title: row.title,
     state: row.state,
+    /** When the PR was soft-closed (GP-109); null while open. */
+    closedAt: row.closedAt,
     sourceRef: row.sourceRef,
     latestCommitSha: row.latestCommitSha,
     createdAt: row.createdAt,
@@ -97,20 +113,31 @@ export const pullRoutes: FastifyPluginAsync = async (app) => {
   // latest plan snapshot (never the graph body).
   app.get(
     "/repositories/:id/pulls",
-    { schema: { params: idParamsSchema } },
+    { schema: { params: idParamsSchema, querystring: listQuerySchema } },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      const { status = "open" } = request.query as {
+        status?: "open" | "closed" | "all";
+      };
       if (!(await repoExists(app, id))) {
         return reply
           .code(404)
           .send({ error: "Not Found", message: "repository not found" });
       }
 
+      const stateFilter =
+        status === "all"
+          ? eq(pullRequests.repositoryId, id)
+          : and(
+              eq(pullRequests.repositoryId, id),
+              eq(pullRequests.state, status),
+            );
+
       const [pulls, latest] = await Promise.all([
         app.db
           .select()
           .from(pullRequests)
-          .where(eq(pullRequests.repositoryId, id))
+          .where(stateFilter)
           .orderBy(desc(pullRequests.updatedAt)),
         latestSnapshotsByPr(app, id),
       ]);

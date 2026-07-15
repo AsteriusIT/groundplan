@@ -138,11 +138,20 @@ test("pr_state=closed is reflected in the list", async () => {
       pr_state: "closed",
       payload: planPayload(1),
     });
-    const list = await app.inject({
+    // The list defaults to open PRs (GP-109), so a closed one is history —
+    // reachable via ?status=closed, not the default view.
+    const open = await app.inject({
       method: "GET",
       url: `/api/v1/repositories/${repoId}/pulls`,
     });
+    assert.equal(open.json().length, 0, "closed PRs are not in the default list");
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/repositories/${repoId}/pulls?status=closed`,
+    });
     assert.equal(list.json()[0].state, "closed");
+    assert.ok(list.json()[0].closedAt, "a closed PR carries closedAt");
     await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
   } finally {
     await app.close();

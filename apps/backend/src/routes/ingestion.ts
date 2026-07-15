@@ -169,9 +169,21 @@ async function ingestPlan(
 }
 
 /**
- * Upsert the PullRequest (GP-14) for a pull_request webhook. Title/state are
- * only overwritten when supplied, so a later plan-only webhook for the same PR
- * doesn't wipe metadata sent by an earlier call.
+ * Upsert the PullRequest (GP-14) for a pull_request webhook. Title is only
+ * overwritten when supplied, so a later plan-only webhook for the same PR doesn't
+ * wipe metadata sent by an earlier call.
+ *
+ * Git decides existence (GP-109): the poller owns closing, and the webhook never
+ * *un-closes* what it closed. So an existing **closed** PR stays closed — a plan
+ * that arrives late for a just-deleted branch attaches its snapshot (by
+ * `pr_number`) but never resurrects an open row. The only state move the webhook
+ * makes is open → closed, and only when CI explicitly says `pr_state=closed`.
+ *
+ * (There is deliberately no insert-time "the branch looks gone, create it
+ * closed" rule: the poller records a branch only on its next tick, so a brand-new
+ * PR's first plan can beat it, and a false "gone" would bury a live PR. The real
+ * race — a plan landing after a branch is deleted — is a PR that already exists,
+ * which the never-reopen rule above already handles.)
  */
 async function upsertPullRequest(
   app: FastifyInstance,
@@ -179,26 +191,43 @@ async function upsertPullRequest(
   body: WebhookBody,
 ): Promise<void> {
   if (body.event !== "pull_request" || body.pr_number === undefined) return;
-  await app.db
-    .insert(pullRequests)
-    .values({
+
+  const [existing] = await app.db
+    .select()
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.repositoryId, repositoryId),
+        eq(pullRequests.number, body.pr_number),
+      ),
+    );
+
+  const now = new Date();
+  if (!existing) {
+    const closed = body.pr_state === "closed";
+    await app.db.insert(pullRequests).values({
       repositoryId,
       number: body.pr_number,
       title: body.pr_title ?? null,
-      state: body.pr_state ?? "open",
+      state: closed ? "closed" : "open",
+      closedAt: closed ? now : null,
       sourceRef: body.ref,
       latestCommitSha: body.commit_sha,
-    })
-    .onConflictDoUpdate({
-      target: [pullRequests.repositoryId, pullRequests.number],
-      set: {
-        sourceRef: body.ref,
-        latestCommitSha: body.commit_sha,
-        updatedAt: new Date(),
-        ...(body.pr_title !== undefined ? { title: body.pr_title } : {}),
-        ...(body.pr_state !== undefined ? { state: body.pr_state } : {}),
-      },
     });
+    return;
+  }
+
+  const closing = body.pr_state === "closed" && existing.state === "open";
+  await app.db
+    .update(pullRequests)
+    .set({
+      sourceRef: body.ref,
+      latestCommitSha: body.commit_sha,
+      updatedAt: now,
+      ...(body.pr_title !== undefined ? { title: body.pr_title } : {}),
+      ...(closing ? { state: "closed" as const, closedAt: now } : {}),
+    })
+    .where(eq(pullRequests.id, existing.id));
 }
 
 const UUID_PATTERN =

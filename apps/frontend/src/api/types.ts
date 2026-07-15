@@ -370,6 +370,8 @@ export interface PullSummary {
   number: number;
   title: string | null;
   state: PullRequestState;
+  /** When the PR was soft-closed (GP-109); null while open. */
+  closedAt: string | null;
   sourceRef: string;
   latestCommitSha: string;
   createdAt: string;
