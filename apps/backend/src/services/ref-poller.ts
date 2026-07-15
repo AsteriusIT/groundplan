@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 
 import { remoteRefs, repositories, type RepositoryRow } from "../db/schema.js";
 import { listRemoteHeads } from "./repo-files.js";
+import { regenerateDocsForSha } from "./repo-docs.js";
 
 /**
  * The three git facts the poller reports (GP-107). `MainUpdated` is the default
@@ -163,9 +164,16 @@ export async function pollAllRepositories(app: FastifyInstance): Promise<void> {
 
 /**
  * React to one git event. The poller only *reports*; what a report means is
- * decided here. Today it is a log line — the reactions (docs regeneration on
- * `MainUpdated`, PR soft-close on `BranchDeleted`) are wired in by the stories
- * that own them (GP-108, GP-109).
+ * decided here.
+ *
+ * - `MainUpdated` regenerates the docs snapshot of `main` for the new sha
+ *   (GP-108) — living documentation with no webhook and no user action.
+ * - `BranchUpdated` is recorded but does nothing yet: a branch's diagram comes
+ *   from the plan its CI pushes (GP-13), not from the poller.
+ * - `BranchDeleted` soft-closes the branch's pull request (GP-109).
+ *
+ * Runs synchronously within the poll tick (ADR #7): a snapshot takes seconds,
+ * and serialising it behind polling is fine at current scale.
  */
 export async function dispatchGitEvent(
   app: FastifyInstance,
@@ -176,4 +184,13 @@ export async function dispatchGitEvent(
     { repositoryId: repo.id, event: event.type, branch: event.branch },
     "git event",
   );
+  switch (event.type) {
+    case "MainUpdated":
+      await regenerateDocsForSha(app, repo, event.sha);
+      break;
+    case "BranchUpdated":
+      break;
+    case "BranchDeleted":
+      break;
+  }
 }
