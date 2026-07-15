@@ -55,10 +55,37 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
             type=sha,format=short
 
-      # linux/amd64 only: the backend image relies on the @resvg/resvg-js
-      # linux-x64-gnu prebuild + a frozen-lockfile install, and the deploy
-      # target is amd64 (see docs/deployment.md).
-      - name: Build & push
+      # Build once and load it into the runner's Docker so Trivy can scan the
+      # exact image before it is published. linux/amd64 only: the backend image
+      # relies on the @resvg/resvg-js linux-x64-gnu prebuild + a frozen-lockfile
+      # install, and the deploy target is amd64 (see docs/deployment.md).
+      - name: Build image (load for scanning)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.image }}/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      # Gate the release on fixable CRITICAL vulnerabilities. ignore-unfixed
+      # keeps unpatchable base-image CVEs from wedging every release; the full
+      # table (all severities) is printed to the logs regardless. Tighten to
+      # `severity: HIGH,CRITICAL` or set `exit-code: '0'` for report-only.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # Cache hit from the build above, so this only uploads layers.
+      - name: Push image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -68,4 +95,3 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

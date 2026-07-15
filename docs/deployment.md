@@ -61,6 +61,10 @@ one-off build tagged only `sha-<short>`, without moving `latest`. It needs one
 repository secret — **`SCW_SECRET_KEY`**, a Scaleway API secret key with
 Container Registry write (the login user is the literal `nologin`).
 
+Each image is scanned with [Trivy](https://trivy.dev) **before** it is pushed;
+a fixable `CRITICAL` vulnerability fails the job and nothing is published (the
+full report prints to the workflow logs).
+
 ### Locally
 
 Run this where the source lives (your machine), not on the deploy host:
