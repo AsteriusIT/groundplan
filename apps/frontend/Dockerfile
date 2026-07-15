@@ -29,7 +29,7 @@ COPY apps/frontend/ apps/frontend/
 RUN pnpm --filter @groundplan/frontend build
 
 # ---- runtime --------------------------------------------------------------
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.31.2-alpine3.23-slim AS runtime
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /repo/apps/frontend/dist /usr/share/nginx/html
 

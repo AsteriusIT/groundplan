@@ -46,7 +46,24 @@ checkout. `docker-compose.prod.yml` never builds; building lives in
 
 ## Building & pushing images
 
-Run this where the source lives (your machine or CI), not on the deploy host:
+### In CI (recommended)
+
+The `.github/workflows/build-images.yml` workflow builds and pushes both images
+to `rg.fr-par.scw.cloud/eidos` automatically. Push a version tag to publish:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+# -> pushes groundplan-{backend,frontend}:1.2.3, :1.2 and :latest
+```
+
+`workflow_dispatch` (Actions tab → *build-images* → *Run workflow*) makes a
+one-off build tagged only `sha-<short>`, without moving `latest`. It needs one
+repository secret — **`SCW_SECRET_KEY`**, a Scaleway API secret key with
+Container Registry write (the login user is the literal `nologin`).
+
+### Locally
+
+Run this where the source lives (your machine), not on the deploy host:
 
 ```bash
 docker login rg.fr-par.scw.cloud
