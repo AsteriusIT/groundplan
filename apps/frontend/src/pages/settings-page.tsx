@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { LogOut, Palette, Sparkles, UserRound } from "lucide-react";
+import { KeyRound, LogOut, Palette, Sparkles, UserRound } from "lucide-react";
 
 import { useAuth } from "@/auth/use-auth";
 import { initials } from "@/lib/format";
 import { useAiStatus } from "@/lib/use-ai-status";
 import { useTheme } from "@/theme/theme-provider";
+import { AppIngestionSettings } from "@/components/app-ingestion-settings";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { PageHeader } from "@/components/page-header";
@@ -41,6 +42,7 @@ export function SettingsPage() {
       <div className="max-w-3xl space-y-6 p-8">
         <AccountCard />
         <AppearanceCard />
+        <IngestionCard />
         <AiCard />
       </div>
     </div>
@@ -102,6 +104,25 @@ function AppearanceCard() {
         <TourStyleSwitcher className="w-80 shrink-0" />
         <p className="text-muted-foreground text-sm">{TOUR_BLURB[style]}</p>
       </div>
+    </Section>
+  );
+}
+
+/**
+ * CI ingestion (GP): the app-wide webhook token — a second, global token any
+ * repository's push accepts, so an estate can wire one CI secret instead of one
+ * per repository. Each repository still has (and can rotate) its own token on its
+ * project page; this is the shared alternative, and it lives in Settings because
+ * it is one global secret, not a per-repository setting.
+ */
+function IngestionCard() {
+  return (
+    <Section
+      icon={<KeyRound className="size-4" />}
+      title="CI ingestion token"
+      description="An app-wide token your CI can use to push plans for any repository."
+    >
+      <AppIngestionSettings />
     </Section>
   );
 }

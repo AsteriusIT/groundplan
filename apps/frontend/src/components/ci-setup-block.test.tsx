@@ -1,4 +1,4 @@
-import { expect, it, describe } from "vitest";
+import { expect, it, describe, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { axe } from "vitest-axe";
 
@@ -124,5 +124,47 @@ describe("the CI setup block", () => {
     );
     const results = await axe(baseElement);
     expect(results.violations).toEqual([]);
+  });
+});
+
+describe("regenerating a repository's webhook token", () => {
+  for (const iacType of ["terraform", "kubernetes"] as const) {
+    it(`offers a regenerate control for a ${iacType} repository`, () => {
+      const onRegenerate = vi.fn();
+      render(
+        <CiSetupBlock
+          webhookUrl={URL}
+          iacType={iacType}
+          regenerate={{ onRegenerate, regenerating: false }}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /regenerate token/i }));
+      expect(onRegenerate).toHaveBeenCalledOnce();
+    });
+  }
+
+  it("disables the control and labels it while a rotation is in flight", () => {
+    render(
+      <CiSetupBlock
+        webhookUrl={URL}
+        iacType="terraform"
+        regenerate={{ onRegenerate: vi.fn(), regenerating: true }}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /regenerating/i });
+    expect(button).toBeDisabled();
+  });
+
+  it("shows the rotated token once when it comes back", () => {
+    render(
+      <CiSetupBlock
+        webhookUrl={URL}
+        iacType="terraform"
+        webhookToken="rotated-secret"
+        regenerate={{ onRegenerate: vi.fn(), regenerating: false }}
+      />,
+    );
+    expect(screen.getByText("rotated-secret")).toBeInTheDocument();
+    expect(screen.getByText(/won't be shown again/i)).toBeInTheDocument();
   });
 });

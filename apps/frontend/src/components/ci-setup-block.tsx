@@ -2,7 +2,14 @@ import { useState } from "react";
 
 import type { IacType } from "@/api/types";
 import { CopyButton } from "@/components/copy-button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+/** How the token area lets a repository rotate its webhook token (GP). */
+export type RegenerateToken = {
+  onRegenerate: () => void;
+  regenerating: boolean;
+};
 
 /** A ready-to-paste GitHub Actions workflow that feeds plan.json to Groundplan. */
 export function ciWorkflowSnippet(webhookUrl: string): string {
@@ -197,7 +204,12 @@ const PRE_CLASS =
 function TokenFields({
   webhookUrl,
   webhookToken,
-}: Readonly<{ webhookUrl: string; webhookToken?: string }>) {
+  regenerate,
+}: Readonly<{
+  webhookUrl: string;
+  webhookToken?: string;
+  regenerate?: RegenerateToken;
+}>) {
   return (
     <div className="space-y-1.5">
       <Field label="GROUNDPLAN_URL" value={webhookUrl} copyLabel="Copy URL" />
@@ -220,6 +232,22 @@ function TokenFields({
           it as the secret <code className="font-mono">GROUNDPLAN_TOKEN</code>.
         </p>
       )}
+      {regenerate && (
+        <div className="pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={regenerate.onRegenerate}
+            disabled={regenerate.regenerating}
+          >
+            {regenerate.regenerating ? "Regenerating…" : "Regenerate token"}
+          </Button>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Lost the token, or rotating after a leak? Generating a new one revokes
+            the old token immediately — update the CI secret right after.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -232,13 +260,22 @@ function TokenFields({
 function TerraformSetup({
   webhookUrl,
   webhookToken,
-}: Readonly<{ webhookUrl: string; webhookToken?: string }>) {
+  regenerate,
+}: Readonly<{
+  webhookUrl: string;
+  webhookToken?: string;
+  regenerate?: RegenerateToken;
+}>) {
   const cli = cliSnippet();
   const workflow = ciWorkflowSnippet(webhookUrl);
 
   return (
     <div className="min-w-0 space-y-4">
-      <TokenFields webhookUrl={webhookUrl} webhookToken={webhookToken} />
+      <TokenFields
+        webhookUrl={webhookUrl}
+        webhookToken={webhookToken}
+        regenerate={regenerate}
+      />
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
@@ -286,7 +323,12 @@ function TerraformSetup({
 function KubernetesSetup({
   webhookUrl,
   webhookToken,
-}: Readonly<{ webhookUrl: string; webhookToken?: string }>) {
+  regenerate,
+}: Readonly<{
+  webhookUrl: string;
+  webhookToken?: string;
+  regenerate?: RegenerateToken;
+}>) {
   const [flavour, setFlavour] = useState<ManifestFlavour>("raw");
   const snippet = manifestWorkflowSnippet(webhookUrl, flavour);
 
@@ -313,6 +355,23 @@ function KubernetesSetup({
           it as the secret{" "}
           <code className="font-mono">GROUNDPLAN_WEBHOOK_TOKEN</code>.
         </p>
+      )}
+
+      {regenerate && (
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={regenerate.onRegenerate}
+            disabled={regenerate.regenerating}
+          >
+            {regenerate.regenerating ? "Regenerating…" : "Regenerate token"}
+          </Button>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Lost the token, or rotating after a leak? Generating a new one revokes
+            the old token immediately — update the CI secret right after.
+          </p>
+        </div>
       )}
 
       <div className="space-y-1.5">
@@ -362,14 +421,25 @@ export function CiSetupBlock({
   webhookUrl,
   webhookToken,
   iacType = "terraform",
+  regenerate,
 }: Readonly<{
   webhookUrl: string;
   webhookToken?: string;
   iacType?: IacType;
+  /** When set, the token area offers a "Regenerate token" control (GP). */
+  regenerate?: RegenerateToken;
 }>) {
   return iacType === "kubernetes" ? (
-    <KubernetesSetup webhookUrl={webhookUrl} webhookToken={webhookToken} />
+    <KubernetesSetup
+      webhookUrl={webhookUrl}
+      webhookToken={webhookToken}
+      regenerate={regenerate}
+    />
   ) : (
-    <TerraformSetup webhookUrl={webhookUrl} webhookToken={webhookToken} />
+    <TerraformSetup
+      webhookUrl={webhookUrl}
+      webhookToken={webhookToken}
+      regenerate={regenerate}
+    />
   );
 }

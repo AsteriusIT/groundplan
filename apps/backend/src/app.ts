@@ -40,6 +40,7 @@ import { projectRoutes } from "./routes/projects.js";
 import { pullRoutes } from "./routes/pulls.js";
 import { repositoryFileRoutes } from "./routes/repository-files.js";
 import { repositoryRoutes } from "./routes/repositories.js";
+import { settingsRoutes } from "./routes/settings.js";
 import { shareRoutes } from "./routes/share-links.js";
 import { snapshotRoutes } from "./routes/snapshots.js";
 import { tourRoutes } from "./routes/tours.js";
@@ -170,6 +171,7 @@ export async function buildApp(
   await app.register(aiRoutes, { prefix: "/api/v1" });
   await app.register(tourRoutes, { prefix: "/api/v1" });
   await app.register(dashboardRoutes, { prefix: "/api/v1" });
+  await app.register(settingsRoutes, { prefix: "/api/v1" });
 
   // Ref poller (GP-107): the background `git ls-remote` loop that keeps docs and
   // PR state in sync with the git remote. `pollRefsOnce` is always available;

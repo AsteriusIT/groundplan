@@ -16,7 +16,9 @@ import type {
   CreateAnnotationInput,
   CreateClusterInput,
   ProposalRun,
+  AppWebhookToken,
   CreatedRepository,
+  IngestionSettings,
   CreateProjectInput,
   CreateRepositoryInput,
   CreateShareLinkInput,
@@ -240,6 +242,16 @@ export function deleteRepository(id: string): Promise<void> {
   return request<void>(`/repositories/${encode(id)}`, { method: "DELETE" });
 }
 
+/**
+ * Rotate the repository's webhook token. The response carries the fresh token,
+ * shown once — the old one stops working the moment this resolves.
+ */
+export function regenerateWebhookToken(id: string): Promise<CreatedRepository> {
+  return request<CreatedRepository>(`/repositories/${encode(id)}/webhook-token`, {
+    method: "POST",
+  });
+}
+
 // --- Kubernetes clusters (GP-95) --------------------------------------------
 
 /** Every attached cluster. A cluster is nobody's child — there is nothing to scope by. */
@@ -321,6 +333,28 @@ export function webhookUrl(repositoryId: string): string {
   const origin =
     apiRoot() || (typeof window !== "undefined" ? window.location.origin : "");
   return `${origin}/api/v1/webhooks/ci/${repositoryId}`;
+}
+
+// --- App-wide ingestion settings --------------------------------------------
+
+/** Whether an app-wide CI token is set, and when — never the value itself. */
+export function getIngestionSettings(): Promise<IngestionSettings> {
+  return request<IngestionSettings>("/settings/ingestion");
+}
+
+/**
+ * Generate or rotate the app-wide CI token. The response carries it once; a
+ * previously issued app-wide token stops working the moment this resolves.
+ */
+export function rotateAppWebhookToken(): Promise<AppWebhookToken> {
+  return request<AppWebhookToken>("/settings/ingestion/webhook-token", {
+    method: "POST",
+  });
+}
+
+/** Revoke the app-wide CI token. Per-repository tokens keep working. */
+export function clearAppWebhookToken(): Promise<void> {
+  return request<void>("/settings/ingestion/webhook-token", { method: "DELETE" });
 }
 
 // --- Pull requests & graph snapshots (GP-12 / GP-14 / GP-17 / GP-18) --------

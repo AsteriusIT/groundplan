@@ -16,6 +16,7 @@ import {
 
 import {
   deleteRepository,
+  regenerateWebhookToken,
   updateRepository,
   verifyRepository,
   webhookUrl,
@@ -68,6 +69,9 @@ export function RepositoryCard({
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // A freshly rotated token, shown once inside the CI block; null until rotated.
+  const [freshToken, setFreshToken] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   async function handleVerify() {
     setVerifying(true);
@@ -96,6 +100,20 @@ export function RepositoryCard({
   async function handleRetryComments() {
     const updated = await updateRepository(repo.id, { prCommentsEnabled: true });
     onChanged(updated);
+  }
+
+  /** Rotate the webhook token; the new value is shown once in the CI block. */
+  async function handleRegenerateToken() {
+    setRegenerating(true);
+    setError(null);
+    try {
+      const result = await regenerateWebhookToken(repo.id);
+      setFreshToken(result.webhookToken);
+    } catch {
+      setError("Could not regenerate the webhook token.");
+    } finally {
+      setRegenerating(false);
+    }
   }
 
   return (
@@ -215,7 +233,15 @@ export function RepositoryCard({
 
       {showCi && (
         <div className="space-y-4 border-t border-border p-4">
-          <CiSetupBlock webhookUrl={webhookUrl(repo.id)} iacType={repo.iacType} />
+          <CiSetupBlock
+            webhookUrl={webhookUrl(repo.id)}
+            iacType={repo.iacType}
+            {...(freshToken ? { webhookToken: freshToken } : {})}
+            regenerate={{
+              onRegenerate: handleRegenerateToken,
+              regenerating,
+            }}
+          />
           <IngestionStatus repositoryId={repo.id} iacType={repo.iacType} />
         </div>
       )}

@@ -246,6 +246,34 @@ export const users = pgTable("users", {
     .defaultNow(),
 });
 
+/**
+ * Global application settings — a singleton, exactly one row (`id = true`,
+ * enforced by a check so a second can never be inserted). Its only occupant today
+ * is the **app-wide CI webhook token**: a second token that *any* repository's
+ * webhook accepts, so a whole CI estate can share one secret instead of wiring a
+ * per-repository one everywhere. Null means it is not set — only per-repo tokens
+ * authenticate. Stored plaintext and compared with `safeEqual`, exactly like the
+ * per-repo `webhook_token` (the same shown-once-then-masked contract).
+ *
+ * There is no ownership model yet, so this is genuinely global (every user sees
+ * and rotates the same token); when ownership lands, per-tenant settings move out.
+ */
+export const appSettings = pgTable(
+  "app_settings",
+  {
+    // The singleton key — always true; the check keeps the table to one row.
+    id: boolean("id").primaryKey().default(true),
+    webhookToken: text("webhook_token"),
+    webhookTokenSetAt: timestamp("webhook_token_set_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [check("app_settings_singleton", sql`${t.id} = true`)],
+);
+
+export type AppSettingsRow = typeof appSettings.$inferSelect;
+
 export const ingestionEventType = pgEnum("ingestion_event_type", [
   "push",
   "pull_request",

@@ -57,6 +57,17 @@ export interface CreatedRepository extends Repository {
   webhookToken: string;
 }
 
+/** Whether the app-wide CI token is set, and when it was last set (not the value). */
+export interface IngestionSettings {
+  appWebhookTokenSet: boolean;
+  updatedAt: string | null;
+}
+
+/** A freshly generated app-wide CI token — the one time its value is returned. */
+export interface AppWebhookToken {
+  webhookToken: string;
+}
+
 /**
  * Freshness signal for one repository, as the project page shows it. Every repo
  * in the project gets a row; a quiet one is zeroed, not missing.

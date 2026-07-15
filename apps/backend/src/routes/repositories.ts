@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 
 import { repositories, toPublicRepository, type RepositoryRow } from "../db/schema.js";
 import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.js";
+import { generateToken } from "../lib/tokens.js";
 import { verifyAndStore } from "../services/repository-verification.js";
 
 const UUID_PATTERN =
@@ -160,6 +161,29 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
         return { ok: true, default_branch_found: result.defaultBranchFound };
       }
       return { ok: false, error: result.error };
+    },
+  );
+
+  // Rotate the per-repository webhook token. The old token stops working the
+  // moment this returns; the new one is shown once here, then masked forever
+  // after (`toPublicRepository` omits it) — the same "shown once" contract as
+  // the create response, which is why the value is spread back on by hand.
+  app.post(
+    "/repositories/:id/webhook-token",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const [updated] = await app.db
+        .update(repositories)
+        .set({ webhookToken: generateToken() })
+        .where(eq(repositories.id, id))
+        .returning();
+      if (!updated) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "repository not found" });
+      }
+      return { ...toPublicRepository(updated), webhookToken: updated.webhookToken };
     },
   );
 
