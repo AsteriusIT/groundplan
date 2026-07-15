@@ -67,6 +67,12 @@ export type AppEnv = {
   aiApiKey: string;
   /** Model the AI layer generates with. Only used when `aiApiKey` is set. */
   aiModel: string;
+  /**
+   * How often the ref poller runs `git ls-remote` per repository (GP-107), in
+   * milliseconds. Defaults to 60s. `0` disables the background timer entirely —
+   * which is what tests do, so they can drive a tick by hand with no clock.
+   */
+  refPollIntervalMs: number;
 };
 
 /** Sensible default model for the AI layer; override with `AI_MODEL`. */
@@ -92,5 +98,6 @@ export function loadEnv(): AppEnv {
     publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, ""),
     aiApiKey: process.env.AI_API_KEY ?? "",
     aiModel: process.env.AI_MODEL ?? DEFAULT_AI_MODEL,
+    refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),
   };
 }

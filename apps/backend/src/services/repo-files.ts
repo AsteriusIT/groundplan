@@ -216,6 +216,37 @@ export async function getFile(
   });
 }
 
+/** The remote data the ref poller needs: no ref to check out, just credentials. */
+export type RemoteSource = Pick<RepoSource, "url" | "provider" | "accessToken">;
+
+/**
+ * List every `refs/heads/*` on the remote and its sha (GP-107), via
+ * `git ls-remote --heads` — no clone. Keys are short branch names (the
+ * `refs/heads/` prefix stripped), so they compare directly against a
+ * repository's `defaultBranch`. Tags and other namespaces are ignored: the
+ * `--heads` flag asks git for branches only.
+ *
+ * Throws on failure (unreachable host, revoked PAT). The caller treats that as
+ * "no information", never as "every branch was deleted".
+ */
+export async function listRemoteHeads(
+  source: RemoteSource,
+): Promise<Map<string, string>> {
+  const url = buildAuthenticatedUrl(source.url, source.provider, source.accessToken);
+  const { stdout } = await execFileAsync("git", ["ls-remote", "--heads", url], {
+    timeout: CLONE_TIMEOUT_MS,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  const prefix = "refs/heads/";
+  const heads = new Map<string, string>();
+  for (const line of stdout.split("\n")) {
+    const [sha, ref] = line.split("\t");
+    if (!sha || !ref || !ref.startsWith(prefix)) continue;
+    heads.set(ref.slice(prefix.length), sha);
+  }
+  return heads;
+}
+
 export type VerifyErrorKind = "auth_failed" | "not_found" | "network";
 
 export type VerifyResult =

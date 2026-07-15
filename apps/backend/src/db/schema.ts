@@ -102,6 +102,14 @@ export const repositories = pgTable("repositories", {
   // renamed: the meaning is "where the IaC lives", which it always was, and a
   // rename would be migration churn for zero behaviour.
   terraformPath: text("terraform_path").notNull().default(""),
+  // GP-107: the ref poller's per-repository state. `lastPolledAt` is the wall
+  // clock of the last `git ls-remote` tick (success or failure); `pollError` is
+  // the message from the last failed tick, cleared on the next success. Kept off
+  // `connectionStatus` on purpose — that column is the *verify* check (GP-11), a
+  // user action, while polling is a background heartbeat; conflating them would
+  // let a transient network blip overwrite a deliberate verification result.
+  lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+  pollError: text("poll_error"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -259,6 +267,38 @@ export const ingestionEvents = pgTable("ingestion_events", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * The last known state of a repository's remote branches (GP-107) — one row per
+ * `refs/heads/*`, upserted every poll tick. It is the single source of truth for
+ * *branch existence*: the ref poller compares a fresh `git ls-remote` against
+ * these rows to decide what changed, and emits `MainUpdated` / `BranchUpdated` /
+ * `BranchDeleted` from the diff.
+ *
+ * Persisting it here is what makes the poller stateless across restarts: a
+ * restarted service re-reads the same rows and so replays no events for branches
+ * that did not move while it was down. `refName` is the short branch name
+ * (`main`, `feature/x`) — the `refs/heads/` prefix is stripped on the way in, so
+ * it compares directly against `repositories.defaultBranch`.
+ */
+export const remoteRefs = pgTable(
+  "remote_refs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** Short branch name (no `refs/heads/` prefix), e.g. `main`, `feature/x`. */
+    refName: text("ref_name").notNull(),
+    sha: text("sha").notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [unique("remote_refs_repo_ref_unique").on(t.repositoryId, t.refName)],
+);
+
+export type RemoteRefRow = typeof remoteRefs.$inferSelect;
 
 /** Event columns for list responses — everything EXCEPT the (large) payload. */
 export const publicEventColumns = {
@@ -664,6 +704,14 @@ export const repositoriesRelations = relations(repositories, ({ one, many }) => 
   pullRequests: many(pullRequests),
   shareTokens: many(shareTokens),
   annotations: many(annotations),
+  remoteRefs: many(remoteRefs),
+}));
+
+export const remoteRefsRelations = relations(remoteRefs, ({ one }) => ({
+  repository: one(repositories, {
+    fields: [remoteRefs.repositoryId],
+    references: [repositories.id],
+  }),
 }));
 
 export const annotationsRelations = relations(annotations, ({ one }) => ({

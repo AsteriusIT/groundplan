@@ -18,6 +18,7 @@ import { realK8sVerify, type K8sVerify } from "./services/k8s-verify.js";
 import { authPlugin } from "./plugins/auth.js";
 import { backgroundPlugin } from "./plugins/background.js";
 import { dbPlugin } from "./plugins/db.js";
+import { refPollerPlugin } from "./plugins/ref-poller.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import { aiRoutes } from "./routes/ai.js";
 import { annotationRoutes } from "./routes/annotations.js";
@@ -169,6 +170,13 @@ export async function buildApp(
   await app.register(aiRoutes, { prefix: "/api/v1" });
   await app.register(tourRoutes, { prefix: "/api/v1" });
   await app.register(dashboardRoutes, { prefix: "/api/v1" });
+
+  // Ref poller (GP-107): the background `git ls-remote` loop that keeps docs and
+  // PR state in sync with the git remote. `pollRefsOnce` is always available;
+  // the timer only runs outside tests, so route tests build apps without a clock.
+  await app.register(refPollerPlugin, {
+    intervalMs: env.nodeEnv === "test" ? 0 : env.refPollIntervalMs,
+  });
 
   return app;
 }

@@ -183,6 +183,13 @@
       "when": 1784064969863,
       "tag": "0025_cynical_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784135580155,
+      "tag": "0026_certain_purple_man",
+      "breakpoints": true
     }
   ]
 }
