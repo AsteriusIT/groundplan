@@ -87,6 +87,22 @@ export type VerifyResult =
   | { ok: true; default_branch_found: boolean }
   | { ok: false; error: VerifyErrorKind };
 
+/**
+ * One CI webhook Groundplan received (GP-5), as the events list returns it —
+ * everything except the (large) payload. It answers "did my CI actually reach
+ * us?" on the setup page (GP-111): the most recent one is the last plan received.
+ */
+export interface IngestionEvent {
+  id: string;
+  /** The branch/ref CI reported (e.g. `refs/heads/feature-x` or `main`). */
+  ref: string;
+  commitSha: string;
+  event: "push" | "pull_request";
+  /** Set when the plan failed to parse (GP-13); null when it parsed or wasn't one. */
+  parseError: string | null;
+  receivedAt: string;
+}
+
 // --- Kubernetes clusters (GP-95 / GP-97) ------------------------------------
 
 /** Why a cluster check failed. `invalid_config` = the kubeconfig itself is bad. */

@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CiSetupBlock } from "@/components/ci-setup-block";
+import { IngestionStatus } from "@/components/ingestion-status";
 import { IAC_PATH_LABELS, IAC_TYPE_LABELS } from "@/lib/iac-type";
 import {
   ConnectionStatusDot,
@@ -213,8 +214,9 @@ export function RepositoryCard({
       )}
 
       {showCi && (
-        <div className="border-t border-border p-4">
+        <div className="space-y-4 border-t border-border p-4">
           <CiSetupBlock webhookUrl={webhookUrl(repo.id)} iacType={repo.iacType} />
+          <IngestionStatus repositoryId={repo.id} iacType={repo.iacType} />
         </div>
       )}
 

@@ -21,6 +21,7 @@ import type {
   CreateRepositoryInput,
   CreateShareLinkInput,
   Dashboard,
+  IngestionEvent,
   UpdateClusterInput,
   Project,
   PublicSnapshotView,
@@ -326,6 +327,14 @@ export function webhookUrl(repositoryId: string): string {
 
 export function listPulls(repositoryId: string): Promise<PullSummary[]> {
   return request<PullSummary[]>(`/repositories/${encode(repositoryId)}/pulls`);
+}
+
+/**
+ * The last CI webhooks Groundplan received for a repository (GP-5), newest first.
+ * The setup page (GP-111) reads the most recent to show whether CI has reached us.
+ */
+export function listEvents(repositoryId: string): Promise<IngestionEvent[]> {
+  return request<IngestionEvent[]>(`/repositories/${encode(repositoryId)}/events`);
 }
 
 export function getPull(

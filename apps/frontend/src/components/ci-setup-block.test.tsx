@@ -69,7 +69,27 @@ describe("the CI setup block", () => {
     expect(
       screen.queryByRole("group", { name: "Manifest flavour" }),
     ).not.toBeInTheDocument();
-    expect(document.querySelector("pre")?.textContent).toContain("terraform plan");
+    // The front door for Terraform is the CLI, not a raw curl block.
+    expect(document.querySelector("pre")?.textContent).toContain(
+      "npx @groundplan/cli push-plan",
+    );
+  });
+
+  it("makes the CLI the front door and keeps the raw webhook behind Advanced", () => {
+    render(<CiSetupBlock webhookUrl={URL} webhookToken="tok" />);
+
+    // The two env vars the CLI reads, with the token shown once.
+    expect(screen.getByText("GROUNDPLAN_URL")).toBeInTheDocument();
+    expect(screen.getByText("GROUNDPLAN_TOKEN — shown once")).toBeInTheDocument();
+
+    // The primary snippet is the CLI; the raw webhook is still there, behind a
+    // disclosure, so a Node-less runner can still integrate.
+    const pres = [...document.querySelectorAll("pre")].map((p) => p.textContent ?? "");
+    expect(pres[0]).toContain("terraform show -json plan.out > plan.json");
+    expect(screen.getByText(/Advanced/i)).toBeInTheDocument();
+    const all = pres.join("\n");
+    expect(all).toContain(`curl -sf -X POST "${URL}"`);
+    expect(all).toContain("terraform plan");
   });
 
   it("switches the workflow, and the guidance, with the flavour", () => {
