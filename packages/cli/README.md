@@ -1,4 +1,4 @@
-# @groundplan/cli
+# @asteriusit/cli
 
 Send a Terraform `plan.json` to [Groundplan](https://github.com/AsteriusIT/groundplan)
 from your CI pipeline. It owns the integration ergonomics — git-context detection,
@@ -10,7 +10,7 @@ Run it after `terraform plan`, with no install step:
 
 ```sh
 terraform show -json plan.out > plan.json
-npx @groundplan/cli push-plan --file plan.json
+npx @asteriusit/cli push-plan --file plan.json
 ```
 
 Configure it with two environment variables (both shown on the repository's CI

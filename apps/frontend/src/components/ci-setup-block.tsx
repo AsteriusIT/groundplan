@@ -155,7 +155,7 @@ ${docsJob}`;
  */
 export function cliSnippet(): string {
   return `terraform show -json plan.out > plan.json
-npx @groundplan/cli push-plan --file plan.json`;
+npx @asteriusit/cli push-plan --file plan.json`;
 }
 
 function Field({

@@ -71,7 +71,7 @@ describe("the CI setup block", () => {
     ).not.toBeInTheDocument();
     // The front door for Terraform is the CLI, not a raw curl block.
     expect(document.querySelector("pre")?.textContent).toContain(
-      "npx @groundplan/cli push-plan",
+      "npx @asteriusit/cli push-plan",
     );
   });
 

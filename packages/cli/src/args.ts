@@ -1,6 +1,6 @@
 /**
  * A deliberately tiny argv parser — no dependency, because the whole point of the
- * CLI (GP-110) is that `npx @groundplan/cli` pulls nothing else into CI.
+ * CLI (GP-110) is that `npx @asteriusit/cli` pulls nothing else into CI.
  *
  * Supports `<command>`, `--flag value`, `--flag=value`, and bare `--flag` (true).
  * A `--flag` immediately followed by another `--flag` is treated as a boolean, so
