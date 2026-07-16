@@ -4,6 +4,7 @@
   "sslRequired": "none",
   "registrationAllowed": false,
   "loginTheme": "groundplan",
+  "accountTheme": "groundplan",
   "clients": [
     {
       "clientId": "groundplan-frontend",
@@ -40,7 +41,10 @@
       "lastName": "User",
       "credentials": [
         { "type": "password", "value": "dev", "temporary": false }
-      ]
+      ],
+      "clientRoles": {
+        "account": ["view-profile", "manage-account"]
+      }
     }
   ]
 }
