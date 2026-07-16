@@ -24,7 +24,11 @@
 import { Pool } from "pg";
 
 /** Ids that existed before the suite — the "real" data teardown must preserve. */
-let baseline: { projects: string[]; clusters: string[] } | null = null;
+let baseline: {
+  projects: string[];
+  clusters: string[];
+  organizations: string[];
+} | null = null;
 
 /**
  * Read `DATABASE_URL` directly (matching `config/env.ts`'s default) rather than
@@ -48,15 +52,21 @@ export async function globalSetup(): Promise<void> {
   if (process.env.NODE_ENV !== "test") return;
 
   await withPool(async (pool) => {
-    // Clear project junk from a prior crashed run (safe: only test slugs carry a
-    // 13+ digit millisecond timestamp; real slugs are human names).
+    // Clear project/org junk from a prior crashed run (safe: only test slugs carry
+    // a 13+ digit millisecond timestamp; real slugs are human names). The seeded
+    // "default" org has no digits, so it is never matched.
     await pool.query("DELETE FROM projects WHERE slug ~ '[0-9]{13,}'");
+    await pool.query("DELETE FROM organizations WHERE slug ~ '[0-9]{13,}'");
 
     const projects = await pool.query<{ id: string }>("SELECT id FROM projects");
     const clusters = await pool.query<{ id: string }>("SELECT id FROM clusters");
+    const organizations = await pool.query<{ id: string }>(
+      "SELECT id FROM organizations",
+    );
     baseline = {
       projects: projects.rows.map((r) => r.id),
       clusters: clusters.rows.map((r) => r.id),
+      organizations: organizations.rows.map((r) => r.id),
     };
   });
 }
@@ -67,9 +77,14 @@ export async function globalTeardown(): Promise<void> {
   // in the baseline" would be deleting everything. Do nothing instead.
   if (!baseline) return;
 
-  const { projects, clusters } = baseline;
+  const { projects, clusters, organizations } = baseline;
   await withPool(async (pool) => {
     await pool.query("DELETE FROM projects WHERE id <> ALL($1::uuid[])", [projects]);
     await pool.query("DELETE FROM clusters WHERE id <> ALL($1::uuid[])", [clusters]);
+    // Orgs created during the run (cascades to any projects still attached, and
+    // to memberships). The seeded "default" org is in the baseline, so preserved.
+    await pool.query("DELETE FROM organizations WHERE id <> ALL($1::uuid[])", [
+      organizations,
+    ]);
   });
 }

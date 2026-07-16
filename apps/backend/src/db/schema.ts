@@ -47,6 +47,13 @@ export const repositoryIacType = pgEnum("repository_iac_type", [
 
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
+  // The organization that owns this project (GP-113). Every project belongs to
+  // exactly one org; deleting the org cascades to its projects (and, through
+  // them, their repositories and snapshots). Backfilled to a "Default" org for
+  // rows that predate multi-tenancy — see the 0029 migration.
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   // GP-60: long-form markdown "context" — what this system is, its domains and
@@ -245,6 +252,78 @@ export const users = pgTable("users", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * A member's role within an organization (GP-113). A strict hierarchy —
+ * `owner > admin > member` — kept as a Postgres enum rather than a permissions
+ * table (KISS): the permission matrix lives in code (`rbac/permissions.ts`,
+ * GP-114), the single source both the API guard and the frontend read from.
+ * Values are forever; a new tier is an additive enum value, never a rename.
+ */
+export const memberRole = pgEnum("member_role", ["owner", "admin", "member"]);
+
+/**
+ * A tenant (GP-113). Everything a team owns — projects (and through them repos,
+ * snapshots, PRs) and live clusters (GP-114) — hangs off exactly one org. In the
+ * self-hosted default (`SINGLE_ORG=true`, GP-115) there is one, seeded "Default"
+ * org; in SaaS mode users create their own. The `slug` is the shareable URL
+ * segment the frontend routes on (`/o/:slug`), unique like a project's.
+ */
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type OrganizationRow = typeof organizations.$inferSelect;
+
+export type PublicOrganization = {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: Date;
+};
+
+/** Map an organization row to its API shape (identity today; a seam for later). */
+export function toPublicOrganization(row: OrganizationRow): PublicOrganization {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * A user's membership of an organization with a role (GP-113). A user may belong
+ * to several orgs with different roles; a user has at most one membership per org
+ * (the unique constraint). Deleting either side cascades — a removed user or a
+ * deleted org takes its memberships with it.
+ */
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    role: memberRole("role").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("memberships_user_org_unique").on(t.userId, t.organizationId),
+  ],
+);
+
+export type MembershipRow = typeof memberships.$inferSelect;
 
 /**
  * Global application settings — a singleton, exactly one row (`id = true`,
@@ -726,7 +805,27 @@ export function toPublicAiGeneration(row: AiGenerationRow): PublicAiGeneration {
   };
 }
 
-export const projectsRelations = relations(projects, ({ many }) => ({
+export const organizationsRelations = relations(organizations, ({ many }) => ({
+  memberships: many(memberships),
+  projects: many(projects),
+}));
+
+export const membershipsRelations = relations(memberships, ({ one }) => ({
+  user: one(users, {
+    fields: [memberships.userId],
+    references: [users.id],
+  }),
+  organization: one(organizations, {
+    fields: [memberships.organizationId],
+    references: [organizations.id],
+  }),
+}));
+
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [projects.organizationId],
+    references: [organizations.id],
+  }),
   repositories: many(repositories),
 }));
 

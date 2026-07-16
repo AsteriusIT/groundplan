@@ -4,12 +4,14 @@ import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import {
   graphSnapshots,
   ingestionEvents,
+  organizations,
   projects,
   pullRequests,
   repositories,
   repositoryIacType,
   toPublicRepository,
 } from "../db/schema.js";
+import { isUniqueViolation } from "../lib/db-errors.js";
 import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.js";
 import { generateToken } from "../lib/tokens.js";
 import { detectProvider, PROVIDERS, type Provider } from "../services/providers.js";
@@ -41,6 +43,9 @@ const createProjectSchema = {
       pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
     },
     contextMd: { type: ["string", "null"], maxLength: CONTEXT_MAX },
+    // GP-113: the owning org. Omitted -> the seeded "Default" org, which is the
+    // single-org (self-hosted) behaviour. GP-114 moves this to the URL path.
+    organizationId: { type: "string", pattern: UUID_PATTERN },
   },
 };
 
@@ -76,25 +81,6 @@ const createRepositorySchema = {
   },
 };
 
-// Postgres unique-violation SQLSTATE. Drizzle wraps the driver error, so the
-// original pg error (which carries `code`) can be nested under `.cause`.
-const UNIQUE_VIOLATION = "23505";
-
-function isUniqueViolation(err: unknown): boolean {
-  let current: unknown = err;
-  for (let depth = 0; depth < 5 && current != null; depth++) {
-    if (
-      typeof current === "object" &&
-      "code" in current &&
-      (current as { code?: string }).code === UNIQUE_VIOLATION
-    ) {
-      return true;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
 export const projectRoutes: FastifyPluginAsync = async (app) => {
   app.get("/projects", async () => {
     return app.db.select().from(projects).orderBy(desc(projects.createdAt));
@@ -104,15 +90,47 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     "/projects",
     { schema: { body: createProjectSchema } },
     async (request, reply) => {
-      const { name, slug, contextMd } = request.body as {
+      const { name, slug, contextMd, organizationId } = request.body as {
         name: string;
         slug: string;
         contextMd?: string | null;
+        organizationId?: string;
       };
+
+      // Resolve the owning org: an explicit id must exist (422 if not), else fall
+      // back to the seeded "Default" org (the single-org self-hosted behaviour).
+      let orgId: string;
+      if (organizationId) {
+        const [org] = await app.db
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(eq(organizations.id, organizationId));
+        if (!org) {
+          return reply.code(422).send({
+            error: "Unprocessable Entity",
+            message: `organization '${organizationId}' does not exist`,
+            fields: [{ field: "organizationId", message: "unknown organization" }],
+          });
+        }
+        orgId = org.id;
+      } else {
+        const [org] = await app.db
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(eq(organizations.slug, "default"));
+        if (!org) {
+          return reply.code(500).send({
+            error: "Internal Server Error",
+            message: "no default organization",
+          });
+        }
+        orgId = org.id;
+      }
+
       try {
         const [row] = await app.db
           .insert(projects)
-          .values({ name, slug, contextMd: contextMd ?? null })
+          .values({ organizationId: orgId, name, slug, contextMd: contextMd ?? null })
           .returning();
         return reply.code(201).send(row);
       } catch (err) {

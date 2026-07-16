@@ -36,6 +36,7 @@ import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
 import { meRoutes } from "./routes/me.js";
+import { orgRoutes } from "./routes/organizations.js";
 import { projectRoutes } from "./routes/projects.js";
 import { pullRoutes } from "./routes/pulls.js";
 import { repositoryFileRoutes } from "./routes/repository-files.js";
@@ -156,6 +157,7 @@ export async function buildApp(
   // Versioned API routes.
   await app.register(healthRoutes, { prefix: "/api/v1" });
   await app.register(meRoutes, { prefix: "/api/v1" });
+  await app.register(orgRoutes, { prefix: "/api/v1" });
   await app.register(projectRoutes, { prefix: "/api/v1" });
   await app.register(repositoryRoutes, { prefix: "/api/v1" });
   await app.register(clusterRoutes, { prefix: "/api/v1" });
