@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
+import { seedOrg } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -15,12 +16,13 @@ before(async () => {
 
 test("happy path: create project -> add repo -> list -> delete (cascades)", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   const slug = `test-${Date.now()}`;
   try {
     // Create a project.
     const created = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "Test Project", slug },
     });
     assert.equal(created.statusCode, 201);
@@ -33,7 +35,7 @@ test("happy path: create project -> add repo -> list -> delete (cascades)", asyn
     // Add a repository to it.
     const repoRes = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: { provider: "github", url: "https://github.com/acme/repo" },
     });
     assert.equal(repoRes.statusCode, 201);
@@ -45,7 +47,7 @@ test("happy path: create project -> add repo -> list -> delete (cascades)", asyn
     // List repositories for the project.
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
     });
     assert.equal(list.statusCode, 200);
     assert.equal(list.json().length, 1);
@@ -54,21 +56,21 @@ test("happy path: create project -> add repo -> list -> delete (cascades)", asyn
     // Delete the project.
     const del = await app.inject({
       method: "DELETE",
-      url: `/api/v1/projects/${project.id}`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}`,
     });
     assert.equal(del.statusCode, 204);
 
     // Project is gone.
     const gone = await app.inject({
       method: "GET",
-      url: `/api/v1/projects/${project.id}`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}`,
     });
     assert.equal(gone.statusCode, 404);
 
     // Cascade: the repository was deleted with its project.
     const repoGone = await app.inject({
       method: "DELETE",
-      url: `/api/v1/repositories/${repo.id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}`,
     });
     assert.equal(repoGone.statusCode, 404);
   } finally {
@@ -81,19 +83,20 @@ test("repository access_token is write-only and never returned", async () => {
   const app = await buildApp(env, {
     verifyConnection: async () => ({ ok: true, defaultBranchFound: true }),
   });
+  const orgId = await seedOrg(app);
   const slug = `tok-${Date.now()}`;
   const secret = "super-secret-token-abc123";
   try {
     const projectRes = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "Tok", slug },
     });
     const project = projectRes.json();
 
     const repoRes = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: {
         provider: "github",
         url: "https://github.com/acme/repo",
@@ -109,12 +112,12 @@ test("repository access_token is write-only and never returned", async () => {
 
     const listRes = await app.inject({
       method: "GET",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
     });
     assert.ok(!listRes.body.includes(secret), "list response leaked token value");
     assert.equal(listRes.json()[0].accessToken, "***", "list should mask the PAT");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${project.id}` });
   } finally {
     await app.close();
   }
@@ -122,12 +125,13 @@ test("repository access_token is write-only and never returned", async () => {
 
 test("repository provider is auto-detected from the URL when omitted (GP-51)", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   const slug = `detect-${Date.now()}`;
   try {
     const project = (
       await app.inject({
         method: "POST",
-        url: "/api/v1/projects",
+        url: `/api/v1/orgs/${orgId}/projects`,
         payload: { name: "Detect", slug },
       })
     ).json();
@@ -140,14 +144,14 @@ test("repository provider is auto-detected from the URL when omitted (GP-51)", a
     for (const { url, expected } of cases) {
       const res = await app.inject({
         method: "POST",
-        url: `/api/v1/projects/${project.id}/repositories`,
+        url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
         payload: { url },
       });
       assert.equal(res.statusCode, 201, `create failed for ${url}`);
       assert.equal(res.json().provider, expected, `wrong provider for ${url}`);
     }
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${project.id}` });
   } finally {
     await app.close();
   }
@@ -155,12 +159,13 @@ test("repository provider is auto-detected from the URL when omitted (GP-51)", a
 
 test("an explicit provider overrides URL detection and is stored (GP-51)", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   const slug = `override-${Date.now()}`;
   try {
     const project = (
       await app.inject({
         method: "POST",
-        url: "/api/v1/projects",
+        url: `/api/v1/orgs/${orgId}/projects`,
         payload: { name: "Override", slug },
       })
     ).json();
@@ -168,13 +173,13 @@ test("an explicit provider overrides URL detection and is stored (GP-51)", async
     // A self-hosted GitLab URL would detect as `generic`, but the user overrides.
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: { provider: "gitlab", url: "https://gitlab.example.com/acme/infra" },
     });
     assert.equal(res.statusCode, 201);
     assert.equal(res.json().provider, "gitlab");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${project.id}` });
   } finally {
     await app.close();
   }
@@ -182,25 +187,26 @@ test("an explicit provider overrides URL detection and is stored (GP-51)", async
 
 test("POST /projects with a duplicate slug returns 409", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   const slug = `dup-${Date.now()}`;
   try {
     const first = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "First", slug },
     });
     assert.equal(first.statusCode, 201);
 
     const second = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "Second", slug },
     });
     assert.equal(second.statusCode, 409);
 
     await app.inject({
       method: "DELETE",
-      url: `/api/v1/projects/${first.json().id}`,
+      url: `/api/v1/orgs/${orgId}/projects/${first.json().id}`,
     });
   } finally {
     await app.close();
@@ -209,10 +215,11 @@ test("POST /projects with a duplicate slug returns 409", async () => {
 
 test("POST /projects with an invalid body returns 422 with field messages", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const res = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { slug: "Not A Valid Slug!" }, // missing name, bad slug pattern
     });
     assert.equal(res.statusCode, 422);
@@ -234,10 +241,11 @@ test("POST /projects with an invalid body returns 422 with field messages", asyn
 
 test("GET /projects/:id/repositories/activity reports each repo's activity", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const created = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "Activity", slug: `activity-${Date.now()}` },
     });
     const projectId = created.json().id;
@@ -245,14 +253,14 @@ test("GET /projects/:id/repositories/activity reports each repo's activity", asy
     const busy = (
       await app.inject({
         method: "POST",
-        url: `/api/v1/projects/${projectId}/repositories`,
+        url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
         payload: { url: "https://github.com/acme/busy" },
       })
     ).json();
     const quiet = (
       await app.inject({
         method: "POST",
-        url: `/api/v1/projects/${projectId}/repositories`,
+        url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
         payload: { url: "https://github.com/acme/quiet" },
       })
     ).json();
@@ -287,7 +295,7 @@ test("GET /projects/:id/repositories/activity reports each repo's activity", asy
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/v1/projects/${projectId}/repositories/activity`,
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories/activity`,
     });
     assert.equal(res.statusCode, 200);
 
@@ -310,7 +318,7 @@ test("GET /projects/:id/repositories/activity reports each repo's activity", asy
     assert.equal(byId[quiet.id]?.lastSnapshotAt, null);
     assert.equal(byId[quiet.id]?.lastEventAt, null);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -318,10 +326,11 @@ test("GET /projects/:id/repositories/activity reports each repo's activity", asy
 
 test("GET /projects/:id/repositories/activity 404s for an unknown project", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const res = await app.inject({
       method: "GET",
-      url: "/api/v1/projects/00000000-0000-0000-0000-000000000000/repositories/activity",
+      url: `/api/v1/orgs/${orgId}/projects/00000000-0000-0000-0000-000000000000/repositories/activity`,
     });
     assert.equal(res.statusCode, 404);
   } finally {

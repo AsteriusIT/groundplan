@@ -200,32 +200,9 @@ test("only an owner may delete an org (authenticated)", async () => {
   }
 });
 
-// --- Migration / backfill behaviour -----------------------------------------
+// --- Org owns its projects (GP-114 nesting) ---------------------------------
 
-test("a project created with no org lands in the Default org", async () => {
-  const app = await buildApp(env);
-  try {
-    const project = (
-      await app.inject({
-        method: "POST",
-        url: "/api/v1/projects",
-        payload: { name: "Defaulted", slug: `defaulted-${Date.now()}` },
-      })
-    ).json();
-    assert.ok(project.organizationId, "project should carry an organizationId");
-
-    const org = (
-      await app.inject({ method: "GET", url: `/api/v1/orgs/${project.organizationId}` })
-    ).json();
-    assert.equal(org.slug, "default");
-
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
-  } finally {
-    await app.close();
-  }
-});
-
-test("a project can be created in an explicit org; unknown org is rejected", async () => {
+test("a project created under an org carries that org's id", async () => {
   const app = await buildApp(env);
   const slug = `explicit-org-${Date.now()}`;
   try {
@@ -239,32 +216,31 @@ test("a project can be created in an explicit org; unknown org is rejected", asy
 
     const ok = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
-      payload: {
-        name: "In Org",
-        slug: `in-org-${Date.now()}`,
-        organizationId: org.id,
-      },
+      url: `/api/v1/orgs/${org.id}/projects`,
+      payload: { name: "In Org", slug: `in-org-${Date.now()}` },
     });
     assert.equal(ok.statusCode, 201);
     assert.equal(ok.json().organizationId, org.id);
-
-    const bad = await app.inject({
-      method: "POST",
-      url: "/api/v1/projects",
-      payload: {
-        name: "No Org",
-        slug: `no-org-${Date.now()}`,
-        organizationId: "00000000-0000-0000-0000-000000000000",
-      },
-    });
-    assert.equal(bad.statusCode, 422);
 
     await app.inject({
       method: "DELETE",
       url: `/api/v1/orgs/${org.id}`,
       payload: { confirmName: "Explicit" },
     });
+  } finally {
+    await app.close();
+  }
+});
+
+test("creating a project under an unknown org is a 404 (no existence leak)", async () => {
+  const app = await buildApp(env);
+  try {
+    const bad = await app.inject({
+      method: "POST",
+      url: "/api/v1/orgs/00000000-0000-0000-0000-000000000000/projects",
+      payload: { name: "No Org", slug: `no-org-${Date.now()}` },
+    });
+    assert.equal(bad.statusCode, 404);
   } finally {
     await app.close();
   }

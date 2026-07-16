@@ -9,6 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 
 import { buildApp } from "../app.js";
+import { seedOrg } from "../test-support.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories, type RepositoryRow } from "../db/schema.js";
@@ -54,17 +55,20 @@ after(async () => {
 });
 
 let counter = 0;
-async function createRepo(app: FastifyInstance): Promise<{ projectId: string; repo: RepositoryRow }> {
+async function createRepo(
+  app: FastifyInstance,
+  orgId: string,
+): Promise<{ projectId: string; repo: RepositoryRow }> {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "R", slug: `recon-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: fixtureUrl, defaultBranch: "main" },
   });
   const [repo] = await app.db
@@ -74,51 +78,60 @@ async function createRepo(app: FastifyInstance): Promise<{ projectId: string; re
   return { projectId, repo: repo as RepositoryRow };
 }
 
-async function note(app: FastifyInstance, repoId: string, anchor: string): Promise<string> {
+async function note(
+  app: FastifyInstance,
+  orgId: string,
+  repoId: string,
+  anchor: string,
+): Promise<string> {
   const res = await app.inject({
     method: "POST",
-    url: `/api/v1/repositories/${repoId}/annotations`,
+    url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations`,
     payload: { type: "note", anchors: [anchor], body: `about ${anchor}` },
   });
   return res.json().id;
 }
 
-async function getAnnotation(app: FastifyInstance, id: string) {
-  const res = await app.inject({ method: "GET", url: `/api/v1/annotations/${id}` });
+async function getAnnotation(app: FastifyInstance, orgId: string, id: string) {
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/v1/orgs/${orgId}/annotations/${id}`,
+  });
   return res.json();
 }
 
 test("docs generation reconciles: rename orphans, re-add re-resolves; others untouched", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     await writeFixture(["data", "stable"]);
-    const { projectId, repo } = await createRepo(app);
-    const onData = await note(app, repo.id, "aws_s3_bucket.data");
-    const onStable = await note(app, repo.id, "aws_s3_bucket.stable");
+    const { projectId, repo } = await createRepo(app, orgId);
+    const onData = await note(app, orgId, repo.id, "aws_s3_bucket.data");
+    const onStable = await note(app, orgId, repo.id, "aws_s3_bucket.stable");
 
     // First (manual) generation — everything present, so both resolve.
     await generateDocsSnapshot(app, repo);
-    assert.equal((await getAnnotation(app, onData)).status, "resolved");
-    assert.equal((await getAnnotation(app, onStable)).status, "resolved");
+    assert.equal((await getAnnotation(app, orgId, onData)).status, "resolved");
+    assert.equal((await getAnnotation(app, orgId, onStable)).status, "resolved");
 
     // Rename `data` -> `renamed` and regenerate: the note on `data` orphans and
     // records the missing address; the note on `stable` stays resolved.
     await writeFixture(["renamed", "stable"]);
     await generateDocsSnapshot(app, repo);
-    const orphaned = await getAnnotation(app, onData);
+    const orphaned = await getAnnotation(app, orgId, onData);
     assert.equal(orphaned.status, "orphaned");
     assert.deepEqual(orphaned.missingAnchors, ["aws_s3_bucket.data"]);
-    assert.equal((await getAnnotation(app, onStable)).status, "resolved");
+    assert.equal((await getAnnotation(app, orgId, onStable)).status, "resolved");
 
     // Re-add the resource with the same address and regenerate: it returns to
     // resolved with no manual action, and missingAnchors clears.
     await writeFixture(["data", "stable"]);
     await generateDocsSnapshot(app, repo);
-    const healed = await getAnnotation(app, onData);
+    const healed = await getAnnotation(app, orgId, onData);
     assert.equal(healed.status, "resolved");
     assert.deepEqual(healed.missingAnchors, []);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -126,10 +139,11 @@ test("docs generation reconciles: rename orphans, re-add re-resolves; others unt
 
 test("the on-merge/push path also reconciles annotations", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     await writeFixture(["data", "stable"]);
-    const { projectId, repo } = await createRepo(app);
-    const onData = await note(app, repo.id, "aws_s3_bucket.data");
+    const { projectId, repo } = await createRepo(app, orgId);
+    const onData = await note(app, orgId, repo.id, "aws_s3_bucket.data");
 
     const sha = await writeFixture(["renamed", "stable"]);
     await autoGenerateDocsOnPush(app, repo.id, {
@@ -138,9 +152,9 @@ test("the on-merge/push path also reconciles annotations", async () => {
       event: "push",
     });
 
-    assert.equal((await getAnnotation(app, onData)).status, "orphaned");
+    assert.equal((await getAnnotation(app, orgId, onData)).status, "orphaned");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

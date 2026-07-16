@@ -10,6 +10,7 @@ import { parseManifestStream } from "../graph/manifest-parser.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
 import { COMMENT_MARKER } from "../services/pr-comment.js";
 import type { GitHubClient, GitHubComment } from "../services/github.js";
+import { seedOrg } from "../test-support.js";
 
 /**
  * The Kubernetes pull-request flow (GP-103): the user's CI renders the head and
@@ -112,18 +113,19 @@ function fakeGitHub() {
 
 async function createK8sRepo(
   app: FastifyInstance,
+  orgId: string,
   opts: { prComments?: boolean } = {},
 ): Promise<{ projectId: string; repoId: string; token: string }> {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "K", slug: `k8sci-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: {
       provider: "github",
       url: "https://github.com/acme/manifests",
@@ -135,7 +137,7 @@ async function createK8sRepo(
   if (opts.prComments) {
     await app.inject({
       method: "PATCH",
-      url: `/api/v1/repositories/${repo.id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}`,
       payload: { prCommentsEnabled: true },
     });
   }
@@ -170,7 +172,8 @@ test("a rendered pull request is coloured against main: update, create, delete",
   const gh = fakeGitHub();
   const app = await buildApp(env, { github: gh.client });
   try {
-    const { projectId, repoId, token } = await createK8sRepo(app, { prComments: true });
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, token } = await createK8sRepo(app, orgId, { prComments: true });
 
     // Main's diagram, as GP-102's producer would have stored it on the last merge.
     // (That path is covered end-to-end, with a real clone, in k8s-docs.test.ts.)
@@ -191,14 +194,14 @@ test("a rendered pull request is coloured against main: update, create, delete",
     const snapshots = (
       await app.inject({
         method: "GET",
-        url: `/api/v1/repositories/${repoId}/snapshots?pr_number=7`,
+        url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots?pr_number=7`,
       })
     ).json();
     assert.equal(snapshots.length, 1);
     assert.equal(snapshots[0].source, "k8s_rendered");
 
     const snapshot = (
-      await app.inject({ method: "GET", url: `/api/v1/snapshots/${snapshots[0].id}` })
+      await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${snapshots[0].id}` })
     ).json();
 
     // The three colours a reviewer came for.
@@ -233,7 +236,7 @@ test("a rendered pull request is coloured against main: update, create, delete",
 
     // The pull request itself was fed exactly as a Terraform one is (GP-14).
     const pull = (
-      await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/pulls/7` })
+      await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls/7` })
     ).json();
     assert.equal(pull.title, "Bump the api");
     assert.equal(pull.latestSnapshot.id, snapshots[0].id);
@@ -245,7 +248,7 @@ test("a rendered pull request is coloured against main: update, create, delete",
     assert.ok(comment.startsWith(COMMENT_MARKER));
     assert.match(comment, /Service/);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -254,7 +257,8 @@ test("a rendered pull request is coloured against main: update, create, delete",
 test("a repository whose main has no diagram yet compares against nothing, and says so", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId, token } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, token } = await createK8sRepo(app, orgId);
 
     const res = await render(app, repoId, token, HEAD_MANIFESTS);
     assert.equal(res.statusCode, 202);
@@ -263,11 +267,11 @@ test("a repository whose main has no diagram yet compares against nothing, and s
     const [summary] = (
       await app.inject({
         method: "GET",
-        url: `/api/v1/repositories/${repoId}/snapshots?pr_number=7`,
+        url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots?pr_number=7`,
       })
     ).json();
     const snapshot = (
-      await app.inject({ method: "GET", url: `/api/v1/snapshots/${summary.id}` })
+      await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${summary.id}` })
     ).json();
 
     // Everything is new — which is true, and is not the same as nothing changing.
@@ -275,7 +279,7 @@ test("a repository whose main has no diagram yet compares against nothing, and s
     assert.ok(snapshot.graph.nodes.every((n: { change: string }) => n.change === "create"));
     assert.equal(snapshot.stats.changes.delete, 0);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -284,7 +288,8 @@ test("a repository whose main has no diagram yet compares against nothing, and s
 test("CI retrying the same commit replaces its diagram — two of one commit is not history", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId, token } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, token } = await createK8sRepo(app, orgId);
 
     await render(app, repoId, token, HEAD_MANIFESTS);
     await render(app, repoId, token, HEAD_MANIFESTS);
@@ -293,12 +298,12 @@ test("CI retrying the same commit replaces its diagram — two of one commit is 
     const snapshots = (
       await app.inject({
         method: "GET",
-        url: `/api/v1/repositories/${repoId}/snapshots?pr_number=7`,
+        url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots?pr_number=7`,
       })
     ).json();
     assert.equal(snapshots.length, 1, "the re-delivery replaced, it did not stack");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -307,7 +312,8 @@ test("CI retrying the same commit replaces its diagram — two of one commit is 
 test("a body we cannot read is refused, and nothing is stored", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId, token } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, token } = await createK8sRepo(app, orgId);
 
     // Malformed YAML: the CI step should fail, now, where somebody is watching.
     const broken = await render(app, repoId, token, "kind: Deployment\n  bad: [indent\n");
@@ -326,18 +332,18 @@ test("a body we cannot read is refused, and nothing is stored", async () => {
     assert.equal(plan.statusCode, 422);
 
     assert.deepEqual(
-      (await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/events` })).json(),
+      (await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/events` })).json(),
       [],
       "a refused delivery is not an event",
     );
     assert.deepEqual(
       (
-        await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/snapshots` })
+        await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots` })
       ).json(),
       [],
     );
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -346,11 +352,12 @@ test("a body we cannot read is refused, and nothing is stored", async () => {
 test("the dashboard's chips light up for a kubernetes pull request", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId, token } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, token } = await createK8sRepo(app, orgId);
     await render(app, repoId, token, HEAD_MANIFESTS);
     await app.flushBackgroundTasks();
 
-    const dashboard = (await app.inject({ method: "GET", url: "/api/v1/dashboard" })).json();
+    const dashboard = (await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/dashboard` })).json();
     const pull = dashboard.recentPrs.find(
       (p: { repositoryId: string }) => p.repositoryId === repoId,
     );
@@ -361,7 +368,7 @@ test("the dashboard's chips light up for a kubernetes pull request", async () =>
     assert.equal(pull.internetExposed, false, "no Terraform risk flags on a k8s graph");
     assert.equal(pull.privileged, false);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -370,16 +377,17 @@ test("the dashboard's chips light up for a kubernetes pull request", async () =>
 test("a terraform repository is untouched by any of this", async () => {
   const app = await buildApp(env);
   try {
+    const orgId = await seedOrg(app);
     counter += 1;
     const p = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "T", slug: `tfci-${Date.now()}-${counter}` },
     });
     const projectId = p.json().id;
     const r = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
       payload: { provider: "github", url: "https://github.com/acme/infra" },
     });
     const { id: repoId, webhookToken } = r.json();
@@ -402,13 +410,13 @@ test("a terraform repository is untouched by any of this", async () => {
     await app.flushBackgroundTasks();
     assert.deepEqual(
       (
-        await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/snapshots` })
+        await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots` })
       ).json(),
       [],
       "and no snapshot, because it is not a plan",
     );
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -417,7 +425,8 @@ test("a terraform repository is untouched by any of this", async () => {
 test("a chart's main is documented from the render its CI already does", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId, token } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, token } = await createK8sRepo(app, orgId);
 
     // A Helm chart has nothing in it we can read — its templates are Go source —
     // so main's diagram comes from CI rendering it on merge, and *that* is what a
@@ -437,7 +446,7 @@ test("a chart's main is documented from the render its CI already does", async (
     await app.flushBackgroundTasks();
 
     const docs = (
-      await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/docs/latest` })
+      await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/latest` })
     ).json();
     assert.equal(docs.source, "k8s_manifest", "it is documentation, not a review");
     assert.equal(docs.commitSha, "main0001");
@@ -454,17 +463,17 @@ test("a chart's main is documented from the render its CI already does", async (
     const [pr] = (
       await app.inject({
         method: "GET",
-        url: `/api/v1/repositories/${repoId}/snapshots?pr_number=7`,
+        url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots?pr_number=7`,
       })
     ).json();
     const snapshot = (
-      await app.inject({ method: "GET", url: `/api/v1/snapshots/${pr.id}` })
+      await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${pr.id}` })
     ).json();
     assert.equal(snapshot.stats.base, docs.id);
     assert.equal(snapshot.stats.changes.update, 1, "the image moved");
     assert.equal(snapshot.stats.changes.delete, 1, "the config went");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

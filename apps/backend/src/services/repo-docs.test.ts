@@ -12,6 +12,7 @@ import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories, type RepositoryRow } from "../db/schema.js";
+import { seedOrg } from "../test-support.js";
 import { generateDocsSnapshot } from "./repo-docs.js";
 
 const env = loadEnv();
@@ -64,14 +65,15 @@ async function createRepo(
   terraformPath: string,
 ): Promise<RepositoryRow> {
   counter += 1;
+  const orgId = await seedOrg(app);
   const project = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "TF", slug: `tfpath-docs-${Date.now()}-${counter}` },
   });
   const created = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${project.json().id}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${project.json().id}/repositories`,
     payload: {
       provider: "github",
       url: fixtureUrl,

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
+import { seedOrg } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -16,11 +17,12 @@ before(async () => {
 
 test("a repository stores a normalized terraform path, and rejects one that escapes", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const project = (
       await app.inject({
         method: "POST",
-        url: "/api/v1/projects",
+        url: `/api/v1/orgs/${orgId}/projects`,
         payload: { name: "P", slug: `tfpath-${Date.now()}` },
       })
     ).json();
@@ -28,7 +30,7 @@ test("a repository stores a normalized terraform path, and rejects one that esca
     // Default: the repository root.
     const rooted = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: { url: "https://github.com/acme/rooted" },
     });
     assert.equal(rooted.statusCode, 201);
@@ -37,7 +39,7 @@ test("a repository stores a normalized terraform path, and rejects one that esca
     // Given a path, it is stored clean — the user's slashes are not our problem.
     const nested = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: { url: "https://github.com/acme/nested", terraformPath: "/infra/azure/" },
     });
     assert.equal(nested.statusCode, 201);
@@ -46,7 +48,7 @@ test("a repository stores a normalized terraform path, and rejects one that esca
     // It can be moved, and moved back to the root.
     const moved = await app.inject({
       method: "PATCH",
-      url: `/api/v1/repositories/${nested.json().id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${nested.json().id}`,
       payload: { terraformPath: "terraform" },
     });
     assert.equal(moved.statusCode, 200);
@@ -54,7 +56,7 @@ test("a repository stores a normalized terraform path, and rejects one that esca
 
     const backToRoot = await app.inject({
       method: "PATCH",
-      url: `/api/v1/repositories/${nested.json().id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${nested.json().id}`,
       payload: { terraformPath: "" },
     });
     assert.equal(backToRoot.json().terraformPath, "");
@@ -62,7 +64,7 @@ test("a repository stores a normalized terraform path, and rejects one that esca
     // A path that climbs out of the repository is refused, on create and update.
     const escaping = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: { url: "https://github.com/acme/evil", terraformPath: "../../etc" },
     });
     assert.equal(escaping.statusCode, 422);
@@ -70,12 +72,12 @@ test("a repository stores a normalized terraform path, and rejects one that esca
 
     const escapingPatch = await app.inject({
       method: "PATCH",
-      url: `/api/v1/repositories/${nested.json().id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${nested.json().id}`,
       payload: { terraformPath: "../secrets" },
     });
     assert.equal(escapingPatch.statusCode, 422);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${project.id}` });
   } finally {
     await app.close();
   }
@@ -85,11 +87,12 @@ test("a repository stores a normalized terraform path, and rejects one that esca
 
 test("a repository declares what it holds; terraform unless it says otherwise", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const project = (
       await app.inject({
         method: "POST",
-        url: "/api/v1/projects",
+        url: `/api/v1/orgs/${orgId}/projects`,
         payload: { name: "P", slug: `iactype-${Date.now()}` },
       })
     ).json();
@@ -97,7 +100,7 @@ test("a repository declares what it holds; terraform unless it says otherwise", 
     // Say nothing and you get today's behaviour — every existing repo is one of these.
     const implicit = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: { url: "https://github.com/acme/tf" },
     });
     assert.equal(implicit.statusCode, 201);
@@ -106,7 +109,7 @@ test("a repository declares what it holds; terraform unless it says otherwise", 
     // A manifests repo says so, and the same path field means "where the YAML is".
     const k8s = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: {
         url: "https://github.com/acme/manifests",
         iacType: "kubernetes",
@@ -120,14 +123,14 @@ test("a repository declares what it holds; terraform unless it says otherwise", 
     // It survives a read and a list.
     const read = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${k8s.json().id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${k8s.json().id}`,
     });
     assert.equal(read.json().iacType, "kubernetes");
 
     const listed = (
       await app.inject({
         method: "GET",
-        url: `/api/v1/projects/${project.id}/repositories`,
+        url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       })
     ).json();
     assert.deepEqual(
@@ -141,7 +144,7 @@ test("a repository declares what it holds; terraform unless it says otherwise", 
     // A repo escaping its own root is refused whatever it holds.
     const escaping = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: {
         url: "https://github.com/acme/evil",
         iacType: "kubernetes",
@@ -154,7 +157,7 @@ test("a repository declares what it holds; terraform unless it says otherwise", 
     // There is no third kind of infrastructure-as-code here.
     const nonsense = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${project.id}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.id}/repositories`,
       payload: { url: "https://github.com/acme/x", iacType: "pulumi" },
     });
     assert.equal(nonsense.statusCode, 422);
@@ -163,18 +166,18 @@ test("a repository declares what it holds; terraform unless it says otherwise", 
     // Immutable in v1: a repo does not change what it holds (GP-100, no mixed repos).
     const patched = await app.inject({
       method: "PATCH",
-      url: `/api/v1/repositories/${k8s.json().id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${k8s.json().id}`,
       payload: { iacType: "terraform" },
     });
     assert.equal(patched.statusCode, 422);
 
     const unchanged = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${k8s.json().id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${k8s.json().id}`,
     });
     assert.equal(unchanged.json().iacType, "kubernetes");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${project.id}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${project.id}` });
   } finally {
     await app.close();
   }

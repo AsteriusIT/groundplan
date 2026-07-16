@@ -20,31 +20,21 @@ import { backgroundPlugin } from "./plugins/background.js";
 import { dbPlugin } from "./plugins/db.js";
 import { refPollerPlugin } from "./plugins/ref-poller.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
-import { aiRoutes } from "./routes/ai.js";
-import { annotationRoutes } from "./routes/annotations.js";
-import { clusterRoutes } from "./routes/clusters.js";
-import { k8sSnapshotRoutes } from "./routes/k8s-snapshots.js";
-import { dashboardRoutes } from "./routes/dashboard.js";
 import {
   verifyConnection as realVerifyConnection,
   type RepoSource,
   type VerifyResult,
 } from "./services/repo-files.js";
-import { docsRoutes } from "./routes/docs.js";
-import { exportRoutes } from "./routes/exports.js";
+import { orgScopePlugin } from "./plugins/org-scope.js";
+// Global (not org-scoped) route plugins.
+import { aiStatusRoutes } from "./routes/ai.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
 import { meRoutes } from "./routes/me.js";
 import { orgRoutes } from "./routes/organizations.js";
-import { projectRoutes } from "./routes/projects.js";
-import { pullRoutes } from "./routes/pulls.js";
-import { repositoryFileRoutes } from "./routes/repository-files.js";
-import { repositoryRoutes } from "./routes/repositories.js";
 import { settingsRoutes } from "./routes/settings.js";
-import { shareRoutes } from "./routes/share-links.js";
-import { snapshotRoutes } from "./routes/snapshots.js";
-import { tourRoutes } from "./routes/tours.js";
+import { sharePublicRoutes } from "./routes/share-links.js";
 
 export type VerifyConnection = (source: RepoSource) => Promise<VerifyResult>;
 
@@ -154,26 +144,22 @@ export async function buildApp(
 
   // Readiness probe (with DB check) at the conventional root path.
   await app.register(healthzRoutes);
-  // Versioned API routes.
+
+  // Global (not org-scoped) API routes: health, the current user, organization
+  // management, the CI webhook (its own secret), app-wide settings, the public
+  // share views, and the AI status readout. See org-scope for the rest.
   await app.register(healthRoutes, { prefix: "/api/v1" });
   await app.register(meRoutes, { prefix: "/api/v1" });
   await app.register(orgRoutes, { prefix: "/api/v1" });
-  await app.register(projectRoutes, { prefix: "/api/v1" });
-  await app.register(repositoryRoutes, { prefix: "/api/v1" });
-  await app.register(clusterRoutes, { prefix: "/api/v1" });
-  await app.register(k8sSnapshotRoutes, { prefix: "/api/v1" });
-  await app.register(repositoryFileRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
-  await app.register(snapshotRoutes, { prefix: "/api/v1" });
-  await app.register(exportRoutes, { prefix: "/api/v1" });
-  await app.register(shareRoutes, { prefix: "/api/v1" });
-  await app.register(pullRoutes, { prefix: "/api/v1" });
-  await app.register(docsRoutes, { prefix: "/api/v1" });
-  await app.register(annotationRoutes, { prefix: "/api/v1" });
-  await app.register(aiRoutes, { prefix: "/api/v1" });
-  await app.register(tourRoutes, { prefix: "/api/v1" });
-  await app.register(dashboardRoutes, { prefix: "/api/v1" });
   await app.register(settingsRoutes, { prefix: "/api/v1" });
+  await app.register(sharePublicRoutes, { prefix: "/api/v1" });
+  await app.register(aiStatusRoutes, { prefix: "/api/v1" });
+
+  // Everything a tenant owns — projects, repos, snapshots, PRs, clusters, docs,
+  // annotations, AI generation, exports, tours, dashboard — lives under
+  // `/api/v1/orgs/:orgId`, behind the org-scope guard (membership + ownership).
+  await app.register(orgScopePlugin, { prefix: "/api/v1/orgs/:orgId" });
 
   // Ref poller (GP-107): the background `git ls-remote` loop that keeps docs and
   // PR state in sync with the git remote. `pollRefsOnce` is always available;

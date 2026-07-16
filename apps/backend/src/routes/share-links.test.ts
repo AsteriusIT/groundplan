@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildApp } from "../app.js";
-import { buildTestApp } from "../test-support.js";
+import { buildTestApp, seedOrg } from "../test-support.js";
 import { loadEnv, type AppEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import type { Graph } from "../graph/graph.js";
@@ -31,17 +31,20 @@ function docsGraph(name: string): Graph {
 }
 
 let counter = 0;
-async function createRepo(app: Awaited<ReturnType<typeof buildApp>>) {
+async function createRepo(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  orgId: string,
+) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "S", slug: `share-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/infra" },
   });
   return { projectId, repoId: r.json().id };
@@ -50,7 +53,8 @@ async function createRepo(app: Awaited<ReturnType<typeof buildApp>>) {
 test("docs_latest link resolves to the newest docs snapshot, no auth required", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const first = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -61,7 +65,7 @@ test("docs_latest link resolves to the newest docs snapshot, no auth required", 
 
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/share-links`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/share-links`,
       payload: { kind: "docs_latest" },
     });
     assert.equal(created.statusCode, 201);
@@ -88,7 +92,7 @@ test("docs_latest link resolves to the newest docs snapshot, no auth required", 
     const after = await app.inject({ method: "GET", url: `/api/v1/public/${token}` });
     assert.equal(after.json().snapshot.commitSha, "bbbbbbbb");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -97,7 +101,8 @@ test("docs_latest link resolves to the newest docs snapshot, no auth required", 
 test("public view includes renderable annotations but hides orphans (GP-58)", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -109,18 +114,18 @@ test("public view includes renderable annotations but hides orphans (GP-58)", as
     // One note anchored to a present node, one to a vanished node.
     await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/annotations`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations`,
       payload: { type: "note", anchors: ["azurerm_subnet.a"], body: "kept" },
     });
     await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/annotations`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations`,
       payload: { type: "note", anchors: ["azurerm_subnet.gone"], body: "orphan" },
     });
 
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/share-links`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/share-links`,
       payload: { kind: "docs_latest" },
     });
     const { token } = created.json();
@@ -131,7 +136,7 @@ test("public view includes renderable annotations but hides orphans (GP-58)", as
     assert.equal(anns.length, 1, "only the renderable annotation is public");
     assert.equal(anns[0].body, "kept");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -140,7 +145,8 @@ test("public view includes renderable annotations but hides orphans (GP-58)", as
 test("a pinned snapshot link keeps its snapshot across regenerations", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const pinned = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -151,7 +157,7 @@ test("a pinned snapshot link keeps its snapshot across regenerations", async () 
 
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/share-links`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/share-links`,
       payload: { kind: "snapshot", snapshotId: pinned.id },
     });
     assert.equal(created.statusCode, 201);
@@ -168,7 +174,7 @@ test("a pinned snapshot link keeps its snapshot across regenerations", async () 
     const view = await app.inject({ method: "GET", url: `/api/v1/public/${token}` });
     assert.equal(view.json().snapshot.commitSha, "pinned01");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -177,7 +183,8 @@ test("a pinned snapshot link keeps its snapshot across regenerations", async () 
 test("revoking a link makes the public route 404 immediately", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -187,17 +194,17 @@ test("revoking a link makes the public route 404 immediately", async () => {
     });
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/share-links`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/share-links`,
       payload: { kind: "docs_latest" },
     });
     const { id, token } = created.json();
 
     assert.equal((await app.inject({ method: "GET", url: `/api/v1/public/${token}` })).statusCode, 200);
-    const del = await app.inject({ method: "DELETE", url: `/api/v1/share-links/${id}` });
+    const del = await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/share-links/${id}` });
     assert.equal(del.statusCode, 204);
     assert.equal((await app.inject({ method: "GET", url: `/api/v1/public/${token}` })).statusCode, 404);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -206,7 +213,8 @@ test("revoking a link makes the public route 404 immediately", async () => {
 test("public export.png renders for a share token", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -216,7 +224,7 @@ test("public export.png renders for a share token", async () => {
     });
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/share-links`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/share-links`,
       payload: { kind: "docs_latest" },
     });
     const { token } = created.json();
@@ -225,7 +233,7 @@ test("public export.png renders for a share token", async () => {
     assert.equal(png.headers["content-type"], "image/png");
     assert.equal(png.rawPayload.subarray(1, 4).toString("ascii"), "PNG");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -234,8 +242,9 @@ test("public export.png renders for a share token", async () => {
 test("pinning a snapshot from another repository is rejected (422)", async () => {
   const app = await buildApp(env);
   try {
-    const a = await createRepo(app);
-    const b = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const a = await createRepo(app, orgId);
+    const b = await createRepo(app, orgId);
     const foreign = await insertGraphSnapshot(app.db, {
       repositoryId: b.repoId,
       source: "hcl",
@@ -245,13 +254,13 @@ test("pinning a snapshot from another repository is rejected (422)", async () =>
     });
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${a.repoId}/share-links`,
+      url: `/api/v1/orgs/${orgId}/repositories/${a.repoId}/share-links`,
       payload: { kind: "snapshot", snapshotId: foreign.id },
     });
     assert.equal(res.statusCode, 422);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${a.projectId}` });
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${b.projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${a.projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${b.projectId}` });
   } finally {
     await app.close();
   }

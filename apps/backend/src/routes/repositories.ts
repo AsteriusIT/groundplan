@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { repositories, toPublicRepository, type RepositoryRow } from "../db/schema.js";
 import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.js";
 import { generateToken } from "../lib/tokens.js";
+import { requirePermission } from "../rbac/request.js";
 import { verifyAndStore } from "../services/repository-verification.js";
 
 const UUID_PATTERN =
@@ -70,6 +71,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
     "/repositories/:id",
     { schema: { params: idParamsSchema, body: updateRepositorySchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const { id } = request.params as { id: string };
       const body = request.body as {
         accessToken?: string;
@@ -149,6 +151,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
     "/repositories/:id/verify",
     { schema: { params: idParamsSchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const { id } = request.params as { id: string };
       const repo = await loadRepository(app, id);
       if (!repo) {
@@ -172,6 +175,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
     "/repositories/:id/webhook-token",
     { schema: { params: idParamsSchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const { id } = request.params as { id: string };
       const [updated] = await app.db
         .update(repositories)
@@ -191,6 +195,7 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
     "/repositories/:id",
     { schema: { params: idParamsSchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const { id } = request.params as { id: string };
       const deleted = await app.db
         .delete(repositories)

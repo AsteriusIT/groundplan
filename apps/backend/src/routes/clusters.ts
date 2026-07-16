@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 
 import { clusters, toPublicCluster, type ClusterRow } from "../db/schema.js";
 import { InvalidKubeconfigError, parseKubeconfig } from "../lib/kubeconfig.js";
+import { orgIdOf, requirePermission } from "../rbac/request.js";
 import { verifyClusterAndStore } from "../services/cluster-verification.js";
 
 const UUID_PATTERN =
@@ -83,10 +84,11 @@ function rejectMalformed(reply: FastifyReply, err: unknown) {
  * Protected by the global auth hook — nothing to wire here.
  */
 export const clusterRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/clusters", async () => {
+  app.get("/clusters", async (request) => {
     const rows = await app.db
       .select()
       .from(clusters)
+      .where(eq(clusters.organizationId, orgIdOf(request)))
       .orderBy(desc(clusters.createdAt));
     return rows.map(toPublicCluster);
   });
@@ -95,6 +97,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
     "/clusters",
     { schema: { body: createClusterSchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const body = request.body as { name: string; kubeconfig: string };
 
       try {
@@ -106,6 +109,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
       const [inserted] = await app.db
         .insert(clusters)
         .values({
+          organizationId: orgIdOf(request),
           name: body.name,
           kubeconfig: app.encryptor.encrypt(body.kubeconfig),
         })
@@ -134,6 +138,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
     "/clusters/:id",
     { schema: { params: idParamsSchema, body: updateClusterSchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const { id } = request.params as { id: string };
       const body = request.body as { name?: string; kubeconfig?: string };
 
@@ -175,6 +180,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
     "/clusters/:id/verify",
     { schema: { params: idParamsSchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const { id } = request.params as { id: string };
       const cluster = await loadCluster(app, id);
       if (!cluster) return notFound(reply);
@@ -189,6 +195,7 @@ export const clusterRoutes: FastifyPluginAsync = async (app) => {
     "/clusters/:id",
     { schema: { params: idParamsSchema } },
     async (request, reply) => {
+      if (!requirePermission(request, reply, "project:manage")) return reply;
       const { id } = request.params as { id: string };
       const deleted = await app.db
         .delete(clusters)

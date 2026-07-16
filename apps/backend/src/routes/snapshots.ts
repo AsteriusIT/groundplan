@@ -10,6 +10,8 @@ import {
 import { collapseToGroups, projectAdapted } from "../graph/adapted.js";
 import { diffGraphs } from "../graph/diff.js";
 import { computeGraphStats } from "../graph/graph.js";
+import { resolveResourceOrg } from "../rbac/ownership.js";
+import { orgIdOf } from "../rbac/request.js";
 import { DOCS_SOURCES, type SnapshotSource } from "../services/graph-snapshots.js";
 
 const UUID_PATTERN =
@@ -196,6 +198,14 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
       const base = rows.find((r) => r.id === id);
       const target = rows.find((r) => r.id === otherId);
       if (!base || !target) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "snapshot not found" });
+      }
+
+      // The guard already proved :id is in this org; :otherId is the route's
+      // second resource, so it must be checked here (no cross-org existence leak).
+      if ((await resolveResourceOrg(app.db, "snapshot", otherId)) !== orgIdOf(request)) {
         return reply
           .code(404)
           .send({ error: "Not Found", message: "snapshot not found" });

@@ -3,6 +3,8 @@
  * A throwaway RSA keypair signs local JWTs; its public JWK is fed to the app
  * as a local JWKS, so verification is fully offline.
  */
+import { randomBytes } from "node:crypto";
+
 import {
   createLocalJWKSet,
   exportJWK,
@@ -11,8 +13,12 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 
+import type { FastifyInstance } from "fastify";
+
 import { buildApp, type BuildAppOptions } from "./app.js";
 import { loadEnv, type AppEnv } from "./config/env.js";
+import { memberships, organizations } from "./db/schema.js";
+import type { Role } from "./rbac/permissions.js";
 
 export const TEST_ISSUER = "https://issuer.test.groundplan.local";
 export const TEST_AUDIENCE = "groundplan-test";
@@ -85,4 +91,57 @@ export function testAuthEnv(): AppEnv {
 /** Build an app with OIDC auth active and the local test JWKS injected. */
 export async function buildTestApp(opts: BuildAppOptions = {}) {
   return buildApp(testAuthEnv(), { jwks: await testKeyResolver(), ...opts });
+}
+
+/**
+ * Seed an organization directly (GP-114) and return its id, for the many route
+ * tests that now address resources under `/api/v1/orgs/:orgId/...`. A direct DB
+ * insert rather than `POST /orgs` keeps this working regardless of the
+ * org-creation gating that lands in GP-115. The slug carries the 13-digit
+ * timestamp marker the global teardown sweeps, plus random bytes so it stays
+ * unique across the parallel test processes `node --test` spawns.
+ */
+export async function seedOrg(
+  app: FastifyInstance,
+  name = "Test Org",
+): Promise<string> {
+  const slug = `test-org-${Date.now()}-${randomBytes(6).toString("hex")}`;
+  const [org] = await app.db
+    .insert(organizations)
+    .values({ name, slug })
+    .returning({ id: organizations.id });
+  return org!.id;
+}
+
+/**
+ * Seed an organization and enrol a user in it with a role (GP-114), for RBAC
+ * tests that run with auth on. Returns the org id; pair it with `authHeader({ sub })`.
+ */
+export async function seedOrgWithMember(
+  app: FastifyInstance,
+  opts: { userId: string; role: Role; name?: string },
+): Promise<string> {
+  const orgId = await seedOrg(app, opts.name);
+  await app.db
+    .insert(memberships)
+    .values({ userId: opts.userId, organizationId: orgId, role: opts.role });
+  return orgId;
+}
+
+/**
+ * Seed an org and enrol the *default* `authHeader()` user (sub "test-subject-1")
+ * in it, provisioning that user first via `/me`. For auth-on functional tests
+ * (`buildTestApp()` + `authHeader()`) that then address `/orgs/:orgId/...`.
+ */
+export async function seedOrgForDefaultUser(
+  app: FastifyInstance,
+  role: Role = "owner",
+): Promise<string> {
+  const me = await app.inject({
+    method: "GET",
+    url: "/api/v1/me",
+    headers: await authHeader(),
+  });
+  const userId = me.json().id as string;
+  return seedOrgWithMember(app, { userId, role });
 }

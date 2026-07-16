@@ -12,6 +12,7 @@ import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories, type RepositoryRow } from "../db/schema.js";
+import { seedOrg } from "../test-support.js";
 import { dispatchGitEvent, pollRepository } from "./ref-poller.js";
 import { regenerateDocsForSha } from "./repo-docs.js";
 
@@ -53,17 +54,17 @@ async function advanceMain(): Promise<string> {
 }
 
 let counter = 0;
-async function createRepo(app: FastifyInstance): Promise<RepositoryRow> {
+async function createRepo(app: FastifyInstance, orgId: string): Promise<RepositoryRow> {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "A", slug: `refdocs-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: fixtureUrl, defaultBranch: "main" },
   });
   const [repo] = await app.db
@@ -80,10 +81,10 @@ async function pollAndDispatch(app: FastifyInstance, repo: RepositoryRow) {
   }
 }
 
-async function hclSnapshots(app: FastifyInstance, repoId: string) {
+async function hclSnapshots(app: FastifyInstance, orgId: string, repoId: string) {
   const res = await app.inject({
     method: "GET",
-    url: `/api/v1/repositories/${repoId}/snapshots?source=hcl`,
+    url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots?source=hcl`,
   });
   return res.json() as {
     id: string;
@@ -104,21 +105,22 @@ after(async () => {
 test("a MainUpdated from the poller regenerates docs for the new sha", async () => {
   const app = await buildApp(env);
   try {
-    const repo = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const repo = await createRepo(app, orgId);
     await pollAndDispatch(app, repo); // seed: main is new, no event, no docs
-    assert.equal((await hclSnapshots(app, repo.id)).length, 0);
+    assert.equal((await hclSnapshots(app, orgId, repo.id)).length, 0);
 
     const newSha = await advanceMain();
     await pollAndDispatch(app, repo); // main moved -> MainUpdated -> docs
 
-    const snaps = await hclSnapshots(app, repo.id);
+    const snaps = await hclSnapshots(app, orgId, repo.id);
     assert.equal(snaps.length, 1);
     assert.equal(snaps[0]!.commitSha, newSha);
     assert.equal(snaps[0]!.stats.trigger, "auto");
 
     const full = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snaps[0]!.id}`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snaps[0]!.id}`,
     });
     const ids = full.json().graph.nodes.map((n: { id: string }) => n.id);
     assert.ok(ids.includes("aws_s3_bucket.a") && ids.includes("aws_s3_bucket.b"));
@@ -130,13 +132,14 @@ test("a MainUpdated from the poller regenerates docs for the new sha", async () 
 test("two MainUpdated for the same sha produce exactly one snapshot", async () => {
   const app = await buildApp(env);
   try {
-    const repo = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const repo = await createRepo(app, orgId);
     const sha = await git(["rev-parse", "HEAD"]);
 
     await regenerateDocsForSha(app, repo, sha);
     await regenerateDocsForSha(app, repo, sha); // idempotent by sha
 
-    assert.equal((await hclSnapshots(app, repo.id)).length, 1);
+    assert.equal((await hclSnapshots(app, orgId, repo.id)).length, 1);
   } finally {
     await app.close();
   }
@@ -145,7 +148,8 @@ test("two MainUpdated for the same sha produce exactly one snapshot", async () =
 test("manual regeneration coexists with the poller's auto snapshots", async () => {
   const app = await buildApp(env);
   try {
-    const repo = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const repo = await createRepo(app, orgId);
     const sha = await git(["rev-parse", "HEAD"]);
     await regenerateDocsForSha(app, repo, sha); // auto (poller)
 
@@ -153,11 +157,11 @@ test("manual regeneration coexists with the poller's auto snapshots", async () =
     // adds its own snapshot rather than being blocked by the auto one.
     const manual = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repo.id}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}/docs/generate`,
     });
     assert.equal(manual.statusCode, 201);
 
-    const snaps = await hclSnapshots(app, repo.id);
+    const snaps = await hclSnapshots(app, orgId, repo.id);
     assert.equal(snaps.length, 2);
     const triggers = snaps.map((s) => s.stats.trigger).sort();
     assert.deepEqual(triggers, ["auto", "manual"]);

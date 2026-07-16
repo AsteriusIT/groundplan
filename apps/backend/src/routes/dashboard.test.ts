@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 
 import { buildApp } from "../app.js";
-import { buildTestApp, authHeader } from "../test-support.js";
+import {
+  buildTestApp,
+  authHeader,
+  seedOrg,
+  seedOrgForDefaultUser,
+} from "../test-support.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { reconcileRepositoryAnnotations } from "../services/annotation-reconcile.js";
@@ -21,17 +26,17 @@ before(async () => {
 });
 
 let counter = 0;
-async function createRepo(app: FastifyInstance) {
+async function createRepo(app: FastifyInstance, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "P", slug: `dash-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   const repo = r.json();
@@ -120,14 +125,15 @@ async function prWebhook(
   });
 }
 
-function dashboard(app: FastifyInstance) {
-  return app.inject({ method: "GET", url: "/api/v1/dashboard" });
+function dashboard(app: FastifyInstance, orgId: string) {
+  return app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/dashboard` });
 }
 
 test("stats are numbers and the lists are arrays, even with nothing attached", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const res = await dashboard(app);
+    const res = await dashboard(app, orgId);
     assert.equal(res.statusCode, 200);
     const body = res.json();
 
@@ -147,8 +153,9 @@ test("stats are numbers and the lists are arrays, even with nothing attached", a
 
 test("a PR ingested via webhook appears in recentPrs with its change stats", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/feature-x",
       commit_sha: "sha-quiet",
@@ -157,7 +164,7 @@ test("a PR ingested via webhook appears in recentPrs with its change stats", asy
       payload: quietPlan(),
     });
 
-    const body = (await dashboard(app)).json();
+    const body = (await dashboard(app, orgId)).json();
     const pr = body.recentPrs.find((p: { repositoryId: string }) => p.repositoryId === repoId);
     assert.ok(pr, "the ingested PR is in recentPrs");
 
@@ -179,7 +186,7 @@ test("a PR ingested via webhook appears in recentPrs with its change stats", asy
     assert.ok(body.stats.projects >= 1);
     assert.ok(body.stats.repositories >= 1);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -187,8 +194,9 @@ test("a PR ingested via webhook appears in recentPrs with its change stats", asy
 
 test("recentPrs flags a PR whose latest plan is internet-exposed and privileged", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/open-it-up",
       commit_sha: "sha-risky",
@@ -196,7 +204,7 @@ test("recentPrs flags a PR whose latest plan is internet-exposed and privileged"
       payload: riskyPlan(),
     });
 
-    const body = (await dashboard(app)).json();
+    const body = (await dashboard(app, orgId)).json();
     const pr = body.recentPrs.find((p: { repositoryId: string }) => p.repositoryId === repoId);
     assert.ok(pr);
     assert.equal(pr.internetExposed, true);
@@ -204,7 +212,7 @@ test("recentPrs flags a PR whose latest plan is internet-exposed and privileged"
     // No title was posted — the UI falls back to the number.
     assert.equal(pr.title, null);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -212,8 +220,9 @@ test("recentPrs flags a PR whose latest plan is internet-exposed and privileged"
 
 test("risk flags follow the latest plan snapshot, not an older one", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     // First push exposes the NSG…
     await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/fix-it",
@@ -229,14 +238,14 @@ test("risk flags follow the latest plan snapshot, not an older one", async () =>
       payload: quietPlan(),
     });
 
-    const body = (await dashboard(app)).json();
+    const body = (await dashboard(app, orgId)).json();
     const pr = body.recentPrs.find((p: { repositoryId: string }) => p.repositoryId === repoId);
     assert.ok(pr);
     assert.equal(pr.internetExposed, false);
     assert.equal(pr.privileged, false);
     assert.equal(pr.latestSnapshot.stats.changes.create, 1);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -244,8 +253,9 @@ test("risk flags follow the latest plan snapshot, not an older one", async () =>
 
 test("recentPrs is newest-first and never longer than 10", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     for (const number of [1, 2, 3]) {
       await prWebhook(app, repoId, webhookToken, {
         ref: `refs/heads/f-${number}`,
@@ -255,7 +265,7 @@ test("recentPrs is newest-first and never longer than 10", async () => {
       });
     }
 
-    const body = (await dashboard(app)).json();
+    const body = (await dashboard(app, orgId)).json();
     assert.ok(body.recentPrs.length <= 10);
 
     const times: number[] = body.recentPrs.map((p: { updatedAt: string }) =>
@@ -265,7 +275,7 @@ test("recentPrs is newest-first and never longer than 10", async () => {
       assert.ok(times[i - 1]! >= times[i]!, "recentPrs is ordered newest-first");
     }
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -273,8 +283,9 @@ test("recentPrs is newest-first and never longer than 10", async () => {
 
 test("a PR without a parseable plan still lists, with no snapshot", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/no-plan",
       commit_sha: "sha-nop",
@@ -282,14 +293,14 @@ test("a PR without a parseable plan still lists, with no snapshot", async () => 
       payload: { hello: "world" },
     });
 
-    const body = (await dashboard(app)).json();
+    const body = (await dashboard(app, orgId)).json();
     const pr = body.recentPrs.find((p: { repositoryId: string }) => p.repositoryId === repoId);
     assert.ok(pr);
     assert.equal(pr.latestSnapshot, null);
     assert.equal(pr.internetExposed, false);
     assert.equal(pr.privileged, false);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -297,11 +308,12 @@ test("a PR without a parseable plan still lists, with no snapshot", async () => 
 
 test("orphaned annotations are counted and point at the repository to fix", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/annotations`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations`,
       payload: { type: "note", anchors: ["aws_s3_bucket.gone"], body: "why" },
     });
     assert.equal(created.statusCode, 201);
@@ -314,7 +326,7 @@ test("orphaned annotations are counted and point at the repository to fix", asyn
       edges: [],
     });
 
-    const body = (await dashboard(app)).json();
+    const body = (await dashboard(app, orgId)).json();
     assert.ok(body.stats.orphanedAnnotations >= 1);
 
     const hotspot = body.orphanRepositories.find(
@@ -325,7 +337,7 @@ test("orphaned annotations are counted and point at the repository to fix", asyn
     assert.equal(hotspot.projectId, projectId);
     assert.equal(hotspot.repositoryUrl, "https://github.com/acme/repo");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -333,8 +345,9 @@ test("orphaned annotations are counted and point at the repository to fix", asyn
 
 test("recentDocsSnapshots carry the sha, the trigger, and where to read them", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     // A docs snapshot as `generateDocsSnapshot` writes it — inserted directly so
     // the test stays offline (the real path clones the repository first).
     await insertGraphSnapshot(app.db, {
@@ -346,7 +359,7 @@ test("recentDocsSnapshots carry the sha, the trigger, and where to read them", a
       extraStats: { warnings: [], trigger: "auto" },
     });
 
-    const body = (await dashboard(app)).json();
+    const body = (await dashboard(app, orgId)).json();
     const docs = body.recentDocsSnapshots.find(
       (d: { repositoryId: string }) => d.repositoryId === repoId,
     );
@@ -357,7 +370,7 @@ test("recentDocsSnapshots carry the sha, the trigger, and where to read them", a
     assert.equal(docs.repositoryUrl, "https://github.com/acme/repo");
     assert.ok(body.recentDocsSnapshots.length <= 5);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -366,12 +379,15 @@ test("recentDocsSnapshots carry the sha, the trigger, and where to read them", a
 test("the dashboard requires authentication", async () => {
   const app = await buildTestApp();
   try {
-    const anonymous = await dashboard(app);
+    // Auth 401s before the org-scope guard runs, so the placeholder org is fine.
+    const anonymous = await dashboard(app, "00000000-0000-4000-8000-000000000000");
     assert.equal(anonymous.statusCode, 401);
 
+    // With a valid token the caller must reach an org they belong to.
+    const orgId = await seedOrgForDefaultUser(app);
     const authed = await app.inject({
       method: "GET",
-      url: "/api/v1/dashboard",
+      url: `/api/v1/orgs/${orgId}/dashboard`,
       headers: await authHeader(),
     });
     assert.equal(authed.statusCode, 200);

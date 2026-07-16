@@ -5,6 +5,7 @@ import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { InvalidGraphError, type Graph } from "../graph/graph.js";
+import { seedOrg } from "../test-support.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
 
 const env = loadEnv();
@@ -14,17 +15,17 @@ before(async () => {
 });
 
 let counter = 0;
-async function createRepo(app: Awaited<ReturnType<typeof buildApp>>) {
+async function createRepo(app: Awaited<ReturnType<typeof buildApp>>, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "S", slug: `snap-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   return { projectId, repoId: r.json().id };
@@ -48,7 +49,8 @@ const graph: Graph = {
 test("insertGraphSnapshot computes stats and stores the snapshot", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const row = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "plan",
@@ -63,7 +65,7 @@ test("insertGraphSnapshot computes stats and stores the snapshot", async () => {
     assert.equal(row.stats.changes.create, 1);
     // GP-36: a deterministic summary is computed and stored on insert.
     assert.match(row.summaryMd, /\*\*\+1 created\*\* \(1 resource\)/);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -72,7 +74,8 @@ test("insertGraphSnapshot computes stats and stores the snapshot", async () => {
 test("insertGraphSnapshot merges extraStats (e.g. warnings)", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const row = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -83,7 +86,7 @@ test("insertGraphSnapshot merges extraStats (e.g. warnings)", async () => {
     });
     assert.deepEqual(row.stats.warnings, ["skipped bad.tf"]);
     assert.equal(row.prNumber, null);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -92,7 +95,8 @@ test("insertGraphSnapshot merges extraStats (e.g. warnings)", async () => {
 test("insertGraphSnapshot rejects an invalid graph and stores nothing", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const bad = { version: 1, nodes: [{ id: "x" }], edges: [] } as unknown as Graph;
     await assert.rejects(
       () =>
@@ -108,10 +112,10 @@ test("insertGraphSnapshot rejects an invalid graph and stores nothing", async ()
     // Nothing was stored: the snapshots list is empty.
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/snapshots`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots`,
     });
     assert.equal(list.json().length, 0);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

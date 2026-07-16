@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
+import { seedOrg } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -19,20 +20,20 @@ function uniqueSlug(): string {
 }
 
 /** Create a project + repository, returning ids and the one-time webhook token. */
-async function createRepo(app: FastifyInstance): Promise<{
+async function createRepo(app: FastifyInstance, orgId: string): Promise<{
   projectId: string;
   repoId: string;
   webhookToken: string;
 }> {
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "Set", slug: uniqueSlug() },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   const repo = r.json();
@@ -56,15 +57,16 @@ const post = (app: FastifyInstance, repoId: string, token: string) =>
 
 test("regenerating a repo's webhook token invalidates the old one, shown once", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     // The old token works before the rotation.
     assert.equal((await post(app, repoId, webhookToken)).statusCode, 202);
 
     const rotated = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/webhook-token`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/webhook-token`,
     });
     assert.equal(rotated.statusCode, 200);
     const next = rotated.json().webhookToken as string;
@@ -75,7 +77,7 @@ test("regenerating a repo's webhook token invalidates the old one, shown once", 
     assert.equal((await post(app, repoId, next)).statusCode, 202);
     assert.equal((await post(app, repoId, webhookToken)).statusCode, 401);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -83,10 +85,11 @@ test("regenerating a repo's webhook token invalidates the old one, shown once", 
 
 test("rotating an unknown repository's token is a 404", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const res = await app.inject({
       method: "POST",
-      url: "/api/v1/repositories/00000000-0000-4000-8000-000000000000/webhook-token",
+      url: `/api/v1/orgs/${orgId}/repositories/00000000-0000-4000-8000-000000000000/webhook-token`,
     });
     assert.equal(res.statusCode, 404);
   } finally {
@@ -96,8 +99,9 @@ test("rotating an unknown repository's token is a 404", async () => {
 
 test("the app-wide token authenticates any repo, and revoking it stops that", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
     // Generate the app-wide token (shown once here).
     const created = await app.inject({
@@ -144,7 +148,7 @@ test("the app-wide token authenticates any repo, and revoking it stops that", as
     assert.equal(after.json().appWebhookTokenSet, false);
     assert.equal(after.json().updatedAt, null);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

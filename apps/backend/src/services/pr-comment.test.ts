@@ -7,6 +7,7 @@ import { loadEnv, type AppEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories, type GraphSnapshotRow } from "../db/schema.js";
 import type { Graph } from "../graph/graph.js";
+import { seedOrg } from "../test-support.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
 import { buildCommentBody, COMMENT_MARKER, postPrComment } from "./pr-comment.js";
 import { parseGitHubRepo, type GitHubClient, type GitHubComment } from "./github.js";
@@ -165,15 +166,16 @@ async function setupRepo(
   },
 ) {
   counter += 1;
+  const orgId = await seedOrg(app);
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "C", slug: `cmt-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: {
       provider: opts.provider ?? "github",
       url: opts.url ?? "https://github.com/acme/infra",
@@ -188,7 +190,7 @@ async function setupRepo(
       accessToken: opts.withPat ? app.encryptor.encrypt("ghp_test_token") : null,
     })
     .where(eq(repositories.id, repoId));
-  return { projectId, repoId };
+  return { orgId, projectId, repoId };
 }
 
 const graph = (change: "create" | "noop"): Graph => ({
@@ -218,7 +220,7 @@ test("creates one comment, then updates it in place on the next push", async () 
   const gh = fakeGitHub();
   const app = await buildApp(env, { github: gh.client });
   try {
-    const { projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
+    const { orgId, projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
 
     await postPrComment(app, await insertPlan(app, repoId, "aaaaaaaa1111"));
     assert.equal(gh.calls.create, 1);
@@ -234,7 +236,7 @@ test("creates one comment, then updates it in place on the next push", async () 
     assert.equal(gh.comments.get(42)!.length, 1);
     assert.ok(gh.comments.get(42)![0]!.body.includes("bbbbbbbb"));
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -244,12 +246,12 @@ test("flag off → no GitHub calls at all", async () => {
   const gh = fakeGitHub();
   const app = await buildApp(env, { github: gh.client });
   try {
-    const { projectId, repoId } = await setupRepo(app, { enabled: false, withPat: true });
+    const { orgId, projectId, repoId } = await setupRepo(app, { enabled: false, withPat: true });
     await postPrComment(app, await insertPlan(app, repoId, "cccccccc3333"));
     assert.equal(gh.calls.list, 0);
     assert.equal(gh.calls.create, 0);
     assert.equal(gh.calls.update, 0);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -260,7 +262,7 @@ test("marker-based idempotency survives another bot's comment", async () => {
   gh.comments.set(42, [{ id: 7, body: "some other bot was here" }]);
   const app = await buildApp(env, { github: gh.client });
   try {
-    const { projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
+    const { orgId, projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
     await postPrComment(app, await insertPlan(app, repoId, "dddddddd4444"));
     // Ours is created alongside the foreign comment...
     assert.equal(gh.calls.create, 1);
@@ -269,7 +271,7 @@ test("marker-based idempotency survives another bot's comment", async () => {
     await postPrComment(app, await insertPlan(app, repoId, "eeeeeeee5555"));
     assert.equal(gh.calls.update, 1);
     assert.equal(gh.comments.get(42)!.find((c) => c.id === 7)!.body, "some other bot was here");
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -279,7 +281,7 @@ test("missing PAT → clear error on the repo, no GitHub calls", async () => {
   const gh = fakeGitHub();
   const app = await buildApp(env, { github: gh.client });
   try {
-    const { projectId, repoId } = await setupRepo(app, { enabled: true, withPat: false });
+    const { orgId, projectId, repoId } = await setupRepo(app, { enabled: true, withPat: false });
     await postPrComment(app, await insertPlan(app, repoId, "ffffffff6666"));
     assert.equal(gh.calls.create, 0);
     const [repo] = await app.db
@@ -287,7 +289,7 @@ test("missing PAT → clear error on the repo, no GitHub calls", async () => {
       .from(repositories)
       .where(eq(repositories.id, repoId));
     assert.match(repo!.lastCommentError!, /no access token/i);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -307,7 +309,7 @@ test("a GitHub API failure is recorded and never breaks ingestion", async () => 
   };
   const app = await buildApp(env, { github: failing });
   try {
-    const { projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
+    const { orgId, projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
     const snapshot = await insertPlan(app, repoId, "99999999aaaa");
     // Does not throw — ingestion is unaffected.
     await postPrComment(app, snapshot);
@@ -316,7 +318,7 @@ test("a GitHub API failure is recorded and never breaks ingestion", async () => 
       .from(repositories)
       .where(eq(repositories.id, repoId));
     assert.match(repo!.lastCommentError!, /403/);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -329,12 +331,12 @@ test("with a public base URL, the comment embeds a public image + share link", a
     { github: gh.client },
   );
   try {
-    const { projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
+    const { orgId, projectId, repoId } = await setupRepo(app, { enabled: true, withPat: true });
     await postPrComment(app, await insertPlan(app, repoId, "1212121234ab"));
     const body = gh.comments.get(42)![0]!.body;
     assert.match(body, /!\[.*\]\(https:\/\/gp\.example\.com\/api\/v1\/public\/[^)]+\/export\.png\?scope=changes\)/);
     assert.match(body, /https:\/\/gp\.example\.com\/share\//);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -346,7 +348,7 @@ test("GitLab: creates one MR note, then updates it in place on the next push", a
   const gl = fakeGitLab();
   const app = await buildApp(env, { gitlab: gl.client });
   try {
-    const { projectId, repoId } = await setupRepo(app, {
+    const { orgId, projectId, repoId } = await setupRepo(app, {
       enabled: true,
       withPat: true,
       provider: "gitlab",
@@ -367,7 +369,7 @@ test("GitLab: creates one MR note, then updates it in place on the next push", a
     assert.equal(gl.notes.get(42)!.length, 1);
     assert.ok(gl.notes.get(42)![0]!.body.includes("bbbbbbbb"));
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -390,7 +392,7 @@ test("GitLab: a missing 'api' scope is recorded on the repo, never thrown", asyn
   };
   const app = await buildApp(env, { gitlab: failing });
   try {
-    const { projectId, repoId } = await setupRepo(app, {
+    const { orgId, projectId, repoId } = await setupRepo(app, {
       enabled: true,
       withPat: true,
       provider: "gitlab",
@@ -402,7 +404,7 @@ test("GitLab: a missing 'api' scope is recorded on the repo, never thrown", asyn
       .from(repositories)
       .where(eq(repositories.id, repoId));
     assert.match(repo!.lastCommentError!, /api/i);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -413,7 +415,7 @@ test("generic provider: comments unavailable — error stored, no provider calls
   const gl = fakeGitLab();
   const app = await buildApp(env, { github: gh.client, gitlab: gl.client });
   try {
-    const { projectId, repoId } = await setupRepo(app, {
+    const { orgId, projectId, repoId } = await setupRepo(app, {
       enabled: true,
       withPat: true,
       provider: "generic",
@@ -426,7 +428,7 @@ test("generic provider: comments unavailable — error stored, no provider calls
       .from(repositories)
       .where(eq(repositories.id, repoId));
     assert.match(repo!.lastCommentError!, /not available|unavailable/i);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -438,7 +440,7 @@ test("Azure DevOps: creates one PR thread, then updates the comment in place", a
   const ado = fakeAzureDevOps();
   const app = await buildApp(env, { azureDevOps: ado.client });
   try {
-    const { projectId, repoId } = await setupRepo(app, {
+    const { orgId, projectId, repoId } = await setupRepo(app, {
       enabled: true,
       withPat: true,
       provider: "azure_devops",
@@ -459,7 +461,7 @@ test("Azure DevOps: creates one PR thread, then updates the comment in place", a
     assert.equal(ado.threads.get(42)!.length, 1);
     assert.ok(ado.threads.get(42)![0]!.comments[0]!.content.includes("bbbbbbbb"));
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -482,7 +484,7 @@ test("Azure DevOps: a permission error is recorded on the repo, never thrown", a
   };
   const app = await buildApp(env, { azureDevOps: failing });
   try {
-    const { projectId, repoId } = await setupRepo(app, {
+    const { orgId, projectId, repoId } = await setupRepo(app, {
       enabled: true,
       withPat: true,
       provider: "azure_devops",
@@ -494,7 +496,7 @@ test("Azure DevOps: a permission error is recorded on the repo, never thrown", a
       .from(repositories)
       .where(eq(repositories.id, repoId));
     assert.match(repo!.lastCommentError!, /403/);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

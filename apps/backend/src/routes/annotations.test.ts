@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 
 import { buildApp } from "../app.js";
+import { seedOrg } from "../test-support.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
@@ -15,26 +16,26 @@ before(async () => {
 });
 
 let counter = 0;
-async function createRepo(app: FastifyInstance) {
+async function createRepo(app: FastifyInstance, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "A", slug: `annroute-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   return { projectId, repoId: r.json().id };
 }
 
-function create(app: FastifyInstance, repoId: string, payload: unknown) {
+function create(app: FastifyInstance, orgId: string, repoId: string, payload: unknown) {
   return app.inject({
     method: "POST",
-    url: `/api/v1/repositories/${repoId}/annotations`,
+    url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations`,
     payload: payload as Record<string, unknown>,
   });
 }
@@ -57,9 +58,10 @@ function graph(nodeIds: string[]): Graph {
 test("creates and lists the three annotation types with anchor-count rules", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
-    const note = await create(app, repoId, {
+    const note = await create(app, orgId, repoId, {
       type: "note",
       anchors: ["aws_s3_bucket.a"],
       body: "**owned by** payments",
@@ -69,7 +71,7 @@ test("creates and lists the three annotation types with anchor-count rules", asy
     assert.equal(note.json().status, "resolved");
     assert.equal(note.json().body, "**owned by** payments");
 
-    const link = await create(app, repoId, {
+    const link = await create(app, orgId, repoId, {
       type: "link",
       anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b"],
       label: "replicates to",
@@ -77,7 +79,7 @@ test("creates and lists the three annotation types with anchor-count rules", asy
     assert.equal(link.statusCode, 201);
     assert.equal(link.json().label, "replicates to");
 
-    const group = await create(app, repoId, {
+    const group = await create(app, orgId, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b", "aws_s3_bucket.c"],
       label: "data lake",
@@ -86,12 +88,12 @@ test("creates and lists the three annotation types with anchor-count rules", asy
 
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/annotations`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations`,
     });
     assert.equal(list.statusCode, 200);
     assert.equal(list.json().length, 3);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -100,16 +102,17 @@ test("creates and lists the three annotation types with anchor-count rules", asy
 test("enforces per-type anchor counts", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
-    const noteTwo = await create(app, repoId, {
+    const noteTwo = await create(app, orgId, repoId, {
       type: "note",
       anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b"],
       body: "x",
     });
     assert.equal(noteTwo.statusCode, 422);
 
-    const linkOne = await create(app, repoId, {
+    const linkOne = await create(app, orgId, repoId, {
       type: "link",
       anchors: ["aws_s3_bucket.a"],
       label: "x",
@@ -118,20 +121,20 @@ test("enforces per-type anchor counts", async () => {
 
     // A group of one is legitimate (GP-71): one resource can be a system on its
     // own, and a group whose siblings are hidden must not become invalid.
-    const groupOne = await create(app, repoId, {
+    const groupOne = await create(app, orgId, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.a"],
       label: "x",
     });
     assert.equal(groupOne.statusCode, 201);
 
-    const hideTwo = await create(app, repoId, {
+    const hideTwo = await create(app, orgId, repoId, {
       type: "hide",
       anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b"],
     });
     assert.equal(hideTwo.statusCode, 422);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -140,9 +143,10 @@ test("enforces per-type anchor counts", async () => {
 test("rejects invalid Terraform address format with a clear message", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
-    const bad = await create(app, repoId, {
+    const bad = await create(app, orgId, repoId, {
       type: "note",
       anchors: ["not a valid address"],
       body: "x",
@@ -150,7 +154,7 @@ test("rejects invalid Terraform address format with a clear message", async () =
     assert.equal(bad.statusCode, 422);
     assert.match(bad.json().message, /address/i);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -159,24 +163,25 @@ test("rejects invalid Terraform address format with a clear message", async () =
 test("requires a label for group/rename and rejects a body on non-notes", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
     // A logical edge's label is optional (GP-71) — saying *that* two things are
     // joined is worth drawing even when you have no name for the relationship.
-    const noLabel = await create(app, repoId, {
+    const noLabel = await create(app, orgId, repoId, {
       type: "link",
       anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b"],
     });
     assert.equal(noLabel.statusCode, 201);
     assert.equal(noLabel.json().label, null);
 
-    const renameNoLabel = await create(app, repoId, {
+    const renameNoLabel = await create(app, orgId, repoId, {
       type: "rename",
       anchors: ["aws_s3_bucket.a"],
     });
     assert.equal(renameNoLabel.statusCode, 422);
 
-    const bodyOnGroup = await create(app, repoId, {
+    const bodyOnGroup = await create(app, orgId, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.a", "aws_s3_bucket.b"],
       label: "x",
@@ -184,7 +189,7 @@ test("requires a label for group/rename and rejects a body on non-notes", async 
     });
     assert.equal(bodyOnGroup.statusCode, 422);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -193,9 +198,10 @@ test("requires a label for group/rename and rejects a body on non-notes", async 
 test("creates hide and rename annotations, human-provenanced by default", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
-    const hide = await create(app, repoId, {
+    const hide = await create(app, orgId, repoId, {
       type: "hide",
       anchors: ["aws_s3_bucket.a"],
       createdFromSha: "abc1234",
@@ -205,7 +211,7 @@ test("creates hide and rename annotations, human-provenanced by default", async 
     assert.equal(hide.json().status, "resolved");
     assert.equal(hide.json().createdFromSha, "abc1234");
 
-    const rename = await create(app, repoId, {
+    const rename = await create(app, orgId, repoId, {
       type: "rename",
       anchors: ["aws_s3_bucket.a"],
       label: "Customer uploads",
@@ -213,7 +219,7 @@ test("creates hide and rename annotations, human-provenanced by default", async 
     assert.equal(rename.statusCode, 201);
     assert.equal(rename.json().label, "Customer uploads");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -222,14 +228,15 @@ test("creates hide and rename annotations, human-provenanced by default", async 
 test("a logical edge may anchor to a group id", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
-    const group = await create(app, repoId, {
+    const group = await create(app, orgId, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.a"],
       label: "Payments",
     });
-    const edge = await create(app, repoId, {
+    const edge = await create(app, orgId, repoId, {
       type: "link",
       anchors: [group.json().id, "aws_s3_bucket.b"],
       label: "publishes to",
@@ -237,14 +244,14 @@ test("a logical edge may anchor to a group id", async () => {
     assert.equal(edge.statusCode, 201);
 
     // ...but only a link may. A note anchored to a uuid is not a Terraform address.
-    const note = await create(app, repoId, {
+    const note = await create(app, orgId, repoId, {
       type: "note",
       anchors: [group.json().id],
       body: "x",
     });
     assert.equal(note.statusCode, 422);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -253,14 +260,15 @@ test("a logical edge may anchor to a group id", async () => {
 test("groups nest one level — a grandchild group is rejected", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
-    const parent = await create(app, repoId, {
+    const parent = await create(app, orgId, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.a"],
       label: "Platform",
     });
-    const child = await create(app, repoId, {
+    const child = await create(app, orgId, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.b"],
       label: "Payments",
@@ -269,7 +277,7 @@ test("groups nest one level — a grandchild group is rejected", async () => {
     assert.equal(child.statusCode, 201);
     assert.equal(child.json().parentGroupId, parent.json().id);
 
-    const grandchild = await create(app, repoId, {
+    const grandchild = await create(app, orgId, repoId, {
       type: "group",
       anchors: ["aws_s3_bucket.c"],
       label: "Ledger",
@@ -279,7 +287,7 @@ test("groups nest one level — a grandchild group is rejected", async () => {
     assert.match(grandchild.json().message, /one level/i);
 
     // Only groups nest.
-    const nestedNote = await create(app, repoId, {
+    const nestedNote = await create(app, orgId, repoId, {
       type: "note",
       anchors: ["aws_s3_bucket.a"],
       body: "x",
@@ -287,7 +295,7 @@ test("groups nest one level — a grandchild group is rejected", async () => {
     });
     assert.equal(nestedNote.statusCode, 422);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -296,8 +304,9 @@ test("groups nest one level — a grandchild group is rejected", async () => {
 test("?snapshotId= re-resolves anchors on demand without persisting", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
-    const created = await create(app, repoId, {
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
+    const created = await create(app, orgId, repoId, {
       type: "note",
       anchors: ["aws_s3_bucket.a"],
       body: "x",
@@ -315,7 +324,7 @@ test("?snapshotId= re-resolves anchors on demand without persisting", async () =
 
     const against = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/annotations?snapshotId=${snapshot.id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations?snapshotId=${snapshot.id}`,
     });
     assert.equal(against.statusCode, 200);
     assert.equal(against.json()[0].status, "orphaned");
@@ -324,11 +333,11 @@ test("?snapshotId= re-resolves anchors on demand without persisting", async () =
     // The stored row is untouched — a GET decides nothing.
     const stored = await app.inject({
       method: "GET",
-      url: `/api/v1/annotations/${created.json().id}`,
+      url: `/api/v1/orgs/${orgId}/annotations/${created.json().id}`,
     });
     assert.equal(stored.json().status, "resolved");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -337,8 +346,9 @@ test("?snapshotId= re-resolves anchors on demand without persisting", async () =
 test("updates and deletes an annotation", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
-    const created = await create(app, repoId, {
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
+    const created = await create(app, orgId, repoId, {
       type: "note",
       anchors: ["aws_s3_bucket.a"],
       body: "before",
@@ -347,7 +357,7 @@ test("updates and deletes an annotation", async () => {
 
     const patched = await app.inject({
       method: "PATCH",
-      url: `/api/v1/annotations/${id}`,
+      url: `/api/v1/orgs/${orgId}/annotations/${id}`,
       payload: { body: "after", anchors: ["aws_s3_bucket.z"] },
     });
     assert.equal(patched.statusCode, 200);
@@ -356,17 +366,17 @@ test("updates and deletes an annotation", async () => {
 
     const del = await app.inject({
       method: "DELETE",
-      url: `/api/v1/annotations/${id}`,
+      url: `/api/v1/orgs/${orgId}/annotations/${id}`,
     });
     assert.equal(del.statusCode, 204);
 
     const get = await app.inject({
       method: "GET",
-      url: `/api/v1/annotations/${id}`,
+      url: `/api/v1/orgs/${orgId}/annotations/${id}`,
     });
     assert.equal(get.statusCode, 404);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -375,8 +385,9 @@ test("updates and deletes an annotation", async () => {
 test("a note survives snapshot regeneration untouched (layer separation)", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
-    const created = await create(app, repoId, {
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
+    const created = await create(app, orgId, repoId, {
       type: "note",
       anchors: ["aws_s3_bucket.a"],
       body: "keep me",
@@ -394,12 +405,12 @@ test("a note survives snapshot regeneration untouched (layer separation)", async
 
     const get = await app.inject({
       method: "GET",
-      url: `/api/v1/annotations/${id}`,
+      url: `/api/v1/orgs/${orgId}/annotations/${id}`,
     });
     assert.equal(get.statusCode, 200);
     assert.equal(get.json().body, "keep me");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -408,14 +419,15 @@ test("a note survives snapshot regeneration untouched (layer separation)", async
 test("404s for unknown repository and unknown annotation", async () => {
   const app = await buildApp(env);
   try {
+    const orgId = await seedOrg(app);
     const missing = "00000000-0000-4000-8000-000000000000";
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${missing}/annotations`,
+      url: `/api/v1/orgs/${orgId}/repositories/${missing}/annotations`,
     });
     assert.equal(list.statusCode, 404);
 
-    const createMissing = await create(app, missing, {
+    const createMissing = await create(app, orgId, missing, {
       type: "note",
       anchors: ["aws_s3_bucket.a"],
       body: "x",
@@ -424,7 +436,7 @@ test("404s for unknown repository and unknown annotation", async () => {
 
     const getMissing = await app.inject({
       method: "GET",
-      url: `/api/v1/annotations/${missing}`,
+      url: `/api/v1/orgs/${orgId}/annotations/${missing}`,
     });
     assert.equal(getMissing.statusCode, 404);
   } finally {

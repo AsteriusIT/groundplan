@@ -400,7 +400,15 @@ export const ingestionRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(202).send({ id: row?.id });
     },
   );
+};
 
+/**
+ * The last events a repository received (GP-5) — org-scoped (GP-114), unlike the
+ * webhook above, which authenticates with its own per-repo secret and stays
+ * global/exempt. The org-scope guard has already proven this repo belongs to the
+ * org in the URL by the time the handler runs.
+ */
+export const repositoryEventsRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     "/repositories/:id/events",
     { schema: { params: idParamsSchema } },

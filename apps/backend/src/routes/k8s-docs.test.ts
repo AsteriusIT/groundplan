@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
+import { seedOrg } from "../test-support.js";
 
 /**
  * The Kubernetes half of the living-docs flow (GP-102): a manifests repository is
@@ -113,17 +114,18 @@ async function makeManifestFixture(): Promise<string> {
 let counter = 0;
 async function createK8sRepo(
   app: FastifyInstance,
+  orgId: string,
 ): Promise<{ projectId: string; repoId: string; webhookToken: string }> {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "K", slug: `k8sdocs-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: {
       provider: "github",
       url: fixtureUrl,
@@ -149,16 +151,17 @@ after(async () => {
 test("a manifests repository documents its default branch, and says what it skipped", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createK8sRepo(app, orgId);
 
     const generated = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     assert.equal(generated.statusCode, 201);
 
     const latest = (
-      await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/docs/latest` })
+      await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/latest` })
     ).json();
 
     // An ordinary docs snapshot, produced by the other producer.
@@ -198,7 +201,7 @@ test("a manifests repository documents its default branch, and says what it skip
     // The .tf file in the repository is not ours to read: this is a manifests repo.
     assert.ok(!ids.some((id: string) => id.includes("aws_s3_bucket")));
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -207,7 +210,8 @@ test("a manifests repository documents its default branch, and says what it skip
 test("a merge to main re-documents a manifests repository (GP-23, the other producer)", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId, webhookToken } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, webhookToken } = await createK8sRepo(app, orgId);
 
     const res = await app.inject({
       method: "POST",
@@ -224,7 +228,7 @@ test("a merge to main re-documents a manifests repository (GP-23, the other prod
     await app.flushBackgroundTasks();
 
     const latest = (
-      await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/docs/latest` })
+      await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/latest` })
     ).json();
     assert.equal(latest.source, "k8s_manifest");
     assert.equal(latest.commitSha, secondSha);
@@ -233,7 +237,7 @@ test("a merge to main re-documents a manifests repository (GP-23, the other prod
       latest.graph.nodes.some((n: { id: string }) => n.id === "prod/Deployment/worker"),
     );
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -242,21 +246,22 @@ test("a merge to main re-documents a manifests repository (GP-23, the other prod
 test("two manifest snapshots diff like any other documentation (GP-40, unchanged)", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createK8sRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createK8sRepo(app, orgId);
 
     const first = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     const second = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     assert.equal(second.statusCode, 201);
 
     const diff = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${first.json().id}/diff/${second.json().id}`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${first.json().id}/diff/${second.json().id}`,
     });
     assert.equal(diff.statusCode, 200);
     // The same tree twice: nothing appeared, nothing left. The point is that the
@@ -265,7 +270,7 @@ test("two manifest snapshots diff like any other documentation (GP-40, unchanged
     assert.deepEqual(diff.json().removed, []);
     assert.equal(diff.json().unchangedCount, 7);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

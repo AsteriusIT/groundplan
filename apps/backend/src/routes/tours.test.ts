@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 
 import { buildApp } from "../app.js";
+import { seedOrg } from "../test-support.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
@@ -116,17 +117,17 @@ const SYSTEM_TOUR = JSON.stringify({
 });
 
 let counter = 0;
-async function seed(app: FastifyInstance) {
+async function seed(app: FastifyInstance, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "P", slug: `tours-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   const repoId = r.json().id;
@@ -149,19 +150,24 @@ async function seed(app: FastifyInstance) {
   return { projectId, repoId, planId: plan.id, docsId: docs.id };
 }
 
-const tour = (app: FastifyInstance, id: string, payload?: object) =>
-  app.inject({ method: "POST", url: `/api/v1/snapshots/${id}/tour`, payload });
+const tour = (app: FastifyInstance, orgId: string, id: string, payload?: object) =>
+  app.inject({
+    method: "POST",
+    url: `/api/v1/orgs/${orgId}/snapshots/${id}/tour`,
+    payload,
+  });
 
-const cleanup = (app: FastifyInstance, projectId: string) =>
-  app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+const cleanup = (app: FastifyInstance, orgId: string, projectId: string) =>
+  app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
 
 test("a plan snapshot gets a change tour; the caller never names a kind", async () => {
   const ai = stubProvider(CHANGE_TOUR);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
-    const res = await tour(app, planId);
+    const res = await tour(app, orgId, planId);
     assert.equal(res.statusCode, 200);
 
     const body = res.json();
@@ -173,7 +179,7 @@ test("a plan snapshot gets a change tour; the caller never names a kind", async 
     assert.deepEqual(body.tour.steps[1].anchors, ["azurerm_servicebus_queue.ingest"]);
     assert.equal(body.model, "test-model");
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -183,16 +189,17 @@ test("an hcl snapshot gets a system tour off the same route", async () => {
   const ai = stubProvider(SYSTEM_TOUR);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, docsId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, docsId } = await seed(app, orgId);
 
-    const res = await tour(app, docsId);
+    const res = await tour(app, orgId, docsId);
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().tour.title, "A web tier and its database");
     // No groups on this repo, so there is nothing the adapted lens would add —
     // don't move the user off the view they are already on.
     assert.equal(res.json().tour.view, "infra");
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -202,24 +209,25 @@ test("asking twice never reaches the model again — and the tour is identical",
   const ai = stubProvider(CHANGE_TOUR);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
-    const first = await tour(app, planId);
+    const first = await tour(app, orgId, planId);
     assert.equal(ai.calls, 1);
 
-    const second = await tour(app, planId);
+    const second = await tour(app, orgId, planId);
     assert.equal(second.statusCode, 200);
     assert.equal(ai.calls, 1, "the cached tour was replayed, not regenerated");
     assert.equal(second.json().cached, true);
     assert.deepEqual(second.json().tour, first.json().tour);
 
     // ...and regenerating really does ask again.
-    const again = await tour(app, planId, { regenerate: true });
+    const again = await tour(app, orgId, planId, { regenerate: true });
     assert.equal(again.statusCode, 200);
     assert.equal(ai.calls, 2);
     assert.equal(again.json().cached, false);
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -229,20 +237,21 @@ test("GET returns the tour once it exists, and 404 before that", async () => {
   const ai = stubProvider(CHANGE_TOUR);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
-    const before = await app.inject({ url: `/api/v1/snapshots/${planId}/tour` });
+    const before = await app.inject({ url: `/api/v1/orgs/${orgId}/snapshots/${planId}/tour` });
     assert.equal(before.statusCode, 404, "never generated is not the same as empty");
     assert.equal(ai.calls, 0, "GET is a read — it must never spend money");
 
-    await tour(app, planId);
+    await tour(app, orgId, planId);
 
-    const after = await app.inject({ url: `/api/v1/snapshots/${planId}/tour` });
+    const after = await app.inject({ url: `/api/v1/orgs/${orgId}/snapshots/${planId}/tour` });
     assert.equal(after.statusCode, 200);
     assert.equal(after.json().tour.steps.length, 3);
     assert.equal(ai.calls, 1);
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -259,9 +268,10 @@ test("a stop the camera cannot fly to is dropped; the tour still plays", async (
   const ai = stubProvider(partly);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
-    const res = await tour(app, planId);
+    const res = await tour(app, orgId, planId);
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().dropped, 1);
     assert.deepEqual(
@@ -269,7 +279,7 @@ test("a stop the camera cannot fly to is dropped; the tour still plays", async (
       ["Real"],
     );
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -279,21 +289,22 @@ test("an unusable response is a 502 and stores nothing — not even in the cache
   const ai = stubProvider("I'm sorry, I can't do that.");
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
-    const res = await tour(app, planId);
+    const res = await tour(app, orgId, planId);
     assert.equal(res.statusCode, 502);
 
     // Retriable: the failure was not cached, so a second attempt really does reach
     // the model again. A cached error is an error served forever.
-    await tour(app, planId);
+    await tour(app, orgId, planId);
     assert.equal(ai.calls, 2);
 
     // ...and nothing is left behind for the GET to find.
-    const get = await app.inject({ url: `/api/v1/snapshots/${planId}/tour` });
+    const get = await app.inject({ url: `/api/v1/orgs/${orgId}/snapshots/${planId}/tour` });
     assert.equal(get.statusCode, 404);
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -309,13 +320,14 @@ test("a tour whose every stop is invented is a failure, not an empty tour", asyn
   const ai = stubProvider(ghosts);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
-    const res = await tour(app, planId);
+    const res = await tour(app, orgId, planId);
     assert.equal(res.statusCode, 502);
-    assert.equal((await app.inject({ url: `/api/v1/snapshots/${planId}/tour` })).statusCode, 404);
+    assert.equal((await app.inject({ url: `/api/v1/orgs/${orgId}/snapshots/${planId}/tour` })).statusCode, 404);
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -324,13 +336,14 @@ test("a tour whose every stop is invented is a failure, not an empty tour", asyn
 test("with the AI layer off the endpoint does not exist", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, planId } = await seed(app);
-    assert.equal((await tour(app, planId)).statusCode, 404);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
+    assert.equal((await tour(app, orgId, planId)).statusCode, 404);
     assert.equal(
-      (await app.inject({ url: `/api/v1/snapshots/${planId}/tour` })).statusCode,
+      (await app.inject({ url: `/api/v1/orgs/${orgId}/snapshots/${planId}/tour` })).statusCode,
       404,
     );
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -340,8 +353,9 @@ test("the brief names every id the tour is allowed to stop at — and never the 
   const ai = stubProvider(CHANGE_TOUR);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
-    await tour(app, planId);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
+    await tour(app, orgId, planId);
 
     const brief = ai.prompts[0] ?? "";
     assert.match(brief, /## Stops you may anchor to \(use these ids, exactly as written\)/);
@@ -352,7 +366,7 @@ test("the brief names every id the tour is allowed to stop at — and never the 
     assert.match(brief, /`azurerm_function_app\.worker` \| azurerm_function_app \| impacted/);
     assert.doesNotMatch(brief, /"nodes":/);
 
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }
@@ -376,17 +390,18 @@ test("a second, overlapping generation is refused rather than paid for twice", a
   };
   const app = await buildApp(env, { ai: hanging });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
-    const first = tour(app, planId);
+    const first = tour(app, orgId, planId);
     // Let the first request reach (and pass) the lock before the second arrives.
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const second = await tour(app, planId);
+    const second = await tour(app, orgId, planId);
 
     assert.equal(second.statusCode, 409);
 
     void first;
-    await cleanup(app, projectId);
+    await cleanup(app, orgId, projectId);
   } finally {
     await app.close();
   }

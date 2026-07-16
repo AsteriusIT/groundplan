@@ -11,6 +11,7 @@ import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories } from "../db/schema.js";
+import { seedOrg } from "../test-support.js";
 
 const exec = promisify(execFile);
 const env = loadEnv();
@@ -41,11 +42,14 @@ after(async () => {
 });
 
 let counter = 0;
-async function createProject(app: Awaited<ReturnType<typeof buildApp>>) {
+async function createProject(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  orgId: string,
+) {
   counter += 1;
   const res = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "Creds", slug: `creds-${Date.now()}-${counter}` },
   });
   return res.json().id as string;
@@ -53,22 +57,24 @@ async function createProject(app: Awaited<ReturnType<typeof buildApp>>) {
 
 async function createRepo(
   app: Awaited<ReturnType<typeof buildApp>>,
+  orgId: string,
   projectId: string,
   payload: Record<string, unknown>,
 ) {
   return app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: fixtureUrl, ...payload },
   });
 }
 
 test("create with a PAT stores it encrypted, masks it, and auto-verifies", async () => {
   const app = await buildApp(env); // real verifier against the local fixture
+  const orgId = await seedOrg(app);
   const secret = "ghp_secretTokenValue_1234567890";
   try {
-    const projectId = await createProject(app);
-    const res = await createRepo(app, projectId, { accessToken: secret });
+    const projectId = await createProject(app, orgId);
+    const res = await createRepo(app, orgId, projectId, { accessToken: secret });
     assert.equal(res.statusCode, 201);
 
     const repo = res.json();
@@ -86,7 +92,7 @@ test("create with a PAT stores it encrypted, masks it, and auto-verifies", async
     assert.notEqual(raw.at, secret, "must not be plaintext");
     assert.equal(app.encryptor.decrypt(raw.at), secret, "decrypts back");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -94,13 +100,14 @@ test("create with a PAT stores it encrypted, masks it, and auto-verifies", async
 
 test("connection_status is visible in GET /repositories/:id and the list", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const projectId = await createProject(app);
-    const repo = (await createRepo(app, projectId, {})).json(); // no PAT
+    const projectId = await createProject(app, orgId);
+    const repo = (await createRepo(app, orgId, projectId, {})).json(); // no PAT
 
     const got = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repo.id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}`,
     });
     assert.equal(got.statusCode, 200);
     assert.equal(got.json().connectionStatus, "unverified");
@@ -108,11 +115,11 @@ test("connection_status is visible in GET /repositories/:id and the list", async
 
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/projects/${projectId}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     });
     assert.equal(list.json()[0].connectionStatus, "unverified");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -120,25 +127,26 @@ test("connection_status is visible in GET /repositories/:id and the list", async
 
 test("POST /repositories/:id/verify verifies against the fixture", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const projectId = await createProject(app);
-    const repo = (await createRepo(app, projectId, {})).json();
+    const projectId = await createProject(app, orgId);
+    const repo = (await createRepo(app, orgId, projectId, {})).json();
 
     const verified = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repo.id}/verify`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}/verify`,
     });
     assert.equal(verified.statusCode, 200);
     assert.deepEqual(verified.json(), { ok: true, default_branch_found: true });
 
     const got = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repo.id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}`,
     });
     assert.equal(got.json().connectionStatus, "ok");
     assert.ok(got.json().verifiedAt);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -146,11 +154,12 @@ test("POST /repositories/:id/verify verifies against the fixture", async () => {
 
 test("verify returns a structured error for an unreachable repo", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const projectId = await createProject(app);
+    const projectId = await createProject(app, orgId);
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
       payload: {
         provider: "github",
         url: "file:///tmp/groundplan-nope-does-not-exist",
@@ -160,7 +169,7 @@ test("verify returns a structured error for an unreachable repo", async () => {
 
     const verified = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repo.id}/verify`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}/verify`,
     });
     assert.equal(verified.json().ok, false);
     assert.ok(
@@ -169,11 +178,11 @@ test("verify returns a structured error for an unreachable repo", async () => {
 
     const got = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repo.id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}`,
     });
     assert.equal(got.json().connectionStatus, "failed");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -181,14 +190,15 @@ test("verify returns a structured error for an unreachable repo", async () => {
 
 test("PATCH /repositories/:id updates the PAT and re-verifies", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const projectId = await createProject(app);
-    const repo = (await createRepo(app, projectId, {})).json();
+    const projectId = await createProject(app, orgId);
+    const repo = (await createRepo(app, orgId, projectId, {})).json();
     assert.equal(repo.connectionStatus, "unverified");
 
     const patched = await app.inject({
       method: "PATCH",
-      url: `/api/v1/repositories/${repo.id}`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}`,
       payload: { accessToken: "new-pat-value-xyz" },
     });
     assert.equal(patched.statusCode, 200);
@@ -203,7 +213,7 @@ test("PATCH /repositories/:id updates the PAT and re-verifies", async () => {
     assert.ok(raw?.at);
     assert.equal(app.encryptor.decrypt(raw.at), "new-pat-value-xyz");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

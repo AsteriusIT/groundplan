@@ -149,13 +149,19 @@ async function buildInput(
   });
 }
 
-export const aiRoutes: FastifyPluginAsync = async (app) => {
-  // Is the AI layer configured? The frontend renders no AI surface when it isn't.
+/**
+ * Is the AI layer configured? Global (not org-scoped): it is a readout of server
+ * config, the same for every tenant, and the frontend reads it to decide whether
+ * to render any AI surface at all.
+ */
+export const aiStatusRoutes: FastifyPluginAsync = async (app) => {
   app.get("/ai/status", async () => ({
     enabled: app.ai.model !== null,
     model: app.ai.model,
   }));
+};
 
+export const aiRoutes: FastifyPluginAsync = async (app) => {
   // The cached prose for this snapshot, if it has been generated. 404 (not an
   // empty body) so the frontend can tell "never generated" from "generated
   // nothing" without guessing.

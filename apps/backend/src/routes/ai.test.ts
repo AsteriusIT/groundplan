@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { and, eq } from "drizzle-orm";
 
 import { buildApp } from "../app.js";
+import { seedOrg } from "../test-support.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { aiGenerations } from "../db/schema.js";
@@ -134,18 +135,18 @@ function hangingProvider(): AiProvider & { release: () => void } {
 let counter = 0;
 
 /** A project + repo + one plan snapshot and one docs snapshot. */
-async function seed(app: FastifyInstance) {
+async function seed(app: FastifyInstance, orgId: string) {
   counter += 1;
   const project = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "AI", slug: `ai-${Date.now()}-${counter}` },
   });
   const projectId = project.json().id;
 
   const repo = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: {
       provider: "github",
       url: "https://example.com/acme/infra.git",
@@ -181,7 +182,8 @@ test("with no API key the AI layer is off: status disabled, routes 404", async (
   // The real provider with an empty key — exactly what a keyless deployment gets.
   const app = await buildApp({ ...env, aiApiKey: "" });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
     const status = await app.inject({ method: "GET", url: "/api/v1/ai/status" });
     assert.equal(status.statusCode, 200);
@@ -189,17 +191,17 @@ test("with no API key the AI layer is off: status disabled, routes 404", async (
 
     const generate = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(generate.statusCode, 404, "no route to a model without a key");
 
     const cached = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(cached.statusCode, 404);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -209,14 +211,15 @@ test("a generation streams, persists with token usage, then serves from cache", 
   const ai = stubProvider();
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
     const status = await app.inject({ method: "GET", url: "/api/v1/ai/status" });
     assert.deepEqual(status.json(), { enabled: true, model: "test-model" });
 
     const first = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(first.statusCode, 200);
     assert.match(first.headers["content-type"] as string, /text\/plain/);
@@ -247,7 +250,7 @@ test("a generation streams, persists with token usage, then serves from cache", 
     // Second POST for the same snapshot: same text, and no provider call.
     const second = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(second.statusCode, 200);
     assert.equal(second.body.trim(), "The bucket is being deleted.");
@@ -256,14 +259,14 @@ test("a generation streams, persists with token usage, then serves from cache", 
     // And GET serves it too, with its usage.
     const cached = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(cached.statusCode, 200);
     assert.equal(cached.json().output.trim(), "The bucket is being deleted.");
     assert.equal(cached.json().outputTokens, 8);
     assert.equal(ai.calls, 1);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -273,17 +276,18 @@ test("regenerate drops the cached prose and calls the model again", async () => 
   const ai = stubProvider();
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
     await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(ai.calls, 1);
 
     const again = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
       payload: { regenerate: true },
     });
     assert.equal(again.statusCode, 200);
@@ -298,7 +302,7 @@ test("regenerate drops the cached prose and calls the model again", async () => 
     assert.equal(rows.length, 1);
     assert.match(rows[0]!.output, /take 2/);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -308,17 +312,18 @@ test("a generation kind must match the snapshot's source", async () => {
   const ai = stubProvider();
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId, docsId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId, docsId } = await seed(app, orgId);
 
     const wrongOnPlan = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/docs_explain`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/docs_explain`,
     });
     assert.equal(wrongOnPlan.statusCode, 422);
 
     const wrongOnDocs = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${docsId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${docsId}/ai/pr_summary`,
     });
     assert.equal(wrongOnDocs.statusCode, 422);
     assert.equal(ai.calls, 0, "a mismatch must not reach the provider");
@@ -326,12 +331,12 @@ test("a generation kind must match the snapshot's source", async () => {
     // The right pairing works.
     const ok = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${docsId}/ai/docs_explain`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${docsId}/ai/docs_explain`,
     });
     assert.equal(ok.statusCode, 200);
     assert.equal(ai.calls, 1);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -340,15 +345,16 @@ test("a generation kind must match the snapshot's source", async () => {
 test("unknown snapshot 404s; an unknown kind is rejected by the schema", async () => {
   const app = await buildApp(env, { ai: stubProvider() });
   try {
+    const orgId = await seedOrg(app);
     const missing = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${MISSING_ID}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${MISSING_ID}/ai/pr_summary`,
     });
     assert.equal(missing.statusCode, 404);
 
     const badKind = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${MISSING_ID}/ai/haiku`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${MISSING_ID}/ai/haiku`,
     });
     assert.equal(badKind.statusCode, 422);
   } finally {
@@ -360,7 +366,8 @@ test("a second generation for the same target while one runs returns 409", async
   const ai = hangingProvider();
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
     // Start a generation and leave it mid-stream. Called directly rather than
     // over HTTP: `streamGeneration` takes the lock synchronously, so this makes
@@ -374,7 +381,7 @@ test("a second generation for the same target while one runs returns 409", async
 
     const concurrent = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(concurrent.statusCode, 409);
 
@@ -388,12 +395,12 @@ test("a second generation for the same target while one runs returns 409", async
     // Lock released, so a request proceeds again (served from that cache).
     const after = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(after.statusCode, 200);
     assert.equal(after.body, "start end");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -402,11 +409,12 @@ test("a second generation for the same target while one runs returns 409", async
 test("a provider that fails answers cleanly — and caches nothing", async () => {
   const app = await buildApp(env, { ai: failingProvider("invalid x-api-key") });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
 
     // A readable reason and a real status — not an opaque 500 from trying to
@@ -422,7 +430,7 @@ test("a provider that fails answers cleanly — and caches nothing", async () =>
       .where(eq(aiGenerations.targetId, planId));
     assert.equal(rows.length, 0);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -431,11 +439,12 @@ test("a provider that fails answers cleanly — and caches nothing", async () =>
 test("a failed generation releases the lock, so a retry can run", async () => {
   const app = await buildApp(env, { ai: failingProvider() });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
     const first = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(first.statusCode, 502);
 
@@ -443,11 +452,11 @@ test("a failed generation releases the lock, so a retry can run", async () => {
     // target until the process restarts.
     const retry = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
     assert.equal(retry.statusCode, 502);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -456,11 +465,12 @@ test("a failed generation releases the lock, so a retry can run", async () => {
 test("a mid-stream failure keeps the prose already sent, and caches nothing", async () => {
   const app = await buildApp(env, { ai: midStreamFailure() });
   try {
-    const { projectId, planId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, planId } = await seed(app, orgId);
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/snapshots/${planId}/ai/pr_summary`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${planId}/ai/pr_summary`,
     });
 
     // Bytes were already on the wire, so there is no status left to change —
@@ -475,7 +485,7 @@ test("a mid-stream failure keeps the prose already sent, and caches nothing", as
       .where(eq(aiGenerations.targetId, planId));
     assert.equal(rows.length, 0);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

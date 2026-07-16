@@ -19,6 +19,7 @@ import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories } from "../db/schema.js";
 import { generateDocsSnapshot } from "../services/repo-docs.js";
+import { seedOrg } from "../test-support.js";
 
 const env = loadEnv();
 const exec = promisify(execFile);
@@ -55,17 +56,20 @@ async function cloneTempDirs(): Promise<string[]> {
 }
 
 let counter = 0;
-async function createRepo(app: FastifyInstance): Promise<{ projectId: string; repoId: string }> {
+async function createRepo(
+  app: FastifyInstance,
+  orgId: string,
+): Promise<{ projectId: string; repoId: string }> {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "D", slug: `docs-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: fixtureUrl, defaultBranch: "main" },
   });
   return { projectId, repoId: r.json().id };
@@ -83,13 +87,14 @@ after(async () => {
 
 test("generate documents main; latest returns the graph and warnings", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const before = await cloneTempDirs();
 
     const gen = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     assert.equal(gen.statusCode, 201);
     assert.ok(gen.json().id);
@@ -99,7 +104,7 @@ test("generate documents main; latest returns the graph and warnings", async () 
 
     const latest = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/docs/latest`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/latest`,
     });
     assert.equal(latest.statusCode, 200);
     const snap = latest.json();
@@ -113,7 +118,7 @@ test("generate documents main; latest returns the graph and warnings", async () 
     assert.equal(snap.stats.warnings.length, 1);
     assert.ok(!ids.some((id: string) => id.includes('"y"') || id === "x.y"));
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -121,27 +126,28 @@ test("generate documents main; latest returns the graph and warnings", async () 
 
 test("regenerate stores a fresh snapshot; latest reflects the newest", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
     const first = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     const second = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     assert.equal(second.statusCode, 201);
     assert.notEqual(first.json().id, second.json().id, "a new snapshot row");
 
     const latest = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/docs/latest`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/latest`,
     });
     assert.equal(latest.json().id, second.json().id);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -149,8 +155,9 @@ test("regenerate stores a fresh snapshot; latest reflects the newest", async () 
 
 test("a second generation while one is running returns 409", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const [repo] = await app.db
       .select()
       .from(repositories)
@@ -161,12 +168,12 @@ test("a second generation while one is running returns 409", async () => {
     const inFlight = generateDocsSnapshot(app, repo!);
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     assert.equal(res.statusCode, 409);
     await inFlight;
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -174,23 +181,24 @@ test("a second generation while one is running returns 409", async () => {
 
 test("docs endpoints 404 for an unknown repo; latest 404 before generation", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const missing = "00000000-0000-4000-8000-000000000000";
 
     const genMissing = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${missing}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${missing}/docs/generate`,
     });
     assert.equal(genMissing.statusCode, 404);
 
     const latestNone = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/docs/latest`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/latest`,
     });
     assert.equal(latestNone.statusCode, 404);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -200,10 +208,11 @@ test("docs endpoints 404 for an unknown repo; latest 404 before generation", asy
 
 test("a kubernetes repository whose manifests path holds no objects is told, not drawn", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const p = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "D", slug: `docs-k8s-${Date.now()}` },
     });
     const projectId = p.json().id;
@@ -213,7 +222,7 @@ test("a kubernetes repository whose manifests path holds no objects is told, not
     // is indistinguishable from a broken one.
     const r = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
       payload: {
         provider: "github",
         url: fixtureUrl,
@@ -225,7 +234,7 @@ test("a kubernetes repository whose manifests path holds no objects is told, not
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/v1/repositories/${repoId}/docs/generate`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/generate`,
     });
     assert.equal(res.statusCode, 422);
     assert.match(res.json().message, /no Kubernetes objects/);
@@ -233,11 +242,11 @@ test("a kubernetes repository whose manifests path holds no objects is told, not
 
     const latest = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/docs/latest`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/docs/latest`,
     });
     assert.equal(latest.statusCode, 404, "nothing was stored");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

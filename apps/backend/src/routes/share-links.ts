@@ -70,9 +70,8 @@ async function repoExists(app: FastifyInstance, id: string): Promise<boolean> {
   return Boolean(repo);
 }
 
+/** Authenticated share-link management — org-scoped (GP-114). */
 export const shareRoutes: FastifyPluginAsync = async (app) => {
-  // --- Authenticated management -------------------------------------------
-
   app.post(
     "/repositories/:id/share-links",
     { schema: { params: idParamsSchema, body: createBodySchema } },
@@ -148,7 +147,14 @@ export const shareRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // --- Public (no auth, rate-limited) -------------------------------------
+};
+
+/**
+ * Public, unauthenticated share-view routes (GP-39) — global and rate-limited.
+ * These live under `/api/v1/public/` (auth-exempt) and never expose org internals
+ * or AI content; they are the one read path that does not require a bearer token.
+ */
+export const sharePublicRoutes: FastifyPluginAsync = async (app) => {
   // Encapsulated so the per-IP limiter hook covers only these routes.
   await app.register(async (pub) => {
     const limiter = createRateLimiter({ windowMs: 60_000, max: 240 });

@@ -9,6 +9,7 @@ import {
   repositories,
 } from "../db/schema.js";
 import type { GraphStats } from "../graph/graph.js";
+import { orgIdOf } from "../rbac/request.js";
 import { DOCS_SOURCES, PR_SOURCES } from "../services/graph-snapshots.js";
 
 /** How much recent activity the dashboard shows. Fixed — no pagination (GP-67). */
@@ -45,29 +46,51 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
    * authenticated user sees the same projects (auth is the global onRequest hook,
    * GP-6). When ownership lands, this is the one place to scope.
    */
-  app.get("/dashboard", async () => {
+  app.get("/dashboard", async (request) => {
+    const orgId = orgIdOf(request);
     const [stats, prs, docs, orphanRepositories] = await Promise.all([
-      loadStats(),
-      loadRecentPrs(),
-      loadRecentDocs(),
-      loadOrphanRepositories(),
+      loadStats(orgId),
+      loadRecentPrs(orgId),
+      loadRecentDocs(orgId),
+      loadOrphanRepositories(orgId),
     ]);
     return { stats, recentPrs: prs, recentDocsSnapshots: docs, orphanRepositories };
   });
 
-  async function loadStats() {
+  async function loadStats(orgId: string) {
     const [projectCount, repositoryCount, openPrCount, orphanCount] =
       await Promise.all([
-        app.db.select({ n: count() }).from(projects),
-        app.db.select({ n: count() }).from(repositories),
+        app.db
+          .select({ n: count() })
+          .from(projects)
+          .where(eq(projects.organizationId, orgId)),
+        app.db
+          .select({ n: count() })
+          .from(repositories)
+          .innerJoin(projects, eq(repositories.projectId, projects.id))
+          .where(eq(projects.organizationId, orgId)),
         app.db
           .select({ n: count() })
           .from(pullRequests)
-          .where(eq(pullRequests.state, "open")),
+          .innerJoin(repositories, eq(pullRequests.repositoryId, repositories.id))
+          .innerJoin(projects, eq(repositories.projectId, projects.id))
+          .where(
+            and(
+              eq(pullRequests.state, "open"),
+              eq(projects.organizationId, orgId),
+            ),
+          ),
         app.db
           .select({ n: count() })
           .from(annotations)
-          .where(eq(annotations.status, "orphaned")),
+          .innerJoin(repositories, eq(annotations.repositoryId, repositories.id))
+          .innerJoin(projects, eq(repositories.projectId, projects.id))
+          .where(
+            and(
+              eq(annotations.status, "orphaned"),
+              eq(projects.organizationId, orgId),
+            ),
+          ),
       ]);
 
     return {
@@ -83,7 +106,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
    * the stats and risk flags of its latest plan snapshot. A PR whose plan never
    * parsed has no snapshot and no flags — it still lists (GP-17).
    */
-  async function loadRecentPrs() {
+  async function loadRecentPrs(orgId: string) {
     const pulls = await app.db
       .select({
         id: pullRequests.id,
@@ -99,6 +122,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       })
       .from(pullRequests)
       .innerJoin(repositories, eq(pullRequests.repositoryId, repositories.id))
+      .innerJoin(projects, eq(repositories.projectId, projects.id))
+      .where(eq(projects.organizationId, orgId))
       .orderBy(desc(pullRequests.updatedAt))
       .limit(RECENT_PRS);
 
@@ -172,7 +197,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
   }
 
   /** The last documentation snapshots, newest first. `trigger` lives in stats (GP-23). */
-  async function loadRecentDocs() {
+  async function loadRecentDocs(orgId: string) {
     const rows = await app.db
       .select({
         id: graphSnapshots.id,
@@ -185,9 +210,15 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       })
       .from(graphSnapshots)
       .innerJoin(repositories, eq(graphSnapshots.repositoryId, repositories.id))
+      .innerJoin(projects, eq(repositories.projectId, projects.id))
       // Every producer that documents a default branch, Terraform or Kubernetes
       // (GP-102) — the card is about documentation, not about a language.
-      .where(inArray(graphSnapshots.source, DOCS_SOURCES))
+      .where(
+        and(
+          inArray(graphSnapshots.source, DOCS_SOURCES),
+          eq(projects.organizationId, orgId),
+        ),
+      )
       .orderBy(desc(graphSnapshots.createdAt))
       .limit(RECENT_DOCS);
 
@@ -201,7 +232,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
    * The repositories holding orphaned annotations, worst first — so the orphan
    * stat card can link straight to a repository's orphan review (GP-59).
    */
-  async function loadOrphanRepositories() {
+  async function loadOrphanRepositories(orgId: string) {
     const orphans = count();
     return app.db
       .select({
@@ -212,7 +243,13 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       })
       .from(annotations)
       .innerJoin(repositories, eq(annotations.repositoryId, repositories.id))
-      .where(eq(annotations.status, "orphaned"))
+      .innerJoin(projects, eq(repositories.projectId, projects.id))
+      .where(
+        and(
+          eq(annotations.status, "orphaned"),
+          eq(projects.organizationId, orgId),
+        ),
+      )
       .groupBy(repositories.id)
       .orderBy(desc(orphans));
   }

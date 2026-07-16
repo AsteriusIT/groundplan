@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
+import { seedOrg } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -13,17 +14,17 @@ before(async () => {
 });
 
 let counter = 0;
-async function createRepo(app: FastifyInstance) {
+async function createRepo(app: FastifyInstance, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "P", slug: `planwh-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   const repo = r.json();
@@ -46,8 +47,9 @@ const planPayload = {
 
 test("a plan webhook produces a linked graph snapshot", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     const res = await app.inject({
       method: "POST",
@@ -65,7 +67,7 @@ test("a plan webhook produces a linked graph snapshot", async () => {
 
     const snaps = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/snapshots?source=plan`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots?source=plan`,
     });
     const rows = snaps.json();
     assert.equal(rows.length, 1);
@@ -73,7 +75,7 @@ test("a plan webhook produces a linked graph snapshot", async () => {
     assert.equal(rows[0].commitSha, "abc123");
     assert.equal(rows[0].stats.changes.create, 1);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -81,8 +83,9 @@ test("a plan webhook produces a linked graph snapshot", async () => {
 
 test("a non-plan webhook stores no snapshot", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     await app.inject({
       method: "POST",
       url: `/api/v1/webhooks/ci/${repoId}`,
@@ -96,10 +99,10 @@ test("a non-plan webhook stores no snapshot", async () => {
     });
     const snaps = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/snapshots`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots`,
     });
     assert.equal(snaps.json().length, 0);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -107,8 +110,9 @@ test("a non-plan webhook stores no snapshot", async () => {
 
 test("a plan that fails to parse flags the event and still returns 202", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     const res = await app.inject({
       method: "POST",
@@ -132,18 +136,18 @@ test("a plan that fails to parse flags the event and still returns 202", async (
 
     const snaps = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/snapshots`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots`,
     });
     assert.equal(snaps.json().length, 0, "nothing stored on parse failure");
 
     const events = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/events`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/events`,
     });
     const event = events.json()[0];
     assert.ok(event.parseError, "the event should carry a parse_error message");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

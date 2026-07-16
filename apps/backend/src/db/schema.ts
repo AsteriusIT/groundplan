@@ -201,6 +201,12 @@ export const clusterConnectionStatus = pgEnum("cluster_connection_status", [
  */
 export const clusters = pgTable("clusters", {
   id: uuid("id").primaryKey().defaultRandom(),
+  // The organization that owns this cluster (GP-114). A cluster is a top-level
+  // resource (it belongs to no project), but it is still a tenant's resource —
+  // scoping it here is what the schema comment above always anticipated.
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   /** AES-256-GCM ciphertext of the kubeconfig YAML. Never plaintext, never logged. */
   kubeconfig: text("kubeconfig").notNull(),
@@ -808,6 +814,14 @@ export function toPublicAiGeneration(row: AiGenerationRow): PublicAiGeneration {
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   projects: many(projects),
+  clusters: many(clusters),
+}));
+
+export const clustersRelations = relations(clusters, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [clusters.organizationId],
+    references: [organizations.id],
+  }),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({

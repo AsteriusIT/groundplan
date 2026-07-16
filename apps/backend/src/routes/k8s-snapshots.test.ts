@@ -17,7 +17,7 @@ import {
   type K8sReadResult,
 } from "../services/k8s-reader.js";
 import type { K8sVerify } from "../services/k8s-verify.js";
-import { authHeader, buildTestApp } from "../test-support.js";
+import { authHeader, buildTestApp, seedOrgForDefaultUser } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -102,10 +102,14 @@ function stubReader(overrides: Partial<K8sReader> = {}): K8sReader {
 }
 
 /** A cluster stands on its own — attaching one needs no project to hang it from. */
-async function attachCluster(app: FastifyInstance, auth: { authorization: string }) {
+async function attachCluster(
+  app: FastifyInstance,
+  orgId: string,
+  auth: { authorization: string },
+) {
   const cluster = await app.inject({
     method: "POST",
-    url: "/api/v1/clusters",
+    url: `/api/v1/orgs/${orgId}/clusters`,
     headers: auth,
     payload: { name: "prod", kubeconfig: KUBECONFIG },
   });
@@ -116,11 +120,12 @@ async function attachCluster(app: FastifyInstance, auth: { authorization: string
 test("list a cluster's namespaces", async () => {
   const app = await buildTestApp({ k8sVerify: okVerify, k8s: stubReader() });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
+    const { clusterId } = await attachCluster(app, orgId, auth);
     const res = await app.inject({
       method: "GET",
-      url: `/api/v1/clusters/${clusterId}/namespaces`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces`,
       headers: auth,
     });
     assert.equal(res.statusCode, 200);
@@ -140,11 +145,12 @@ test("an unreachable cluster is a 502, and the kubeconfig is never in it", async
     }),
   });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
+    const { clusterId } = await attachCluster(app, orgId, auth);
     const res = await app.inject({
       method: "GET",
-      url: `/api/v1/clusters/${clusterId}/namespaces`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces`,
       headers: auth,
     });
     assert.equal(res.statusCode, 502);
@@ -159,12 +165,13 @@ test("an unreachable cluster is a 502, and the kubeconfig is never in it", async
 test("generate: read → map → store a k8s_namespace snapshot the rest of the API can read", async () => {
   const app = await buildTestApp({ k8sVerify: okVerify, k8s: stubReader() });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
+    const { clusterId } = await attachCluster(app, orgId, auth);
 
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/clusters/${clusterId}/namespaces/payments/snapshots`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/payments/snapshots`,
       headers: auth,
       payload: {},
     });
@@ -194,7 +201,7 @@ test("generate: read → map → store a k8s_namespace snapshot the rest of the 
     // The ordinary snapshot routes take the new kind without modification.
     const read = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshot.id}`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshot.id}`,
       headers: auth,
     });
     assert.equal(read.statusCode, 200);
@@ -203,7 +210,7 @@ test("generate: read → map → store a k8s_namespace snapshot the rest of the 
 
     const svg = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshot.id}/export.svg`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshot.id}/export.svg`,
       headers: auth,
     });
     assert.equal(svg.statusCode, 200);
@@ -237,9 +244,10 @@ test("one generation in flight per namespace — the second is a 409", async () 
     }),
   });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
-    const url = `/api/v1/clusters/${clusterId}/namespaces/payments/snapshots`;
+    const { clusterId } = await attachCluster(app, orgId, auth);
+    const url = `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/payments/snapshots`;
 
     // `.then()` is what dispatches an injected request — holding the thenable
     // without consuming it would leave it sitting on the doorstep, unsent.
@@ -265,9 +273,10 @@ test("one generation in flight per namespace — the second is a 409", async () 
 test("history lists a namespace's snapshots, newest first", async () => {
   const app = await buildTestApp({ k8sVerify: okVerify, k8s: stubReader() });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
-    const url = `/api/v1/clusters/${clusterId}/namespaces/payments/snapshots`;
+    const { clusterId } = await attachCluster(app, orgId, auth);
+    const url = `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/payments/snapshots`;
 
     const first = await app.inject({ method: "POST", url, headers: auth, payload: {} });
     const second = await app.inject({ method: "POST", url, headers: auth, payload: {} });
@@ -275,7 +284,7 @@ test("history lists a namespace's snapshots, newest first", async () => {
     // A different namespace is a different history.
     await app.inject({
       method: "POST",
-      url: `/api/v1/clusters/${clusterId}/namespaces/default/snapshots`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/default/snapshots`,
       headers: auth,
       payload: {},
     });
@@ -305,11 +314,12 @@ test("RBAC-denied kinds are skipped and named — a partial diagram says it is p
     }),
   });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
+    const { clusterId } = await attachCluster(app, orgId, auth);
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/clusters/${clusterId}/namespaces/payments/snapshots`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/payments/snapshots`,
       headers: auth,
       payload: {},
     });
@@ -350,11 +360,12 @@ test("a namespace with nothing mappable stores a valid, near-empty snapshot", as
     }),
   });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
+    const { clusterId } = await attachCluster(app, orgId, auth);
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/clusters/${clusterId}/namespaces/quiet/snapshots`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/quiet/snapshots`,
       headers: auth,
       payload: {},
     });
@@ -376,9 +387,10 @@ test("a read that fails mid-generation is a 502 and stores nothing", async () =>
     }),
   });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
-    const url = `/api/v1/clusters/${clusterId}/namespaces/payments/snapshots`;
+    const { clusterId } = await attachCluster(app, orgId, auth);
+    const url = `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/payments/snapshots`;
     const res = await app.inject({ method: "POST", url, headers: auth, payload: {} });
     assert.equal(res.statusCode, 502);
 
@@ -392,11 +404,12 @@ test("a read that fails mid-generation is a 502 and stores nothing", async () =>
 test("deleting a cluster takes its snapshots with it", async () => {
   const app = await buildTestApp({ k8sVerify: okVerify, k8s: stubReader() });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const { clusterId } = await attachCluster(app, auth);
+    const { clusterId } = await attachCluster(app, orgId, auth);
     const created = await app.inject({
       method: "POST",
-      url: `/api/v1/clusters/${clusterId}/namespaces/payments/snapshots`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}/namespaces/payments/snapshots`,
       headers: auth,
       payload: {},
     });
@@ -404,13 +417,13 @@ test("deleting a cluster takes its snapshots with it", async () => {
 
     await app.inject({
       method: "DELETE",
-      url: `/api/v1/clusters/${clusterId}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${clusterId}`,
       headers: auth,
     });
 
     const gone = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshotId}`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshotId}`,
       headers: auth,
     });
     assert.equal(gone.statusCode, 404);

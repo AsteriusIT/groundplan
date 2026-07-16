@@ -13,6 +13,7 @@ import { loadEnv } from "../config/env.js";
 import { annotations } from "../db/schema.js";
 import { runMigrations } from "../db/migrate.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
+import { seedOrg } from "../test-support.js";
 import { validateGraph, type Graph } from "../graph/graph.js";
 
 const env = loadEnv();
@@ -22,17 +23,17 @@ before(async () => {
 });
 
 let counter = 0;
-async function createRepo(app: FastifyInstance) {
+async function createRepo(app: FastifyInstance, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "A", slug: `adapted-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   return { projectId, repoId: r.json().id };
@@ -55,17 +56,23 @@ const GRAPH: Graph = {
   ],
 };
 
-const annotate = (app: FastifyInstance, repoId: string, payload: unknown) =>
+const annotate = (
+  app: FastifyInstance,
+  orgId: string,
+  repoId: string,
+  payload: unknown,
+) =>
   app.inject({
     method: "POST",
-    url: `/api/v1/repositories/${repoId}/annotations`,
+    url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations`,
     payload: payload as Record<string, unknown>,
   });
 
 test("the adapted snapshot folds in all five annotation types", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const snapshot = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -74,28 +81,28 @@ test("the adapted snapshot folds in all five annotation types", async () => {
       graph: GRAPH,
     });
 
-    const front = await annotate(app, repoId, {
+    const front = await annotate(app, orgId, repoId, {
       type: "group",
       label: "Storefront",
       anchors: ["azurerm_x.web"],
     });
-    const data = await annotate(app, repoId, {
+    const data = await annotate(app, orgId, repoId, {
       type: "group",
       label: "Data",
       anchors: ["azurerm_x.db"],
     });
-    await annotate(app, repoId, { type: "hide", anchors: ["azurerm_x.cache"] });
-    await annotate(app, repoId, {
+    await annotate(app, orgId, repoId, { type: "hide", anchors: ["azurerm_x.cache"] });
+    await annotate(app, orgId, repoId, {
       type: "rename",
       label: "Order ledger",
       anchors: ["azurerm_x.legacy"],
     });
-    await annotate(app, repoId, {
+    await annotate(app, orgId, repoId, {
       type: "note",
       body: "Owned by payments.",
       anchors: ["azurerm_x.db"],
     });
-    await annotate(app, repoId, {
+    await annotate(app, orgId, repoId, {
       type: "link",
       label: "replicates to",
       anchors: [front.json().id, data.json().id],
@@ -103,7 +110,7 @@ test("the adapted snapshot folds in all five annotation types", async () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshot.id}/adapted`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshot.id}/adapted`,
     });
     assert.equal(res.statusCode, 200);
     const graph = res.json().graph as Graph;
@@ -137,7 +144,7 @@ test("the adapted snapshot folds in all five annotation types", async () => {
     // The stats describe the picture we are handing back, not the one we started from.
     assert.equal(res.json().stats.nodes, graph.nodes.length);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -146,7 +153,8 @@ test("the adapted snapshot folds in all five annotation types", async () => {
 test("a proposal changes nothing until a human accepts it", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const snapshot = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -155,7 +163,7 @@ test("a proposal changes nothing until a human accepts it", async () => {
       graph: GRAPH,
     });
 
-    const hide = await annotate(app, repoId, {
+    const hide = await annotate(app, orgId, repoId, {
       type: "hide",
       anchors: ["azurerm_x.cache"],
     });
@@ -168,7 +176,7 @@ test("a proposal changes nothing until a human accepts it", async () => {
 
     const before = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshot.id}/adapted`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshot.id}/adapted`,
     });
     assert.equal(
       (before.json().graph as Graph).nodes.some((n) => n.id === "azurerm_x.cache"),
@@ -178,20 +186,20 @@ test("a proposal changes nothing until a human accepts it", async () => {
     // Accepting is a status PATCH — and only then does the picture change.
     await app.inject({
       method: "PATCH",
-      url: `/api/v1/annotations/${hide.json().id}`,
+      url: `/api/v1/orgs/${orgId}/annotations/${hide.json().id}`,
       payload: { status: "resolved" },
     });
 
     const after = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshot.id}/adapted`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshot.id}/adapted`,
     });
     assert.equal(
       (after.json().graph as Graph).nodes.some((n) => n.id === "azurerm_x.cache"),
       false,
     );
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -200,9 +208,10 @@ test("a proposal changes nothing until a human accepts it", async () => {
 test("404s for an unknown snapshot", async () => {
   const app = await buildApp(env);
   try {
+    const orgId = await seedOrg(app);
     const res = await app.inject({
       method: "GET",
-      url: "/api/v1/snapshots/00000000-0000-4000-8000-000000000000/adapted",
+      url: `/api/v1/orgs/${orgId}/snapshots/00000000-0000-4000-8000-000000000000/adapted`,
     });
     assert.equal(res.statusCode, 404);
   } finally {
@@ -215,7 +224,8 @@ test("404s for an unknown snapshot", async () => {
 test("?granularity=group collapses to one node per group, and expandGroup opens one", async () => {
   const app = await buildApp(env);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const snapshot = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "hcl",
@@ -224,12 +234,12 @@ test("?granularity=group collapses to one node per group, and expandGroup opens 
       graph: GRAPH,
     });
 
-    const front = await annotate(app, repoId, {
+    const front = await annotate(app, orgId, repoId, {
       type: "group",
       label: "Storefront",
       anchors: ["azurerm_x.web"],
     });
-    await annotate(app, repoId, {
+    await annotate(app, orgId, repoId, {
       type: "group",
       label: "Data",
       anchors: ["azurerm_x.db", "azurerm_x.cache"],
@@ -237,7 +247,7 @@ test("?granularity=group collapses to one node per group, and expandGroup opens 
 
     const c4 = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshot.id}/adapted?granularity=group`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshot.id}/adapted?granularity=group`,
     });
     assert.equal(c4.statusCode, 200);
     const collapsed = c4.json().graph as Graph;
@@ -253,13 +263,13 @@ test("?granularity=group collapses to one node per group, and expandGroup opens 
     // Drilling in opens that one group and leaves its sibling collapsed.
     const drilled = await app.inject({
       method: "GET",
-      url: `/api/v1/snapshots/${snapshot.id}/adapted?granularity=group&expandGroup=${front.json().id}`,
+      url: `/api/v1/orgs/${orgId}/snapshots/${snapshot.id}/adapted?granularity=group&expandGroup=${front.json().id}`,
     });
     const opened = drilled.json().graph as Graph;
     assert.equal(opened.nodes.some((n) => n.id === "azurerm_x.web"), true);
     assert.equal(opened.nodes.some((n) => n.id === "azurerm_x.db"), false);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

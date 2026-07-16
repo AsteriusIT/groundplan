@@ -12,6 +12,7 @@ import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { remoteRefs, repositories, type RepositoryRow } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { seedOrg } from "../test-support.js";
 import { diffRefs, pollRepository } from "./ref-poller.js";
 
 const env = loadEnv();
@@ -89,15 +90,16 @@ async function makeFixture(): Promise<void> {
 let counter = 0;
 async function createRepo(app: FastifyInstance): Promise<RepositoryRow> {
   counter += 1;
+  const orgId = await seedOrg(app);
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "A", slug: `refpoll-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: fixtureUrl, defaultBranch: "main" },
   });
   const [repo] = await app.db

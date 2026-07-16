@@ -16,7 +16,7 @@ import type { FastifyInstance } from "fastify";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import type { K8sVerify, K8sVerifyResult } from "../services/k8s-verify.js";
-import { authHeader, buildTestApp } from "../test-support.js";
+import { authHeader, buildTestApp, seedOrgForDefaultUser } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -55,11 +55,12 @@ function stubVerify(result: K8sVerifyResult = { ok: true, version: "v1.31.0" }) 
 
 async function listClusters(
   app: FastifyInstance,
+  orgId: string,
   auth: { authorization: string },
 ) {
   const res = await app.inject({
     method: "GET",
-    url: "/api/v1/clusters",
+    url: `/api/v1/orgs/${orgId}/clusters`,
     headers: auth,
   });
   assert.equal(res.statusCode, 200);
@@ -70,10 +71,11 @@ test("attach a cluster: created verified, kubeconfig masked everywhere", async (
   const { verify, seen } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
     const created = await app.inject({
       method: "POST",
-      url: "/api/v1/clusters",
+      url: `/api/v1/orgs/${orgId}/clusters`,
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -94,13 +96,13 @@ test("attach a cluster: created verified, kubeconfig masked everywhere", async (
     // …and in every subsequent read.
     const got = await app.inject({
       method: "GET",
-      url: `/api/v1/clusters/${cluster.id}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${cluster.id}`,
       headers: auth,
     });
     assert.equal(got.statusCode, 200);
     assert.equal(got.json().kubeconfig, "***");
 
-    const listed = (await listClusters(app, auth)).find((c) => c.id === cluster.id);
+    const listed = (await listClusters(app, orgId, auth)).find((c) => c.id === cluster.id);
     assert.ok(listed, "an attached cluster is in the estate-wide list");
     assert.equal(listed.kubeconfig, "***");
 
@@ -122,10 +124,11 @@ test("an unreachable cluster is stored as failed, not an HTTP error", async () =
   const { verify } = stubVerify({ ok: false, error: "auth_failed" });
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
     const created = await app.inject({
       method: "POST",
-      url: "/api/v1/clusters",
+      url: `/api/v1/orgs/${orgId}/clusters`,
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -135,7 +138,7 @@ test("an unreachable cluster is stored as failed, not an HTTP error", async () =
     // Re-verifying reports the structured reason, and never the kubeconfig.
     const verified = await app.inject({
       method: "POST",
-      url: `/api/v1/clusters/${created.json().id}/verify`,
+      url: `/api/v1/orgs/${orgId}/clusters/${created.json().id}/verify`,
       headers: auth,
     });
     assert.equal(verified.statusCode, 200);
@@ -149,12 +152,13 @@ test("a malformed kubeconfig is a 422 and stores nothing", async () => {
   const { verify, seen } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
-    const before = await listClusters(app, auth);
+    const before = await listClusters(app, orgId, auth);
 
     const res = await app.inject({
       method: "POST",
-      url: "/api/v1/clusters",
+      url: `/api/v1/orgs/${orgId}/clusters`,
       headers: auth,
       payload: { name: "broken", kubeconfig: "not: [a: kubeconfig" },
     });
@@ -162,7 +166,7 @@ test("a malformed kubeconfig is a 422 and stores nothing", async () => {
     assert.equal(res.json().error, "Unprocessable Entity");
     assert.deepEqual(seen, []); // never verified — it never got that far
 
-    const after = await listClusters(app, auth);
+    const after = await listClusters(app, orgId, auth);
     assert.ok(
       !after.some((c) => !before.some((b) => b.id === c.id)),
       "a refused kubeconfig leaves no cluster behind",
@@ -176,10 +180,11 @@ test("replacing the kubeconfig re-verifies; renaming does not", async () => {
   const { verify, seen } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
     const created = await app.inject({
       method: "POST",
-      url: "/api/v1/clusters",
+      url: `/api/v1/orgs/${orgId}/clusters`,
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -188,7 +193,7 @@ test("replacing the kubeconfig re-verifies; renaming does not", async () => {
 
     const renamed = await app.inject({
       method: "PATCH",
-      url: `/api/v1/clusters/${id}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${id}`,
       headers: auth,
       payload: { name: "production" },
     });
@@ -198,7 +203,7 @@ test("replacing the kubeconfig re-verifies; renaming does not", async () => {
 
     const replaced = await app.inject({
       method: "PATCH",
-      url: `/api/v1/clusters/${id}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${id}`,
       headers: auth,
       payload: { kubeconfig: KUBECONFIG.replace("prod-user", "other-user") },
     });
@@ -209,7 +214,7 @@ test("replacing the kubeconfig re-verifies; renaming does not", async () => {
     // A bad replacement is refused, and the good one survives.
     const bad = await app.inject({
       method: "PATCH",
-      url: `/api/v1/clusters/${id}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${id}`,
       headers: auth,
       payload: { kubeconfig: "garbage" },
     });
@@ -229,13 +234,14 @@ test("a cluster outlives the deletion of a project", async () => {
   const { verify } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
     // Clusters used to hang off a project, and a project delete took them with
     // it — along with every namespace ever read from them. They are peers now,
     // and a project knows nothing about them.
     const project = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       headers: auth,
       payload: {
         name: "K8s Project",
@@ -246,7 +252,7 @@ test("a cluster outlives the deletion of a project", async () => {
 
     const created = await app.inject({
       method: "POST",
-      url: "/api/v1/clusters",
+      url: `/api/v1/orgs/${orgId}/clusters`,
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -254,14 +260,14 @@ test("a cluster outlives the deletion of a project", async () => {
 
     const deleted = await app.inject({
       method: "DELETE",
-      url: `/api/v1/projects/${project.json().id}`,
+      url: `/api/v1/orgs/${orgId}/projects/${project.json().id}`,
       headers: auth,
     });
     assert.equal(deleted.statusCode, 204);
 
     const still = await app.inject({
       method: "GET",
-      url: `/api/v1/clusters/${id}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${id}`,
       headers: auth,
     });
     assert.equal(still.statusCode, 200);
@@ -274,10 +280,11 @@ test("deleting a cluster removes it; unknown ids are 404", async () => {
   const { verify } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   const auth = await authHeader();
+  const orgId = await seedOrgForDefaultUser(app);
   try {
     const created = await app.inject({
       method: "POST",
-      url: "/api/v1/clusters",
+      url: `/api/v1/orgs/${orgId}/clusters`,
       headers: auth,
       payload: { name: "prod", kubeconfig: KUBECONFIG },
     });
@@ -285,14 +292,14 @@ test("deleting a cluster removes it; unknown ids are 404", async () => {
 
     const del = await app.inject({
       method: "DELETE",
-      url: `/api/v1/clusters/${id}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${id}`,
       headers: auth,
     });
     assert.equal(del.statusCode, 204);
 
     const again = await app.inject({
       method: "DELETE",
-      url: `/api/v1/clusters/${id}`,
+      url: `/api/v1/orgs/${orgId}/clusters/${id}`,
       headers: auth,
     });
     assert.equal(again.statusCode, 404);
@@ -305,7 +312,10 @@ test("clusters are behind auth like every other protected route", async () => {
   const { verify } = stubVerify();
   const app = await buildTestApp({ k8sVerify: verify });
   try {
-    const res = await app.inject({ method: "GET", url: "/api/v1/clusters" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/orgs/00000000-0000-4000-8000-000000000000/clusters",
+    });
     assert.equal(res.statusCode, 401);
   } finally {
     await app.close();

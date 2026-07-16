@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
+import { seedOrg } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -19,20 +20,20 @@ function uniqueSlug(): string {
 }
 
 /** Create a project + repository, returning ids and the one-time webhook token. */
-async function createRepo(app: FastifyInstance): Promise<{
+async function createRepo(app: FastifyInstance, orgId: string): Promise<{
   projectId: string;
   repoId: string;
   webhookToken: string;
 }> {
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "WH", slug: uniqueSlug() },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   const repo = r.json();
@@ -48,19 +49,20 @@ const validBody = {
 
 test("webhook_token is returned once on create but never in the list", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, webhookToken } = await createRepo(app);
+    const { projectId, webhookToken } = await createRepo(app, orgId);
     assert.ok(webhookToken, "create response should include webhookToken");
 
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/projects/${projectId}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     });
     assert.ok(
       !("webhookToken" in list.json()[0]),
       "list response must not include webhookToken",
     );
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -68,8 +70,9 @@ test("webhook_token is returned once on create but never in the list", async () 
 
 test("valid webhook call stores an event and returns 202 with id", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     const res = await app.inject({
       method: "POST",
@@ -82,7 +85,7 @@ test("valid webhook call stores an event and returns 202 with id", async () => {
 
     const events = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/events`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/events`,
     });
     assert.equal(events.statusCode, 200);
     const list = events.json();
@@ -93,7 +96,7 @@ test("valid webhook call stores an event and returns 202 with id", async () => {
     assert.ok(list[0].receivedAt);
     assert.ok(!("payload" in list[0]), "events list must not include payload");
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -101,8 +104,9 @@ test("valid webhook call stores an event and returns 202 with id", async () => {
 
 test("missing token -> 401, wrong token -> 401", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
 
     const noToken = await app.inject({
       method: "POST",
@@ -119,7 +123,7 @@ test("missing token -> 401, wrong token -> 401", async () => {
     });
     assert.equal(badToken.statusCode, 401);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -142,8 +146,9 @@ test("unknown repository -> 404", async () => {
 
 test("malformed body -> 422", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     const res = await app.inject({
       method: "POST",
@@ -153,7 +158,7 @@ test("malformed body -> 422", async () => {
     });
     assert.equal(res.statusCode, 422);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -161,8 +166,9 @@ test("malformed body -> 422", async () => {
 
 test("payload larger than 10 MB -> 413", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     const big = "x".repeat(11 * 1024 * 1024);
     const res = await app.inject({
@@ -173,7 +179,7 @@ test("payload larger than 10 MB -> 413", async () => {
     });
     assert.equal(res.statusCode, 413);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -181,8 +187,9 @@ test("payload larger than 10 MB -> 413", async () => {
 
 test("events list returns the last 20, newest first, without payload", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     for (let i = 1; i <= 21; i++) {
       const res = await app.inject({
@@ -196,7 +203,7 @@ test("events list returns the last 20, newest first, without payload", async () 
 
     const events = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/events`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/events`,
     });
     const list = events.json();
     assert.equal(list.length, 20, "should cap at 20");
@@ -206,7 +213,7 @@ test("events list returns the last 20, newest first, without payload", async () 
       "oldest (21st-from-top) event should be dropped",
     );
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -216,16 +223,17 @@ test("events list returns the last 20, newest first, without payload", async () 
 
 test("a kubernetes repository takes a push, and refuses a Terraform plan", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
     const p = await app.inject({
       method: "POST",
-      url: "/api/v1/projects",
+      url: `/api/v1/orgs/${orgId}/projects`,
       payload: { name: "WH", slug: uniqueSlug() },
     });
     const projectId = p.json().id;
     const r = await app.inject({
       method: "POST",
-      url: `/api/v1/projects/${projectId}/repositories`,
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
       payload: {
         provider: "github",
         url: "https://github.com/acme/manifests",
@@ -247,7 +255,7 @@ test("a kubernetes repository takes a push, and refuses a Terraform plan", async
 
     // Nothing was stored — a refused delivery is not an event.
     assert.deepEqual(
-      (await app.inject({ method: "GET", url: `/api/v1/repositories/${repoId}/events` })).json(),
+      (await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/repositories/${repoId}/events` })).json(),
       [],
     );
 
@@ -261,7 +269,7 @@ test("a kubernetes repository takes a push, and refuses a Terraform plan", async
     });
     assert.equal(push.statusCode, 202);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

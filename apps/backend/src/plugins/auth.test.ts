@@ -116,7 +116,12 @@ test("valid token -> 200, /me returns the user, and JIT-provisions once", async 
 test("protected API routes require a token, health/webhooks do not", async () => {
   const app = await buildTestApp();
   try {
-    const projects = await app.inject({ method: "GET", url: "/api/v1/projects" });
+    // An org-scoped route (nested under /orgs/:orgId, GP-114) is protected: no
+    // bearer token -> 401 from the OIDC layer, before the org guard even runs.
+    const projects = await app.inject({
+      method: "GET",
+      url: "/api/v1/orgs/00000000-0000-4000-8000-000000000000/projects",
+    });
     assert.equal(projects.statusCode, 401, "projects must be protected");
 
     const healthz = await app.inject({ method: "GET", url: "/healthz" });

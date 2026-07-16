@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 
 import { buildApp } from "../app.js";
+import { seedOrg } from "../test-support.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
@@ -65,17 +66,17 @@ const GOOD = JSON.stringify({
 });
 
 let counter = 0;
-async function seed(app: FastifyInstance) {
+async function seed(app: FastifyInstance, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "P", slug: `proposals-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   const repoId = r.json().id;
@@ -89,29 +90,30 @@ async function seed(app: FastifyInstance) {
   return { projectId, repoId, snapshotId: snapshot.id };
 }
 
-const propose = (app: FastifyInstance, snapshotId: string) =>
+const propose = (app: FastifyInstance, orgId: string, snapshotId: string) =>
   app.inject({
     method: "POST",
-    url: `/api/v1/snapshots/${snapshotId}/annotation-proposals`,
+    url: `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/annotation-proposals`,
   });
 
-const list = (app: FastifyInstance, repoId: string, status?: string) =>
+const list = (app: FastifyInstance, orgId: string, repoId: string, status?: string) =>
   app.inject({
     method: "GET",
-    url: `/api/v1/repositories/${repoId}/annotations${status ? `?status=${status}` : ""}`,
+    url: `/api/v1/orgs/${orgId}/repositories/${repoId}/annotations${status ? `?status=${status}` : ""}`,
   });
 
 test("valid proposals are stored as proposed/ai and never as accepted", async () => {
   const ai = stubProvider(GOOD);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, repoId, snapshotId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, snapshotId } = await seed(app, orgId);
 
-    const res = await propose(app, snapshotId);
+    const res = await propose(app, orgId, snapshotId);
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().proposals.length, 2);
 
-    const proposals = list(app, repoId, "proposed");
+    const proposals = list(app, orgId, repoId, "proposed");
     const rows = (await proposals).json();
     assert.equal(rows.length, 2);
     for (const row of rows) {
@@ -125,9 +127,9 @@ test("valid proposals are stored as proposed/ai and never as accepted", async ()
     assert.equal(group.reason, "The web tier and the database it reads.");
 
     // Nothing is live. The adapted view is unmoved until a human says otherwise.
-    assert.equal((await list(app, repoId, "resolved")).json().length, 0);
+    assert.equal((await list(app, orgId, repoId, "resolved")).json().length, 0);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -137,21 +139,22 @@ test("asking twice for the same snapshot never reaches the model again", async (
   const ai = stubProvider(GOOD);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, repoId, snapshotId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, snapshotId } = await seed(app, orgId);
 
-    await propose(app, snapshotId);
+    await propose(app, orgId, snapshotId);
     assert.equal(ai.calls, 1);
 
-    const second = await propose(app, snapshotId);
+    const second = await propose(app, orgId, snapshotId);
     assert.equal(second.statusCode, 200);
     assert.equal(ai.calls, 1, "the cached response was replayed, not regenerated");
     assert.equal(second.json().cached, true);
 
     // ...and it did not quietly duplicate what it stored the first time.
     assert.equal(second.json().proposals.length, 0);
-    assert.equal((await list(app, repoId, "proposed")).json().length, 2);
+    assert.equal((await list(app, orgId, repoId, "proposed")).json().length, 2);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -167,16 +170,17 @@ test("proposals that point at nothing are dropped, and the rest still land", asy
   const ai = stubProvider(partly);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, repoId, snapshotId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, snapshotId } = await seed(app, orgId);
 
-    const res = await propose(app, snapshotId);
+    const res = await propose(app, orgId, snapshotId);
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().dropped, 1);
 
-    const rows = (await list(app, repoId, "proposed")).json();
+    const rows = (await list(app, orgId, repoId, "proposed")).json();
     assert.deepEqual(rows.map((r: { type: string }) => r.type), ["rename"]);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -186,18 +190,19 @@ test("an unusable response is a 502 and stores nothing — not even in the cache
   const ai = stubProvider("I'm sorry, I can't do that.");
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, repoId, snapshotId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, snapshotId } = await seed(app, orgId);
 
-    const res = await propose(app, snapshotId);
+    const res = await propose(app, orgId, snapshotId);
     assert.equal(res.statusCode, 502);
-    assert.equal((await list(app, repoId)).json().length, 0);
+    assert.equal((await list(app, orgId, repoId)).json().length, 0);
 
     // Retriable: the failure was not cached, so a second attempt really does
     // reach the model again. A cached error is an error served forever.
-    await propose(app, snapshotId);
+    await propose(app, orgId, snapshotId);
     assert.equal(ai.calls, 2);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -207,8 +212,9 @@ test("a proposal is never made twice — re-running does not bury the reviewer",
   const ai = stubProvider(GOOD);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, repoId, snapshotId } = await seed(app);
-    await propose(app, snapshotId);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId, snapshotId } = await seed(app, orgId);
+    await propose(app, orgId, snapshotId);
 
     // A second snapshot of the same repo — a new cache key, so the model really
     // is asked again, and it says the same thing it said last time.
@@ -219,12 +225,12 @@ test("a proposal is never made twice — re-running does not bury the reviewer",
       commitSha: "sha-2",
       graph: GRAPH,
     });
-    const res = await propose(app, second.id);
+    const res = await propose(app, orgId, second.id);
     assert.equal(ai.calls, 2);
     assert.equal(res.json().proposals.length, 0, "nothing new to say, nothing added");
-    assert.equal((await list(app, repoId, "proposed")).json().length, 2);
+    assert.equal((await list(app, orgId, repoId, "proposed")).json().length, 2);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -235,10 +241,11 @@ test("with the AI layer off the endpoint does not exist", async () => {
   // button off the same signal, so a 404 here is what "the feature is off" means.
   const app = await buildApp(env);
   try {
-    const { projectId, snapshotId } = await seed(app);
-    const res = await propose(app, snapshotId);
+    const orgId = await seedOrg(app);
+    const { projectId, snapshotId } = await seed(app, orgId);
+    const res = await propose(app, orgId, snapshotId);
     assert.equal(res.statusCode, 404);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -248,7 +255,8 @@ test("a plan snapshot is refused — you organise a system, not a diff", async (
   const ai = stubProvider(GOOD);
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, repoId } = await seed(app);
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await seed(app, orgId);
     const plan = await insertGraphSnapshot(app.db, {
       repositoryId: repoId,
       source: "plan",
@@ -258,11 +266,11 @@ test("a plan snapshot is refused — you organise a system, not a diff", async (
       graph: GRAPH,
     });
 
-    const res = await propose(app, plan.id);
+    const res = await propose(app, orgId, plan.id);
     assert.equal(res.statusCode, 422);
     assert.equal(ai.calls, 0);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -272,8 +280,9 @@ test("the brief names every address the model is allowed to anchor to", async ()
   const ai = stubProvider('{"proposals":[]}');
   const app = await buildApp(env, { ai });
   try {
-    const { projectId, snapshotId } = await seed(app);
-    await propose(app, snapshotId);
+    const orgId = await seedOrg(app);
+    const { projectId, snapshotId } = await seed(app, orgId);
+    await propose(app, orgId, snapshotId);
 
     const brief = ai.prompts[0] ?? "";
     // The model's output is a set of addresses; an address it never saw is an
@@ -285,7 +294,7 @@ test("the brief names every address the model is allowed to anchor to", async ()
     // ...and never the raw graph JSON.
     assert.doesNotMatch(brief, /"nodes":/);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

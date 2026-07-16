@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
+import { seedOrg } from "../test-support.js";
 
 const env = loadEnv();
 
@@ -13,17 +14,17 @@ before(async () => {
 });
 
 let counter = 0;
-async function createRepo(app: FastifyInstance) {
+async function createRepo(app: FastifyInstance, orgId: string) {
   counter += 1;
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "P", slug: `pulls-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: "https://github.com/acme/repo" },
   });
   const repo = r.json();
@@ -60,15 +61,16 @@ async function prWebhook(
 
 test("pull_request event requires pr_number (422 without it)", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     const res = await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/f",
       commit_sha: "s1",
       payload: { hello: "world" },
     });
     assert.equal(res.statusCode, 422);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -76,8 +78,9 @@ test("pull_request event requires pr_number (422 without it)", async () => {
 
 test("two webhooks for the same PR upsert one row, update sha, keep both snapshots", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
 
     await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/feature-x",
@@ -95,7 +98,7 @@ test("two webhooks for the same PR upsert one row, update sha, keep both snapsho
 
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/pulls`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls`,
     });
     assert.equal(list.statusCode, 200);
     const pulls = list.json();
@@ -109,7 +112,7 @@ test("two webhooks for the same PR upsert one row, update sha, keep both snapsho
 
     const detail = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/pulls/5`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls/5`,
     });
     assert.equal(detail.statusCode, 200);
     assert.equal(detail.json().latestSnapshot.stats.changes.create, 3);
@@ -117,11 +120,11 @@ test("two webhooks for the same PR upsert one row, update sha, keep both snapsho
     // Both snapshots exist for this PR.
     const snaps = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/snapshots?pr_number=5`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/snapshots?pr_number=5`,
     });
     assert.equal(snaps.json().length, 2);
 
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -129,8 +132,9 @@ test("two webhooks for the same PR upsert one row, update sha, keep both snapsho
 
 test("pr_state=closed is reflected in the list", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/done",
       commit_sha: "c",
@@ -142,17 +146,17 @@ test("pr_state=closed is reflected in the list", async () => {
     // reachable via ?status=closed, not the default view.
     const open = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/pulls`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls`,
     });
     assert.equal(open.json().length, 0, "closed PRs are not in the default list");
 
     const list = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/pulls?status=closed`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls?status=closed`,
     });
     assert.equal(list.json()[0].state, "closed");
     assert.ok(list.json()[0].closedAt, "a closed PR carries closedAt");
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -160,8 +164,9 @@ test("pr_state=closed is reflected in the list", async () => {
 
 test("PR detail surfaces the parse error when there is no snapshot", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId, webhookToken } = await createRepo(app);
+    const { projectId, repoId, webhookToken } = await createRepo(app, orgId);
     await prWebhook(app, repoId, webhookToken, {
       ref: "refs/heads/broken",
       commit_sha: "bad-sha",
@@ -175,11 +180,11 @@ test("PR detail surfaces the parse error when there is no snapshot", async () =>
     });
     const detail = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/pulls/3`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls/3`,
     });
     assert.equal(detail.json().latestSnapshot, null);
     assert.ok(detail.json().parseError, "detail should expose the parse error");
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }
@@ -187,20 +192,21 @@ test("PR detail surfaces the parse error when there is no snapshot", async () =>
 
 test("unknown repo / PR number → 404", async () => {
   const app = await buildApp(env);
+  const orgId = await seedOrg(app);
   try {
-    const { projectId, repoId } = await createRepo(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
     const missing = "00000000-0000-4000-8000-000000000000";
     const badRepo = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${missing}/pulls`,
+      url: `/api/v1/orgs/${orgId}/repositories/${missing}/pulls`,
     });
     assert.equal(badRepo.statusCode, 404);
     const badPr = await app.inject({
       method: "GET",
-      url: `/api/v1/repositories/${repoId}/pulls/999`,
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls/999`,
     });
     assert.equal(badPr.statusCode, 404);
-    await app.inject({ method: "DELETE", url: `/api/v1/projects/${projectId}` });
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();
   }

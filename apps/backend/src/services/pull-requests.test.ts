@@ -12,6 +12,7 @@ import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories, type RepositoryRow } from "../db/schema.js";
+import { seedOrg } from "../test-support.js";
 import { branchOf, closePullRequestsForBranch } from "./pull-requests.js";
 import { dispatchGitEvent, pollRepository } from "./ref-poller.js";
 
@@ -54,22 +55,23 @@ async function createBranch(branch: string): Promise<void> {
 let counter = 0;
 async function createRepo(app: FastifyInstance) {
   counter += 1;
+  const orgId = await seedOrg(app);
   const p = await app.inject({
     method: "POST",
-    url: "/api/v1/projects",
+    url: `/api/v1/orgs/${orgId}/projects`,
     payload: { name: "P", slug: `prlife-${Date.now()}-${counter}` },
   });
   const projectId = p.json().id;
   const r = await app.inject({
     method: "POST",
-    url: `/api/v1/projects/${projectId}/repositories`,
+    url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     payload: { provider: "github", url: fixtureUrl, defaultBranch: "main" },
   });
   const [repo] = await app.db
     .select()
     .from(repositories)
     .where(eq(repositories.id, r.json().id));
-  return { projectId, repo: repo as RepositoryRow, token: r.json().webhookToken };
+  return { orgId, projectId, repo: repo as RepositoryRow, token: r.json().webhookToken };
 }
 
 function planPayload() {
@@ -117,10 +119,10 @@ async function pollAndDispatch(app: FastifyInstance, repo: RepositoryRow) {
   }
 }
 
-async function getPull(app: FastifyInstance, repoId: string, number: number) {
+async function getPull(app: FastifyInstance, orgId: string, repoId: string, number: number) {
   const res = await app.inject({
     method: "GET",
-    url: `/api/v1/repositories/${repoId}/pulls/${number}`,
+    url: `/api/v1/orgs/${orgId}/repositories/${repoId}/pulls/${number}`,
   });
   return res.json() as { state: string; closedAt: string | null; latestSnapshot: unknown };
 }
@@ -137,7 +139,7 @@ after(async () => {
 test("deleting a PR branch closes the PR but keeps its snapshot", async () => {
   const app = await buildApp(env);
   try {
-    const { repo, token } = await createRepo(app);
+    const { orgId, repo, token } = await createRepo(app);
     await createBranch("feat-close");
     await openPr(app, repo.id, token, "feat-close", 5, "sha-5");
     await pollAndDispatch(app, repo); // seed: main + feat-close recorded
@@ -145,7 +147,7 @@ test("deleting a PR branch closes the PR but keeps its snapshot", async () => {
     await git(["branch", "-D", "feat-close"]);
     await pollAndDispatch(app, repo); // BranchDeleted -> soft-close
 
-    const pr = await getPull(app, repo.id, 5);
+    const pr = await getPull(app, orgId, repo.id, 5);
     assert.equal(pr.state, "closed");
     assert.ok(pr.closedAt, "a closed PR records when");
     assert.ok(pr.latestSnapshot, "the PR's diagram stays viewable after closing");
@@ -157,7 +159,7 @@ test("deleting a PR branch closes the PR but keeps its snapshot", async () => {
 test("a late plan for a just-deleted branch does not reopen the PR", async () => {
   const app = await buildApp(env);
   try {
-    const { repo, token } = await createRepo(app);
+    const { orgId, repo, token } = await createRepo(app);
     await createBranch("feat-late");
     await openPr(app, repo.id, token, "feat-late", 6, "sha-6a");
     await pollAndDispatch(app, repo);
@@ -167,7 +169,7 @@ test("a late plan for a just-deleted branch does not reopen the PR", async () =>
     // A plan that was already in flight when the branch vanished lands late.
     await openPr(app, repo.id, token, "feat-late", 6, "sha-6b");
 
-    const pr = await getPull(app, repo.id, 6);
+    const pr = await getPull(app, orgId, repo.id, 6);
     assert.equal(pr.state, "closed", "the late plan attaches but never reopens");
   } finally {
     await app.close();
@@ -177,7 +179,7 @@ test("a late plan for a just-deleted branch does not reopen the PR", async () =>
 test("recreating a branch and pushing a new PR leaves the old closed PR untouched", async () => {
   const app = await buildApp(env);
   try {
-    const { repo, token } = await createRepo(app);
+    const { orgId, repo, token } = await createRepo(app);
     await createBranch("feat-reuse");
     await openPr(app, repo.id, token, "feat-reuse", 7, "sha-7");
     await pollAndDispatch(app, repo);
@@ -190,8 +192,8 @@ test("recreating a branch and pushing a new PR leaves the old closed PR untouche
     await pollAndDispatch(app, repo);
     await openPr(app, repo.id, token, "feat-reuse", 8, "sha-8");
 
-    assert.equal((await getPull(app, repo.id, 7)).state, "closed");
-    assert.equal((await getPull(app, repo.id, 8)).state, "open");
+    assert.equal((await getPull(app, orgId, repo.id, 7)).state, "closed");
+    assert.equal((await getPull(app, orgId, repo.id, 8)).state, "open");
   } finally {
     await app.close();
   }
@@ -200,18 +202,18 @@ test("recreating a branch and pushing a new PR leaves the old closed PR untouche
 test("closing is idempotent across multiple ticks", async () => {
   const app = await buildApp(env);
   try {
-    const { repo, token } = await createRepo(app);
+    const { orgId, repo, token } = await createRepo(app);
     await createBranch("feat-idem");
     await openPr(app, repo.id, token, "feat-idem", 9, "sha-9");
     await pollAndDispatch(app, repo);
     await git(["branch", "-D", "feat-idem"]);
 
     await pollAndDispatch(app, repo);
-    const closedAt = (await getPull(app, repo.id, 9)).closedAt;
+    const closedAt = (await getPull(app, orgId, repo.id, 9)).closedAt;
     // Direct call twice more: never throws, never re-touches a closed PR.
     assert.equal(await closePullRequestsForBranch(app, repo, "feat-idem"), 0);
     assert.equal(await closePullRequestsForBranch(app, repo, "feat-idem"), 0);
-    assert.equal((await getPull(app, repo.id, 9)).closedAt, closedAt);
+    assert.equal((await getPull(app, orgId, repo.id, 9)).closedAt, closedAt);
   } finally {
     await app.close();
   }
@@ -220,7 +222,7 @@ test("closing is idempotent across multiple ticks", async () => {
 test("the default pulls list is open-only; ?status widens it", async () => {
   const app = await buildApp(env);
   try {
-    const { repo, token } = await createRepo(app);
+    const { orgId, repo, token } = await createRepo(app);
     await createBranch("feat-open");
     await openPr(app, repo.id, token, "feat-open", 10, "sha-10"); // stays open
     await createBranch("feat-gone");
@@ -232,7 +234,7 @@ test("the default pulls list is open-only; ?status widens it", async () => {
     const numbers = async (query: string) => {
       const res = await app.inject({
         method: "GET",
-        url: `/api/v1/repositories/${repo.id}/pulls${query}`,
+        url: `/api/v1/orgs/${orgId}/repositories/${repo.id}/pulls${query}`,
       });
       return (res.json() as { number: number }[]).map((p) => p.number).sort();
     };
@@ -250,7 +252,7 @@ test("the default pulls list is open-only; ?status widens it", async () => {
 test("deleting one branch does not close another branch's PR", async () => {
   const app = await buildApp(env);
   try {
-    const { repo, token } = await createRepo(app);
+    const { orgId, repo, token } = await createRepo(app);
     await createBranch("keep");
     await createBranch("drop");
     await openPr(app, repo.id, token, "keep", 12, "sha-12");
@@ -259,8 +261,8 @@ test("deleting one branch does not close another branch's PR", async () => {
     await git(["branch", "-D", "drop"]);
     await pollAndDispatch(app, repo);
 
-    assert.equal((await getPull(app, repo.id, 12)).state, "open");
-    assert.equal((await getPull(app, repo.id, 13)).state, "closed");
+    assert.equal((await getPull(app, orgId, repo.id, 12)).state, "open");
+    assert.equal((await getPull(app, orgId, repo.id, 13)).state, "closed");
   } finally {
     await app.close();
   }
