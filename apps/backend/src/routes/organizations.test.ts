@@ -1,8 +1,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildApp } from "../app.js";
-import { buildTestApp, authHeader } from "../test-support.js";
+import { buildSaasApp, buildSaasTestApp, authHeader } from "../test-support.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 
@@ -15,7 +14,7 @@ before(async () => {
 // --- CRUD (unauthenticated; the RBAC guard lands in GP-114) -----------------
 
 test("orgs CRUD: create -> get -> rename -> delete (confirmName)", async () => {
-  const app = await buildApp(env);
+  const app = await buildSaasApp();
   const slug = `org-${Date.now()}`;
   try {
     const created = await app.inject({
@@ -72,7 +71,7 @@ test("orgs CRUD: create -> get -> rename -> delete (confirmName)", async () => {
 });
 
 test("POST /orgs with a duplicate slug returns 409", async () => {
-  const app = await buildApp(env);
+  const app = await buildSaasApp();
   const slug = `dup-org-${Date.now()}`;
   try {
     const first = await app.inject({
@@ -100,7 +99,7 @@ test("POST /orgs with a duplicate slug returns 409", async () => {
 });
 
 test("POST /orgs with an invalid body returns 422 with field messages", async () => {
-  const app = await buildApp(env);
+  const app = await buildSaasApp();
   try {
     const res = await app.inject({
       method: "POST",
@@ -119,7 +118,7 @@ test("POST /orgs with an invalid body returns 422 with field messages", async ()
 // --- Membership: the creator owns the org, members are readable -------------
 
 test("creating an org (authenticated) makes the creator its owner", async () => {
-  const app = await buildTestApp();
+  const app = await buildSaasTestApp();
   const sub = `owner-sub-${Date.now()}`;
   const headers = await authHeader({ sub, email: "owner@example.com", name: "Owner" });
   const slug = `owned-${Date.now()}`;
@@ -163,7 +162,7 @@ test("creating an org (authenticated) makes the creator its owner", async () => 
 });
 
 test("only an owner may delete an org (authenticated)", async () => {
-  const app = await buildTestApp();
+  const app = await buildSaasTestApp();
   const ownerSub = `del-owner-${Date.now()}`;
   const strangerSub = `del-stranger-${Date.now()}`;
   const owner = await authHeader({ sub: ownerSub, email: "o@example.com" });
@@ -203,7 +202,7 @@ test("only an owner may delete an org (authenticated)", async () => {
 // --- Org owns its projects (GP-114 nesting) ---------------------------------
 
 test("a project created under an org carries that org's id", async () => {
-  const app = await buildApp(env);
+  const app = await buildSaasApp();
   const slug = `explicit-org-${Date.now()}`;
   try {
     const org = (
@@ -233,7 +232,7 @@ test("a project created under an org carries that org's id", async () => {
 });
 
 test("creating a project under an unknown org is a 404 (no existence leak)", async () => {
-  const app = await buildApp(env);
+  const app = await buildSaasApp();
   try {
     const bad = await app.inject({
       method: "POST",

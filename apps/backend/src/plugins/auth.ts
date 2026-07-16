@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 
 import { users, type User } from "../db/schema.js";
+import { ensureOnboarded } from "../services/onboarding.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -15,6 +16,8 @@ export type AuthPluginOptions = {
   issuer: string;
   audience: string;
   nodeEnv: string;
+  /** Single-org mode (GP-115): auto-join new users to the default org. */
+  singleOrg?: boolean;
   /** Injected JWKS resolver (tests). Otherwise built from OIDC discovery. */
   keyResolver?: JWTVerifyGetKey;
 };
@@ -37,7 +40,7 @@ function unauthorized(reply: FastifyReply) {
 }
 
 export const authPlugin = fp<AuthPluginOptions>(async (app, opts) => {
-  const { issuer, audience, keyResolver, nodeEnv } = opts;
+  const { issuer, audience, keyResolver, nodeEnv, singleOrg } = opts;
 
   if (!issuer || !audience) {
     if (nodeEnv === "production") {
@@ -103,5 +106,11 @@ export const authPlugin = fp<AuthPluginOptions>(async (app, opts) => {
       })
       .returning();
     request.authUser = user;
+
+    // Single-org onboarding (GP-115): make sure the user belongs to the default
+    // org. Idempotent, so it never overwrites a later role change.
+    if (singleOrg && user) {
+      await ensureOnboarded(app.db, user.id);
+    }
   });
 });

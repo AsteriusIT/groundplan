@@ -94,6 +94,21 @@ export async function buildTestApp(opts: BuildAppOptions = {}) {
 }
 
 /**
+ * SaaS-mode apps (GP-115): `singleOrg` off, so `POST /orgs` works and no
+ * auto-join happens. Used by the org-creation tests.
+ */
+export async function buildSaasApp(opts: BuildAppOptions = {}) {
+  return buildApp({ ...loadEnv(), singleOrg: false }, opts);
+}
+
+export async function buildSaasTestApp(opts: BuildAppOptions = {}) {
+  return buildApp(
+    { ...testAuthEnv(), singleOrg: false },
+    { jwks: await testKeyResolver(), ...opts },
+  );
+}
+
+/**
  * Seed an organization directly (GP-114) and return its id, for the many route
  * tests that now address resources under `/api/v1/orgs/:orgId/...`. A direct DB
  * insert rather than `POST /orgs` keeps this working regardless of the

@@ -60,6 +60,8 @@ declare module "fastify" {
     k8sVerify: K8sVerify;
     /** Lists namespaces and reads one (GP-97); injectable in tests. */
     k8s: K8sReader;
+    /** Deployment mode (GP-115): true = single-org (self-hosted), false = SaaS. */
+    singleOrg: boolean;
   }
 }
 
@@ -133,12 +135,15 @@ export async function buildApp(
   // exercised end-to-end without a cluster — and CI never reaches one.
   app.decorate("k8sVerify", opts.k8sVerify ?? realK8sVerify);
   app.decorate("k8s", opts.k8s ?? realK8sReader);
+  // Deployment mode (GP-115), read by /me and the org-creation gate.
+  app.decorate("singleOrg", env.singleOrg);
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.
   await app.register(authPlugin, {
     issuer: env.oidcIssuer,
     audience: env.oidcAudience,
     nodeEnv: env.nodeEnv,
+    singleOrg: env.singleOrg,
     keyResolver: opts.jwks,
   });
 

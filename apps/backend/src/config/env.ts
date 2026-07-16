@@ -49,6 +49,13 @@ export type AppEnv = {
   oidcAudience: string;
   /** base64-encoded 32-byte key for encrypting repository PATs at rest. */
   encryptionKey: string;
+  /**
+   * Deployment mode (GP-115). `true` (the self-hosted default) is single-org: a
+   * new user auto-joins the seeded "Default" org — the very first user ever as
+   * `owner`, everyone after as `member` — and `POST /orgs` is disabled. `false`
+   * is SaaS: no auto-join, and users create their own org (becoming its owner).
+   */
+  singleOrg: boolean;
   /** Directory where rendered snapshot exports (SVG/PNG) are cached (GP-37). */
   exportCacheDir: string;
   /**
@@ -93,6 +100,8 @@ export function loadEnv(): AppEnv {
     encryptionKey:
       process.env.ENCRYPTION_KEY ??
       (nodeEnv === "production" ? "" : DEV_ENCRYPTION_KEY),
+    // Single-org unless explicitly opted out (SINGLE_ORG=false enables SaaS mode).
+    singleOrg: (process.env.SINGLE_ORG ?? "true").toLowerCase() !== "false",
     exportCacheDir:
       process.env.EXPORT_CACHE_DIR ?? join(tmpdir(), "groundplan-exports"),
     publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/(?=(\/+))\1$/, ""),

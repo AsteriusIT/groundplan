@@ -103,6 +103,14 @@ export const orgRoutes: FastifyPluginAsync = async (app) => {
     "/orgs",
     { schema: { body: createOrgSchema } },
     async (request, reply) => {
+      // Single-org (self-hosted) mode: everyone shares the one seeded org, so
+      // creating more is disabled (GP-115). SaaS mode is where users make orgs.
+      if (app.singleOrg) {
+        return reply.code(400).send({
+          error: "Bad Request",
+          message: "organization creation is disabled in single-org mode",
+        });
+      }
       const { name, slug } = request.body as { name: string; slug: string };
       try {
         const [org] = await app.db

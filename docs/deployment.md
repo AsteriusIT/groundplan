@@ -141,6 +141,22 @@ restart just the frontend
 (`docker compose --env-file .env.prod -f docker-compose.prod.yml up -d frontend`);
 no image rebuild is needed.
 
+### Deployment mode: single-org vs SaaS (`SINGLE_ORG`)
+
+The backend runs in one of two tenancy modes, chosen by the `SINGLE_ORG`
+environment variable (GP-115):
+
+| `SINGLE_ORG` | Mode | Behaviour |
+| --- | --- | --- |
+| `true` (default) | **Single-org** (self-hosted) | Every user who logs in auto-joins the seeded **Default** organization. The **first user ever** becomes its `owner`; everyone after is a `member`. `POST /orgs` is disabled (400), and the frontend hides the org switcher and the create-org flow. This is what a team self-hosting one deployment for itself wants. |
+| `false` | **SaaS** (multi-tenant) | No auto-join. A new user with no membership and no pending invite lands on a **create-organization** screen and becomes the `owner` of the org they create. Users see only the orgs they belong to. Choose this to host many independent tenants on one deployment. |
+
+Leave `SINGLE_ORG` unset (or `true`) for the ordinary self-hosted case. To run
+as SaaS, set `SINGLE_ORG=false` in `.env.prod` **before the first user logs in** —
+flipping it later does not retroactively move existing users between the two
+models (their memberships already exist). Role management within an org is the
+same in both modes (owner > admin > member).
+
 ## Keycloak realm
 
 The `groundplan` realm is imported on first boot from
