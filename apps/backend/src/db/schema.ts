@@ -332,6 +332,63 @@ export const memberships = pgTable(
 export type MembershipRow = typeof memberships.$inferSelect;
 
 /**
+ * An invitation to join an org with a role (GP-116). An admin/owner mints one; it
+ * is a signed single-use link they copy and send themselves (no SMTP). The token
+ * is a 256-bit secret stored **hashed** (SHA-256, like a password) — the plaintext
+ * is shown once at creation and never again. Accepting consumes it (sets
+ * `acceptedAt`/`acceptedBy`); revoking deletes the row. `role` is admin or member,
+ * never owner (ownership transfer is an org-settings action, out of scope here).
+ * `email` is informational only — anyone with the link can accept.
+ */
+export const invitations = pgTable("invitations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  /** Informational: who the inviter meant it for; never used to gate acceptance. */
+  email: text("email"),
+  role: memberRole("role").notNull(),
+  /** SHA-256 hex of the invite token. The plaintext is never stored. */
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdBy: uuid("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  acceptedBy: uuid("accepted_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type InvitationRow = typeof invitations.$inferSelect;
+
+export type PublicInvitation = {
+  id: string;
+  organizationId: string;
+  email: string | null;
+  role: (typeof memberRole.enumValues)[number];
+  expiresAt: Date;
+  acceptedAt: Date | null;
+  createdAt: Date;
+};
+
+/** Map an invitation row to its API shape — the token hash never leaves. */
+export function toPublicInvitation(row: InvitationRow): PublicInvitation {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    email: row.email,
+    role: row.role,
+    expiresAt: row.expiresAt,
+    acceptedAt: row.acceptedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
  * Global application settings — a singleton, exactly one row (`id = true`,
  * enforced by a check so a second can never be inserted). Its only occupant today
  * is the **app-wide CI webhook token**: a second token that *any* repository's
@@ -815,6 +872,14 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   projects: many(projects),
   clusters: many(clusters),
+  invitations: many(invitations),
+}));
+
+export const invitationsRelations = relations(invitations, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [invitations.organizationId],
+    references: [organizations.id],
+  }),
 }));
 
 export const clustersRelations = relations(clusters, ({ one }) => ({

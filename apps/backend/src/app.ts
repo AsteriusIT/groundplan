@@ -31,6 +31,7 @@ import { aiStatusRoutes } from "./routes/ai.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
+import { invitationAcceptRoutes } from "./routes/invitations.js";
 import { meRoutes } from "./routes/me.js";
 import { orgRoutes } from "./routes/organizations.js";
 import { settingsRoutes } from "./routes/settings.js";
@@ -156,6 +157,7 @@ export async function buildApp(
   await app.register(healthRoutes, { prefix: "/api/v1" });
   await app.register(meRoutes, { prefix: "/api/v1" });
   await app.register(orgRoutes, { prefix: "/api/v1" });
+  await app.register(invitationAcceptRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
   await app.register(settingsRoutes, { prefix: "/api/v1" });
   await app.register(sharePublicRoutes, { prefix: "/api/v1" });

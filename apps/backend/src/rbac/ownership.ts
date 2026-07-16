@@ -17,6 +17,7 @@ import {
   annotations,
   clusters,
   graphSnapshots,
+  invitations,
   projects,
   repositories,
   shareTokens,
@@ -28,7 +29,8 @@ export type ResourceKind =
   | "snapshot"
   | "cluster"
   | "annotation"
-  | "shareLink";
+  | "shareLink"
+  | "invitation";
 
 /** Which resource a route's `:id` addresses, keyed by its first path segment. */
 export const RESOURCE_BY_SEGMENT: Record<string, ResourceKind> = {
@@ -38,6 +40,7 @@ export const RESOURCE_BY_SEGMENT: Record<string, ResourceKind> = {
   clusters: "cluster",
   annotations: "annotation",
   "share-links": "shareLink",
+  invitations: "invitation",
 };
 
 /**
@@ -117,6 +120,13 @@ export async function resolveResourceOrg(
         .where(eq(graphSnapshots.id, id));
       if (!row) return null;
       return row.repoOrg ?? row.clusterOrg ?? null;
+    }
+    case "invitation": {
+      const [row] = await db
+        .select({ orgId: invitations.organizationId })
+        .from(invitations)
+        .where(eq(invitations.id, id));
+      return row?.orgId ?? null;
     }
   }
 }
