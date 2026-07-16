@@ -27,6 +27,7 @@ import { PageHeader } from "@/components/page-header";
 import { AttachRepositoryDialog } from "@/components/attach-repository-dialog";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { RepositoryCard } from "@/components/repository-card";
+import { useCan } from "@/rbac/use-can";
 
 type LoadState =
   | { status: "loading" }
@@ -35,6 +36,8 @@ type LoadState =
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
+  // Attaching/deleting repos and projects is admin+ (GP-118); members read only.
+  const canManage = useCan("project:manage");
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activity, setActivity] = useState<Map<string, RepositoryActivity>>(
     new Map(),
@@ -129,7 +132,7 @@ export function ProjectDetailPage() {
         backTo="/projects"
         backLabel="All projects"
         actions={
-          state.status === "ready" ? (
+          state.status === "ready" && canManage ? (
             <>
               {/* Deleting a project is not a page action — it is the last resort
                   in a menu, nowhere near the primary CTA it used to sit beside. */}
@@ -182,7 +185,11 @@ export function ProjectDetailPage() {
         )}
 
         {state.status === "ready" && state.repos.length === 0 && (
-          <EmptyState projectId={state.project.id} onAttached={handleAttached} />
+          <EmptyState
+            projectId={state.project.id}
+            onAttached={handleAttached}
+            canAttach={canManage}
+          />
         )}
 
         {hasRepos && state.status === "ready" && (
@@ -195,6 +202,7 @@ export function ProjectDetailPage() {
                   ({state.repos.length})
                 </span>
               </h2>
+              {canManage && (
               <AttachRepositoryDialog
                 projectId={state.project.id}
                 onAttached={handleAttached}
@@ -205,6 +213,7 @@ export function ProjectDetailPage() {
                   </Button>
                 }
               />
+              )}
             </div>
 
             <ul className="space-y-3">
@@ -230,9 +239,11 @@ export function ProjectDetailPage() {
 function EmptyState({
   projectId,
   onAttached,
+  canAttach,
 }: Readonly<{
   projectId: string;
   onAttached: (repo: CreatedRepository) => void;
+  canAttach: boolean;
 }>) {
   return (
     <div className="bg-card/40 mx-auto flex max-w-md flex-col items-center gap-4 rounded-md border border-dashed border-border px-8 py-16 text-center">
@@ -242,19 +253,23 @@ function EmptyState({
       <div className="space-y-1">
         <h2 className="font-display text-lg font-semibold">No repositories yet</h2>
         <p className="text-muted-foreground text-sm">
-          Attach a repository to start mapping its Terraform.
+          {canAttach
+            ? "Attach a repository to start mapping its Terraform."
+            : "An admin can attach a repository to start mapping its Terraform."}
         </p>
       </div>
-      <AttachRepositoryDialog
-        projectId={projectId}
-        onAttached={onAttached}
-        trigger={
-          <Button>
-            <Plus className="size-4" />
-            Attach your first repository
-          </Button>
-        }
-      />
+      {canAttach && (
+        <AttachRepositoryDialog
+          projectId={projectId}
+          onAttached={onAttached}
+          trigger={
+            <Button>
+              <Plus className="size-4" />
+              Attach your first repository
+            </Button>
+          }
+        />
+      )}
     </div>
   );
 }

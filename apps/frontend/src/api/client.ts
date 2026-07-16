@@ -23,9 +23,14 @@ import type {
   CreateRepositoryInput,
   CreateShareLinkInput,
   CreateOrganizationInput,
+  CreateInvitationInput,
+  CreatedInvitation,
   Dashboard,
   IngestionEvent,
+  Invitation,
+  Member,
   Organization,
+  Role,
   UpdateClusterInput,
   Project,
   PublicSnapshotView,
@@ -486,6 +491,51 @@ export function acceptInvitation(
   token: string,
 ): Promise<{ organization: { id: string; name: string; slug: string } }> {
   return request("/invitations/accept", { method: "POST", body: { token } });
+}
+
+/** Delete the active org (owner only); `confirmName` must match its name (GP-113). */
+export function deleteOrganization(confirmName: string): Promise<void> {
+  return orgRequest<void>("", { method: "DELETE", body: { confirmName } });
+}
+
+// --- Org members & invitations management (GP-118) --------------------------
+
+/** The active org's member roster. */
+export function listMembers(): Promise<Member[]> {
+  return orgRequest<Member[]>("/members");
+}
+
+/** Change a member's role (admin+ for member↔admin; owner for ownership). */
+export function changeMemberRole(userId: string, role: Role): Promise<Member> {
+  return orgRequest<Member>(`/members/${encode(userId)}`, {
+    method: "PATCH",
+    body: { role },
+  });
+}
+
+/** Remove a member from the active org (admin+). */
+export function removeMember(userId: string): Promise<void> {
+  return orgRequest<void>(`/members/${encode(userId)}`, { method: "DELETE" });
+}
+
+/** Pending invitations for the active org (admin+). */
+export function listInvitations(): Promise<Invitation[]> {
+  return orgRequest<Invitation[]>("/invitations");
+}
+
+/** Mint an invitation; the response carries the one-time token + URL (admin+). */
+export function createInvitation(
+  input: CreateInvitationInput,
+): Promise<CreatedInvitation> {
+  return orgRequest<CreatedInvitation>("/invitations", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** Revoke a pending invitation (admin+). */
+export function revokeInvitation(id: string): Promise<void> {
+  return orgRequest<void>(`/invitations/${encode(id)}`, { method: "DELETE" });
 }
 
 // --- Dashboard (GP-67) ------------------------------------------------------

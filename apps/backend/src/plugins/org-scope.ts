@@ -38,6 +38,7 @@ import { exportRoutes } from "../routes/exports.js";
 import { repositoryEventsRoutes } from "../routes/ingestion.js";
 import { invitationRoutes } from "../routes/invitations.js";
 import { k8sSnapshotRoutes } from "../routes/k8s-snapshots.js";
+import { memberRoutes } from "../routes/members.js";
 import { projectRoutes } from "../routes/projects.js";
 import { pullRoutes } from "../routes/pulls.js";
 import { repositoryFileRoutes } from "../routes/repository-files.js";
@@ -126,4 +127,5 @@ export const orgScopePlugin: FastifyPluginAsync = async (app) => {
   await app.register(k8sSnapshotRoutes);
   await app.register(shareRoutes);
   await app.register(invitationRoutes);
+  await app.register(memberRoutes);
 };

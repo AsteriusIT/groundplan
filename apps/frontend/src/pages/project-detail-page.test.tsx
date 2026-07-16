@@ -2,6 +2,16 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
+import { OrgContext, type OrgContextValue } from "@/org/org-context";
+
+// The page role-gates on the active org (GP-118); an owner sees every action.
+const orgValue: OrgContextValue = {
+  memberships: [],
+  activeOrg: { id: "o1", name: "Org", slug: "org", role: "owner" },
+  singleOrg: false,
+  switchOrg: vi.fn(),
+};
+
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
@@ -88,11 +98,13 @@ function activity(over: Partial<RepositoryActivity> = {}): RepositoryActivity {
 
 function renderPage() {
   return render(
-    <MemoryRouter initialEntries={["/projects/p1"]}>
+    <OrgContext.Provider value={orgValue}>
+      <MemoryRouter initialEntries={["/projects/p1"]}>
       <Routes>
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
       </Routes>
-    </MemoryRouter>,
+      </MemoryRouter>
+    </OrgContext.Provider>,
   );
 }
 
@@ -419,12 +431,14 @@ it("deletes the project from the header menu and navigates to the list", async (
   listRepositoriesMock.mockResolvedValue([]);
   deleteProjectMock.mockResolvedValue(undefined);
   render(
-    <MemoryRouter initialEntries={["/projects/p1"]}>
+    <OrgContext.Provider value={orgValue}>
+      <MemoryRouter initialEntries={["/projects/p1"]}>
       <Routes>
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/projects" element={<div>Projects list page</div>} />
       </Routes>
-    </MemoryRouter>,
+      </MemoryRouter>
+    </OrgContext.Provider>,
   );
 
   // No bare "Delete project" button beside the primary CTA any more.

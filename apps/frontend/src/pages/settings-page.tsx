@@ -1,13 +1,39 @@
-import type { ReactNode } from "react";
-import { KeyRound, LogOut, Palette, Sparkles, UserRound } from "lucide-react";
+import { type ReactNode, type SyntheticEvent, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Building2,
+  KeyRound,
+  LogOut,
+  Mail,
+  Palette,
+  Sparkles,
+  UserRound,
+  Users,
+} from "lucide-react";
 
+import { ApiError, deleteOrganization } from "@/api/client";
 import { useAuth } from "@/auth/use-auth";
 import { initials } from "@/lib/format";
 import { useAiStatus } from "@/lib/use-ai-status";
+import { useOrg } from "@/org/use-org";
+import { useCan } from "@/rbac/use-can";
 import { useTheme } from "@/theme/theme-provider";
 import { AppIngestionSettings } from "@/components/app-ingestion-settings";
+import { OrgInvites } from "@/components/org-invites";
+import { OrgMembers } from "@/components/org-members";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { TourStyleSwitcher } from "@/components/tour-style-switcher";
@@ -41,9 +67,12 @@ export function SettingsPage() {
       />
       <div className="max-w-3xl space-y-6 p-8">
         <AccountCard />
+        <MembersCard />
+        <InvitesCard />
         <AppearanceCard />
         <IngestionCard />
         <AiCard />
+        <DangerCard />
       </div>
     </div>
   );
@@ -179,6 +208,118 @@ function AiState() {
         <span className="text-foreground font-mono text-xs">{status.model}</span>
       </p>
     </div>
+  );
+}
+
+/** The org's members and their roles (GP-118). Shown to every member. */
+function MembersCard() {
+  const { activeOrg } = useOrg();
+  return (
+    <Section
+      icon={<Users className="size-4" />}
+      title="Members"
+      description={
+        activeOrg
+          ? `Who belongs to ${activeOrg.name}, and their roles.`
+          : "Who belongs to this organization."
+      }
+    >
+      <OrgMembers />
+    </Section>
+  );
+}
+
+/** Invitations (GP-116/GP-118) — admins only, and never in single-org mode. */
+function InvitesCard() {
+  const { singleOrg } = useOrg();
+  const canManage = useCan("member:manage");
+  if (singleOrg || !canManage) return null;
+  return (
+    <Section
+      icon={<Mail className="size-4" />}
+      title="Invitations"
+      description="Invite people with a role. Copy the link and send it yourself."
+    >
+      <OrgInvites />
+    </Section>
+  );
+}
+
+/** Delete the organization (GP-118) — owner only, and never the single default org. */
+function DangerCard() {
+  const { activeOrg, singleOrg } = useOrg();
+  const { reloadUser } = useAuth();
+  const canDelete = useCan("org:delete");
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (singleOrg || !canDelete || !activeOrg) return null;
+
+  async function handleDelete(event: SyntheticEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await deleteOrganization(confirm);
+      await reloadUser();
+      navigate("/", { replace: true });
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Could not delete the organization.",
+      );
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Section
+      icon={<Building2 className="size-4" />}
+      title="Danger zone"
+      description="Deleting an organization removes its projects, repositories and history. This cannot be undone."
+    >
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant="destructive">Delete organization</Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {activeOrg.name}?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the organization and everything in it.
+              Type <span className="font-mono">{activeOrg.name}</span> to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleDelete} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm-name">Organization name</Label>
+              <Input
+                id="confirm-name"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            {error && (
+              <p role="alert" className="text-destructive text-sm">
+                {error}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="submit"
+                variant="destructive"
+                disabled={submitting || confirm !== activeOrg.name}
+              >
+                {submitting ? "Deleting…" : "Delete organization"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </Section>
   );
 }
 

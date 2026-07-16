@@ -6,7 +6,6 @@ import {
   memberships,
   organizations,
   toPublicOrganization,
-  users,
 } from "../db/schema.js";
 import { isUniqueViolation } from "../lib/db-errors.js";
 
@@ -223,34 +222,6 @@ export const orgRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Read the org's members (name, email, role, joined date) — the membership API.
-  app.get(
-    "/orgs/:orgId/members",
-    { schema: { params: orgIdParamsSchema } },
-    async (request, reply) => {
-      const { orgId } = request.params as { orgId: string };
-      const [org] = await app.db
-        .select({ id: organizations.id })
-        .from(organizations)
-        .where(eq(organizations.id, orgId));
-      if (!org || (await callerRole(app, request, orgId)) === null) {
-        return reply
-          .code(404)
-          .send({ error: "Not Found", message: "organization not found" });
-      }
-      const rows = await app.db
-        .select({
-          userId: users.id,
-          email: users.email,
-          displayName: users.displayName,
-          role: memberships.role,
-          joinedAt: memberships.createdAt,
-        })
-        .from(memberships)
-        .innerJoin(users, eq(memberships.userId, users.id))
-        .where(eq(memberships.organizationId, orgId))
-        .orderBy(desc(memberships.createdAt));
-      return rows;
-    },
-  );
+  // Note: the org's member roster and member management (GP-118) live in
+  // `routes/members` under the org-scope guard, at `/orgs/:orgId/members`.
 };

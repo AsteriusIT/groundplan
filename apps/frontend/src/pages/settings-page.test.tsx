@@ -1,24 +1,35 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { axe } from "vitest-axe";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, getAiStatus: vi.fn() };
+  return { ...actual, getAiStatus: vi.fn(), listMembers: vi.fn() };
 });
 
 const logout = vi.fn();
 const useAuthMock = vi.fn();
 vi.mock("@/auth/use-auth", () => ({ useAuth: () => useAuthMock() }));
 
-import { getAiStatus } from "@/api/client";
+import { getAiStatus, listMembers } from "@/api/client";
 import type { AiStatus, User } from "@/api/types";
+import { OrgContext, type OrgContextValue } from "@/org/org-context";
 import { resetAiStatus } from "@/lib/use-ai-status";
 import { ThemeProvider } from "@/theme/theme-provider";
 import { TourStyleProvider } from "@/tour/tour-style";
 import { SettingsPage } from "./settings-page";
 
 const getAiStatusMock = vi.mocked(getAiStatus);
+const listMembersMock = vi.mocked(listMembers);
+
+// Single-org context: the members roster shows; invites and danger zone hide.
+const orgValue: OrgContextValue = {
+  memberships: [],
+  activeOrg: { id: "o1", name: "Default", slug: "default", role: "member" },
+  singleOrg: true,
+  switchOrg: vi.fn(),
+};
 
 function user(over: Partial<User> = {}): User {
   return {
@@ -34,17 +45,23 @@ function user(over: Partial<User> = {}): User {
 /** The appearance card writes through the two display-preference providers. */
 function renderPage() {
   return render(
-    <ThemeProvider>
-      <TourStyleProvider>
-        <SettingsPage />
-      </TourStyleProvider>
-    </ThemeProvider>,
+    <MemoryRouter>
+      <ThemeProvider>
+        <TourStyleProvider>
+          <OrgContext.Provider value={orgValue}>
+            <SettingsPage />
+          </OrgContext.Provider>
+        </TourStyleProvider>
+      </ThemeProvider>
+    </MemoryRouter>,
   );
 }
 
 beforeEach(() => {
   resetAiStatus();
   getAiStatusMock.mockReset();
+  listMembersMock.mockReset();
+  listMembersMock.mockResolvedValue([]);
   logout.mockReset();
   localStorage.clear();
   useAuthMock.mockReturnValue({
