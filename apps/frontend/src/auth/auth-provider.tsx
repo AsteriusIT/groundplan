@@ -49,7 +49,7 @@ export function AuthProvider({
   }, []);
 
   // Wire the API client to this session: it reads the token synchronously and
-  // notifies us on 401 so the guard can bounce the user to /login.
+  // notifies us on 401 so the guard can restart the OIDC sign-in.
   useEffect(() => {
     setAuthTokenProvider(() => oidcUserRef.current?.access_token ?? null);
     setOnUnauthorized(() => {

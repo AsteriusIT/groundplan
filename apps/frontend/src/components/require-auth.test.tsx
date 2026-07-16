@@ -1,11 +1,11 @@
 import { expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context";
 import { RequireAuth } from "./require-auth";
 
-function renderGuard(auth: Partial<AuthContextValue>) {
+function renderGuard(auth: Partial<AuthContextValue>, path = "/dashboard") {
   const value: AuthContextValue = {
     user: null,
     isAuthenticated: false,
@@ -16,28 +16,26 @@ function renderGuard(auth: Partial<AuthContextValue>) {
     reloadUser: vi.fn(),
     ...auth,
   };
-  return render(
+  render(
     <AuthContext.Provider value={value}>
-      <MemoryRouter initialEntries={["/"]}>
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <RequireAuth>
-                <div>protected content</div>
-              </RequireAuth>
-            }
-          />
-          <Route path="/login" element={<div>login page</div>} />
-        </Routes>
+      <MemoryRouter initialEntries={[path]}>
+        <RequireAuth>
+          <div>protected content</div>
+        </RequireAuth>
       </MemoryRouter>
     </AuthContext.Provider>,
   );
+  return value;
 }
 
-it("redirects unauthenticated users to /login", () => {
-  renderGuard({ isAuthenticated: false, isLoading: false });
-  expect(screen.getByText("login page")).toBeInTheDocument();
+it("starts the OIDC sign-in for unauthenticated users, preserving the target path", () => {
+  const login = vi.fn();
+  renderGuard(
+    { isAuthenticated: false, isLoading: false, login },
+    "/invite/abc?x=1",
+  );
+  expect(login).toHaveBeenCalledTimes(1);
+  expect(login).toHaveBeenCalledWith("/invite/abc?x=1");
   expect(screen.queryByText("protected content")).not.toBeInTheDocument();
 });
 
@@ -46,8 +44,9 @@ it("renders children when authenticated", () => {
   expect(screen.getByText("protected content")).toBeInTheDocument();
 });
 
-it("renders neither content nor a redirect while loading", () => {
-  renderGuard({ isLoading: true });
+it("waits while loading — no redirect, no content", () => {
+  const login = vi.fn();
+  renderGuard({ isLoading: true, login });
+  expect(login).not.toHaveBeenCalled();
   expect(screen.queryByText("protected content")).not.toBeInTheDocument();
-  expect(screen.queryByText("login page")).not.toBeInTheDocument();
 });

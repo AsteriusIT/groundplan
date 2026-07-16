@@ -15,7 +15,9 @@ export function CallbackPage() {
 
     handleCallback()
       .then((returnTo) => navigate(returnTo, { replace: true }))
-      .catch(() => navigate("/login", { replace: true }));
+      // On failure, return to the app root; <RequireAuth> there restarts the
+      // OIDC sign-in (there is no /login page to fall back to).
+      .catch(() => navigate("/", { replace: true }));
   }, [handleCallback, navigate]);
 
   return (

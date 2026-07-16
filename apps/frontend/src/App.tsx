@@ -10,7 +10,6 @@ import { ClustersPage } from "@/pages/clusters-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { DocsPage } from "@/pages/docs-page";
 import { InvitePage } from "@/pages/invite-page";
-import { LoginPage } from "@/pages/login-page";
 import { OnboardingPage } from "@/pages/onboarding-page";
 import { OrgLandingPage } from "@/pages/org-landing-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
@@ -33,7 +32,8 @@ const StyleguidePage = import.meta.env.DEV
 function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      {/* No in-app login page: <RequireAuth> sends unauthenticated visitors
+          straight to the OIDC provider. /callback completes the code exchange. */}
       <Route path="/callback" element={<CallbackPage />} />
       {/* Public, no-auth read-only share page (GP-39). */}
       <Route path="/share/:token" element={<SharePage />} />
