@@ -1,0 +1,247 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * groundplan Keycloak theme — the app's "carbon" palette.
+ *
+ * The app defines carbon as two layers: `.dark` (base dark values) plus
+ * `.dark[data-theme="carbon"]` (re-points the neutral family to graphite). This
+ * theme is dark-only, so both layers are FLATTENED here into a single `:root`.
+ * Values are copied verbatim from apps/frontend/src/index.css — this stays the
+ * single source of colour truth; components never hardcode a colour, they use the
+ * semantic Tailwind utilities the `@theme inline` block below generates
+ * (`bg-card`, `text-muted-foreground`, `border-input`, …). A `design-tokens`
+ * guard test enforces that.
+ */
+:root {
+  color-scheme: dark;
+  --radius: 0.1875rem; /* 3px — crisp, technical, not rounded */
+
+  /* — surfaces (near-black → raised graphite; cards lightest) — */
+  --background: #0c0d10;
+  --canvas: #111317;
+  --card: #17191f;
+  --panel: #17191f;
+  --popover: #17191f;
+
+  /* — ink (neutral off-white, no blue cast) — */
+  --foreground: #e8eaed;
+  --ink: #e8eaed;
+  --card-foreground: #e8eaed;
+  --popover-foreground: #e8eaed;
+  --muted-foreground: #9aa0aa;
+  --faint: #6b7079;
+
+  /* — accent: the bright-blue primary carries over from `.dark`; accent
+     surfaces are neutralised to graphite by carbon — */
+  --primary: #4c8dff;
+  --primary-foreground: #06122b;
+  --accent-soft: #1b2431;
+  --secondary: #1b2431;
+  --secondary-foreground: #dbe2ec;
+  --muted: #0a0b0e;
+  --accent: #1c1f27;
+  --accent-foreground: #dfe3ea;
+  --ring: #4c8dff;
+
+  /* — lines (neutral gray) — */
+  --border: #23262d;
+  --border-strong: #333842;
+  --input: #333842;
+  --grid-line: #191b21;
+  --grid-strong: #24272f;
+  --edge: #565c66;
+  --edge-inferred: #3e434b;
+
+  /* — status (brightened dark-theme values; -soft fills are dark tints) — */
+  --create: #2ec77e;
+  --create-soft: #0e3b28;
+  --update: #e0a020;
+  --update-soft: #3a2c0c;
+  --delete: #f0604d;
+  --delete-soft: #3d1a16;
+  --destructive: #f0604d;
+  --impacted: #a887f5;
+  --impacted-soft: #241a44;
+  --exposed: #f06a30;
+  --exposed-soft: #3a1d0e;
+  --warning: #e8b64a;
+  --warning-soft: #3a2e12;
+
+  /* — resource categories (kept for parity with the app palette) — */
+  --cat-compute: #4f8bf0;
+  --cat-network: #2bb6c4;
+  --cat-network-soft: #0e2f45;
+  --cat-data: #7a72e8;
+  --cat-security: #e0608a;
+  --cat-identity: #d99a3a;
+  --cat-observability: #c964dd;
+  --cat-other: #93b0d8;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", monospace;
+}
+
+/*
+ * Map the tokens to Tailwind theme colours so every `bg-*`/`text-*`/`border-*`
+ * utility resolves from the carbon palette. Mirrors the frontend's mapping.
+ */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 1px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-canvas: var(--canvas);
+  --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-panel: var(--panel);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-grid-line: var(--grid-line);
+  --color-grid-strong: var(--grid-strong);
+  --color-edge: var(--edge);
+  --color-edge-inferred: var(--edge-inferred);
+
+  --color-create: var(--create);
+  --color-create-soft: var(--create-soft);
+  --color-update: var(--update);
+  --color-update-soft: var(--update-soft);
+  --color-delete: var(--delete);
+  --color-delete-soft: var(--delete-soft);
+  --color-impacted: var(--impacted);
+  --color-impacted-soft: var(--impacted-soft);
+  --color-exposed: var(--exposed);
+  --color-exposed-soft: var(--exposed-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+
+  --color-cat-compute: var(--cat-compute);
+  --color-cat-network: var(--cat-network);
+  --color-cat-network-soft: var(--cat-network-soft);
+  --color-cat-data: var(--cat-data);
+  --color-cat-security: var(--cat-security);
+  --color-cat-identity: var(--cat-identity);
+  --color-cat-observability: var(--cat-observability);
+  --color-cat-other: var(--cat-other);
+
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Quality floor: honour reduced-motion for everyone. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  /* Native checkboxes/radios pick up the carbon accent everywhere (the pages we
+     don't hand-override use native controls). */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+  }
+  /* Default pages render checkbox + label as siblings with no gap; give them a
+     little breathing room. (Our hand-built pages use flex/gap and are unaffected
+     by the small extra margin.) */
+  #kc-content input[type="checkbox"],
+  #kc-content input[type="radio"] {
+    margin-inline-end: 0.5rem;
+    vertical-align: middle;
+  }
+  /* Plain text links inside a page body read as primary-blue. This lives in the
+     base layer, so any explicit Tailwind colour utility (e.g. a social button's
+     `text-foreground`) still wins via the utilities layer — only unclassed links
+     (default pages' "Back to Login", "Back to Application") pick this up. */
+  #kc-content a,
+  #kc-info a {
+    color: var(--primary);
+  }
+  #kc-content a:hover,
+  #kc-info a:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+/*
+ * Icon fallbacks for pages we DON'T hand-override. Keycloakify's default pages
+ * render FontAwesome/PatternFly `<i>` icons; with `doUseDefaultCss: false` those
+ * fonts aren't loaded, so we paint the few that matter as masked SVGs in the
+ * ink colour. The password show/hide toggle is the important one (it appears on
+ * update-password, reset-credentials, etc.).
+ */
+.kcFormPasswordVisibilityIconShow,
+.kcFormPasswordVisibilityIconHide {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+.kcFormPasswordVisibilityIconShow {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+.kcFormPasswordVisibilityIconHide {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.88 9.88a3 3 0 1 0 4.24 4.24'/%3E%3Cpath d='M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68'/%3E%3Cpath d='M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61'/%3E%3Cline x1='2' x2='22' y1='2' y2='22'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.88 9.88a3 3 0 1 0 4.24 4.24'/%3E%3Cpath d='M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68'/%3E%3Cpath d='M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61'/%3E%3Cline x1='2' x2='22' y1='2' y2='22'/%3E%3C/svg%3E");
+}
+
+/*
+ * Signature backdrop: a faint graphite blueprint grid on the carbon paper, the
+ * same drafting-grid idea the app uses on its diagram canvas — subtle enough not
+ * to fight the sign-in card. Built from the grid tokens.
+ */
+.carbon-grid {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-strong) 1px, transparent 1px);
+  background-size:
+    24px 24px,
+    24px 24px,
+    120px 120px,
+    120px 120px;
+}

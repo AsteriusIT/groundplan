@@ -33,6 +33,12 @@ services:
       - "8085:8080"
     volumes:
       - ./infra/keycloak:/opt/keycloak/data/import:ro
+      # The carbon "groundplan" theme (login/account/email), built by
+      # `pnpm keycloak:build`. Mounted as a provider jar so Keycloak serves it;
+      # the realm import sets loginTheme/accountTheme/emailTheme = "groundplan".
+      # Build the jar BEFORE `docker compose up` — Keycloak loads providers only
+      # at startup.
+      - ./keycloak/dist_keycloak/keycloak-theme-groundplan.jar:/opt/keycloak/providers/keycloak-theme-groundplan.jar:ro
 
 volumes:
   groundplan_pgdata:
