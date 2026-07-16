@@ -45,13 +45,16 @@ groundplan/
 │           ├── components/ui/  # shadcn/ui components (generated; edit freely)
 │           └── lib/utils.ts    # cn() class-merge helper
 ├── packages/           # (empty) shared libraries live here, e.g. @groundplan/*
-├── docker-compose.yml  # local Postgres for dev
+├── keycloak/           # Keycloakify carbon theme (login/account/email) — see keycloak/README.md
+├── docker-compose.yml  # local Postgres + (auth profile) Keycloak, which mounts the theme jar
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json  # shared strict TS options; each app extends this
 └── package.json        # workspace root scripts
 ```
 
-Workspace package names: `@groundplan/backend`, `@groundplan/frontend`.
+Workspace package names: `@groundplan/backend`, `@groundplan/frontend`,
+`@groundplan/keycloak-theme` (the Keycloak theme; `pnpm keycloak:build` builds
+its provider jar — see `keycloak/README.md`).
 
 ## Commands
 
