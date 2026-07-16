@@ -22,8 +22,10 @@ import type {
   CreateProjectInput,
   CreateRepositoryInput,
   CreateShareLinkInput,
+  CreateOrganizationInput,
   Dashboard,
   IngestionEvent,
+  Organization,
   UpdateClusterInput,
   Project,
   PublicSnapshotView,
@@ -78,6 +80,30 @@ export function setAuthTokenProvider(provider: TokenProvider): void {
 /** Called once whenever the API answers 401 (wired by the login story). */
 export function setOnUnauthorized(handler: UnauthorizedHandler): void {
   unauthorizedHandler = handler;
+}
+
+type ActiveOrgProvider = () => string | null | undefined;
+let activeOrgProvider: ActiveOrgProvider = () => null;
+
+/**
+ * Wire up how the client learns the active org id (set by the OrgProvider,
+ * GP-117). Every org-scoped call goes to `/orgs/:orgId/...`; global calls (`/me`,
+ * `/orgs`, `/invitations/accept`, `/settings`, `/ai/status`, `/public`) do not.
+ */
+export function setActiveOrgProvider(provider: ActiveOrgProvider): void {
+  activeOrgProvider = provider;
+}
+
+/** The active org id, or throw — org-scoped calls must not fire without one. */
+function activeOrg(): string {
+  const orgId = activeOrgProvider();
+  if (!orgId) throw new ApiError(0, "no active organization selected");
+  return orgId;
+}
+
+/** Same as `request`, but under the active org's `/orgs/:orgId` prefix. */
+function orgRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return request<T>(`/orgs/${encode(activeOrg())}${path}`, options);
 }
 
 type RequestOptions = {
@@ -158,7 +184,7 @@ export async function getSnapshotExport(
   if (token) headers.Authorization = `Bearer ${token}`;
   const query = scope === "changes" ? "?scope=changes" : "";
   const response = await fetch(
-    `${apiBase()}/snapshots/${encode(id)}/export.${format}${query}`,
+    `${apiBase()}/orgs/${encode(activeOrg())}/snapshots/${encode(id)}/export.${format}${query}`,
     { headers },
   );
   if (response.status === 401) unauthorizedHandler();
@@ -169,15 +195,15 @@ export async function getSnapshotExport(
 }
 
 export function listProjects(): Promise<Project[]> {
-  return request<Project[]>("/projects");
+  return orgRequest<Project[]>("/projects");
 }
 
 export function createProject(input: CreateProjectInput): Promise<Project> {
-  return request<Project>("/projects", { method: "POST", body: input });
+  return orgRequest<Project>("/projects", { method: "POST", body: input });
 }
 
 export function getProject(id: string): Promise<Project> {
-  return request<Project>(`/projects/${encode(id)}`);
+  return orgRequest<Project>(`/projects/${encode(id)}`);
 }
 
 /** Update a project's name and/or its long-form context (GP-60). */
@@ -185,25 +211,25 @@ export function updateProject(
   id: string,
   input: UpdateProjectInput,
 ): Promise<Project> {
-  return request<Project>(`/projects/${encode(id)}`, {
+  return orgRequest<Project>(`/projects/${encode(id)}`, {
     method: "PATCH",
     body: input,
   });
 }
 
 export function deleteProject(id: string): Promise<void> {
-  return request<void>(`/projects/${encode(id)}`, { method: "DELETE" });
+  return orgRequest<void>(`/projects/${encode(id)}`, { method: "DELETE" });
 }
 
 export function listRepositories(projectId: string): Promise<Repository[]> {
-  return request<Repository[]>(`/projects/${encode(projectId)}/repositories`);
+  return orgRequest<Repository[]>(`/projects/${encode(projectId)}/repositories`);
 }
 
 /** Freshness signal for every repo in a project — one call for the whole list. */
 export function listRepositoryActivity(
   projectId: string,
 ): Promise<RepositoryActivity[]> {
-  return request<RepositoryActivity[]>(
+  return orgRequest<RepositoryActivity[]>(
     `/projects/${encode(projectId)}/repositories/activity`,
   );
 }
@@ -212,34 +238,34 @@ export function createRepository(
   projectId: string,
   input: CreateRepositoryInput,
 ): Promise<CreatedRepository> {
-  return request<CreatedRepository>(
+  return orgRequest<CreatedRepository>(
     `/projects/${encode(projectId)}/repositories`,
     { method: "POST", body: input },
   );
 }
 
 export function getRepository(id: string): Promise<Repository> {
-  return request<Repository>(`/repositories/${encode(id)}`);
+  return orgRequest<Repository>(`/repositories/${encode(id)}`);
 }
 
 export function updateRepository(
   id: string,
   input: UpdateRepositoryInput,
 ): Promise<Repository> {
-  return request<Repository>(`/repositories/${encode(id)}`, {
+  return orgRequest<Repository>(`/repositories/${encode(id)}`, {
     method: "PATCH",
     body: input,
   });
 }
 
 export function verifyRepository(id: string): Promise<VerifyResult> {
-  return request<VerifyResult>(`/repositories/${encode(id)}/verify`, {
+  return orgRequest<VerifyResult>(`/repositories/${encode(id)}/verify`, {
     method: "POST",
   });
 }
 
 export function deleteRepository(id: string): Promise<void> {
-  return request<void>(`/repositories/${encode(id)}`, { method: "DELETE" });
+  return orgRequest<void>(`/repositories/${encode(id)}`, { method: "DELETE" });
 }
 
 /**
@@ -247,7 +273,7 @@ export function deleteRepository(id: string): Promise<void> {
  * shown once — the old one stops working the moment this resolves.
  */
 export function regenerateWebhookToken(id: string): Promise<CreatedRepository> {
-  return request<CreatedRepository>(`/repositories/${encode(id)}/webhook-token`, {
+  return orgRequest<CreatedRepository>(`/repositories/${encode(id)}/webhook-token`, {
     method: "POST",
   });
 }
@@ -256,7 +282,7 @@ export function regenerateWebhookToken(id: string): Promise<CreatedRepository> {
 
 /** Every attached cluster. A cluster is nobody's child — there is nothing to scope by. */
 export function listClusters(): Promise<Cluster[]> {
-  return request<Cluster[]>("/clusters");
+  return orgRequest<Cluster[]>("/clusters");
 }
 
 /**
@@ -264,38 +290,38 @@ export function listClusters(): Promise<Cluster[]> {
  * response masks it, which is why `Cluster.kubeconfig` is typed as the mask.
  */
 export function createCluster(input: CreateClusterInput): Promise<Cluster> {
-  return request<Cluster>("/clusters", { method: "POST", body: input });
+  return orgRequest<Cluster>("/clusters", { method: "POST", body: input });
 }
 
 export function updateCluster(
   id: string,
   input: UpdateClusterInput,
 ): Promise<Cluster> {
-  return request<Cluster>(`/clusters/${encode(id)}`, {
+  return orgRequest<Cluster>(`/clusters/${encode(id)}`, {
     method: "PATCH",
     body: input,
   });
 }
 
 export function verifyCluster(id: string): Promise<ClusterVerifyResult> {
-  return request<ClusterVerifyResult>(`/clusters/${encode(id)}/verify`, {
+  return orgRequest<ClusterVerifyResult>(`/clusters/${encode(id)}/verify`, {
     method: "POST",
   });
 }
 
 export function deleteCluster(id: string): Promise<void> {
-  return request<void>(`/clusters/${encode(id)}`, { method: "DELETE" });
+  return orgRequest<void>(`/clusters/${encode(id)}`, { method: "DELETE" });
 }
 
 export function getCluster(id: string): Promise<Cluster> {
-  return request<Cluster>(`/clusters/${encode(id)}`);
+  return orgRequest<Cluster>(`/clusters/${encode(id)}`);
 }
 
 // --- Kubernetes namespaces & snapshots (GP-97) ------------------------------
 
 /** The cluster's namespaces, read live. 502 when the cluster is unreachable. */
 export function listClusterNamespaces(clusterId: string): Promise<string[]> {
-  return request<{ namespaces: string[] }>(
+  return orgRequest<{ namespaces: string[] }>(
     `/clusters/${encode(clusterId)}/namespaces`,
   ).then((res) => res.namespaces);
 }
@@ -309,7 +335,7 @@ export function generateNamespaceSnapshot(
   clusterId: string,
   namespace: string,
 ): Promise<Snapshot> {
-  return request<Snapshot>(
+  return orgRequest<Snapshot>(
     `/clusters/${encode(clusterId)}/namespaces/${encode(namespace)}/snapshots`,
     { method: "POST", body: {} },
   );
@@ -320,7 +346,7 @@ export function listNamespaceSnapshots(
   clusterId: string,
   namespace: string,
 ): Promise<SnapshotSummary[]> {
-  return request<SnapshotSummary[]>(
+  return orgRequest<SnapshotSummary[]>(
     `/clusters/${encode(clusterId)}/namespaces/${encode(namespace)}/snapshots`,
   );
 }
@@ -360,7 +386,7 @@ export function clearAppWebhookToken(): Promise<void> {
 // --- Pull requests & graph snapshots (GP-12 / GP-14 / GP-17 / GP-18) --------
 
 export function listPulls(repositoryId: string): Promise<PullSummary[]> {
-  return request<PullSummary[]>(`/repositories/${encode(repositoryId)}/pulls`);
+  return orgRequest<PullSummary[]>(`/repositories/${encode(repositoryId)}/pulls`);
 }
 
 /**
@@ -368,14 +394,14 @@ export function listPulls(repositoryId: string): Promise<PullSummary[]> {
  * The setup page (GP-111) reads the most recent to show whether CI has reached us.
  */
 export function listEvents(repositoryId: string): Promise<IngestionEvent[]> {
-  return request<IngestionEvent[]>(`/repositories/${encode(repositoryId)}/events`);
+  return orgRequest<IngestionEvent[]>(`/repositories/${encode(repositoryId)}/events`);
 }
 
 export function getPull(
   repositoryId: string,
   number: number,
 ): Promise<PullDetail> {
-  return request<PullDetail>(
+  return orgRequest<PullDetail>(
     `/repositories/${encode(repositoryId)}/pulls/${number}`,
   );
 }
@@ -393,13 +419,13 @@ export function listSnapshots(
   if (opts.prNumber !== undefined) params.set("pr_number", String(opts.prNumber));
   const query = params.toString();
   const querySuffix = query ? `?${query}` : "";
-  return request<SnapshotSummary[]>(
+  return orgRequest<SnapshotSummary[]>(
     `/repositories/${encode(repositoryId)}/snapshots${querySuffix}`,
   );
 }
 
 export function getSnapshot(id: string): Promise<Snapshot> {
-  return request<Snapshot>(`/snapshots/${encode(id)}`);
+  return orgRequest<Snapshot>(`/snapshots/${encode(id)}`);
 }
 
 /**
@@ -419,19 +445,19 @@ export function getAdaptedSnapshot(
   if (params.granularity) query.set("granularity", params.granularity);
   if (params.expandGroup) query.set("expandGroup", params.expandGroup);
   const suffix = query.size > 0 ? `?${query}` : "";
-  return request<Snapshot>(`/snapshots/${encode(id)}/adapted${suffix}`);
+  return orgRequest<Snapshot>(`/snapshots/${encode(id)}/adapted${suffix}`);
 }
 
 /** Diff two docs snapshots (base → target); 422 for cross-repo/plan pairs (GP-40). */
 export function diffSnapshots(baseId: string, targetId: string): Promise<SnapshotDiff> {
-  return request<SnapshotDiff>(
+  return orgRequest<SnapshotDiff>(
     `/snapshots/${encode(baseId)}/diff/${encode(targetId)}`,
   );
 }
 
 /** Trigger documentation generation of the default branch (GP-15). */
 export function generateDocs(repositoryId: string): Promise<{ id: string }> {
-  return request<{ id: string }>(
+  return orgRequest<{ id: string }>(
     `/repositories/${encode(repositoryId)}/docs/generate`,
     { method: "POST" },
   );
@@ -439,18 +465,34 @@ export function generateDocs(repositoryId: string): Promise<{ id: string }> {
 
 /** Latest docs (source=hcl) snapshot including its graph. 404 if none yet. */
 export function getLatestDocs(repositoryId: string): Promise<Snapshot> {
-  return request<Snapshot>(`/repositories/${encode(repositoryId)}/docs/latest`);
+  return orgRequest<Snapshot>(`/repositories/${encode(repositoryId)}/docs/latest`);
 }
 
 export function getMe(): Promise<User> {
   return request<User>("/me");
 }
 
+// --- Organizations & invitations (GP-113..GP-117) --------------------------
+
+/** Create an organization (SaaS mode only); the creator becomes its owner. */
+export function createOrganization(
+  input: CreateOrganizationInput,
+): Promise<Organization> {
+  return request<Organization>("/orgs", { method: "POST", body: input });
+}
+
+/** Accept an invitation by its token; returns the org the caller just joined. */
+export function acceptInvitation(
+  token: string,
+): Promise<{ organization: { id: string; name: string; slug: string } }> {
+  return request("/invitations/accept", { method: "POST", body: { token } });
+}
+
 // --- Dashboard (GP-67) ------------------------------------------------------
 
 /** Everything the home page shows — counts + recent activity — in one call. */
 export function getDashboard(): Promise<Dashboard> {
-  return request<Dashboard>("/dashboard");
+  return orgRequest<Dashboard>("/dashboard");
 }
 
 // --- Annotations (GP-56..GP-59, GP-71) --------------------------------------
@@ -469,7 +511,7 @@ export function listAnnotations(
   if (params.status) query.set("status", params.status);
   if (params.snapshotId) query.set("snapshotId", params.snapshotId);
   const suffix = query.size > 0 ? `?${query}` : "";
-  return request<Annotation[]>(
+  return orgRequest<Annotation[]>(
     `/repositories/${encode(repositoryId)}/annotations${suffix}`,
   );
 }
@@ -478,7 +520,7 @@ export function createAnnotation(
   repositoryId: string,
   input: CreateAnnotationInput,
 ): Promise<Annotation> {
-  return request<Annotation>(
+  return orgRequest<Annotation>(
     `/repositories/${encode(repositoryId)}/annotations`,
     { method: "POST", body: input },
   );
@@ -488,14 +530,14 @@ export function updateAnnotation(
   id: string,
   input: UpdateAnnotationInput,
 ): Promise<Annotation> {
-  return request<Annotation>(`/annotations/${encode(id)}`, {
+  return orgRequest<Annotation>(`/annotations/${encode(id)}`, {
     method: "PATCH",
     body: input,
   });
 }
 
 export function deleteAnnotation(id: string): Promise<void> {
-  return request<void>(`/annotations/${encode(id)}`, { method: "DELETE" });
+  return orgRequest<void>(`/annotations/${encode(id)}`, { method: "DELETE" });
 }
 
 /**
@@ -507,7 +549,7 @@ export function deleteAnnotation(id: string): Promise<void> {
  * human accepts it.
  */
 export function proposeAnnotations(snapshotId: string): Promise<ProposalRun> {
-  return request<ProposalRun>(
+  return orgRequest<ProposalRun>(
     `/snapshots/${encode(snapshotId)}/annotation-proposals`,
     { method: "POST" },
   );
@@ -521,21 +563,21 @@ export function acceptAnnotation(id: string): Promise<Annotation> {
 // --- Public share links (GP-39) --------------------------------------------
 
 export function listShareLinks(repositoryId: string): Promise<ShareLink[]> {
-  return request<ShareLink[]>(`/repositories/${encode(repositoryId)}/share-links`);
+  return orgRequest<ShareLink[]>(`/repositories/${encode(repositoryId)}/share-links`);
 }
 
 export function createShareLink(
   repositoryId: string,
   input: CreateShareLinkInput,
 ): Promise<ShareLink> {
-  return request<ShareLink>(`/repositories/${encode(repositoryId)}/share-links`, {
+  return orgRequest<ShareLink>(`/repositories/${encode(repositoryId)}/share-links`, {
     method: "POST",
     body: input,
   });
 }
 
 export function revokeShareLink(id: string): Promise<void> {
-  return request<void>(`/share-links/${encode(id)}`, { method: "DELETE" });
+  return orgRequest<void>(`/share-links/${encode(id)}`, { method: "DELETE" });
 }
 
 /** Fetch a public snapshot by share token (no auth). 404 if unknown/revoked. */
@@ -588,7 +630,7 @@ export async function getAiGeneration(
 
 /** The endpoint `useCompletion` POSTs to in order to stream a generation. */
 export function aiCompletionUrl(snapshotId: string, kind: AiKind): string {
-  return `${apiBase()}/snapshots/${encode(snapshotId)}/ai/${encode(kind)}`;
+  return `${apiBase()}/orgs/${encode(activeOrg())}/snapshots/${encode(snapshotId)}/ai/${encode(kind)}`;
 }
 
 // --- Guided tours (GP-78) ---------------------------------------------------
@@ -602,7 +644,7 @@ export function aiCompletionUrl(snapshotId: string, kind: AiKind): string {
  */
 export async function getTour(snapshotId: string): Promise<TourResponse | null> {
   try {
-    return await request<TourResponse>(`/snapshots/${encode(snapshotId)}/tour`);
+    return await orgRequest<TourResponse>(`/snapshots/${encode(snapshotId)}/tour`);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
@@ -614,7 +656,7 @@ export function generateTour(
   snapshotId: string,
   opts: { regenerate?: boolean } = {},
 ): Promise<TourResponse> {
-  return request<TourResponse>(`/snapshots/${encode(snapshotId)}/tour`, {
+  return orgRequest<TourResponse>(`/snapshots/${encode(snapshotId)}/tour`, {
     method: "POST",
     body: JSON.stringify({ regenerate: opts.regenerate === true }),
   });

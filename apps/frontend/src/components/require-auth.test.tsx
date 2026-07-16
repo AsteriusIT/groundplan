@@ -13,6 +13,7 @@ function renderGuard(auth: Partial<AuthContextValue>) {
     login: vi.fn(),
     logout: vi.fn(),
     handleCallback: vi.fn(),
+    reloadUser: vi.fn(),
     ...auth,
   };
   return render(

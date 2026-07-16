@@ -3,12 +3,16 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "@/components/app-layout";
 import { RequireAuth } from "@/components/require-auth";
+import { RequireOrg } from "@/components/require-org";
 import { CallbackPage } from "@/pages/callback-page";
 import { ClusterPage } from "@/pages/cluster-page";
 import { ClustersPage } from "@/pages/clusters-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { DocsPage } from "@/pages/docs-page";
+import { InvitePage } from "@/pages/invite-page";
 import { LoginPage } from "@/pages/login-page";
+import { OnboardingPage } from "@/pages/onboarding-page";
+import { OrgLandingPage } from "@/pages/org-landing-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
 import { PullDetailPage } from "@/pages/pull-detail-page";
@@ -34,6 +38,35 @@ function App() {
       {/* Public, no-auth read-only share page (GP-39). */}
       <Route path="/share/:token" element={<SharePage />} />
 
+      {/* Accept an invitation (GP-116). Behind auth: a logged-out visitor runs
+          the OIDC flow first and the guard returns them here. */}
+      <Route
+        path="/invite/:token"
+        element={
+          <RequireAuth>
+            <InvitePage />
+          </RequireAuth>
+        }
+      />
+      {/* Create-organization (GP-117), SaaS mode. No org shell yet. */}
+      <Route
+        path="/onboarding"
+        element={
+          <RequireAuth>
+            <OnboardingPage />
+          </RequireAuth>
+        }
+      />
+      {/* Shareable per-org deep link (GP-117): switch to :orgSlug, then land. */}
+      <Route
+        path="/o/:orgSlug"
+        element={
+          <RequireAuth>
+            <OrgLandingPage />
+          </RequireAuth>
+        }
+      />
+
       {StyleguidePage && (
         <Route
           path="/styleguide"
@@ -48,7 +81,9 @@ function App() {
       <Route
         element={
           <RequireAuth>
-            <AppLayout />
+            <RequireOrg>
+              <AppLayout />
+            </RequireOrg>
           </RequireAuth>
         }
       >

@@ -10,6 +10,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 
 import { AuthProvider } from "@/auth/auth-provider";
+import { OrgProvider } from "@/org/org-provider";
 import { ThemeProvider } from "@/theme/theme-provider";
 import { TourStyleProvider } from "@/tour/tour-style";
 import { loadConfig } from "@/config";
@@ -33,7 +34,9 @@ async function bootstrap(container: HTMLElement): Promise<void> {
         <TourStyleProvider>
           <BrowserRouter>
             <AuthProvider>
-              <App />
+              <OrgProvider>
+                <App />
+              </OrgProvider>
             </AuthProvider>
           </BrowserRouter>
         </TourStyleProvider>

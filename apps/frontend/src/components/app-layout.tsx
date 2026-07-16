@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 
+import { useOrg } from "@/org/use-org";
 import { FocusModeProvider, useFocusMode } from "./focus-mode";
 import { Sidebar } from "./sidebar";
 
@@ -21,11 +22,14 @@ export function AppLayout() {
 
 function Shell() {
   const { focus } = useFocusMode();
+  const { activeOrg } = useOrg();
   return (
     <div className="flex h-svh overflow-hidden">
       {!focus && <Sidebar />}
       <main className="bg-background flex-1 overflow-y-auto">
-        <Outlet />
+        {/* Keyed on the active org so switching orgs remounts the page and it
+            refetches against the newly selected org (GP-117). */}
+        <Outlet key={activeOrg?.id ?? "none"} />
       </main>
     </div>
   );

@@ -1,13 +1,17 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth/use-auth";
 
 export function LoginPage() {
   const { isAuthenticated, isLoading, login } = useAuth();
+  const location = useLocation();
+  // Where the guard bounced us from (e.g. an /invite/:token link), so the OIDC
+  // round-trip returns there instead of the dashboard.
+  const from = (location.state as { from?: string } | null)?.from ?? "/";
 
   if (!isLoading && isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={from} replace />;
   }
 
   return (
@@ -18,7 +22,7 @@ export function LoginPage() {
           Sign in to see your infrastructure.
         </p>
       </div>
-      <Button onClick={() => void login("/")} disabled={isLoading}>
+      <Button onClick={() => void login(from)} disabled={isLoading}>
         Sign in
       </Button>
     </main>

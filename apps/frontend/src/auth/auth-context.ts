@@ -13,6 +13,8 @@ export interface AuthContextValue {
   logout: () => Promise<void>;
   /** Complete the code exchange on the /callback route; returns where to go. */
   handleCallback: () => Promise<string>;
+  /** Re-fetch GET /me — e.g. after joining/creating an org changes memberships. */
+  reloadUser: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

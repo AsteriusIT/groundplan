@@ -5,6 +5,7 @@ import { Boxes, LayoutDashboard, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { KubernetesMark } from "./kubernetes-mark";
 import { Logo } from "./logo";
+import { OrgSwitcher } from "./org-switcher";
 import { UserCard } from "./user-card";
 
 type NavEntry = {
@@ -63,6 +64,7 @@ export function Sidebar() {
       </nav>
 
       {/* The theme picker lives in Settings only — the sidebar is navigation. */}
+      <OrgSwitcher />
       <UserCard />
     </aside>
   );

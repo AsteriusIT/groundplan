@@ -29,7 +29,7 @@ it("updateProject PATCHes /projects/:id with the context", async () => {
   const result = await updateProject("p1", { contextMd: "hi" });
   expect(result.contextMd).toBe("hi");
   const call = fetchMock.mock.calls[0]!;
-  expect(String(call[0])).toBe("/api/v1/projects/p1");
+  expect(String(call[0])).toBe("/api/v1/orgs/test-org/projects/p1");
   expect((call[1] as { method?: string }).method).toBe("PATCH");
   expect(JSON.parse((call[1] as { body?: string }).body ?? "{}")).toEqual({
     contextMd: "hi",

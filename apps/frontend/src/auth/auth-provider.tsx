@@ -106,9 +106,28 @@ export function AuthProvider({
     return state?.returnTo ?? "/";
   }, [manager, applyOidcUser]);
 
+  // Re-fetch the backend profile without touching the OIDC session — used after
+  // creating an org or accepting an invite changes the caller's memberships.
+  const reloadUser = useCallback(async () => {
+    if (!oidcUserRef.current) return;
+    try {
+      setUser(await getMe());
+    } catch {
+      // Leave the current profile in place on a transient failure.
+    }
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isAuthenticated, isLoading, login, logout, handleCallback }),
-    [user, isAuthenticated, isLoading, login, logout, handleCallback],
+    () => ({
+      user,
+      isAuthenticated,
+      isLoading,
+      login,
+      logout,
+      handleCallback,
+      reloadUser,
+    }),
+    [user, isAuthenticated, isLoading, login, logout, handleCallback, reloadUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

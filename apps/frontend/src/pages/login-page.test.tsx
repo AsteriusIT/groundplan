@@ -13,6 +13,7 @@ function renderLogin(auth: Partial<AuthContextValue>): AuthContextValue {
     login: vi.fn(),
     logout: vi.fn(),
     handleCallback: vi.fn(),
+    reloadUser: vi.fn(),
     ...auth,
   };
   render(

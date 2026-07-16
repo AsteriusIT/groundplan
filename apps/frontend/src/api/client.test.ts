@@ -48,7 +48,7 @@ function firstCall(): { url: string; init: FetchInit } {
   return { url: String(call[0]), init: (call[1] ?? {}) as FetchInit };
 }
 
-it("listProjects GETs /api/v1/projects and returns typed data", async () => {
+it("listProjects GETs /api/v1/orgs/test-org/projects and returns typed data", async () => {
   const projects = [
     { id: "1", name: "A", slug: "a", createdAt: "2026-01-01T00:00:00.000Z" },
   ];
@@ -59,7 +59,7 @@ it("listProjects GETs /api/v1/projects and returns typed data", async () => {
   expect(result).toEqual(projects);
   expect(fetchMock).toHaveBeenCalledTimes(1);
   const { url, init } = firstCall();
-  expect(url).toContain("/api/v1/projects");
+  expect(url).toContain("/api/v1/orgs/test-org/projects");
   expect(init.method).toBe("GET");
 });
 
@@ -151,7 +151,7 @@ it("returns undefined for 204 responses (deleteProject)", async () => {
 
   await expect(deleteProject("p1")).resolves.toBeUndefined();
   const { url, init } = firstCall();
-  expect(url).toContain("/api/v1/projects/p1");
+  expect(url).toContain("/api/v1/orgs/test-org/projects/p1");
   expect(init.method).toBe("DELETE");
 });
 
@@ -161,7 +161,7 @@ it("updateRepository PATCHes the repository", async () => {
   await updateRepository("r1", { accessToken: "new-tok" });
 
   const { url, init } = firstCall();
-  expect(url).toContain("/api/v1/repositories/r1");
+  expect(url).toContain("/api/v1/orgs/test-org/repositories/r1");
   expect(init.method).toBe("PATCH");
   expect(JSON.parse(init.body ?? "{}")).toEqual({ accessToken: "new-tok" });
 });
@@ -173,7 +173,7 @@ it("verifyRepository POSTs to the verify endpoint", async () => {
 
   expect(result).toEqual({ ok: false, error: "auth_failed" });
   const { url, init } = firstCall();
-  expect(url).toContain("/api/v1/repositories/r1/verify");
+  expect(url).toContain("/api/v1/orgs/test-org/repositories/r1/verify");
   expect(init.method).toBe("POST");
 });
 

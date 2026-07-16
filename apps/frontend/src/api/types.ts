@@ -153,11 +153,72 @@ export type ClusterVerifyResult =
   | { ok: true; version: string | null }
   | { ok: false; error: K8sErrorKind };
 
-/** The current user, as returned by GET /me (note: snake_case display_name). */
+// --- Organizations, membership & RBAC (GP-113..GP-118) ----------------------
+
+/** A member's role in an org. A strict hierarchy: owner > admin > member. */
+export type Role = "owner" | "admin" | "member";
+
+/** An organization the current user can see (GP-113). */
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+}
+
+/** One of the current user's org memberships, as returned inline by GET /me. */
+export interface Membership {
+  role: Role;
+  organization: { id: string; name: string; slug: string };
+}
+
+/** A row in an org's member list (GP-118). */
+export interface Member {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  role: Role;
+  joinedAt: string;
+}
+
+/** A pending invitation (GP-116); the token is only ever in the create response. */
+export interface Invitation {
+  id: string;
+  organizationId: string;
+  email: string | null;
+  role: Exclude<Role, "owner">;
+  expiresAt: string;
+  acceptedAt: string | null;
+  createdAt: string;
+}
+
+/** The create-invite response — carries the one-time token and a ready-made URL. */
+export interface CreatedInvitation extends Invitation {
+  token: string;
+  url: string | null;
+}
+
+export interface CreateOrganizationInput {
+  name: string;
+  slug: string;
+}
+
+export interface CreateInvitationInput {
+  role: Exclude<Role, "owner">;
+  email?: string;
+}
+
+/**
+ * The current user, as returned by GET /me (note: snake_case display_name).
+ * GP-115: `memberships` (org + role) and the deployment's `singleOrg` flag come
+ * inline so the frontend can route onboarding and switch orgs without extra calls.
+ */
 export interface User {
   id: string;
   email: string | null;
   display_name: string | null;
+  memberships: Membership[];
+  singleOrg: boolean;
 }
 
 // --- Graph / snapshots / pull requests (GP-12..GP-15) ----------------------

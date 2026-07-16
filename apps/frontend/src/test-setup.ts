@@ -2,10 +2,18 @@ import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
+import { setActiveOrgProvider } from "@/api/client";
+
 // Unmount React trees between tests so they don't leak into each other.
 afterEach(() => {
   cleanup();
 });
+
+// Give the API client a default active org (GP-117) so the real URL builders
+// (`aiCompletionUrl`, `getSnapshotExport`) don't throw in component tests that
+// mock the JSON client but reach a builder directly. Tests that care about the
+// org can override via their own OrgProvider/OrgContext.
+setActiveOrgProvider(() => "test-org");
 
 // --- jsdom polyfills for Radix UI (Dialog, etc.) ---------------------------
 if (!window.matchMedia) {

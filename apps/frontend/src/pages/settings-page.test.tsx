@@ -25,6 +25,8 @@ function user(over: Partial<User> = {}): User {
     id: "u1",
     email: "ada@example.com",
     display_name: "Ada Lovelace",
+    memberships: [],
+    singleOrg: true,
     ...over,
   };
 }

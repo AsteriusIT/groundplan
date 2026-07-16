@@ -3,28 +3,46 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context";
+import { OrgContext, type OrgContextValue } from "@/org/org-context";
 import { ThemeProvider } from "@/theme/theme-provider";
 import { Sidebar } from "./sidebar";
+
+// Single-org context: the org switcher is hidden, so the nav stays as before.
+const orgValue: OrgContextValue = {
+  memberships: [],
+  activeOrg: null,
+  singleOrg: true,
+  switchOrg: vi.fn(),
+};
 
 function renderSidebar(
   auth: Partial<AuthContextValue> = {},
   path = "/projects",
 ): AuthContextValue {
   const value: AuthContextValue = {
-    user: { id: "u1", email: "ada@example.com", display_name: "Ada Lovelace" },
+    user: {
+      id: "u1",
+      email: "ada@example.com",
+      display_name: "Ada Lovelace",
+      memberships: [],
+      singleOrg: true,
+    },
     isAuthenticated: true,
     isLoading: false,
     login: vi.fn(),
     logout: vi.fn(),
     handleCallback: vi.fn(),
+    reloadUser: vi.fn(),
     ...auth,
   };
   render(
     <ThemeProvider>
       <AuthContext.Provider value={value}>
-        <MemoryRouter initialEntries={[path]}>
-          <Sidebar />
-        </MemoryRouter>
+        <OrgContext.Provider value={orgValue}>
+          <MemoryRouter initialEntries={[path]}>
+            <Sidebar />
+          </MemoryRouter>
+        </OrgContext.Provider>
       </AuthContext.Provider>
     </ThemeProvider>,
   );
