@@ -118,8 +118,10 @@ services:
       retries: 10
 
   # --- Identity provider (Keycloak) ---------------------------------------
+  # Custom image = Keycloak 26.7.0 with the carbon "groundplan" theme baked in
+  # (built/pushed by docker-compose.build.yml / the build-images workflow).
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7.0
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-keycloak:${IMAGE_TAG:-latest}
     restart: unless-stopped
     command: ["start", "--import-realm"]
     environment:

@@ -38,14 +38,18 @@ From the repo root: **`pnpm keycloak:build`** builds the jar.
 
 ## Local dev / verification
 
-The jar is mounted into the dockerized Keycloak and selected by the realm import
-(`loginTheme` / `accountTheme` / `emailTheme` = `groundplan`). Build it **before**
-starting Keycloak — providers load at startup:
+The theme ships **inside a custom Keycloak image** (`keycloak/Dockerfile`): the
+jar is compiled in a Node stage and baked into the providers dir, not mounted.
+`docker-compose.yml` builds it; the realm import selects it
+(`loginTheme` / `accountTheme` / `emailTheme` = `groundplan`).
 
 ```bash
-pnpm keycloak:build                 # from repo root
-docker compose --profile auth up -d # Keycloak :8085 mounts the jar
+docker compose --profile auth up -d          # first run builds the image
+docker compose --profile auth build keycloak # rebuild after theme changes
 ```
+
+`pnpm keycloak:build` (from the repo root) still builds just the jar into
+`dist_keycloak/` — handy for inspecting output without Docker.
 
 Then, signed in as the dev user (`dev` / `dev`):
 
@@ -62,9 +66,17 @@ Then, signed in as the dev user (`dev` / `dev`):
   `sync-extensions` postinstall (git-ignored via `src/.gitignore`). Only files we
   customize are "owned" and tracked — take ownership with
   `npx keycloakify own --path "email/html/<file>.ftl"` before editing.
-- **Account = Multi-Page (account-v1).** Keycloak 26.0 serves it via the
-  `AccountFormService`; the jar targets the `26.0-to-26.1` version range (see
-  `vite.config.ts`). The dev realm grants the dev user the `account` client roles
-  (`view-profile`, `manage-account`) so the console is reachable.
+- **Account = Multi-Page (account-v1).** Keycloak serves it via the
+  `AccountFormService`; the jar targets the `26.2-and-above` version range (see
+  `vite.config.ts`), matching the pinned Keycloak **26.7.0**. The dev realm grants
+  the dev user the `account` client roles (`view-profile`, `manage-account`) so
+  the console is reachable.
+- **Keycloak version is pinned to 26.7.0** in `keycloak/Dockerfile` (and matches
+  `docker-compose.prod.yml`). If you bump it, revisit the account version target —
+  account-v1 templates are version-ranged.
+- **Docker & CI.** `keycloak/Dockerfile` is a two-stage build (Node compiles the
+  jar → baked into Keycloak). The `build-images` GitHub Action builds/scans/pushes
+  it as `groundplan-keycloak` alongside backend/frontend; `docker-compose.prod.yml`
+  pulls that image, `docker-compose.build.yml` builds+pushes it.
 - **`doUseDefaultCss: false`** everywhere — Tailwind owns the styling; Keycloak's
   stock CSS is not loaded.

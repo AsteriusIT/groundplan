@@ -20,8 +20,17 @@ services:
 
   # OIDC identity provider for local auth. Opt-in: only starts with the `auth`
   # profile, e.g. `docker compose --profile auth up -d`.
+  #
+  # Built from keycloak/Dockerfile: stock Keycloak with the carbon "groundplan"
+  # theme (login/account/email) baked into its providers dir — the realm import
+  # sets loginTheme/accountTheme/emailTheme = "groundplan". First run builds the
+  # image (compiles the theme jar); rebuild after theme changes with
+  # `docker compose --profile auth build keycloak` (or `up --build`).
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    build:
+      context: .
+      dockerfile: keycloak/Dockerfile
+    image: groundplan-keycloak:local
     container_name: groundplan-keycloak
     profiles: ["auth"]
     command: ["start-dev", "--import-realm"]
@@ -33,12 +42,6 @@ services:
       - "8085:8080"
     volumes:
       - ./infra/keycloak:/opt/keycloak/data/import:ro
-      # The carbon "groundplan" theme (login/account/email), built by
-      # `pnpm keycloak:build`. Mounted as a provider jar so Keycloak serves it;
-      # the realm import sets loginTheme/accountTheme/emailTheme = "groundplan".
-      # Build the jar BEFORE `docker compose up` — Keycloak loads providers only
-      # at startup.
-      - ./keycloak/dist_keycloak/keycloak-theme-groundplan.jar:/opt/keycloak/providers/keycloak-theme-groundplan.jar:ro
 
 volumes:
   groundplan_pgdata:

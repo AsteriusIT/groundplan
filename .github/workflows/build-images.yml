@@ -31,7 +31,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [backend, frontend]
+        include:
+          - image: backend
+            dockerfile: apps/backend/Dockerfile
+          - image: frontend
+            dockerfile: apps/frontend/Dockerfile
+          # Keycloak 26.7 with the carbon theme baked in (keycloak/Dockerfile).
+          - image: keycloak
+            dockerfile: keycloak/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +70,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/${{ matrix.image }}/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           load: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -89,7 +96,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/${{ matrix.image }}/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

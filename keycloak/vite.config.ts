@@ -16,17 +16,16 @@ export default defineConfig({
       // The account theme is a full multi-page React theme (account-v1 based),
       // styled with the same carbon primitives as login.
       accountThemeImplementation: "Multi-Page",
-      // Build a single jar for our docker-compose image (Keycloak 26.0), with a
-      // stable filename so docker-compose can mount it directly. The Multi-Page
-      // account theme bundles account-v1, whose templates are version-ranged —
-      // 26.0-to-26.1 covers our image.
+      // Build a single jar for our Keycloak image (26.7.0, matching prod), with a
+      // stable filename. The Multi-Page account theme bundles account-v1, whose
+      // templates are version-ranged — 26.2-and-above covers 26.7.
       keycloakVersionTargets: {
         "21-and-below": false,
         "23": false,
         "24": false,
         "25": false,
-        "26.0-to-26.1": "keycloak-theme-groundplan.jar",
-        "26.2-and-above": false,
+        "26.0-to-26.1": false,
+        "26.2-and-above": "keycloak-theme-groundplan.jar",
       },
     }),
   ],

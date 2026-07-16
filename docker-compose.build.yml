@@ -25,3 +25,10 @@ services:
       context: .
       dockerfile: apps/frontend/Dockerfile
     image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-frontend:${IMAGE_TAG:-latest}
+
+  # Keycloak with the carbon theme baked in (docker-compose.prod.yml pulls it).
+  keycloak:
+    build:
+      context: .
+      dockerfile: keycloak/Dockerfile
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-keycloak:${IMAGE_TAG:-latest}
