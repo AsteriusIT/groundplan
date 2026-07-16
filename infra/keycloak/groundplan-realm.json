@@ -5,6 +5,7 @@
   "registrationAllowed": false,
   "loginTheme": "groundplan",
   "accountTheme": "groundplan",
+  "emailTheme": "groundplan",
   "clients": [
     {
       "clientId": "groundplan-frontend",
