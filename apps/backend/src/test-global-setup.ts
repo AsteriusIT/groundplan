@@ -2,9 +2,9 @@
  * Global test-data cleanup for `node --test` (wired via `--test-global-setup`).
  *
  * The backend suite runs against the **same Postgres as local dev** — there is no
- * separate test database — so every run creates throwaway projects and clusters
- * that would otherwise accumulate forever. This removes exactly what a run
- * created, and nothing else.
+ * separate test database — so every run creates throwaway projects, clusters,
+ * organizations and JIT-provisioned users that would otherwise accumulate
+ * forever. This removes exactly what a run created, and nothing else.
  *
  * How it stays safe: it snapshots the ids that already exist *before* the suite
  * (a real project, an attached cluster), then at the end deletes only the rows
@@ -28,6 +28,7 @@ let baseline: {
   projects: string[];
   clusters: string[];
   organizations: string[];
+  users: string[];
 } | null = null;
 
 /**
@@ -52,21 +53,27 @@ export async function globalSetup(): Promise<void> {
   if (process.env.NODE_ENV !== "test") return;
 
   await withPool(async (pool) => {
-    // Clear project/org junk from a prior crashed run (safe: only test slugs carry
-    // a 13+ digit millisecond timestamp; real slugs are human names). The seeded
-    // "default" org has no digits, so it is never matched.
+    // Clear project/org/user junk from a prior crashed run (safe: only test data
+    // carries a 13+ digit millisecond timestamp, or the `test-subject` prefix the
+    // auth helpers use; real slugs/subjects have neither). The seeded "default"
+    // org has no digits, so it is never matched.
     await pool.query("DELETE FROM projects WHERE slug ~ '[0-9]{13,}'");
     await pool.query("DELETE FROM organizations WHERE slug ~ '[0-9]{13,}'");
+    await pool.query(
+      "DELETE FROM users WHERE oidc_subject ~ '[0-9]{13,}' OR oidc_subject LIKE 'test-subject%'",
+    );
 
     const projects = await pool.query<{ id: string }>("SELECT id FROM projects");
     const clusters = await pool.query<{ id: string }>("SELECT id FROM clusters");
     const organizations = await pool.query<{ id: string }>(
       "SELECT id FROM organizations",
     );
+    const users = await pool.query<{ id: string }>("SELECT id FROM users");
     baseline = {
       projects: projects.rows.map((r) => r.id),
       clusters: clusters.rows.map((r) => r.id),
       organizations: organizations.rows.map((r) => r.id),
+      users: users.rows.map((r) => r.id),
     };
   });
 }
@@ -77,7 +84,7 @@ export async function globalTeardown(): Promise<void> {
   // in the baseline" would be deleting everything. Do nothing instead.
   if (!baseline) return;
 
-  const { projects, clusters, organizations } = baseline;
+  const { projects, clusters, organizations, users } = baseline;
   await withPool(async (pool) => {
     await pool.query("DELETE FROM projects WHERE id <> ALL($1::uuid[])", [projects]);
     await pool.query("DELETE FROM clusters WHERE id <> ALL($1::uuid[])", [clusters]);
@@ -86,5 +93,8 @@ export async function globalTeardown(): Promise<void> {
     await pool.query("DELETE FROM organizations WHERE id <> ALL($1::uuid[])", [
       organizations,
     ]);
+    // JIT-provisioned test users (cascades to their memberships). Real dev users
+    // captured in the baseline are preserved.
+    await pool.query("DELETE FROM users WHERE id <> ALL($1::uuid[])", [users]);
   });
 }
