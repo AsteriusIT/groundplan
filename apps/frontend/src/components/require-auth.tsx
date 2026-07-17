@@ -21,13 +21,25 @@ export function RequireAuth({ children }: Readonly<{ children: ReactNode }>) {
     void login(location.pathname + location.search);
   }, [isLoading, isAuthenticated, login, location.pathname, location.search]);
 
+  // Wait for auth to settle before rendering the protected subtree. During
+  // session restore `isAuthenticated` flips true while GET /me is still in
+  // flight, so `user` (and its org memberships) is briefly null — rendering
+  // children then lets <RequireOrg> bounce a real user to /onboarding.
+  if (isLoading) {
+    return (
+      <div className="text-muted-foreground flex min-h-svh items-center justify-center text-sm">
+        Loading…
+      </div>
+    );
+  }
+
   if (isAuthenticated) {
     return <>{children}</>;
   }
 
   return (
     <div className="text-muted-foreground flex min-h-svh items-center justify-center text-sm">
-      {isLoading ? "Loading…" : "Redirecting to sign in…"}
+      Redirecting to sign in…
     </div>
   );
 }
