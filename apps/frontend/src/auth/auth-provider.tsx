@@ -96,7 +96,19 @@ export function AuthProvider({
   );
 
   const logout = useCallback(async () => {
-    await manager.signoutRedirect();
+    // signoutRedirect() removes the local user first, which fires UserUnloaded
+    // and flips isAuthenticated to false. Left alone, <RequireAuth> would react
+    // to that by starting a *sign-in* redirect that races the end-session one —
+    // and when sign-in wins, Keycloak's SSO cookie survives and logs us straight
+    // back in. Holding the loading state parks the guard until the browser has
+    // navigated to Keycloak's end-session endpoint, so the logout actually sticks.
+    setIsLoading(true);
+    try {
+      await manager.signoutRedirect();
+    } catch (err) {
+      setIsLoading(false); // redirect never happened — un-park the guard
+      throw err;
+    }
   }, [manager]);
 
   const handleCallback = useCallback(async (): Promise<string> => {
