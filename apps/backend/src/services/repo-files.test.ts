@@ -16,6 +16,7 @@ import {
   classifyGitError,
   getFile,
   listFiles,
+  listRemoteHeads,
   verifyConnection,
 } from "./repo-files.js";
 
@@ -123,6 +124,25 @@ test("verifyConnection returns a structured error for an unreachable repo", asyn
     ref: "main",
   });
   assert.equal(result.ok, false);
+});
+
+test("listRemoteHeads never leaks the PAT into its error (redacted at source)", async () => {
+  // A reserved `.invalid` host fails DNS immediately — no network egress. The raw
+  // exec error would otherwise carry the authenticated URL (with the token) in
+  // cmd/message/stack, which the ref-poller logs and stores as pollError.
+  const token = "supersecret-pat-value-123";
+  await assert.rejects(
+    listRemoteHeads({
+      url: "https://groundplan-nonexistent.invalid/acme/repo.git",
+      provider: "github",
+      accessToken: token,
+    }),
+    (err: unknown) => {
+      const text = `${(err as Error).message}\n${(err as Error).stack ?? ""}`;
+      assert.ok(!text.includes(token), "the token must not appear in the error");
+      return true;
+    },
+  );
 });
 
 test("classifyGitError distinguishes auth / not-found / network", () => {
