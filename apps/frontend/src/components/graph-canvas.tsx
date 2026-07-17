@@ -72,6 +72,7 @@ import {
   elkToFlow,
   moduleCounts,
   moduleOptions,
+  reanchorStackEdges,
   toElkGraph,
   type ElkGraphNode,
   type FilterKey,
@@ -355,7 +356,6 @@ export function GraphCanvas({
 }>) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
-  const hubs = useMemo(() => detectHubs(graph), [graph]);
   // What each filter option covers, so a checkbox says what unticking it costs.
   const changeCount = useMemo(() => changeCounts(graph), [graph]);
   const categoryCount = useMemo(() => categoryCounts(graph), [graph]);
@@ -388,6 +388,19 @@ export function GraphCanvas({
     setSelected(child);
     setHighlightedChild(child.id);
   }, []);
+
+  // GP-88: hub detection and the layout run on the *drawn* edge set — edges
+  // re-anchored onto host cards and merged. Merging collapses a satellite's fan
+  // of lines into one, which can drop a host below the hub threshold, so degrees
+  // are counted on what is actually drawn.
+  const hubGraph = useMemo(
+    () =>
+      stacks && stacks.size > 0
+        ? { ...graph, edges: reanchorStackEdges(graph.edges, childToHost).edges }
+        : graph,
+    [graph, stacks, childToHost],
+  );
+  const hubs = useMemo(() => detectHubs(hubGraph), [hubGraph]);
   const [showHubEdges, setShowHubEdges] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -408,7 +421,7 @@ export function GraphCanvas({
     setActiveCategories(new Set(categoryOptions(graph)));
     setActiveModules(new Set(moduleOptions(graph)));
     elk
-      .layout(toElkGraph(graph, detectHubs(graph), containerIds, stacks))
+      .layout(toElkGraph(graph, hubs, containerIds, stacks))
       .then((result) => {
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
@@ -425,7 +438,7 @@ export function GraphCanvas({
     return () => {
       cancelled = true;
     };
-  }, [graph, containerIds, stacks]);
+  }, [graph, containerIds, stacks, hubs]);
 
   // `/` focuses the search box (unless already typing in a field).
   useEffect(() => {

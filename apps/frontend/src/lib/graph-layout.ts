@@ -381,6 +381,72 @@ function stackChanged(children?: readonly GraphNode[]): boolean {
   );
 }
 
+/** child id → host id, from the stack map (GP-88). */
+export function childHostIndex(
+  stacks?: ReadonlyMap<string, GraphNode[]>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [hostId, children] of stacks ?? []) {
+    for (const child of children) map.set(child.id, hostId);
+  }
+  return map;
+}
+
+/**
+ * GP-88: once satellites live inside a host card, every edge that touched a
+ * satellite must touch the host instead — without turning into a fan of parallel
+ * lines. Re-anchor each drawable edge's endpoints (a stacked child becomes its
+ * host), drop the self-loops that collapse out (host ↔ its own child — the stack
+ * already says that), and merge the parallels that fall together, carrying a
+ * `count`. `members` records every original endpoint behind each merged edge, so
+ * selecting a stacked child can still light exactly the edges it takes part in —
+ * the merge is visual, never a data rewrite.
+ */
+export function reanchorStackEdges(
+  edges: readonly GraphEdge[],
+  childToHost: ReadonlyMap<string, string>,
+): { edges: GraphEdge[]; members: Map<string, Set<string>> } {
+  const anchor = (id: string): string => childToHost.get(id) ?? id;
+  type Merged = { edge: GraphEdge; count: number; inferred: boolean; members: Set<string> };
+  const byKey = new Map<string, Merged>();
+
+  for (const edge of edges) {
+    if (!isDrawnEdge(edge)) continue;
+    const from = anchor(edge.from);
+    const to = anchor(edge.to);
+    if (from === to) continue; // self-loop: the stack itself already says this
+    const key = `${edge.kind}|${from}|${to}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.inferred = existing.inferred && edge.inferred === true;
+      existing.members.add(edge.from).add(edge.to);
+    } else {
+      byKey.set(key, {
+        edge: { ...edge, from, to },
+        count: 1,
+        inferred: edge.inferred === true,
+        members: new Set([edge.from, edge.to]),
+      });
+    }
+  }
+
+  const out: GraphEdge[] = [];
+  const members = new Map<string, Set<string>>();
+  for (const m of byKey.values()) {
+    // Preserve the input shape when nothing collapsed (a lone edge with no
+    // stacked endpoint is returned untouched — `inferred` only where it was set).
+    const merged: GraphEdge = {
+      ...m.edge,
+      ...(m.edge.inferred === undefined && m.count === 1 ? {} : { inferred: m.inferred }),
+      ...(m.count > 1 ? { count: m.count } : {}),
+    };
+    out.push(merged);
+    members.set(depEdgeId(merged), m.members);
+  }
+  return { edges: out, members };
+}
+
 /**
  * Ids to render as internet-exposed (GP-45): every NSG whose `internet_exposed`
  * flag is set, plus the subnets/NICs it is associated with — so the warning
@@ -416,6 +482,33 @@ export function neighborhood(graph: Graph, selectedId: string): Set<string> {
   for (const edge of graph.edges) {
     if (edge.from === selectedId) set.add(edge.to);
     else if (edge.to === selectedId) set.add(edge.from);
+  }
+  return set;
+}
+
+/**
+ * The lit set for a focus, stack-aware (GP-88). The base is the ordinary
+ * neighbourhood (containment + real dependencies); on top of it a selected node
+ * lights every *drawn* (re-anchored, merged) edge it takes part in — so selecting
+ * a host lights the merged edges that came from its children, and selecting a
+ * stacked child lights the host card plus the merged edges the child is behind.
+ * With nothing stacked this collapses back to `neighborhood`.
+ */
+function litNeighborhood(
+  graph: Graph,
+  drawnEdges: readonly GraphEdge[],
+  focusId: string,
+  edgeTouches: (edge: GraphEdge, id: string) => boolean,
+  childToHost: ReadonlyMap<string, string>,
+): Set<string> {
+  const set = neighborhood(graph, focusId);
+  const host = childToHost.get(focusId);
+  if (host) set.add(host);
+  for (const edge of drawnEdges) {
+    if (edgeTouches(edge, focusId)) {
+      set.add(edge.from);
+      set.add(edge.to);
+    }
   }
   return set;
 }
@@ -525,25 +618,25 @@ export function toElkGraph(
   }
   const roots = nestElkNodes(graph, elkById, parentOf, forced);
 
+  // Lay out the edges as they will be drawn: re-anchored onto host cards and
+  // merged (GP-88). With nothing stacked this is exactly the drawable edges (no
+  // re-anchor, no merge), so non-network views are unaffected.
+  //
   // Reverse the dependency for layout (dependency → dependent) so roots sit on
   // the left and impact reads left→right (GP-31). Hub edges (GP-35) are left out
-  // entirely so the hub node doesn't drag its whole neighbourhood together. Edges
-  // touching a stacked child are left out too — the child is not a layout node
-  // (GP-88 re-anchors them to the host).
-  //
-  // Logical edges (GP-72) go through ELK like any other: a relationship a human
-  // drew is a real relationship, and the layout should place its endpoints near
-  // each other rather than route a line across the whole diagram afterwards.
-  const laidOut = (edge: GraphEdge): boolean =>
-    isDrawnEdge(edge) &&
-    !(hubs && isHubEdge(edge, hubs)) &&
-    !stacked.has(edge.from) &&
-    !stacked.has(edge.to);
-  const edges = graph.edges.filter(laidOut).map((edge) => ({
-    id: depEdgeId(edge),
-    sources: [edge.to],
-    targets: [edge.from],
-  }));
+  // entirely so the hub node doesn't drag its whole neighbourhood together.
+  // Logical edges (GP-72) go through ELK like any other.
+  const drawn =
+    stacked.size > 0
+      ? reanchorStackEdges(graph.edges, childHostIndex(stacks)).edges
+      : graph.edges.filter(isDrawnEdge);
+  const edges = drawn
+    .filter((edge) => !(hubs && isHubEdge(edge, hubs)))
+    .map((edge) => ({
+      id: depEdgeId(edge),
+      sources: [edge.to],
+      targets: [edge.from],
+    }));
 
   return { id: "root", layoutOptions: ELK_ROOT_OPTIONS, children: roots, edges };
 }
@@ -658,6 +751,33 @@ export function elkRoutes(layout: ElkGraphNode): Map<string, Point[]> {
   return routes;
 }
 
+/**
+ * The edges as the network view draws them (GP-88): re-anchored onto host cards
+ * and merged when satellites are stacked, or the plain drawable edges otherwise.
+ * `touches(edge, id)` answers whether a node takes part in an edge, following a
+ * merged edge back to its original endpoints so a stacked child can still be lit.
+ */
+function drawnEdgeSet(
+  graph: Graph,
+  stacks?: ReadonlyMap<string, GraphNode[]>,
+): {
+  edges: GraphEdge[];
+  members: Map<string, Set<string>>;
+  touches: (edge: GraphEdge, id: string) => boolean;
+  childToHost: Map<string, string>;
+} {
+  const childToHost = childHostIndex(stacks);
+  const { edges, members } =
+    childToHost.size > 0
+      ? reanchorStackEdges(graph.edges, childToHost)
+      : { edges: graph.edges.filter(isDrawnEdge), members: new Map<string, Set<string>>() };
+  const touches = (edge: GraphEdge, id: string): boolean =>
+    edge.from === id ||
+    edge.to === id ||
+    members.get(depEdgeId(edge))?.has(id) === true;
+  return { edges, members, touches, childToHost };
+}
+
 /** Map a laid-out ELK graph back to React Flow nodes + edges, applying filters. */
 export function elkToFlow(
   layout: ElkGraphNode,
@@ -668,10 +788,11 @@ export function elkToFlow(
   const hubs = view.hubs ?? EMPTY_HUBS;
   const showHubEdges = view.showHubEdges ?? false;
   const containerIds = view.containerIds ?? EMPTY_HUBS;
-  // Satellite children stacked into a host card (GP-87): they never became flow
-  // nodes, so their edges are dropped here (GP-88 re-anchors them to the host).
   const stacks = view.stacks;
-  const stacked = stackedChildIdSet(stacks);
+  // The edges as drawn (GP-88): re-anchored onto host cards and merged, with a
+  // `touches` predicate that lights a merged edge for any original endpoint behind
+  // it — so selecting a stacked child still works.
+  const { edges: drawnEdges, touches: edgeTouches, childToHost } = drawnEdgeSet(graph, stacks);
   // A tour stop outranks both: while one is running, the diagram is showing you
   // what the narrator is talking about, and a stray hover must not redirect it.
   // An empty set is the whole-diagram stop, which focuses nothing.
@@ -680,7 +801,9 @@ export function elkToFlow(
   // A selection is sticky, a hover is transient — but both focus the same way.
   // Selection wins, so hovering elsewhere can't yank you out of what you pinned.
   const focusId = touring ? null : (selectedId ?? view.hoveredId ?? null);
-  const neighbors = focusId ? neighborhood(graph, focusId) : null;
+  const neighbors = focusId
+    ? litNeighborhood(graph, drawnEdges, focusId, edgeTouches, childToHost)
+    : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
   // Absent for hub edges (deliberately left out of the layout, GP-35) — those
@@ -690,8 +813,10 @@ export function elkToFlow(
 
   // Count each hub's currently-hidden edges so the node can show a counter chip
   // (GP-35). A hub edge is hidden unless revealed by the toggle or the selection.
+  // Counted over the drawn (merged) edge set, so the chip matches what's on screen
+  // (GP-88).
   const hubHiddenCount = new Map<string, number>();
-  for (const edge of graph.edges) {
+  for (const edge of drawnEdges) {
     if (!isHubEdge(edge, hubs)) continue;
     if (hubEdgeRevealed(edge, focusId, showHubEdges)) continue;
     for (const endpoint of [edge.from, edge.to]) {
@@ -769,11 +894,9 @@ export function elkToFlow(
   };
   for (const child of layout.children ?? []) walk(child);
 
-  const edges: FlowEdge[] = graph.edges
-    .filter(isDrawnEdge)
-    // A stacked child is not on the canvas, so an edge touching one has no
-    // endpoint to draw to (GP-87). GP-88 re-anchors these to the host.
-    .filter((edge) => !stacked.has(edge.from) && !stacked.has(edge.to))
+  // The drawn set is already re-anchored + merged (GP-88); a stacked child never
+  // appears as an endpoint here.
+  const edges: FlowEdge[] = drawnEdges
     // Drop hub edges that are currently hidden (GP-35); revealed ones are drawn
     // over the layout (which was computed without them).
     // Focus reveals a hub's hidden edges — hovering the hub is how you ask what
@@ -781,8 +904,8 @@ export function elkToFlow(
     // is a worse lie than hiding both.
     .filter((edge) => !isHubEdge(edge, hubs) || hubEdgeRevealed(edge, focusId, showHubEdges))
     .map((edge) => {
-      const touchesFocus =
-        Boolean(focusId) && (edge.from === focusId || edge.to === focusId);
+      const id = depEdgeId(edge);
+      const touchesFocus = Boolean(focusId) && edgeTouches(edge, focusId as string);
       // Under a tour, only an edge *between two things the stop is about* is part
       // of the story. An edge from a lit node out into the dark is not the point
       // being made, and lighting it would draw the eye off the stop.
@@ -790,12 +913,15 @@ export function elkToFlow(
         ? touring.has(edge.from) && touring.has(edge.to)
         : false;
       const logical = edge.kind === "logical";
+      // A merged edge's honest label is how many relationships it stands for
+      // (GP-88); a lone edge keeps whatever label it carried.
+      const label = edge.count && edge.count > 1 ? `×${edge.count}` : edge.label;
       // Colour/dash come from the relationship + inferred flag (GP-30), applied
       // by the RelationshipEdge component — no re-layout on selection. Drawn in
       // impact-flow direction (dependency → dependent) to match the layout
       // (GP-31); the relationship is still computed from the true dependency.
       return {
-        id: depEdgeId(edge),
+        id,
         source: edge.to,
         target: edge.from,
         type: "relationship",
@@ -807,13 +933,13 @@ export function elkToFlow(
           // relationship can be traced through a crossing.
           active: touring ? inTour : touchesFocus,
           inferred: edge.inferred === true,
-          route: routes.get(depEdgeId(edge)),
+          route: routes.get(id),
           // A logical edge wears the annotation treatment — dashed, accent-toned,
           // no arrowhead — because it is exactly that: a human relationship drawn
           // over a generated diagram, and it must not pass for a dependency the
           // code declares.
           annotation: logical,
-          ...(edge.label ? { label: edge.label } : {}),
+          ...(label ? { label } : {}),
         },
       };
     });

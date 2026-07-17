@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Graph } from "@/api/types";
+import type { Graph, GraphEdge } from "@/api/types";
 import {
   ALL_FILTERS,
   categoryCounts,
@@ -15,10 +15,12 @@ import {
   neighborhood,
   networkProjection,
   nodePassesFilters,
+  reanchorStackEdges,
   resourceStacks,
   toElkGraph,
   type ElkGraphNode,
 } from "./graph-layout";
+import { detectHubs } from "@/lib/hub";
 
 const allFilters = new Set(ALL_FILTERS);
 
@@ -928,4 +930,112 @@ it("elkToFlow delivers the stack to the host node data and flags a changed child
   // A stacked child has no flow node, so its edge is not drawn (GP-88 re-anchors).
   expect(nodes.some((n) => n.id === "probe")).toBe(false);
   expect(edges.some((e) => e.source === "probe" || e.target === "probe")).toBe(false);
+});
+
+// --- GP-88: edges around stacks (re-anchor to host, merge parallels) ---------
+
+it("reanchorStackEdges re-anchors child endpoints to the host and merges parallels", () => {
+  const childToHost = new Map([
+    ["probe", "lb"],
+    ["pool", "lb"],
+    ["rule", "lb"],
+  ]);
+  const edges: GraphEdge[] = [
+    { from: "probe", to: "web", kind: "depends_on", inferred: true },
+    { from: "pool", to: "web", kind: "depends_on", inferred: true },
+    { from: "rule", to: "probe", kind: "depends_on", inferred: true }, // both children of lb
+    { from: "web", to: "lb", kind: "depends_on", inferred: true },
+  ];
+  const { edges: out, members } = reanchorStackEdges(edges, childToHost);
+  // probe→web and pool→web collapse into one lb→web edge carrying ×2.
+  const lbWeb = out.find((e) => e.from === "lb" && e.to === "web");
+  expect(lbWeb?.count).toBe(2);
+  // rule→probe: both endpoints re-anchor to lb → a self-loop, dropped.
+  expect(out.some((e) => e.from === "lb" && e.to === "lb")).toBe(false);
+  // The plain web→lb edge survives.
+  expect(out.some((e) => e.from === "web" && e.to === "lb")).toBe(true);
+  // The merged edge remembers the original endpoints behind it, so a stacked
+  // child can still be lit even though the drawn edge names only the host.
+  const members1 = members.get(depEdgeId(lbWeb!));
+  expect([...(members1 ?? [])].sort()).toEqual(["pool", "probe", "web"]);
+});
+
+it("reanchorStackEdges leaves an edge without stacked endpoints untouched", () => {
+  const { edges: out } = reanchorStackEdges(
+    [{ from: "a", to: "b", kind: "depends_on", inferred: false }],
+    new Map(),
+  );
+  expect(out).toEqual([{ from: "a", to: "b", kind: "depends_on", inferred: false }]);
+});
+
+it("elkToFlow draws re-anchored, merged edges and never terminates at a satellite", () => {
+  const { graph: projected, stacks } = networkProjection({
+    version: 4,
+    nodes: stackFixture().nodes,
+    edges: [
+      { from: "probe", to: "web", kind: "depends_on", inferred: true },
+      { from: "pool", to: "web", kind: "depends_on", inferred: true },
+    ],
+  });
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "lb", x: 0, y: 0, width: 220, height: 120 },
+      { id: "web", x: 400, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { edges } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: null,
+    stacks,
+  });
+  // One merged edge lb→web, none touching a satellite.
+  expect(edges).toHaveLength(1);
+  expect(edges[0]).toMatchObject({ source: "web", target: "lb" }); // drawn dep→dependent
+  expect(edges.some((e) => e.source === "probe" || e.target === "probe")).toBe(false);
+  expect(edges[0]?.data?.label).toBe("×2");
+});
+
+it("selecting a stacked child lights exactly the merged edges it participates in", () => {
+  const { graph: projected, stacks } = networkProjection({
+    version: 4,
+    nodes: stackFixture().nodes,
+    edges: [
+      { from: "probe", to: "web", kind: "depends_on", inferred: true },
+      { from: "pool", to: "web", kind: "depends_on", inferred: true },
+    ],
+  });
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "lb", x: 0, y: 0, width: 220, height: 120 },
+      { id: "web", x: 400, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { edges } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: "probe", // a stacked child
+    stacks,
+  });
+  // The merged lb→web edge carries the probe, so selecting the probe lights it.
+  expect(edges[0]?.data?.active).toBe(true);
+  expect(edges[0]?.data?.dimmed).toBe(false);
+});
+
+it("hub detection counts merged edges, dropping a node that only fanned out via a stack", () => {
+  // 16 satellites of `lb`, all depending on `web` → `web` has degree 16 raw
+  // (> HUB_DEGREE_THRESHOLD of 15), but one merged lb→web edge after re-anchoring.
+  const children = Array.from({ length: 16 }, (_, i) => `probe${i}`);
+  const nodes = [
+    { id: "web", name: "web", type: "azurerm_linux_virtual_machine", provider: "azurerm", module_path: [], change: null },
+    ...children.map((id) => ({ id, name: id, type: "azurerm_lb_probe", provider: "azurerm" as const, module_path: [] as string[], change: null })),
+  ];
+  const edges: GraphEdge[] = children.map((id) => ({ from: id, to: "web", kind: "depends_on" as const, inferred: true }));
+  const rawGraph: Graph = { version: 4, nodes, edges };
+  const childToHost = new Map(children.map((id) => [id, "lb"]));
+  const merged = reanchorStackEdges(edges, childToHost).edges;
+  const mergedGraph: Graph = { version: 4, nodes, edges: merged };
+
+  expect(detectHubs(rawGraph).has("web")).toBe(true); // 16 raw edges → a hub
+  expect(detectHubs(mergedGraph).has("web")).toBe(false); // one merged edge → not
 });
