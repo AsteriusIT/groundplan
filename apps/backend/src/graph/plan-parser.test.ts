@@ -152,6 +152,15 @@ test("attaches NSG rules, internet_exposed, and associations from a plan (GP-43)
   assert.equal(byId.get("azurerm_network_security_group.closed")!.internet_exposed, false);
 });
 
+test("attaches route-table associated_ids to the route table, without NSG payload (GP-89)", () => {
+  const graph = parsePlanToGraph(readJson("plans/nsg.plan.json"));
+  const rt = new Map(graph.nodes.map((n) => [n.id, n])).get("azurerm_route_table.rt")!;
+  assert.deepEqual(rt.associated_ids, ["azurerm_subnet.web"]);
+  // A route table is not a security group — it carries no rules / exposure flag.
+  assert.equal(rt.rules, undefined);
+  assert.equal(rt.internet_exposed, undefined);
+});
+
 test("a reference to a count resource fans out to all its instances", () => {
   const graph = parsePlanToGraph(readJson("plans/plan-expressions.plan.json"));
   const targets = graph.edges

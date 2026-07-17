@@ -198,6 +198,7 @@ export function PullDetailPage() {
           variant="plan"
           containerIds={network?.containerIds}
           stacks={network?.stacks}
+          chips={network?.chips}
           focusNodeId={focusNodeId}
           tour={tourChrome}
         />

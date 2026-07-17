@@ -115,9 +115,12 @@ export const ELK_ROOT_OPTIONS: Record<string, string> = {
   "elk.layered.spacing.edgeEdgeBetweenLayers": "12",
 };
 
+const MODULE_TOP_PAD = 36;
 const ELK_MODULE_OPTIONS: Record<string, string> = {
-  "elk.padding": "[top=36,left=16,bottom=16,right=16]",
+  "elk.padding": `[top=${MODULE_TOP_PAD},left=16,bottom=16,right=16]`,
 };
+// GP-89: extra top band inside a subnet frame for its NSG / route-table chip row.
+const CHIP_BAND = 30;
 
 export type GraphNodeData = {
   graphNode: GraphNode;
@@ -135,6 +138,8 @@ export type GraphNodeData = {
   stack?: GraphNode[];
   /** GP-87: true when a stacked child changed — the host wears the impacted ring. */
   stackChanged?: boolean;
+  /** GP-89: NSG / route-table chips attached to this subnet container's header. */
+  chips?: GraphNode[];
   [key: string]: unknown;
 };
 
@@ -190,6 +195,8 @@ export type ViewState = {
   containerIds?: ReadonlySet<string>;
   /** GP-87: host id → its stacked satellite children (network view only). */
   stacks?: ReadonlyMap<string, GraphNode[]>;
+  /** GP-89: subnet id → the NSG / route-table chips on its header (network view). */
+  chips?: ReadonlyMap<string, GraphNode[]>;
   /**
    * GP-79: the nodes the current tour stop is about. When a tour is running this
    * is the focus — it outranks hover and selection, because a narration that
@@ -315,6 +322,8 @@ export function networkProjection(graph: Graph): {
   containerIds: Set<string>;
   /** GP-87: host id → its stacked satellite children (kept out of the layout). */
   stacks: Map<string, GraphNode[]>;
+  /** GP-89: subnet id → the NSG / route-table chips on its header. */
+  chips: Map<string, GraphNode[]>;
 } {
   const keep = keptNetworkIds(graph);
   const nodes = graph.nodes.filter((node) => keep.has(node.id));
@@ -342,7 +351,61 @@ export function networkProjection(graph: Graph): {
     hiddenCount,
     containerIds,
     stacks: resourceStacks(projected, containerIds),
+    chips: subnetChips(projected, containerIds),
   };
+}
+
+/**
+ * GP-89: NSGs and route tables are not resources that sit *in* a subnet — they are
+ * attachments *to* one. Group every node that carries an `associated_ids` pointing
+ * at a kept subnet under that subnet, as a header chip. A node associated with
+ * several subnets appears under each (one chip per subnet, one identity); a node
+ * whose association resolves to no kept subnet is not grouped here — it stays a
+ * floating node, so a chip is never lost to a missing anchor.
+ */
+export function subnetChips(
+  graph: Graph,
+  containerIds: ReadonlySet<string>,
+): Map<string, GraphNode[]> {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const chips = new Map<string, GraphNode[]>();
+  for (const node of graph.nodes) {
+    for (const anchor of node.associated_ids ?? []) {
+      if (!containerIds.has(anchor)) continue;
+      if (byId.get(anchor)?.type !== "azurerm_subnet") continue;
+      const list = chips.get(anchor);
+      if (list) list.push(node);
+      else chips.set(anchor, [node]);
+    }
+  }
+  for (const list of chips.values()) list.sort((a, b) => a.id.localeCompare(b.id));
+  return chips;
+}
+
+/** Every attached node id — stacked satellite children and subnet chips alike.
+ * None is laid out by ELK; each rides on its host card / subnet header instead. */
+function attachedNodeIds(
+  stacks?: ReadonlyMap<string, GraphNode[]>,
+  chips?: ReadonlyMap<string, GraphNode[]>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const list of stacks?.values() ?? []) for (const c of list) ids.add(c.id);
+  for (const list of chips?.values() ?? []) for (const c of list) ids.add(c.id);
+  return ids;
+}
+
+/** attached node id → the node its edges re-anchor onto (GP-88/89): a stacked
+ * child's host, or a chip's subnet (the first it was listed under). */
+function attachmentAnchors(
+  stacks?: ReadonlyMap<string, GraphNode[]>,
+  chips?: ReadonlyMap<string, GraphNode[]>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [host, list] of stacks ?? []) for (const c of list) map.set(c.id, host);
+  for (const [subnet, list] of chips ?? []) {
+    for (const c of list) if (!map.has(c.id)) map.set(c.id, subnet);
+  }
+  return map;
 }
 
 /**
@@ -379,17 +442,6 @@ function stackChanged(children?: readonly GraphNode[]): boolean {
       (c) => (c.change !== null && c.change !== "noop") || c.impacted === true,
     ) ?? false
   );
-}
-
-/** child id → host id, from the stack map (GP-88). */
-export function childHostIndex(
-  stacks?: ReadonlyMap<string, GraphNode[]>,
-): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const [hostId, children] of stacks ?? []) {
-    for (const child of children) map.set(child.id, hostId);
-  }
-  return map;
 }
 
 /**
@@ -536,17 +588,6 @@ function resolveEmptyContainer(elk: ElkGraphNode, forced: boolean): void {
   elk.height = RESOURCE_HEIGHT;
 }
 
-/** The flattened set of every node stacked inside a host — never laid out. */
-export function stackedChildIdSet(
-  stacks?: ReadonlyMap<string, GraphNode[]>,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const children of stacks?.values() ?? []) {
-    for (const child of children) ids.add(child.id);
-  }
-  return ids;
-}
-
 /** Nest each ELK node under its `contains` parent, returning the roots; then
  * finalize any container that ended up empty. */
 function nestElkNodes(
@@ -576,9 +617,18 @@ function elkNodeFor(
   node: GraphNode,
   containerIds: ReadonlySet<string>,
   stacks?: ReadonlyMap<string, GraphNode[]>,
+  chips?: ReadonlyMap<string, GraphNode[]>,
 ): ElkGraphNode {
   if (isModule(node) || containerIds.has(node.id)) {
-    return { id: node.id, layoutOptions: ELK_MODULE_OPTIONS, children: [] };
+    // A subnet with header chips (GP-89) reserves a band at the top of its frame
+    // so the chips don't sit over the resources it contains.
+    const layoutOptions = chips?.get(node.id)?.length
+      ? {
+          ...ELK_MODULE_OPTIONS,
+          "elk.padding": `[top=${MODULE_TOP_PAD + CHIP_BAND},left=16,bottom=16,right=16]`,
+        }
+      : ELK_MODULE_OPTIONS;
+    return { id: node.id, layoutOptions, children: [] };
   }
   const hostChildren = stacks?.get(node.id);
   return {
@@ -593,10 +643,12 @@ export function toElkGraph(
   hubs?: ReadonlySet<string>,
   forceContainers?: ReadonlySet<string>,
   stacks?: ReadonlyMap<string, GraphNode[]>,
+  chips?: ReadonlyMap<string, GraphNode[]>,
 ): ElkGraphNode {
-  // Stacked satellite children never enter the layout — they ride on their host
-  // card's data instead (GP-87), so ELK's job (and cost) shrinks.
-  const stacked = stackedChildIdSet(stacks);
+  // Attached nodes — stacked satellite children (GP-87) and subnet chips (GP-89) —
+  // never enter the layout; they ride on their host card / subnet header instead,
+  // so ELK's job (and cost) shrinks.
+  const attached = attachedNodeIds(stacks, chips);
   const parentOf = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
@@ -612,23 +664,23 @@ export function toElkGraph(
 
   const elkById = new Map<string, ElkGraphNode>();
   for (const node of graph.nodes) {
-    if (!stacked.has(node.id)) {
-      elkById.set(node.id, elkNodeFor(node, containerIds, stacks));
+    if (!attached.has(node.id)) {
+      elkById.set(node.id, elkNodeFor(node, containerIds, stacks, chips));
     }
   }
   const roots = nestElkNodes(graph, elkById, parentOf, forced);
 
-  // Lay out the edges as they will be drawn: re-anchored onto host cards and
-  // merged (GP-88). With nothing stacked this is exactly the drawable edges (no
-  // re-anchor, no merge), so non-network views are unaffected.
+  // Lay out the edges as they will be drawn: re-anchored onto host cards / subnet
+  // containers and merged (GP-88/89). With nothing attached this is exactly the
+  // drawable edges (no re-anchor, no merge), so non-network views are unaffected.
   //
   // Reverse the dependency for layout (dependency → dependent) so roots sit on
   // the left and impact reads left→right (GP-31). Hub edges (GP-35) are left out
   // entirely so the hub node doesn't drag its whole neighbourhood together.
   // Logical edges (GP-72) go through ELK like any other.
   const drawn =
-    stacked.size > 0
-      ? reanchorStackEdges(graph.edges, childHostIndex(stacks)).edges
+    attached.size > 0
+      ? reanchorStackEdges(graph.edges, attachmentAnchors(stacks, chips)).edges
       : graph.edges.filter(isDrawnEdge);
   const edges = drawn
     .filter((edge) => !(hubs && isHubEdge(edge, hubs)))
@@ -760,22 +812,23 @@ export function elkRoutes(layout: ElkGraphNode): Map<string, Point[]> {
 function drawnEdgeSet(
   graph: Graph,
   stacks?: ReadonlyMap<string, GraphNode[]>,
+  chips?: ReadonlyMap<string, GraphNode[]>,
 ): {
   edges: GraphEdge[];
   members: Map<string, Set<string>>;
   touches: (edge: GraphEdge, id: string) => boolean;
-  childToHost: Map<string, string>;
+  anchorOf: Map<string, string>;
 } {
-  const childToHost = childHostIndex(stacks);
+  const anchorOf = attachmentAnchors(stacks, chips);
   const { edges, members } =
-    childToHost.size > 0
-      ? reanchorStackEdges(graph.edges, childToHost)
+    anchorOf.size > 0
+      ? reanchorStackEdges(graph.edges, anchorOf)
       : { edges: graph.edges.filter(isDrawnEdge), members: new Map<string, Set<string>>() };
   const touches = (edge: GraphEdge, id: string): boolean =>
     edge.from === id ||
     edge.to === id ||
     members.get(depEdgeId(edge))?.has(id) === true;
-  return { edges, members, touches, childToHost };
+  return { edges, members, touches, anchorOf };
 }
 
 /** Map a laid-out ELK graph back to React Flow nodes + edges, applying filters. */
@@ -789,10 +842,11 @@ export function elkToFlow(
   const showHubEdges = view.showHubEdges ?? false;
   const containerIds = view.containerIds ?? EMPTY_HUBS;
   const stacks = view.stacks;
-  // The edges as drawn (GP-88): re-anchored onto host cards and merged, with a
-  // `touches` predicate that lights a merged edge for any original endpoint behind
-  // it — so selecting a stacked child still works.
-  const { edges: drawnEdges, touches: edgeTouches, childToHost } = drawnEdgeSet(graph, stacks);
+  const chips = view.chips;
+  // The edges as drawn (GP-88/89): re-anchored onto host cards / subnet containers
+  // and merged, with a `touches` predicate that lights a merged edge for any
+  // original endpoint behind it — so selecting a stacked child or a chip works.
+  const { edges: drawnEdges, touches: edgeTouches, anchorOf } = drawnEdgeSet(graph, stacks, chips);
   // A tour stop outranks both: while one is running, the diagram is showing you
   // what the narrator is talking about, and a stray hover must not redirect it.
   // An empty set is the whole-diagram stop, which focuses nothing.
@@ -802,7 +856,7 @@ export function elkToFlow(
   // Selection wins, so hovering elsewhere can't yank you out of what you pinned.
   const focusId = touring ? null : (selectedId ?? view.hoveredId ?? null);
   const neighbors = focusId
-    ? litNeighborhood(graph, drawnEdges, focusId, edgeTouches, childToHost)
+    ? litNeighborhood(graph, drawnEdges, focusId, edgeTouches, anchorOf)
     : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
@@ -882,6 +936,8 @@ export function elkToFlow(
                 stackChanged: stackChanged(stacks.get(graphNode.id)),
               }
             : {}),
+          // GP-89: a subnet container carries its NSG / route-table chips.
+          ...(chips?.has(graphNode.id) ? { chips: chips.get(graphNode.id) } : {}),
         },
         width,
         height,

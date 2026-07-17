@@ -103,6 +103,14 @@ test("attaches NSG rules, internet_exposed, and associations from HCL (GP-43)", 
   assert.deepEqual(open.associated_ids, ["azurerm_subnet.web"]);
 });
 
+test("attaches route-table associated_ids to the route table, without NSG payload (GP-89)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-nsg"));
+  const rt = new Map(graph.nodes.map((n) => [n.id, n])).get("azurerm_route_table.rt")!;
+  assert.deepEqual(rt.associated_ids, ["azurerm_subnet.web"]);
+  assert.equal(rt.rules, undefined);
+  assert.equal(rt.internet_exposed, undefined);
+});
+
 test("attaches role-assignment triples, privileged flags, and identities from HCL (GP-47)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-iam"));
   assert.equal(graph.version, 4);

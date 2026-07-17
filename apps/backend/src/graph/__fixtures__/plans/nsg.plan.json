@@ -75,6 +75,22 @@
       "name": "web",
       "provider_name": "registry.terraform.io/hashicorp/azurerm",
       "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_route_table.rt",
+      "mode": "managed",
+      "type": "azurerm_route_table",
+      "name": "rt",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
+    },
+    {
+      "address": "azurerm_subnet_route_table_association.web",
+      "mode": "managed",
+      "type": "azurerm_subnet_route_table_association",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"] }
     }
   ],
   "configuration": {
@@ -91,6 +107,20 @@
             },
             "network_security_group_id": {
               "references": ["azurerm_network_security_group.open.id", "azurerm_network_security_group.open"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_subnet_route_table_association.web",
+          "mode": "managed",
+          "type": "azurerm_subnet_route_table_association",
+          "name": "web",
+          "expressions": {
+            "subnet_id": {
+              "references": ["azurerm_subnet.web.id", "azurerm_subnet.web"]
+            },
+            "route_table_id": {
+              "references": ["azurerm_route_table.rt.id", "azurerm_route_table.rt"]
             }
           }
         }

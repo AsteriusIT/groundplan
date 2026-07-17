@@ -42,3 +42,14 @@ resource "azurerm_subnet_network_security_group_association" "web" {
   subnet_id                 = azurerm_subnet.web.id
   network_security_group_id = azurerm_network_security_group.open.id
 }
+
+# GP-89: a route table guards the same subnet — associated, but not a security
+# group, so it carries associated_ids and nothing else.
+resource "azurerm_route_table" "rt" {
+  name = "rt"
+}
+
+resource "azurerm_subnet_route_table_association" "web" {
+  subnet_id      = azurerm_subnet.web.id
+  route_table_id = azurerm_route_table.rt.id
+}

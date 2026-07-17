@@ -35,7 +35,7 @@ import type {
   UnresolvedReference,
 } from "./graph.js";
 import { attachIam, type ExtractedIam } from "./iam.js";
-import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
+import { attachAssociations, attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 export type HclFile = { path: string; content: string };
 export type HclParseResult = {
@@ -360,22 +360,44 @@ function isReferenceable(ref: string, resourceTypes: ReadonlySet<string>): boole
 }
 
 /** Resolve an association block body's refs to the (NSG, subnet/NIC) it links. */
+const ASSOCIATION_OWNERS = new Set([
+  "azurerm_network_security_group",
+  "azurerm_route_table",
+]);
+
 function hclAssociationTargets(
   ps: PendingSource,
   ctx: Ctx,
   edgeCtx: EdgeContext,
-): { nsgId: string; targetId: string } | null {
+): { ownerId: string; targetId: string } | null {
   const resolved = extractReferences(ps.body).flatMap((ref) =>
     resolveReference(ps.prefix, ref, edgeCtx),
   );
-  const nsgId = resolved.find(
-    (rid) => ctx.nodes.get(rid)?.type === "azurerm_network_security_group",
+  const ownerId = resolved.find((rid) =>
+    ASSOCIATION_OWNERS.has(ctx.nodes.get(rid)?.type ?? ""),
   );
   const targetId = resolved.find((rid) => {
     const t = ctx.nodes.get(rid)?.type;
     return t === "azurerm_subnet" || t === "azurerm_network_interface";
   });
-  return nsgId && targetId ? { nsgId, targetId } : null;
+  return ownerId && targetId ? { ownerId, targetId } : null;
+}
+
+/** Route-table → subnet associations (GP-89), keyed by route-table node id. */
+function extractHclRouteTableAssociations(
+  ctx: Ctx,
+  edgeCtx: EdgeContext,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const ps of ctx.pendingSources) {
+    if (!ps.fromBase.includes("_route_table_association")) continue;
+    const assoc = hclAssociationTargets(ps, ctx, edgeCtx);
+    if (!assoc) continue;
+    const list = out.get(assoc.ownerId) ?? [];
+    list.push(assoc.targetId);
+    out.set(assoc.ownerId, list);
+  }
+  return out;
 }
 
 /** Collect per-NSG inline rules + subnet/NIC associations for the docs producer. */
@@ -393,7 +415,7 @@ function extractHclNsg(ctx: Ctx, edgeCtx: EdgeContext): Map<string, ExtractedNsg
   for (const ps of ctx.pendingSources) {
     if (!ps.fromBase.includes("_security_group_association")) continue;
     const assoc = hclAssociationTargets(ps, ctx, edgeCtx);
-    if (assoc) nsgOf(assoc.nsgId).associatedIds.push(assoc.targetId);
+    if (assoc) nsgOf(assoc.ownerId).associatedIds.push(assoc.targetId);
   }
   return extracted;
 }
@@ -571,6 +593,12 @@ export function parseHclRepo(
   // NSG payload (GP-43): rules + internet_exposed + associations on NSG nodes.
   attachNsg([...ctx.nodes.values()], extractHclNsg(ctx, edgeCtx));
 
+  // Route-table → subnet associations (GP-89): associated_ids only, no NSG payload.
+  attachAssociations(
+    [...ctx.nodes.values()],
+    extractHclRouteTableAssociations(ctx, edgeCtx),
+  );
+
   // IAM payload (GP-47): role-assignment triples, identities, privileged flag.
   attachIam([...ctx.nodes.values()], extractHclIam(ctx, edgeCtx));
 
@@ -593,6 +621,7 @@ export function parseHclRepo(
     n.parent_id !== undefined ||
     n.rules !== undefined ||
     n.internet_exposed !== undefined ||
+    n.associated_ids !== undefined ||
     n.role_assignment !== undefined ||
     n.identity !== undefined;
   const version: Graph["version"] = nodes.some(isV4) ? 4 : 1;

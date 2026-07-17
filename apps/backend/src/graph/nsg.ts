@@ -29,6 +29,24 @@ export function normalizePorts(raw: unknown): string {
 export type ExtractedNsg = { rules: NsgRule[]; associatedIds: string[] };
 
 /**
+ * Attach only `associated_ids` to the mapped nodes (GP-89) — route tables guard a
+ * subnet the way an NSG does, but they are not security groups: they carry the
+ * association and nothing else (no rules, no `internet_exposed`). Deduped + sorted
+ * for stable output. Mutates the nodes in place.
+ */
+export function attachAssociations(
+  nodes: GraphNode[],
+  associations: ReadonlyMap<string, string[]>,
+): void {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const [id, targets] of associations) {
+    const node = byId.get(id);
+    if (!node || targets.length === 0) continue;
+    node.associated_ids = [...new Set(targets)].sort((a, b) => a.localeCompare(b));
+  }
+}
+
+/**
  * Attach `rules`, `internet_exposed`, and `associated_ids` to the matching NSG
  * nodes. Rules are sorted by priority (then name) and associations deduped +
  * sorted, for stable, deterministic output. Mutates the nodes in place.

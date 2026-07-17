@@ -290,6 +290,18 @@ function toggle<T>(set: Set<T>, key: T): Set<T> {
   return next;
 }
 
+/** Invert an attachment map (anchor id → attached nodes) to attached id → anchor
+ * id, keeping the first anchor for a node listed under several (GP-87/89). */
+function attachAnchors(
+  groups?: ReadonlyMap<string, GraphNode[]>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [anchorId, nodes] of groups ?? []) {
+    for (const node of nodes) if (!map.has(node.id)) map.set(node.id, anchorId);
+  }
+  return map;
+}
+
 /**
  * Shared graph canvas (GP-17 / GP-24 / GP-25): an ELK-laid-out React Flow diagram
  * with type-first labels, category icons, module nesting, change/impact colouring,
@@ -302,6 +314,7 @@ export function GraphCanvas({
   focusNodeId,
   containerIds,
   stacks,
+  chips,
   annotations,
   annotate = false,
   onCreateAnnotation,
@@ -320,6 +333,8 @@ export function GraphCanvas({
   /** GP-87: host id → its stacked satellite children (network view only). Their
    * cards render as rows inside the host; ELK never lays them out. */
   stacks?: ReadonlyMap<string, GraphNode[]>;
+  /** GP-89: subnet id → the NSG / route-table chips on its header (network view). */
+  chips?: ReadonlyMap<string, GraphNode[]>;
   /** GP-58: the annotation layer. Rendered as an overlay in every mode; when
    * absent the canvas behaves exactly as before (no annotate affordances). */
   annotations?: Annotation[];
@@ -368,37 +383,42 @@ export function GraphCanvas({
   const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  // GP-87: a stacked child that search/fly-to landed on — its row pulses on the
-  // host card until the next navigation.
+  // GP-87/89: an attached node (a stacked row or a subnet chip) that search /
+  // fly-to landed on — it pulses on its host card / subnet header until the next
+  // navigation.
   const [highlightedChild, setHighlightedChild] = useState<string | null>(null);
-  // Which host each stacked child belongs to, so fly-to can target the host card
-  // and highlight the row rather than a node that isn't on the canvas.
-  const childToHost = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const [hostId, children] of stacks ?? []) {
-      for (const child of children) map.set(child.id, hostId);
-    }
+  const [highlightedChip, setHighlightedChip] = useState<string | null>(null);
+  // Which host each stacked child belongs to (GP-87), which subnet each chip
+  // belongs to (GP-89), and — for edge re-anchoring / hub detection — both at once.
+  const childToHost = useMemo(() => attachAnchors(stacks), [stacks]);
+  const chipToSubnet = useMemo(() => attachAnchors(chips), [chips]);
+  const anchorOf = useMemo(() => {
+    const map = new Map(childToHost);
+    for (const [id, subnet] of chipToSubnet) if (!map.has(id)) map.set(id, subnet);
     return map;
-  }, [stacks]);
+  }, [childToHost, chipToSubnet]);
 
-  // Selecting a stacked child (row click, GP-87) opens its own detail panel and
-  // pulses its row — the camera stays put, since the child is already on screen
-  // inside its host card.
+  // Selecting an attached node (row / chip click) opens its own detail panel and
+  // pulses it — the camera stays put, since it is already on screen on its host.
   const selectStackChild = useCallback((child: GraphNode) => {
     setSelected(child);
     setHighlightedChild(child.id);
   }, []);
+  const selectChip = useCallback((node: GraphNode) => {
+    setSelected(node);
+    setHighlightedChip(node.id);
+  }, []);
 
   // GP-88: hub detection and the layout run on the *drawn* edge set — edges
-  // re-anchored onto host cards and merged. Merging collapses a satellite's fan
-  // of lines into one, which can drop a host below the hub threshold, so degrees
-  // are counted on what is actually drawn.
+  // re-anchored onto host cards / subnet containers and merged. Merging collapses
+  // an attachment's fan of lines into one, which can drop a node below the hub
+  // threshold, so degrees are counted on what is actually drawn.
   const hubGraph = useMemo(
     () =>
-      stacks && stacks.size > 0
-        ? { ...graph, edges: reanchorStackEdges(graph.edges, childToHost).edges }
+      anchorOf.size > 0
+        ? { ...graph, edges: reanchorStackEdges(graph.edges, anchorOf).edges }
         : graph,
-    [graph, stacks, childToHost],
+    [graph, anchorOf],
   );
   const hubs = useMemo(() => detectHubs(hubGraph), [hubGraph]);
   const [showHubEdges, setShowHubEdges] = useState(false);
@@ -415,13 +435,14 @@ export function GraphCanvas({
     setSelected(null);
     setHoveredId(null);
     setHighlightedChild(null);
+    setHighlightedChip(null);
     setQuery("");
     setShowHubEdges(false);
     setActiveFilters(new Set(ALL_FILTERS));
     setActiveCategories(new Set(categoryOptions(graph)));
     setActiveModules(new Set(moduleOptions(graph)));
     elk
-      .layout(toElkGraph(graph, hubs, containerIds, stacks))
+      .layout(toElkGraph(graph, hubs, containerIds, stacks, chips))
       .then((result) => {
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
@@ -438,7 +459,7 @@ export function GraphCanvas({
     return () => {
       cancelled = true;
     };
-  }, [graph, containerIds, stacks, hubs]);
+  }, [graph, containerIds, stacks, chips, hubs]);
 
   // `/` focuses the search box (unless already typing in a field).
   useEffect(() => {
@@ -479,10 +500,11 @@ export function GraphCanvas({
             showHubEdges,
             containerIds,
             stacks,
+            chips,
             tourAnchors,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, stacks, tourAnchors],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, stacks, chips, tourAnchors],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
@@ -604,7 +626,25 @@ export function GraphCanvas({
     // Colour picked resources and, for the multi-select tools, make them
     // box-selectable (rubber-band drag). Overlay/module/container nodes never are.
     const mapped = elements.nodes.map((node) => {
-      if (node.type !== "resource") return { ...node, selectable: false };
+      if (node.type !== "resource") {
+        // A subnet container carries its NSG / route-table chips (GP-89): wire
+        // chip selection + the pulse a search fly-to leaves on a chip.
+        if (node.type === "container") {
+          return {
+            ...node,
+            selectable: false,
+            data: {
+              ...node.data,
+              onSelectChip: selectChip,
+              highlightedChipId:
+                highlightedChip && chipToSubnet.get(highlightedChip) === node.id
+                  ? highlightedChip
+                  : undefined,
+            },
+          };
+        }
+        return { ...node, selectable: false };
+      }
       const chosen = pickedSet.has(node.id);
       // A proposal being hovered in the inbox lights its anchors the same way a
       // picked node lights: "these are the resources in question" is one idea.
@@ -641,6 +681,9 @@ export function GraphCanvas({
     highlightedChild,
     childToHost,
     selectStackChild,
+    highlightedChip,
+    chipToSubnet,
+    selectChip,
   ]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
@@ -760,17 +803,20 @@ export function GraphCanvas({
     (node: GraphNode) => {
       setSelected(node);
       setQuery(""); // close the results dropdown once a result is chosen
-      // A stacked child (GP-87) has no node of its own on the canvas: fly to the
-      // host card that carries it and pulse the child's row instead.
+      // An attached node (a stacked child, GP-87, or a subnet chip, GP-89) has no
+      // node of its own on the canvas: fly to the host / subnet that carries it
+      // and pulse the row / chip instead.
       const hostId = childToHost.get(node.id);
+      const subnetId = chipToSubnet.get(node.id);
       setHighlightedChild(hostId ? node.id : null);
+      setHighlightedChip(subnetId ? node.id : null);
       void rfRef.current?.fitView({
-        nodes: [{ id: hostId ?? node.id }],
+        nodes: [{ id: hostId ?? subnetId ?? node.id }],
         duration: 500,
         maxZoom: 1.5,
       });
     },
-    [childToHost],
+    [childToHost, chipToSubnet],
   );
 
   // Fly to a node requested from outside (GP-40 compare summary lists).
@@ -848,6 +894,7 @@ export function GraphCanvas({
         onPaneClick={() => {
           setSelected(null);
           setHighlightedChild(null);
+          setHighlightedChip(null);
         }}
         nodesDraggable={false}
         nodesConnectable={false}

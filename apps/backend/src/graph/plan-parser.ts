@@ -38,7 +38,7 @@ import type {
 } from "./graph.js";
 import { attachIam, type ExtractedIam } from "./iam.js";
 import { propagateImpact } from "./impact.js";
-import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
+import { attachAssociations, attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 type PlanChange = PlanResourceChange & { actions?: unknown };
 type ResourceChange = {
@@ -201,23 +201,50 @@ function joinValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-/** Resolve an association resource's refs to the (NSG, subnet/NIC) it links. */
+const ASSOCIATION_OWNERS = new Set([
+  "azurerm_network_security_group",
+  "azurerm_route_table",
+]);
+
+/**
+ * Resolve an association resource's refs to the (owner, subnet/NIC) it links. The
+ * owner is the NSG (GP-43) or the route table (GP-89); the target is the subnet or
+ * NIC it guards.
+ */
 function associationTargets(
   source: DependencySource,
   edgeCtx: EdgeContext,
   nodesById: ReadonlyMap<string, GraphNode>,
-): { nsgId: string; targetId: string } | null {
+): { ownerId: string; targetId: string } | null {
   const resolved = source.refs.flatMap((r) =>
     resolveReference(source.prefix, r.ref, edgeCtx),
   );
-  const nsgId = resolved.find(
-    (rid) => nodesById.get(rid)?.type === "azurerm_network_security_group",
+  const ownerId = resolved.find((rid) =>
+    ASSOCIATION_OWNERS.has(nodesById.get(rid)?.type ?? ""),
   );
   const targetId = resolved.find((rid) => {
     const t = nodesById.get(rid)?.type;
     return t === "azurerm_subnet" || t === "azurerm_network_interface";
   });
-  return nsgId && targetId ? { nsgId, targetId } : null;
+  return ownerId && targetId ? { ownerId, targetId } : null;
+}
+
+/** Route-table → subnet associations (GP-89), keyed by route-table node id. */
+function extractPlanRouteTableAssociations(
+  sources: readonly DependencySource[],
+  edgeCtx: EdgeContext,
+  nodesById: ReadonlyMap<string, GraphNode>,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const source of sources) {
+    if (!source.fromBase.includes("_route_table_association")) continue;
+    const assoc = associationTargets(source, edgeCtx, nodesById);
+    if (!assoc) continue;
+    const list = out.get(assoc.ownerId) ?? [];
+    list.push(assoc.targetId);
+    out.set(assoc.ownerId, list);
+  }
+  return out;
 }
 
 /** Map a plan `after.security_rule[]` entry to an NsgRule (raw values). */
@@ -273,7 +300,7 @@ function extractPlanNsg(
   for (const source of sources) {
     if (!source.fromBase.includes("_security_group_association")) continue;
     const assoc = associationTargets(source, edgeCtx, nodesById);
-    if (assoc) nsgOf(assoc.nsgId).associatedIds.push(assoc.targetId);
+    if (assoc) nsgOf(assoc.ownerId).associatedIds.push(assoc.targetId);
   }
 
   return extracted;
@@ -548,6 +575,12 @@ export function parsePlanToGraph(
     extractPlanNsg(changes, sources, edgeCtx, nodesById),
   );
 
+  // Route-table → subnet associations (GP-89): associated_ids only, no NSG payload.
+  attachAssociations(
+    [...nodesById.values()],
+    extractPlanRouteTableAssociations(sources, edgeCtx, nodesById),
+  );
+
   // IAM payload (GP-47): role-assignment triples, managed identities, and the
   // computed privileged flag on the relevant nodes.
   attachIam(
@@ -567,6 +600,7 @@ export function parsePlanToGraph(
     n.parent_id !== undefined ||
     n.rules !== undefined ||
     n.internet_exposed !== undefined ||
+    n.associated_ids !== undefined ||
     n.role_assignment !== undefined ||
     n.identity !== undefined;
   let version: Graph["version"] = 2;

@@ -1039,3 +1039,68 @@ it("hub detection counts merged edges, dropping a node that only fanned out via 
   expect(detectHubs(rawGraph).has("web")).toBe(true); // 16 raw edges → a hub
   expect(detectHubs(mergedGraph).has("web")).toBe(false); // one merged edge → not
 });
+
+// --- GP-89: subnet chips (NSG / route table attach to their subnet) ----------
+
+/** vnet ⊃ subnet, guarded by an NSG (associated) and a route table; a lone NSG
+ *  whose subnet isn't in the graph stays floating. */
+function chipFixture(): Graph {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  return {
+    version: 4,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("subnet", "azurerm_subnet", { parent_id: "vnet" }),
+      n("nic", "azurerm_network_interface", { parent_id: "subnet" }),
+      n("nsg", "azurerm_network_security_group", { associated_ids: ["subnet"], change: "update" }),
+      n("rt", "azurerm_route_table", { associated_ids: ["subnet"] }),
+      // Guards a NIC, not a subnet → kept, but not a chip: stays a floating node.
+      n("orphan", "azurerm_network_security_group", { associated_ids: ["nic"] }),
+    ],
+    edges: [{ from: "nsg", to: "nic", kind: "depends_on", inferred: true }],
+  };
+}
+
+it("subnetChips groups NSGs / route tables under the subnet they guard", () => {
+  const { chips } = networkProjection(chipFixture());
+  expect(chips.get("subnet")?.map((c) => c.id)).toEqual(["nsg", "rt"]);
+});
+
+it("networkProjection removes chip nodes from the layout but keeps the orphan floating", () => {
+  const { graph: projected, chips } = networkProjection(chipFixture());
+  // Chip nodes stay in the graph (search + detail resolve them)…
+  expect(projected.nodes.map((n) => n.id)).toEqual(
+    expect.arrayContaining(["nsg", "rt", "orphan"]),
+  );
+  // …the orphan NSG (subnet not in graph) is not a chip anywhere.
+  expect([...chips.values()].flat().some((c) => c.id === "orphan")).toBe(false);
+  const elk = toElkGraph(projected, undefined, new Set(["vnet", "subnet"]), undefined, chips);
+  const ids = collectElkIds(elk);
+  expect(ids).not.toContain("nsg"); // laid out as a chip, not a floating node
+  expect(ids).not.toContain("rt");
+  expect(ids).toContain("orphan"); // no subnet → still a floating node
+});
+
+it("elkToFlow delivers chips to the subnet container node data", () => {
+  const { graph: projected, chips, containerIds } = networkProjection(chipFixture());
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      {
+        id: "vnet", x: 0, y: 0, width: 400, height: 300,
+        children: [{ id: "subnet", x: 20, y: 40, width: 320, height: 200, children: [{ id: "nic", x: 20, y: 60, width: 220, height: 56 }] }],
+      },
+      { id: "orphan", x: 500, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { nodes } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: null,
+    containerIds,
+    chips,
+  });
+  const subnet = nodes.find((n) => n.id === "subnet");
+  expect(subnet?.data.chips?.map((c) => c.id)).toEqual(["nsg", "rt"]);
+});
