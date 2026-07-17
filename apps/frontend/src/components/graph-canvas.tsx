@@ -300,6 +300,7 @@ export function GraphCanvas({
   variant = "plan",
   focusNodeId,
   containerIds,
+  stacks,
   annotations,
   annotate = false,
   onCreateAnnotation,
@@ -315,6 +316,9 @@ export function GraphCanvas({
   focusNodeId?: string | null;
   /** vnet/subnet ids to render as containers even when empty (GP-44 network view). */
   containerIds?: ReadonlySet<string>;
+  /** GP-87: host id → its stacked satellite children (network view only). Their
+   * cards render as rows inside the host; ELK never lays them out. */
+  stacks?: ReadonlyMap<string, GraphNode[]>;
   /** GP-58: the annotation layer. Rendered as an overlay in every mode; when
    * absent the canvas behaves exactly as before (no annotate affordances). */
   annotations?: Annotation[];
@@ -364,6 +368,26 @@ export function GraphCanvas({
   const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // GP-87: a stacked child that search/fly-to landed on — its row pulses on the
+  // host card until the next navigation.
+  const [highlightedChild, setHighlightedChild] = useState<string | null>(null);
+  // Which host each stacked child belongs to, so fly-to can target the host card
+  // and highlight the row rather than a node that isn't on the canvas.
+  const childToHost = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [hostId, children] of stacks ?? []) {
+      for (const child of children) map.set(child.id, hostId);
+    }
+    return map;
+  }, [stacks]);
+
+  // Selecting a stacked child (row click, GP-87) opens its own detail panel and
+  // pulses its row — the camera stays put, since the child is already on screen
+  // inside its host card.
+  const selectStackChild = useCallback((child: GraphNode) => {
+    setSelected(child);
+    setHighlightedChild(child.id);
+  }, []);
   const [showHubEdges, setShowHubEdges] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -377,13 +401,14 @@ export function GraphCanvas({
     setLaying(true);
     setSelected(null);
     setHoveredId(null);
+    setHighlightedChild(null);
     setQuery("");
     setShowHubEdges(false);
     setActiveFilters(new Set(ALL_FILTERS));
     setActiveCategories(new Set(categoryOptions(graph)));
     setActiveModules(new Set(moduleOptions(graph)));
     elk
-      .layout(toElkGraph(graph, detectHubs(graph), containerIds))
+      .layout(toElkGraph(graph, detectHubs(graph), containerIds, stacks))
       .then((result) => {
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
@@ -400,7 +425,7 @@ export function GraphCanvas({
     return () => {
       cancelled = true;
     };
-  }, [graph, containerIds]);
+  }, [graph, containerIds, stacks]);
 
   // `/` focuses the search box (unless already typing in a field).
   useEffect(() => {
@@ -440,10 +465,11 @@ export function GraphCanvas({
             hubs,
             showHubEdges,
             containerIds,
+            stacks,
             tourAnchors,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, tourAnchors],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, stacks, tourAnchors],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
@@ -579,6 +605,13 @@ export function GraphCanvas({
           picked: chosen || previewed,
           hiddenByAnnotation: hidden.has(node.id),
           renameLabel: renamed.get(node.id),
+          // GP-87: clicking a stacked child row selects that child; a child the
+          // search flew to pulses on its host card.
+          onSelectStackChild: selectStackChild,
+          highlightedChildId:
+            highlightedChild && childToHost.get(highlightedChild) === node.id
+              ? highlightedChild
+              : undefined,
         },
       };
     });
@@ -592,6 +625,9 @@ export function GraphCanvas({
     hidden,
     renamed,
     highlightIds,
+    highlightedChild,
+    childToHost,
+    selectStackChild,
   ]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
@@ -707,11 +743,22 @@ export function GraphCanvas({
     [marqueeSelecting, resourceNodeIds],
   );
 
-  const flyTo = useCallback((node: GraphNode) => {
-    setSelected(node);
-    setQuery(""); // close the results dropdown once a result is chosen
-    void rfRef.current?.fitView({ nodes: [{ id: node.id }], duration: 500, maxZoom: 1.5 });
-  }, []);
+  const flyTo = useCallback(
+    (node: GraphNode) => {
+      setSelected(node);
+      setQuery(""); // close the results dropdown once a result is chosen
+      // A stacked child (GP-87) has no node of its own on the canvas: fly to the
+      // host card that carries it and pulse the child's row instead.
+      const hostId = childToHost.get(node.id);
+      setHighlightedChild(hostId ? node.id : null);
+      void rfRef.current?.fitView({
+        nodes: [{ id: hostId ?? node.id }],
+        duration: 500,
+        maxZoom: 1.5,
+      });
+    },
+    [childToHost],
+  );
 
   // Fly to a node requested from outside (GP-40 compare summary lists).
   useEffect(() => {
@@ -785,7 +832,10 @@ export function GraphCanvas({
         }
         onNodeMouseLeave={() => setHoveredId(null)}
         onNodesChange={handleNodesChange}
-        onPaneClick={() => setSelected(null)}
+        onPaneClick={() => {
+          setSelected(null);
+          setHighlightedChild(null);
+        }}
         nodesDraggable={false}
         nodesConnectable={false}
         // Group/hide tools: left-drag draws a selection box; middle/right-drag pans.

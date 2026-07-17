@@ -27,6 +27,22 @@ const MODULE_LEAF_WIDTH = 200;
 const EMPTY_CONTAINER_WIDTH = 200;
 const EMPTY_CONTAINER_HEIGHT = 84;
 
+// GP-87: a resource host card grows to fit its stacked satellite rows. ELK
+// reserves the collapsed height — up to STACK_MAX_ROWS rows plus a "+n more" row;
+// expanding past that overflows the card at render time, which is fine (an
+// on-demand reveal, not part of the layout).
+const STACK_ROW_HEIGHT = 22;
+export const STACK_MAX_ROWS = 6;
+const STACK_TOP_PAD = 6;
+
+/** The laid-out height of a host card given how many satellite children it stacks. */
+export function stackHostHeight(childCount: number): number {
+  if (childCount === 0) return RESOURCE_HEIGHT;
+  const rows =
+    Math.min(childCount, STACK_MAX_ROWS) + (childCount > STACK_MAX_ROWS ? 1 : 0);
+  return RESOURCE_HEIGHT + STACK_TOP_PAD + rows * STACK_ROW_HEIGHT;
+}
+
 /** One routed edge as ELK hands it back: endpoints plus its right-angle turns. */
 export interface ElkEdgeSection {
   id: string;
@@ -115,6 +131,10 @@ export type GraphNodeData = {
   hubHiddenCount?: number;
   /** True when this node is internet-exposed (an exposed NSG or its target; GP-45). */
   exposed?: boolean;
+  /** GP-87: satellite children stacked inside this host card (network view). */
+  stack?: GraphNode[];
+  /** GP-87: true when a stacked child changed — the host wears the impacted ring. */
+  stackChanged?: boolean;
   [key: string]: unknown;
 };
 
@@ -168,6 +188,8 @@ export type ViewState = {
   showHubEdges?: boolean;
   /** vnet/subnet ids that render as containers even when empty (GP-44). */
   containerIds?: ReadonlySet<string>;
+  /** GP-87: host id → its stacked satellite children (network view only). */
+  stacks?: ReadonlyMap<string, GraphNode[]>;
   /**
    * GP-79: the nodes the current tour stop is about. When a tour is running this
    * is the focus — it outranks hover and selection, because a narration that
@@ -291,11 +313,17 @@ export function networkProjection(graph: Graph): {
   hiddenCount: number;
   /** vnet/subnet ids to render as containers — even when they hold nothing. */
   containerIds: Set<string>;
+  /** GP-87: host id → its stacked satellite children (kept out of the layout). */
+  stacks: Map<string, GraphNode[]>;
 } {
   const keep = keptNetworkIds(graph);
   const nodes = graph.nodes.filter((node) => keep.has(node.id));
+  const containerIds = new Set(nodes.filter(isNetworkContainer).map((n) => n.id));
+  // Containment nests via ELK only under a container (vnet/subnet). A node
+  // parented to a *resource host* is stacked into that host's card instead
+  // (GP-87) — it gets no contains edge and is pulled out of the layout later.
   const containsEdges: GraphEdge[] = nodes
-    .filter((node) => node.parent_id !== undefined && keep.has(node.parent_id))
+    .filter((node) => node.parent_id !== undefined && containerIds.has(node.parent_id))
     .map((node) => ({ from: node.parent_id as string, to: node.id, kind: "contains" }));
   const dependsOn = graph.edges.filter(
     (e) => e.kind === "depends_on" && keep.has(e.from) && keep.has(e.to),
@@ -303,13 +331,54 @@ export function networkProjection(graph: Graph): {
   const hiddenCount = graph.nodes.filter(
     (node) => !isModule(node) && !isNetworkPlumbing(node) && !keep.has(node.id),
   ).length;
-  const containerIds = new Set(nodes.filter(isNetworkContainer).map((n) => n.id));
 
+  const projected: Graph = {
+    version: graph.version,
+    nodes,
+    edges: [...containsEdges, ...dependsOn],
+  };
   return {
-    graph: { version: graph.version, nodes, edges: [...containsEdges, ...dependsOn] },
+    graph: projected,
     hiddenCount,
     containerIds,
+    stacks: resourceStacks(projected, containerIds),
   };
+}
+
+/**
+ * GP-87: satellite children stacked inside their resource host in the network
+ * view. A host is a non-container node that is some kept node's `parent_id`; its
+ * children are the nodes parented to it. A node parented directly to a
+ * vnet/subnet container nests via ELK instead (not here). Children are sorted by
+ * id so the stack renders deterministically.
+ */
+export function resourceStacks(
+  graph: Graph,
+  containerIds: ReadonlySet<string>,
+): Map<string, GraphNode[]> {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const stacks = new Map<string, GraphNode[]>();
+  for (const node of graph.nodes) {
+    const parentId = node.parent_id;
+    if (parentId === undefined || containerIds.has(parentId)) continue;
+    const host = byId.get(parentId);
+    if (!host || isModule(host)) continue;
+    const list = stacks.get(parentId);
+    if (list) list.push(node);
+    else stacks.set(parentId, [node]);
+  }
+  for (const list of stacks.values()) list.sort((a, b) => a.id.localeCompare(b.id));
+  return stacks;
+}
+
+/** GP-87: true when any stacked child carries a real change or is impacted — the
+ * host must wear the impacted ring so a diff inside the stack stays visible. */
+function stackChanged(children?: readonly GraphNode[]): boolean {
+  return (
+    children?.some(
+      (c) => (c.change !== null && c.change !== "noop") || c.impacted === true,
+    ) ?? false
+  );
 }
 
 /**
@@ -374,11 +443,67 @@ function resolveEmptyContainer(elk: ElkGraphNode, forced: boolean): void {
   elk.height = RESOURCE_HEIGHT;
 }
 
+/** The flattened set of every node stacked inside a host — never laid out. */
+export function stackedChildIdSet(
+  stacks?: ReadonlyMap<string, GraphNode[]>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const children of stacks?.values() ?? []) {
+    for (const child of children) ids.add(child.id);
+  }
+  return ids;
+}
+
+/** Nest each ELK node under its `contains` parent, returning the roots; then
+ * finalize any container that ended up empty. */
+function nestElkNodes(
+  graph: Graph,
+  elkById: ReadonlyMap<string, ElkGraphNode>,
+  parentOf: ReadonlyMap<string, string>,
+  forced: ReadonlySet<string>,
+): ElkGraphNode[] {
+  const roots: ElkGraphNode[] = [];
+  for (const node of graph.nodes) {
+    const elk = elkById.get(node.id);
+    if (!elk) continue; // stacked child — not laid out
+    const parentId = parentOf.get(node.id);
+    const parent = parentId ? elkById.get(parentId) : undefined;
+    if (parent?.children) parent.children.push(elk);
+    else roots.push(elk);
+  }
+  for (const [id, elk] of elkById) {
+    if (elk.children?.length === 0) resolveEmptyContainer(elk, forced.has(id));
+  }
+  return roots;
+}
+
+/** The ELK node for a graph node: a subflow container, or a sized resource box
+ * (taller when it hosts a satellite stack, GP-87). */
+function elkNodeFor(
+  node: GraphNode,
+  containerIds: ReadonlySet<string>,
+  stacks?: ReadonlyMap<string, GraphNode[]>,
+): ElkGraphNode {
+  if (isModule(node) || containerIds.has(node.id)) {
+    return { id: node.id, layoutOptions: ELK_MODULE_OPTIONS, children: [] };
+  }
+  const hostChildren = stacks?.get(node.id);
+  return {
+    id: node.id,
+    width: RESOURCE_WIDTH,
+    height: hostChildren ? stackHostHeight(hostChildren.length) : RESOURCE_HEIGHT,
+  };
+}
+
 export function toElkGraph(
   graph: Graph,
   hubs?: ReadonlySet<string>,
   forceContainers?: ReadonlySet<string>,
+  stacks?: ReadonlyMap<string, GraphNode[]>,
 ): ElkGraphNode {
+  // Stacked satellite children never enter the layout — they ride on their host
+  // card's data instead (GP-87), so ELK's job (and cost) shrinks.
+  const stacked = stackedChildIdSet(stacks);
   const parentOf = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
@@ -394,43 +519,31 @@ export function toElkGraph(
 
   const elkById = new Map<string, ElkGraphNode>();
   for (const node of graph.nodes) {
-    elkById.set(
-      node.id,
-      isModule(node) || containerIds.has(node.id)
-        ? { id: node.id, layoutOptions: ELK_MODULE_OPTIONS, children: [] }
-        : { id: node.id, width: RESOURCE_WIDTH, height: RESOURCE_HEIGHT },
-    );
-  }
-
-  const roots: ElkGraphNode[] = [];
-  for (const node of graph.nodes) {
-    const elk = elkById.get(node.id)!;
-    const parentId = parentOf.get(node.id);
-    const parent = parentId ? elkById.get(parentId) : undefined;
-    if (parent?.children) parent.children.push(elk);
-    else roots.push(elk);
-  }
-
-  for (const [id, elk] of elkById) {
-    if (elk.children?.length === 0) {
-      resolveEmptyContainer(elk, forced.has(id));
+    if (!stacked.has(node.id)) {
+      elkById.set(node.id, elkNodeFor(node, containerIds, stacks));
     }
   }
+  const roots = nestElkNodes(graph, elkById, parentOf, forced);
 
   // Reverse the dependency for layout (dependency → dependent) so roots sit on
   // the left and impact reads left→right (GP-31). Hub edges (GP-35) are left out
-  // entirely so the hub node doesn't drag its whole neighbourhood together.
+  // entirely so the hub node doesn't drag its whole neighbourhood together. Edges
+  // touching a stacked child are left out too — the child is not a layout node
+  // (GP-88 re-anchors them to the host).
   //
   // Logical edges (GP-72) go through ELK like any other: a relationship a human
   // drew is a real relationship, and the layout should place its endpoints near
   // each other rather than route a line across the whole diagram afterwards.
-  const edges = graph.edges
-    .filter((edge) => isDrawnEdge(edge) && !(hubs && isHubEdge(edge, hubs)))
-    .map((edge) => ({
-      id: depEdgeId(edge),
-      sources: [edge.to],
-      targets: [edge.from],
-    }));
+  const laidOut = (edge: GraphEdge): boolean =>
+    isDrawnEdge(edge) &&
+    !(hubs && isHubEdge(edge, hubs)) &&
+    !stacked.has(edge.from) &&
+    !stacked.has(edge.to);
+  const edges = graph.edges.filter(laidOut).map((edge) => ({
+    id: depEdgeId(edge),
+    sources: [edge.to],
+    targets: [edge.from],
+  }));
 
   return { id: "root", layoutOptions: ELK_ROOT_OPTIONS, children: roots, edges };
 }
@@ -555,6 +668,10 @@ export function elkToFlow(
   const hubs = view.hubs ?? EMPTY_HUBS;
   const showHubEdges = view.showHubEdges ?? false;
   const containerIds = view.containerIds ?? EMPTY_HUBS;
+  // Satellite children stacked into a host card (GP-87): they never became flow
+  // nodes, so their edges are dropped here (GP-88 re-anchors them to the host).
+  const stacks = view.stacks;
+  const stacked = stackedChildIdSet(stacks);
   // A tour stop outranks both: while one is running, the diagram is showing you
   // what the narrator is talking about, and a stray hover must not redirect it.
   // An empty set is the whole-diagram stop, which focuses nothing.
@@ -632,6 +749,14 @@ export function elkToFlow(
           isHub: hubs.has(graphNode.id),
           hubHiddenCount: hubHiddenCount.get(graphNode.id) ?? 0,
           exposed: exposed.has(graphNode.id),
+          // GP-87: a resource host carries its satellite children as rows, and
+          // wears the impacted ring when any of them changed.
+          ...(stacks?.has(graphNode.id)
+            ? {
+                stack: stacks.get(graphNode.id),
+                stackChanged: stackChanged(stacks.get(graphNode.id)),
+              }
+            : {}),
         },
         width,
         height,
@@ -646,6 +771,9 @@ export function elkToFlow(
 
   const edges: FlowEdge[] = graph.edges
     .filter(isDrawnEdge)
+    // A stacked child is not on the canvas, so an edge touching one has no
+    // endpoint to draw to (GP-87). GP-88 re-anchors these to the host.
+    .filter((edge) => !stacked.has(edge.from) && !stacked.has(edge.to))
     // Drop hub edges that are currently hidden (GP-35); revealed ones are drawn
     // over the layout (which was computed without them).
     // Focus reveals a hub's hidden edges — hovering the hub is how you ask what

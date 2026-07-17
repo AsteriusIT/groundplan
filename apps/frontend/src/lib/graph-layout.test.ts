@@ -15,6 +15,7 @@ import {
   neighborhood,
   networkProjection,
   nodePassesFilters,
+  resourceStacks,
   toElkGraph,
   type ElkGraphNode,
 } from "./graph-layout";
@@ -837,4 +838,94 @@ describe("the filter options the canvas seeds itself from", () => {
 
     expect(nodes.filter((n) => n.data.dimmed)).toEqual([]);
   });
+});
+
+// --- GP-87: resource stacking (satellites nest inside their host card) -------
+
+/** vnet ⊃ subnet ⊃ lb (host), with three lb satellites stacked under the lb and
+ *  one external neighbour the probe depends on. */
+function stackFixture(): Graph {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  return {
+    version: 4,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("subnet", "azurerm_subnet", { parent_id: "vnet" }),
+      n("lb", "azurerm_lb", { parent_id: "subnet" }),
+      n("probe", "azurerm_lb_probe", { parent_id: "lb", change: "update" }),
+      n("pool", "azurerm_lb_backend_address_pool", { parent_id: "lb" }),
+      n("rule", "azurerm_lb_rule", { parent_id: "lb" }),
+      n("web", "azurerm_linux_virtual_machine", { parent_id: "subnet" }),
+    ],
+    edges: [{ from: "probe", to: "web", kind: "depends_on" }],
+  };
+}
+
+const CONTAINERS = new Set(["vnet", "subnet"]);
+
+function collectElkIds(node: ElkGraphNode, out: string[] = []): string[] {
+  out.push(node.id);
+  for (const c of node.children ?? []) collectElkIds(c, out);
+  return out;
+}
+
+function findElk(node: ElkGraphNode, id: string): ElkGraphNode | undefined {
+  if (node.id === id) return node;
+  for (const c of node.children ?? []) {
+    const hit = findElk(c, id);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+it("resourceStacks groups satellite children under their host, sorted", () => {
+  const stacks = resourceStacks(stackFixture(), CONTAINERS);
+  expect([...stacks.keys()]).toEqual(["lb"]);
+  expect(stacks.get("lb")?.map((c) => c.id)).toEqual(["pool", "probe", "rule"]);
+});
+
+it("networkProjection stacks satellites but keeps container nesting", () => {
+  const { graph: projected, stacks } = networkProjection(stackFixture());
+  // Children stay in the graph (search + detail panel still resolve them)…
+  expect(projected.nodes.map((n) => n.id)).toContain("probe");
+  // …but there is no contains edge from the resource host to its children.
+  expect(projected.edges.some((e) => e.kind === "contains" && e.from === "lb")).toBe(false);
+  // The container chain still nests via contains.
+  expect(projected.edges).toContainEqual({ from: "subnet", to: "lb", kind: "contains" });
+  expect(stacks.get("lb")?.map((c) => c.id)).toEqual(["pool", "probe", "rule"]);
+});
+
+it("toElkGraph omits stacked children and sizes the host taller", () => {
+  const { graph: projected, stacks } = networkProjection(stackFixture());
+  const elk = toElkGraph(projected, undefined, CONTAINERS, stacks);
+  const ids = collectElkIds(elk);
+  expect(ids).not.toContain("probe");
+  expect(ids).not.toContain("pool");
+  expect(ids).toContain("lb");
+  const lb = findElk(elk, "lb");
+  expect(lb?.height ?? 0).toBeGreaterThan(56); // header + three rows
+});
+
+it("elkToFlow delivers the stack to the host node data and flags a changed child", () => {
+  const { graph: projected, stacks } = networkProjection(stackFixture());
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "lb", x: 0, y: 0, width: 220, height: 120 },
+      { id: "web", x: 300, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { nodes, edges } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: null,
+    stacks,
+  });
+  const lb = nodes.find((n) => n.id === "lb");
+  expect(lb?.data.stack?.map((c) => c.id)).toEqual(["pool", "probe", "rule"]);
+  expect(lb?.data.stackChanged).toBe(true); // probe change=update
+  // A stacked child has no flow node, so its edge is not drawn (GP-88 re-anchors).
+  expect(nodes.some((n) => n.id === "probe")).toBe(false);
+  expect(edges.some((e) => e.source === "probe" || e.target === "probe")).toBe(false);
 });

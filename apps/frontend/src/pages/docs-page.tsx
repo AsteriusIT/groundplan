@@ -764,6 +764,7 @@ export function DocsPage() {
                   graph={network ? network.graph : shown.graph}
                   variant="docs"
                   containerIds={network?.containerIds}
+                  stacks={network?.stacks}
                   focusNodeId={focusNodeId}
                   annotations={view === "infra" ? annotations : undefined}
                   annotate={annotate && view === "infra"}
