@@ -88,3 +88,20 @@ resource "azurerm_linux_virtual_machine" "vm" {
   name                  = "vm"
   network_interface_ids = [azurerm_network_interface.nic.id]
 }
+
+# A NAT gateway binds its public IP through a dedicated association resource —
+# the gateway never references the IP directly, so containment must resolve the
+# public IP's host *through* the association (GP-86).
+resource "azurerm_public_ip" "nat" {
+  name              = "nat-ip"
+  allocation_method = "Static"
+}
+
+resource "azurerm_nat_gateway" "nat" {
+  name = "nat"
+}
+
+resource "azurerm_nat_gateway_public_ip_association" "nat" {
+  nat_gateway_id       = azurerm_nat_gateway.nat.id
+  public_ip_address_id = azurerm_public_ip.nat.id
+}

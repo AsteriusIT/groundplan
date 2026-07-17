@@ -129,6 +129,8 @@ test("derives satellite stacking from a plan: probe/pool/rule → lb, public IP 
   assert.equal(parent.get("azurerm_public_ip.appgw"), "azurerm_application_gateway.appgw");
   assert.equal(parent.get("azurerm_public_ip.bastion"), "azurerm_bastion_host.bastion");
   assert.equal(parent.get("azurerm_network_interface.nic"), "azurerm_linux_virtual_machine.vm");
+  // A NAT gateway binds its public IP via an association resource → resolved through it.
+  assert.equal(parent.get("azurerm_public_ip.nat"), "azurerm_nat_gateway.nat");
 });
 
 test("attaches NSG rules, internet_exposed, and associations from a plan (GP-43)", () => {

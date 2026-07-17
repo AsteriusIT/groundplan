@@ -127,6 +127,21 @@ type ResolveCtx = {
   referrersOf: ReadonlyMap<string, ReadonlySet<string>>;
 };
 
+/** Add every node a source references whose type is wanted (excluding `exclude`). */
+function collectRefsOfType(
+  source: DependencySource,
+  exclude: string,
+  wanted: ReadonlySet<string>,
+  r: ResolveCtx,
+  out: Set<string>,
+): void {
+  for (const { ref } of source.refs) {
+    for (const id of resolveReference(source.prefix, ref, r.ctx)) {
+      if (id !== exclude && wanted.has(r.typeById.get(id) ?? "")) out.add(id);
+    }
+  }
+}
+
 /** The parent nodes a single rule proposes for `node` (0, 1, or many). */
 function parentCandidates(
   node: GraphNode,
@@ -137,17 +152,21 @@ function parentCandidates(
   const out = new Set<string>();
   if (rule.direction === "up") {
     for (const refId of r.referrersOf.get(node.id) ?? []) {
-      if (wanted.has(r.typeById.get(refId) ?? "")) out.add(refId);
+      const refType = r.typeById.get(refId) ?? "";
+      if (wanted.has(refType)) {
+        out.add(refId); // the host references the child directly (appgw, bastion, lb)
+      } else if (refType.includes("_association")) {
+        // The child is bound to its host by a dedicated association resource
+        // (e.g. azurerm_nat_gateway_public_ip_association, which references both a
+        // public IP and a NAT gateway) — resolve *through* it to the host.
+        const assoc = r.sourceByBase.get(stripInstanceIndex(refId));
+        if (assoc) collectRefsOfType(assoc, node.id, wanted, r, out);
+      }
     }
     return out;
   }
   const source = r.sourceByBase.get(stripInstanceIndex(node.id));
-  if (!source) return out;
-  for (const { ref } of source.refs) {
-    for (const id of resolveReference(source.prefix, ref, r.ctx)) {
-      if (id !== node.id && wanted.has(r.typeById.get(id) ?? "")) out.add(id);
-    }
-  }
+  if (source) collectRefsOfType(source, node.id, wanted, r, out);
   return out;
 }
 

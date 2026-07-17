@@ -190,6 +190,31 @@ test("a NIC nests under the linux VM that references it, not its subnet", () => 
   assert.equal(nodes[1]!.parent_id, "azurerm_linux_virtual_machine.main");
 });
 
+test("a public IP bound to a NAT gateway via an association resource nests under it", () => {
+  // A NAT gateway does not reference its public IP directly — a dedicated
+  // association resource references both. The public IP must resolve *through* it.
+  const nodes = [
+    node("azurerm_public_ip.nat", "azurerm_public_ip"),
+    node("azurerm_nat_gateway.this", "azurerm_nat_gateway"),
+    node(
+      "azurerm_nat_gateway_public_ip_association.this",
+      "azurerm_nat_gateway_public_ip_association",
+    ),
+  ];
+  const sources: DependencySource[] = [
+    {
+      fromBase: "azurerm_nat_gateway_public_ip_association.this",
+      prefix: "",
+      refs: [
+        { ref: "azurerm_nat_gateway.this.id", inferred: true },
+        { ref: "azurerm_public_ip.nat.id", inferred: true },
+      ],
+    },
+  ];
+  deriveContainment(nodes, sources, ctxFor(nodes));
+  assert.equal(nodes[0]!.parent_id, "azurerm_nat_gateway.this");
+});
+
 test("a NIC referenced by a windows VM nests under it too", () => {
   const nodes = [
     node("azurerm_network_interface.main", "azurerm_network_interface"),
