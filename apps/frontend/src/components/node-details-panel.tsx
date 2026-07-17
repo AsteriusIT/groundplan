@@ -259,23 +259,33 @@ function SecurityRules({ rules }: Readonly<{ rules: FlaggedRule[] }>) {
         <div
           key={rule.name}
           className={cn(
-            "flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5",
+            "flex flex-col gap-1 px-2.5 py-1.5",
             internet && "bg-exposed-soft",
           )}
         >
-          <span className="text-faint w-8 shrink-0">{rule.priority}</span>
-          <span className="text-ink min-w-0 flex-1 break-all">{rule.name}</span>
-          <span className="text-muted-foreground">
-            {rule.direction} {rule.access}
-          </span>
-          <span className="text-muted-foreground">:{rule.ports}</span>
-          {internet ? (
-            <span aria-label="internet source" className="text-exposed font-medium">
-              {rule.source}
+          {/* Priority + name on their own line: the name takes the full width so
+              it never collapses into a one-character-per-line strip in the narrow
+              panel (the metadata below no longer competes for the row). */}
+          <div className="flex items-baseline gap-2">
+            <span className="text-faint w-8 shrink-0 tabular-nums">{rule.priority}</span>
+            <span className="text-ink min-w-0 flex-1 break-words font-medium">
+              {rule.name}
             </span>
-          ) : (
-            <span className="text-muted-foreground">{rule.source}</span>
-          )}
+          </div>
+          {/* Direction/access · ports · source, indented under the name. */}
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-10">
+            <span>
+              {rule.direction} {rule.access}
+            </span>
+            <span>:{rule.ports}</span>
+            {internet ? (
+              <span aria-label="internet source" className="text-exposed font-medium">
+                {rule.source}
+              </span>
+            ) : (
+              <span>{rule.source}</span>
+            )}
+          </div>
         </div>
       ))}
     </div>
