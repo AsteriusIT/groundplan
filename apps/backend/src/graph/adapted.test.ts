@@ -507,3 +507,33 @@ test("no groups at all collapses to an empty-of-groups graph, not a broken one",
   assert.equal(c4.nodes.some((n) => n.annotation_group), false);
   assert.equal(validateGraph(c4).valid, true);
 });
+
+// GP-86: resource stacking is a network-view concern. Adding satellite parent_ids
+// must not change what the adapted or C4 projection draws — stacking cannot leak
+// out of the network view by accident.
+function withStacking(graph: Graph): Graph {
+  const host = graph.nodes.find((n) => n.type !== "module" && !n.annotation_group);
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) =>
+      n === host || n.type === "module" || n.annotation_group
+        ? n
+        : { ...n, parent_id: host!.id },
+    ),
+  };
+}
+
+test("stacking never leaks: adapted projection ignores resource-level parent_id (GP-86)", () => {
+  const flat = projectAdapted(fixture(), []);
+  const stacked = projectAdapted(withStacking(fixture()), []);
+  assert.deepEqual(stacked.nodes.map((n) => n.id), flat.nodes.map((n) => n.id));
+  assert.deepEqual(stacked.edges, flat.edges);
+});
+
+test("stacking never leaks: C4 collapse ignores resource-level parent_id (GP-86)", () => {
+  const { graph, annotations } = grouped();
+  const flat = collapseToGroups(projectAdapted(graph, annotations));
+  const stacked = collapseToGroups(projectAdapted(withStacking(graph), annotations));
+  assert.deepEqual(stacked.nodes.map((n) => n.id), flat.nodes.map((n) => n.id));
+  assert.deepEqual(stacked.edges, flat.edges);
+});

@@ -70,6 +70,19 @@ test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (G
   assert.equal(byId.get("azurerm_virtual_machine.main")?.parent_id, undefined);
 });
 
+test("derives satellite stacking from HCL: probe/pool/rule → lb, public IP → host, NIC → VM (GP-86)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-stacking"));
+  assert.equal(validateGraph(graph).valid, true);
+  const parent = new Map(graph.nodes.map((n) => [n.id, n.parent_id]));
+  assert.equal(parent.get("azurerm_lb.main"), "azurerm_subnet.internal");
+  assert.equal(parent.get("azurerm_lb_probe.https"), "azurerm_lb.main");
+  assert.equal(parent.get("azurerm_lb_backend_address_pool.pool"), "azurerm_lb.main");
+  assert.equal(parent.get("azurerm_lb_rule.http"), "azurerm_lb.main");
+  assert.equal(parent.get("azurerm_public_ip.appgw"), "azurerm_application_gateway.appgw");
+  assert.equal(parent.get("azurerm_public_ip.bastion"), "azurerm_bastion_host.bastion");
+  assert.equal(parent.get("azurerm_network_interface.nic"), "azurerm_linux_virtual_machine.vm");
+});
+
 test("attaches NSG rules, internet_exposed, and associations from HCL (GP-43)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-nsg"));
   assert.equal(graph.version, 4);
