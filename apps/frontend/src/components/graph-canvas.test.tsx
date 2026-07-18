@@ -1,5 +1,14 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+// The instance handed to onInit — lets tests observe camera calls (GP-130).
+const rfInstance = vi.hoisted(() => ({
+  fitView: vi.fn(() => Promise.resolve(true)),
+  setViewport: vi.fn(),
+  getZoom: vi.fn(() => 1),
+  zoomIn: vi.fn(),
+  zoomOut: vi.fn(),
+}));
 
 // Mock ELK: return the input graph with trivial positions so elkToFlow works.
 vi.mock("elkjs/lib/elk.bundled.js", () => {
@@ -29,13 +38,18 @@ vi.mock("elkjs/lib/elk.bundled.js", () => {
 
 // Mock React Flow: render each node as a button wired to onNodeClick, plus a
 // pane target for onPaneClick. Node internals are covered by graph-layout tests.
-vi.mock("@xyflow/react", () => ({
+// onInit receives the shared rfInstance so camera behaviour is observable.
+vi.mock("@xyflow/react", async () => {
+  const { useEffect } = await import("react");
+  return {
   ReactFlow: ({
     nodes,
+    onInit,
     onNodeClick,
     onNodesChange,
     onPaneClick,
   }: {
+    onInit?: (instance: typeof rfInstance) => void;
     // Loosened so annotation overlay nodes (which carry no real graphNode)
     // render without crashing; falls back to the node id for a label.
     nodes: {
@@ -53,7 +67,14 @@ vi.mock("@xyflow/react", () => ({
     onNodeClick?: (e: unknown, n: unknown) => void;
     onNodesChange?: (changes: { type: string; id: string; selected: boolean }[]) => void;
     onPaneClick?: () => void;
-  }) => (
+  }) => {
+    // The real ReactFlow reports its instance once, after mount.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useEffect(() => {
+      onInit?.(rfInstance);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    return (
     <div>
       <button type="button" data-testid="pane" onClick={() => onPaneClick?.()}>
         pane
@@ -86,14 +107,16 @@ vi.mock("@xyflow/react", () => ({
         </span>
       ))}
     </div>
-  ),
+    );
+  },
   Background: () => null,
   BackgroundVariant: { Dots: "dots", Lines: "lines", Cross: "cross" },
   SelectionMode: { Partial: "partial", Full: "full" },
   Controls: () => null,
   Handle: () => null,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
-}));
+  };
+});
 
 vi.mock("@xyflow/react/dist/style.css", () => ({}));
 
@@ -113,6 +136,27 @@ const graph: Graph = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+it("fits the view after layout; refits on a new graph, never on a re-render (GP-130)", async () => {
+  const { rerender } = render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  await waitFor(() =>
+    expect(rfInstance.fitView).toHaveBeenCalledWith({ padding: 0.1 }),
+  );
+  const fits = rfInstance.fitView.mock.calls.length;
+
+  // Same graph re-rendered: no relayout, and the user's pan/zoom survives.
+  rerender(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  expect(rfInstance.fitView.mock.calls.length).toBe(fits);
+
+  // A changed graph lays out again — and frames itself again.
+  const next: Graph = { ...graph, nodes: graph.nodes.slice(0, 2), edges: [] };
+  rerender(<GraphCanvas graph={next} variant="plan" />);
+  await waitFor(() =>
+    expect(rfInstance.fitView.mock.calls.length).toBeGreaterThan(fits),
+  );
 });
 
 /** The filter panel rests collapsed — open it before asserting on its contents. */

@@ -188,12 +188,15 @@ const NODE_TYPES = {
 const EDGE_TYPES = { relationship: RelationshipEdge };
 
 /**
- * Default viewport: 100% zoom, not fit-to-diagram (a large plan should not be
- * shrunk to illegibility on load). The small offset keeps the top-left of the
- * graph clear of the floating filter panel / search overlays. Re-applied on each
- * relayout so switching views also starts at 100% rather than a stale zoom.
+ * The viewport before the first layout lands. Once ELK positions exist the
+ * canvas frames the whole graph (`fitView`, GP-130) — on the first render and
+ * again on every relayout — so a Visualize never opens on empty canvas. A
+ * manual pan/zoom is only ever overridden by a *graph change*, never by a
+ * re-render of the same snapshot.
  */
 const DEFAULT_VIEWPORT = { x: 220, y: 72, zoom: 1 } as const;
+
+const FIT_VIEW_PADDING = 0.1;
 
 const FILTER_LABELS: Record<FilterKey, string> = {
   create: "Create",
@@ -428,6 +431,9 @@ export function GraphCanvas({
   const [zoom, setZoom] = useState(1);
 
   const rfRef = useRef<ReactFlowInstance<FlowNode<GraphNodeData>> | null>(null);
+  // Flips once onInit hands over the instance, so the fit-after-layout effect
+  // can wait for whichever of {instance, layout} arrives last (GP-130).
+  const [rfReady, setRfReady] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -446,10 +452,6 @@ export function GraphCanvas({
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
           setLaying(false);
-          // Start every (re)layout at 100% rather than inheriting a stale
-          // zoom/pan — so view switches don't leave the diagram tiny or off-screen.
-          rfRef.current?.setViewport(DEFAULT_VIEWPORT);
-          setZoom(1);
         }
       })
       .catch((err: unknown) => {
@@ -462,6 +464,20 @@ export function GraphCanvas({
       cancelled = true;
     };
   }, [graph, containerIds, stacks, chips, hubs]);
+
+  // Frame the graph once its positions exist (GP-130): on the first layout and
+  // on every relayout — a relayout only ever follows a graph change, so a
+  // manual pan/zoom over an unchanged snapshot is never overwritten. Runs after
+  // the commit that handed ReactFlow the laid-out nodes, so fitView measures
+  // real geometry.
+  useEffect(() => {
+    if (!layout || !rfReady) return;
+    const rf = rfRef.current;
+    if (!rf) return;
+    void rf.fitView({ padding: FIT_VIEW_PADDING }).then(() => {
+      setZoom(rf.getZoom());
+    });
+  }, [layout, rfReady]);
 
   // `/` focuses the search box (unless already typing in a field).
   useEffect(() => {
@@ -886,6 +902,7 @@ export function GraphCanvas({
         edgeTypes={EDGE_TYPES}
         onInit={(instance) => {
           rfRef.current = instance;
+          setRfReady(true);
           setZoom(instance.getZoom());
         }}
         onMove={(_, viewport) => setZoom(viewport.zoom)}
