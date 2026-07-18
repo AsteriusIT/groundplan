@@ -39,7 +39,10 @@ export function AttachmentChip({
         onSelect?.(node);
       }}
       className={cn(
-        "rounded-full transition-shadow hover:shadow-sm",
+        // inline-flex so the button shrink-wraps the pill exactly: as inline
+        // content the pill would sit on a text baseline and the button's box
+        // (and so the ring) would be taller and wider than the pill it wraps.
+        "inline-flex rounded-full transition-shadow hover:shadow-sm",
         // The small-element ring (same as a stacked row): 1px, no offset. The
         // card-sized ring-2 + offset reads as a fat halo on a 20px pill.
         highlighted && "ring-primary ring-1",

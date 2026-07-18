@@ -110,4 +110,7 @@ it("a highlighted chip wears a tight 1px ring — no fat offset halo on a small 
   expect(btn.className).toContain("ring-1");
   expect(btn.className).not.toContain("ring-2");
   expect(btn.className).not.toContain("ring-offset");
+  // The button must shrink-wrap the pill — inline content would sit on a text
+  // baseline and the ring would paint taller and wider than the pill itself.
+  expect(btn.className).toContain("inline-flex");
 });
