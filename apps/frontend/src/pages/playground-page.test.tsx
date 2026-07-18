@@ -206,16 +206,104 @@ it("does not mark the editor when the error is in another file", async () => {
   expect(editor).toHaveAttribute("data-error-line", "");
 });
 
-it("adds a new file and removes one, all in local state", () => {
+/** Radix opens a menu on keyboard activation; jsdom has no real pointer. */
+function openAddMenu() {
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: /add or upload files/i }),
+    { key: "Enter" },
+  );
+}
+
+it("adds a new file from the + menu, all in local state", async () => {
   renderPage();
 
-  fireEvent.click(screen.getByRole("button", { name: /add file/i }));
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new file/i }));
   expect(screen.getByText("untitled-1.tf")).toBeInTheDocument();
+});
+
+it("deletes a file only after an inline confirmation (GP-128)", async () => {
+  renderPage();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new file/i }));
 
   fireEvent.click(
     screen.getByRole("button", { name: /delete untitled-1\.tf/i }),
   );
+  // Nothing removed yet — the confirm is the decision point.
+  expect(screen.getByText("untitled-1.tf")).toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: /confirm delete untitled-1\.tf/i }),
+  );
   expect(screen.queryByText("untitled-1.tf")).not.toBeInTheDocument();
+});
+
+it("marks a file modified since the last Visualize, cleared by the next one", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  // No Visualize yet — nothing to be modified *since*.
+  expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+  expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# touched" },
+  });
+  expect(
+    screen.getByLabelText(/main\.tf modified since last visualize/i),
+  ).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await waitFor(() =>
+    expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument(),
+  );
+});
+
+it("identifies the selected file and follows selection", () => {
+  renderPage();
+
+  expect(screen.getByRole("button", { name: "main.tf" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "network.tf" }));
+  expect(screen.getByRole("button", { name: "network.tf" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "main.tf" })).not.toHaveAttribute(
+    "aria-current",
+  );
+});
+
+it("collapses the files panel to a rail and expands it back", () => {
+  renderPage();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: /collapse files panel/i }),
+  );
+  expect(screen.queryByText("main.tf")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /expand files panel/i }));
+  expect(screen.getByText("main.tf")).toBeInTheDocument();
+});
+
+it("resizes the files panel from its edge handle", () => {
+  renderPage();
+
+  const handle = screen.getByRole("separator", {
+    name: /resize files panel/i,
+  });
+  const before = Number(handle.getAttribute("aria-valuenow"));
+  fireEvent.keyDown(handle, { key: "ArrowRight" });
+  expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before + 16);
+  fireEvent.keyDown(handle, { key: "ArrowLeft" });
+  expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before);
 });
 
 it("renames a file inline", async () => {
@@ -246,7 +334,7 @@ it("editing the active file feeds the next parse", async () => {
 it("uploads .tf files through the file input", async () => {
   renderPage();
 
-  const input = screen.getByLabelText(/upload files/i);
+  const input = screen.getByLabelText(/upload files/i, { selector: "input" });
   const file = new File([`resource "a" "b" {}`], "uploaded.tf", {
     type: "text/plain",
   });
