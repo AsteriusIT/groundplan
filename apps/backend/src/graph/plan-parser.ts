@@ -17,6 +17,13 @@
  *    in the shared `dependency-edges` builder (reused by Producer B).
  */
 import { computeAttributeDiff, type PlanResourceChange } from "./attribute-diff.js";
+import {
+  classifyJoins,
+  inlineScaleSetLinks,
+  joinEdgeAdditions,
+  joinEffects,
+  type JoinLink,
+} from "./azurerm-joins.js";
 import { deriveContainment } from "./containment.js";
 import {
   buildDependencyEdges,
@@ -201,52 +208,6 @@ function joinValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-const ASSOCIATION_OWNERS = new Set([
-  "azurerm_network_security_group",
-  "azurerm_route_table",
-]);
-
-/**
- * Resolve an association resource's refs to the (owner, subnet/NIC) it links. The
- * owner is the NSG (GP-43) or the route table (GP-89); the target is the subnet or
- * NIC it guards.
- */
-function associationTargets(
-  source: DependencySource,
-  edgeCtx: EdgeContext,
-  nodesById: ReadonlyMap<string, GraphNode>,
-): { ownerId: string; targetId: string } | null {
-  const resolved = source.refs.flatMap((r) =>
-    resolveReference(source.prefix, r.ref, edgeCtx),
-  );
-  const ownerId = resolved.find((rid) =>
-    ASSOCIATION_OWNERS.has(nodesById.get(rid)?.type ?? ""),
-  );
-  const targetId = resolved.find((rid) => {
-    const t = nodesById.get(rid)?.type;
-    return t === "azurerm_subnet" || t === "azurerm_network_interface";
-  });
-  return ownerId && targetId ? { ownerId, targetId } : null;
-}
-
-/** Route-table → subnet associations (GP-89), keyed by route-table node id. */
-function extractPlanRouteTableAssociations(
-  sources: readonly DependencySource[],
-  edgeCtx: EdgeContext,
-  nodesById: ReadonlyMap<string, GraphNode>,
-): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const source of sources) {
-    if (!source.fromBase.includes("_route_table_association")) continue;
-    const assoc = associationTargets(source, edgeCtx, nodesById);
-    if (!assoc) continue;
-    const list = out.get(assoc.ownerId) ?? [];
-    list.push(assoc.targetId);
-    out.set(assoc.ownerId, list);
-  }
-  return out;
-}
-
 /** Map a plan `after.security_rule[]` entry to an NsgRule (raw values). */
 function planRule(raw: unknown): NsgRule | null {
   if (!raw || typeof raw !== "object") return null;
@@ -267,20 +228,16 @@ function planRule(raw: unknown): NsgRule | null {
 }
 
 /**
- * Collect per-NSG rules (from `change.after.security_rule`) and NSG↔subnet/NIC
- * associations (resolved from the association resources' config references).
+ * Collect per-NSG rules from `change.after.security_rule`. The subnet/NIC
+ * associations that used to be resolved here now come from the join catalog
+ * (`azurerm-joins.ts`).
  */
-function extractPlanNsg(
-  changes: readonly unknown[],
-  sources: readonly DependencySource[],
-  edgeCtx: EdgeContext,
-  nodesById: ReadonlyMap<string, GraphNode>,
-): Map<string, ExtractedNsg> {
+function extractPlanNsg(changes: readonly unknown[]): Map<string, ExtractedNsg> {
   const extracted = new Map<string, ExtractedNsg>();
   const nsgOf = (id: string): ExtractedNsg => {
     let e = extracted.get(id);
     if (!e) {
-      e = { rules: [], associatedIds: [] };
+      e = { rules: [] };
       extracted.set(id, e);
     }
     return e;
@@ -295,12 +252,6 @@ function extractPlanNsg(
       const nr = planRule(r);
       if (nr) nsgOf(asString(rc.address)).rules.push(nr);
     }
-  }
-
-  for (const source of sources) {
-    if (!source.fromBase.includes("_security_group_association")) continue;
-    const assoc = associationTargets(source, edgeCtx, nodesById);
-    if (assoc) nsgOf(assoc.ownerId).associatedIds.push(assoc.targetId);
   }
 
   return extracted;
@@ -457,6 +408,29 @@ function planReferenceable(ref: string, resourceTypes: ReadonlySet<string>): boo
 }
 
 /**
+ * The join links a plan states: every association/attachment resource classified
+ * through the catalog, plus the scale sets' inline NSG/ASG duality read from
+ * their configuration expressions.
+ */
+function planJoinLinks(
+  sources: readonly DependencySource[],
+  configByAddress: ReadonlyMap<string, ConfigEntry>,
+  edgeCtx: EdgeContext,
+  typeById: ReadonlyMap<string, string>,
+): JoinLink[] {
+  const links = classifyJoins(sources, edgeCtx, typeById);
+  for (const [address, entry] of configByAddress) {
+    if (!address.includes("_virtual_machine_scale_set.")) continue;
+    const refs = new Set<string>();
+    collectReferences(entry.expressions, refs);
+    links.push(
+      ...inlineScaleSetLinks(address, entry.prefix, refs, edgeCtx, typeById),
+    );
+  }
+  return links;
+}
+
+/**
  * Parse a Terraform plan into a GraphSnapshot graph (deterministic ordering).
  * When `out` is given, references that resolve to no node in the plan are
  * collected into `out.unresolved` (the "could not resolve" list, GP).
@@ -565,21 +539,26 @@ export function parsePlanToGraph(
       : undefined,
   );
 
-  // Network containment (GP-42): set parent_id on nodes with a single unambiguous
-  // vnet/subnet parent. Mutates the node objects still held in nodesById.
-  deriveContainment([...nodesById.values()], sources, edgeCtx);
-
-  // NSG payload (GP-43): rules + internet_exposed + associations on NSG nodes.
-  attachNsg(
-    [...nodesById.values()],
-    extractPlanNsg(changes, sources, edgeCtx, nodesById),
+  // The azurerm join catalog (docs/azurerm-connection-catalog.md): classify every
+  // association/attachment resource — plus the scale sets' inline NSG/ASG duality
+  // — into containment parents, `associated_ids`, and direct edges.
+  const typeById = new Map<string, string>(
+    [...nodesById.values()].map((n) => [n.id, n.type]),
+  );
+  const joins = joinEffects(
+    planJoinLinks(sources, configByAddress, edgeCtx, typeById),
+    typeById,
   );
 
-  // Route-table → subnet associations (GP-89): associated_ids only, no NSG payload.
-  attachAssociations(
-    [...nodesById.values()],
-    extractPlanRouteTableAssociations(sources, edgeCtx, nodesById),
-  );
+  // Network containment (GP-42): parents the join catalog stated, then nodes with
+  // a single unambiguous vnet/subnet parent. Mutates the nodes in nodesById.
+  deriveContainment([...nodesById.values()], sources, edgeCtx, joins.parents);
+
+  // NSG payload (GP-43): rules + internet_exposed on NSG nodes.
+  attachNsg([...nodesById.values()], extractPlanNsg(changes));
+
+  // Attachments (GP-43/89 + the join catalog): associated_ids on every satellite.
+  attachAssociations([...nodesById.values()], joins.attachments);
 
   // IAM payload (GP-47): role-assignment triples, managed identities, and the
   // computed privileged flag on the relevant nodes.
@@ -589,7 +568,13 @@ export function parsePlanToGraph(
   );
 
   const nodes = [...nodesById.values()].sort((a, b) => compareStrings(a.id, b.id));
-  const edges = [...containsEdges.values(), ...dependsOnEdges].sort(sortEdges);
+  const edges = [
+    ...containsEdges.values(),
+    ...dependsOnEdges,
+    // Direct edges the joins state (a peering, a NIC → pool binding), unless a
+    // reference already drew the same pair.
+    ...joinEdgeAdditions(joins, dependsOnEdges),
+  ].sort(sortEdges);
 
   // Blast radius: mark unchanged dependents of the change set (GP-22). Emits v2.
   const withImpact = propagateImpact({ version: 1, nodes, edges });

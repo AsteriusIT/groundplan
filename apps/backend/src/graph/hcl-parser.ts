@@ -16,6 +16,13 @@
  * dropped and counted in `stats.warnings`. References inside comments/strings
  * that don't resolve are ignored (best effort, documented limitation).
  */
+import {
+  classifyJoins,
+  inlineScaleSetLinks,
+  joinEdgeAdditions,
+  joinEffects,
+  type JoinLink,
+} from "./azurerm-joins.js";
 import { deriveContainment } from "./containment.js";
 import {
   buildDependencyEdges,
@@ -359,65 +366,42 @@ function isReferenceable(ref: string, resourceTypes: ReadonlySet<string>): boole
   return resourceTypes.has(firstType);
 }
 
-/** Resolve an association block body's refs to the (NSG, subnet/NIC) it links. */
-const ASSOCIATION_OWNERS = new Set([
-  "azurerm_network_security_group",
-  "azurerm_route_table",
-]);
-
-function hclAssociationTargets(
-  ps: PendingSource,
-  ctx: Ctx,
-  edgeCtx: EdgeContext,
-): { ownerId: string; targetId: string } | null {
-  const resolved = extractReferences(ps.body).flatMap((ref) =>
-    resolveReference(ps.prefix, ref, edgeCtx),
-  );
-  const ownerId = resolved.find((rid) =>
-    ASSOCIATION_OWNERS.has(ctx.nodes.get(rid)?.type ?? ""),
-  );
-  const targetId = resolved.find((rid) => {
-    const t = ctx.nodes.get(rid)?.type;
-    return t === "azurerm_subnet" || t === "azurerm_network_interface";
-  });
-  return ownerId && targetId ? { ownerId, targetId } : null;
-}
-
-/** Route-table → subnet associations (GP-89), keyed by route-table node id. */
-function extractHclRouteTableAssociations(
-  ctx: Ctx,
-  edgeCtx: EdgeContext,
-): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const ps of ctx.pendingSources) {
-    if (!ps.fromBase.includes("_route_table_association")) continue;
-    const assoc = hclAssociationTargets(ps, ctx, edgeCtx);
-    if (!assoc) continue;
-    const list = out.get(assoc.ownerId) ?? [];
-    list.push(assoc.targetId);
-    out.set(assoc.ownerId, list);
-  }
-  return out;
-}
-
-/** Collect per-NSG inline rules + subnet/NIC associations for the docs producer. */
-function extractHclNsg(ctx: Ctx, edgeCtx: EdgeContext): Map<string, ExtractedNsg> {
+/** Collect per-NSG inline rules for the docs producer. The subnet/NIC
+ * associations that used to be resolved here now come from the join catalog
+ * (`azurerm-joins.ts`). */
+function extractHclNsg(ctx: Ctx): Map<string, ExtractedNsg> {
   const extracted = new Map<string, ExtractedNsg>();
-  const nsgOf = (id: string): ExtractedNsg => {
-    let e = extracted.get(id);
-    if (!e) {
-      e = { rules: [], associatedIds: [] };
-      extracted.set(id, e);
-    }
-    return e;
-  };
-  for (const [id, rules] of ctx.nsgRules) nsgOf(id).rules.push(...rules);
-  for (const ps of ctx.pendingSources) {
-    if (!ps.fromBase.includes("_security_group_association")) continue;
-    const assoc = hclAssociationTargets(ps, ctx, edgeCtx);
-    if (assoc) nsgOf(assoc.ownerId).associatedIds.push(assoc.targetId);
+  for (const [id, rules] of ctx.nsgRules) {
+    extracted.set(id, { rules: [...rules] });
   }
   return extracted;
+}
+
+/**
+ * The join links an HCL repo states: every association/attachment resource
+ * classified through the catalog, plus the scale sets' inline NSG/ASG duality
+ * read from their block bodies.
+ */
+function hclJoinLinks(
+  ctx: Ctx,
+  sources: readonly DependencySource[],
+  edgeCtx: EdgeContext,
+  typeById: ReadonlyMap<string, string>,
+): JoinLink[] {
+  const links = classifyJoins(sources, edgeCtx, typeById);
+  for (const ps of ctx.pendingSources) {
+    if (!ps.fromBase.includes("_virtual_machine_scale_set.")) continue;
+    links.push(
+      ...inlineScaleSetLinks(
+        ps.fromBase,
+        ps.prefix,
+        extractReferences(ps.body),
+        edgeCtx,
+        typeById,
+      ),
+    );
+  }
+  return links;
 }
 
 /** Read the raw right-hand side of `key = <rhs>` up to end of line (may be a ref). */
@@ -586,24 +570,35 @@ export function parseHclRepo(
     out: unresolvedRefs,
   });
 
-  // Network containment (GP-42): set parent_id on nodes with a single unambiguous
-  // vnet/subnet parent. Mutates the node objects still held in ctx.nodes.
-  deriveContainment([...ctx.nodes.values()], sources, edgeCtx);
-
-  // NSG payload (GP-43): rules + internet_exposed + associations on NSG nodes.
-  attachNsg([...ctx.nodes.values()], extractHclNsg(ctx, edgeCtx));
-
-  // Route-table → subnet associations (GP-89): associated_ids only, no NSG payload.
-  attachAssociations(
-    [...ctx.nodes.values()],
-    extractHclRouteTableAssociations(ctx, edgeCtx),
+  // The azurerm join catalog (docs/azurerm-connection-catalog.md): classify every
+  // association/attachment resource — plus the scale sets' inline NSG/ASG duality
+  // — into containment parents, `associated_ids`, and direct edges.
+  const typeById = new Map<string, string>(
+    [...ctx.nodes.values()].map((n) => [n.id, n.type]),
   );
+  const joins = joinEffects(hclJoinLinks(ctx, sources, edgeCtx, typeById), typeById);
+
+  // Network containment (GP-42): parents the join catalog stated, then nodes with
+  // a single unambiguous vnet/subnet parent. Mutates the nodes in ctx.nodes.
+  deriveContainment([...ctx.nodes.values()], sources, edgeCtx, joins.parents);
+
+  // NSG payload (GP-43): rules + internet_exposed on NSG nodes.
+  attachNsg([...ctx.nodes.values()], extractHclNsg(ctx));
+
+  // Attachments (GP-43/89 + the join catalog): associated_ids on every satellite.
+  attachAssociations([...ctx.nodes.values()], joins.attachments);
 
   // IAM payload (GP-47): role-assignment triples, identities, privileged flag.
   attachIam([...ctx.nodes.values()], extractHclIam(ctx, edgeCtx));
 
   const nodes = [...ctx.nodes.values()].toSorted((a, b) => compareStrings(a.id, b.id));
-  const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].toSorted(
+  const edges = [
+    ...ctx.containsEdges.values(),
+    ...dependsOnEdges,
+    // Direct edges the joins state (a peering, a NIC → pool binding), unless a
+    // reference already drew the same pair.
+    ...joinEdgeAdditions(joins, dependsOnEdges),
+  ].toSorted(
     (a, b) =>
       compareStrings(a.kind, b.kind) ||
       compareStrings(a.from, b.from) ||

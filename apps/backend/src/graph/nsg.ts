@@ -25,14 +25,16 @@ export function normalizePorts(raw: unknown): string {
   return s === "" ? "*" : s;
 }
 
-/** Per-NSG extracted data keyed by NSG node id, produced by a parser. */
-export type ExtractedNsg = { rules: NsgRule[]; associatedIds: string[] };
+/** Per-NSG extracted rules keyed by NSG node id, produced by a parser. The
+ * subnet/NIC associations that used to ride here now come from the azurerm join
+ * catalog (`azurerm-joins.ts`) and attach via `attachAssociations`. */
+export type ExtractedNsg = { rules: NsgRule[] };
 
 /**
- * Attach only `associated_ids` to the mapped nodes (GP-89) — route tables guard a
- * subnet the way an NSG does, but they are not security groups: they carry the
- * association and nothing else (no rules, no `internet_exposed`). Deduped + sorted
- * for stable output. Mutates the nodes in place.
+ * Attach `associated_ids` to the mapped nodes: every satellite the join catalog
+ * classified as an attachment — an NSG or route table on its subnet (GP-43/89),
+ * an NSG/ASG on a NIC, private endpoint, or scale set. Deduped + sorted for
+ * stable output. Mutates the nodes in place.
  */
 export function attachAssociations(
   nodes: GraphNode[],
@@ -47,9 +49,9 @@ export function attachAssociations(
 }
 
 /**
- * Attach `rules`, `internet_exposed`, and `associated_ids` to the matching NSG
- * nodes. Rules are sorted by priority (then name) and associations deduped +
- * sorted, for stable, deterministic output. Mutates the nodes in place.
+ * Attach `rules` and `internet_exposed` to the matching NSG nodes. Rules are
+ * sorted by priority (then name) for stable, deterministic output. Mutates the
+ * nodes in place.
  */
 export function attachNsg(
   nodes: GraphNode[],
@@ -64,10 +66,5 @@ export function attachNsg(
     );
     node.rules = rules;
     node.internet_exposed = computeInternetExposed(rules);
-    if (data.associatedIds.length > 0) {
-      node.associated_ids = [...new Set(data.associatedIds)].sort((a, b) =>
-        a.localeCompare(b),
-      );
-    }
   }
 }

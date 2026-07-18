@@ -170,14 +170,34 @@ function parentCandidates(
   return out;
 }
 
+/** Pre-assign the parents the join catalog stated (target must exist). */
+function applyJoinParents(
+  nodes: GraphNode[],
+  joinParents: ReadonlyMap<string, string> | undefined,
+  typeById: ReadonlyMap<string, string>,
+): void {
+  if (!joinParents) return;
+  for (const node of nodes) {
+    const parent = joinParents.get(node.id);
+    if (parent !== undefined && typeById.has(parent)) node.parent_id = parent;
+  }
+}
+
 /**
  * Set `parent_id` on every node that has exactly one qualifying container
  * reference. Mutates the nodes in place.
+ *
+ * `joinParents` (GP: azurerm join catalog) are parents stated by a dedicated
+ * association/attachment resource (`azurerm_subnet_nat_gateway_association`,
+ * `azurerm_virtual_machine_data_disk_attachment`, …). What a join resource says
+ * outranks what a reference implies, so those land first and the rules below
+ * never override them.
  */
 export function deriveContainment(
   nodes: GraphNode[],
   sources: readonly DependencySource[],
   ctx: EdgeContext,
+  joinParents?: ReadonlyMap<string, string>,
 ): void {
   const r: ResolveCtx = {
     ctx,
@@ -186,7 +206,10 @@ export function deriveContainment(
     referrersOf: buildReferrers(sources, ctx),
   };
 
+  applyJoinParents(nodes, joinParents, r.typeById);
+
   for (const node of nodes) {
+    if (node.parent_id !== undefined) continue; // a join already placed it
     for (const rule of RULES) {
       if (!rule.childMatches(node)) continue;
       const targets = parentCandidates(node, rule, r);

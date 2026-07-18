@@ -375,3 +375,66 @@ test("every containment chain is acyclic and at most resource → host → subne
     }
   }
 });
+
+test("join-derived parents place the NAT gateway in its associated subnet", () => {
+  const nodes = [
+    node("azurerm_subnet.internal", "azurerm_subnet"),
+    node("azurerm_nat_gateway.out", "azurerm_nat_gateway"),
+    node(
+      "azurerm_subnet_nat_gateway_association.a",
+      "azurerm_subnet_nat_gateway_association",
+    ),
+  ];
+  const sources: DependencySource[] = [
+    {
+      fromBase: "azurerm_subnet_nat_gateway_association.a",
+      prefix: "",
+      refs: [
+        { ref: "azurerm_nat_gateway.out.id", inferred: true },
+        { ref: "azurerm_subnet.internal.id", inferred: true },
+      ],
+    },
+  ];
+  deriveContainment(
+    nodes,
+    sources,
+    ctxFor(nodes),
+    new Map([["azurerm_nat_gateway.out", "azurerm_subnet.internal"]]),
+  );
+  assert.equal(nodes[1]!.parent_id, "azurerm_subnet.internal");
+});
+
+test("a join-derived parent wins over the reference rules", () => {
+  // The appgw references the public IP (up-rule would parent it there), but a
+  // join already said the IP belongs to the NAT gateway — the join wins.
+  const nodes = [
+    node("azurerm_public_ip.out", "azurerm_public_ip"),
+    node("azurerm_application_gateway.appgw", "azurerm_application_gateway"),
+    node("azurerm_nat_gateway.out", "azurerm_nat_gateway"),
+  ];
+  const sources: DependencySource[] = [
+    {
+      fromBase: "azurerm_application_gateway.appgw",
+      prefix: "",
+      refs: [{ ref: "azurerm_public_ip.out.id", inferred: true }],
+    },
+  ];
+  deriveContainment(
+    nodes,
+    sources,
+    ctxFor(nodes),
+    new Map([["azurerm_public_ip.out", "azurerm_nat_gateway.out"]]),
+  );
+  assert.equal(nodes[0]!.parent_id, "azurerm_nat_gateway.out");
+});
+
+test("a join parent pointing at a node not in the graph is ignored", () => {
+  const nodes = [node("azurerm_nat_gateway.out", "azurerm_nat_gateway")];
+  deriveContainment(
+    nodes,
+    [],
+    ctxFor(nodes),
+    new Map([["azurerm_nat_gateway.out", "azurerm_subnet.gone"]]),
+  );
+  assert.equal(nodes[0]!.parent_id, undefined);
+});

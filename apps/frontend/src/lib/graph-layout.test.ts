@@ -1104,3 +1104,26 @@ it("elkToFlow delivers chips to the subnet container node data", () => {
   const subnet = nodes.find((n) => n.id === "subnet");
   expect(subnet?.data.chips?.map((c) => c.id)).toEqual(["nsg", "rt"]);
 });
+
+it("networkProjection drops edge-join plumbing (peerings, links) but keeps the direct edge", () => {
+  const g: Graph = {
+    version: 4,
+    nodes: [
+      { id: "hub", name: "hub", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+      { id: "spoke", name: "spoke", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+      { id: "peer", name: "peer", type: "azurerm_virtual_network_peering", provider: "azurerm", module_path: [], change: null },
+    ],
+    edges: [
+      // The peering's own reference edges, plus the direct edge the backend
+      // join catalog now emits between the two vnets.
+      { from: "peer", to: "hub", kind: "depends_on", inferred: true },
+      { from: "peer", to: "spoke", kind: "depends_on", inferred: true },
+      { from: "hub", to: "spoke", kind: "depends_on", inferred: true },
+    ],
+  };
+  const { graph: projected, hiddenCount } = networkProjection(g);
+  const ids = projected.nodes.map((n) => n.id).sort();
+  expect(ids).toEqual(["hub", "spoke"]); // the peering box is plumbing
+  expect(hiddenCount).toBe(0); // plumbing isn't a "hidden resource"
+  expect(projected.edges).toContainEqual({ from: "hub", to: "spoke", kind: "depends_on", inferred: true });
+});

@@ -278,11 +278,33 @@ export function changeCounts(graph: Graph): Map<FilterKey, number> {
   return counts;
 }
 
-// `*_association` resources are pure plumbing (they wire an NSG/route table to a
-// subnet); their effect is captured in `associated_ids`, so the network view
-// drops them rather than drawing them as nested boxes.
+// The `edge`-semantic azurerm join types (mirrors the backend's
+// `graph/azurerm-joins.ts` NETWORK_EDGE_JOIN_TYPES): resources whose whole
+// purpose is to bind two others. The backend emits the direct edge between the
+// endpoints, so the network view draws the line, not the binder's box.
+const EDGE_JOIN_TYPES = new Set([
+  "azurerm_network_interface_backend_address_pool_association",
+  "azurerm_network_interface_application_gateway_backend_address_pool_association",
+  "azurerm_network_interface_nat_rule_association",
+  "azurerm_virtual_network_peering",
+  "azurerm_databricks_virtual_network_peering",
+  "azurerm_virtual_hub_connection",
+  "azurerm_virtual_network_gateway_connection",
+  "azurerm_vpn_gateway_connection",
+  "azurerm_express_route_connection",
+  "azurerm_express_route_circuit_connection",
+  "azurerm_private_dns_zone_virtual_network_link",
+  "azurerm_private_dns_resolver_virtual_network_link",
+  "azurerm_app_service_virtual_network_swift_connection",
+  "azurerm_app_service_slot_virtual_network_swift_connection",
+]);
+
+// `*_association` resources are pure plumbing (they wire an NSG/route table/NAT
+// gateway to a subnet or NIC); their effect is captured in `associated_ids` /
+// `parent_id` / a direct edge, so the network view drops them rather than
+// drawing them as nested boxes. Same for the edge-join types above.
 const isNetworkPlumbing = (node: GraphNode): boolean =>
-  node.type.endsWith("_association");
+  node.type.endsWith("_association") || EDGE_JOIN_TYPES.has(node.type);
 
 // The two structural container types in the network view. They render as frames
 // even when empty (a subnet with no resources is still a subnet).

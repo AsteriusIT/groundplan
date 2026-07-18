@@ -278,3 +278,33 @@ test("a root directory holding no .tf files warns instead of silently emptying",
     `expected a warning naming the directory, got ${JSON.stringify(warnings)}`,
   );
 });
+
+test("the join catalog places, attaches, and edges association resources (azurerm joins)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-joins"));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const hasEdge = (from: string, to: string) =>
+    graph.edges.some((e) => e.kind === "depends_on" && e.from === from && e.to === to);
+
+  // subnet_nat_gateway_association → the NAT gateway nests in its subnet.
+  assert.equal(byId.get("azurerm_nat_gateway.out")?.parent_id, "azurerm_subnet.internal");
+  // data-disk attachment → the disk stacks under its VM.
+  assert.equal(
+    byId.get("azurerm_managed_disk.data")?.parent_id,
+    "azurerm_linux_virtual_machine.app",
+  );
+  // vnet peering collapses to one direct vnet ⇄ vnet edge.
+  assert.ok(
+    hasEdge("azurerm_virtual_network.hub", "azurerm_virtual_network.spoke") ||
+      hasEdge("azurerm_virtual_network.spoke", "azurerm_virtual_network.hub"),
+    "expected a direct edge between the peered vnets",
+  );
+  // NIC ↔ LB pool association collapses to a direct NIC → pool edge.
+  assert.ok(
+    hasEdge("azurerm_network_interface.nic", "azurerm_lb_backend_address_pool.pool"),
+    "expected a direct NIC → pool edge",
+  );
+  // VMSS inline NSG duality: the NSG records the scale set it guards.
+  assert.deepEqual(byId.get("azurerm_network_security_group.web")?.associated_ids, [
+    "azurerm_linux_virtual_machine_scale_set.workers",
+  ]);
+});

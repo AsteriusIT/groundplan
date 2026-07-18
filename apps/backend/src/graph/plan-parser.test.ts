@@ -405,3 +405,47 @@ test("validateGraph accepts both a hand-written v1 node and a v3 node", () => {
   };
   assert.equal(validateGraph({ version: 3, nodes: [v3Node], edges: [] }).valid, true);
 });
+
+test("the join catalog places, attaches, and edges association resources (azurerm joins)", () => {
+  const graph = parsePlanToGraph(readJson("plans/joins.plan.json"));
+  assert.equal(validateGraph(graph).valid, true);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const hasEdge = (from: string, to: string) =>
+    graph.edges.some((e) => e.kind === "depends_on" && e.from === from && e.to === to);
+
+  // subnet_nat_gateway_association → the NAT gateway nests in its subnet.
+  assert.equal(byId.get("azurerm_nat_gateway.out")?.parent_id, "azurerm_subnet.internal");
+  // data-disk attachment → the disk stacks under its VM.
+  assert.equal(
+    byId.get("azurerm_managed_disk.data")?.parent_id,
+    "azurerm_linux_virtual_machine.app",
+  );
+  // vnet peering collapses to one direct vnet ⇄ vnet edge.
+  assert.ok(
+    hasEdge("azurerm_virtual_network.hub", "azurerm_virtual_network.spoke") ||
+      hasEdge("azurerm_virtual_network.spoke", "azurerm_virtual_network.hub"),
+    "expected a direct edge between the peered vnets",
+  );
+  // NIC ↔ LB pool association collapses to a direct NIC → pool edge.
+  assert.ok(
+    hasEdge("azurerm_network_interface.nic", "azurerm_lb_backend_address_pool.pool"),
+    "expected a direct NIC → pool edge",
+  );
+  // VMSS inline NSG duality: the NSG records the scale set it guards.
+  assert.deepEqual(byId.get("azurerm_network_security_group.web")?.associated_ids, [
+    "azurerm_linux_virtual_machine_scale_set.workers",
+  ]);
+});
+
+test("a synthetic join edge never duplicates an existing reference edge", () => {
+  const graph = parsePlanToGraph(readJson("plans/joins.plan.json"));
+  // The VMSS already references its NSG inline — the attach semantic must not
+  // add a second (reversed) edge between the same two nodes.
+  const between = graph.edges.filter(
+    (e) =>
+      e.kind === "depends_on" &&
+      [e.from, e.to].includes("azurerm_network_security_group.web") &&
+      [e.from, e.to].includes("azurerm_linux_virtual_machine_scale_set.workers"),
+  );
+  assert.equal(between.length, 1);
+});

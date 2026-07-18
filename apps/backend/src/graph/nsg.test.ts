@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { attachNsg, computeInternetExposed, normalizePorts } from "./nsg.js";
+import { attachAssociations, attachNsg, computeInternetExposed, normalizePorts } from "./nsg.js";
 import type { GraphNode, NsgRule } from "./graph.js";
 
 function rule(p: Partial<NsgRule> = {}): NsgRule {
@@ -40,17 +40,23 @@ test("normalizePorts renders single, range, any, and numbers", () => {
   assert.equal(normalizePorts(""), "*");
 });
 
-test("attachNsg sets sorted rules, internet_exposed, and sorted associated_ids", () => {
+test("attachNsg sets sorted rules and internet_exposed", () => {
   const nodes: GraphNode[] = [
     { id: "nsg", name: "nsg", type: "azurerm_network_security_group", provider: "azurerm", module_path: [], change: null },
   ];
   attachNsg(nodes, new Map([
     ["nsg", {
       rules: [rule({ name: "b", priority: 200, source: "10.0.0.0/8" }), rule({ name: "a", priority: 100, source: "Internet" })],
-      associatedIds: ["sub2", "sub1", "sub1"],
     }],
   ]));
   assert.deepEqual(nodes[0]!.rules?.map((r) => r.name), ["a", "b"]); // sorted by priority
   assert.equal(nodes[0]!.internet_exposed, true);
-  assert.deepEqual(nodes[0]!.associated_ids, ["sub1", "sub2"]); // deduped + sorted
+});
+
+test("attachAssociations sets deduped, sorted associated_ids on any satellite", () => {
+  const nodes: GraphNode[] = [
+    { id: "nsg", name: "nsg", type: "azurerm_network_security_group", provider: "azurerm", module_path: [], change: null },
+  ];
+  attachAssociations(nodes, new Map([["nsg", ["sub2", "sub1", "sub1"]]]));
+  assert.deepEqual(nodes[0]!.associated_ids, ["sub1", "sub2"]);
 });
