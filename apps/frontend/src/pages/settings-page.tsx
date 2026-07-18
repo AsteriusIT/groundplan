@@ -1,4 +1,9 @@
-import { type ReactNode, type SyntheticEvent, useState } from "react";
+import {
+  type ReactNode,
+  type SyntheticEvent,
+  useEffect,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Building2,
@@ -15,6 +20,8 @@ import { ApiError, deleteOrganization } from "@/api/client";
 import { useAuth } from "@/auth/use-auth";
 import { initials } from "@/lib/format";
 import { useAiStatus } from "@/lib/use-ai-status";
+import { useScrollSpy } from "@/lib/use-scroll-spy";
+import { cn } from "@/lib/utils";
 import { useOrg } from "@/org/use-org";
 import { useCan } from "@/rbac/use-can";
 import { useTheme } from "@/theme/theme-provider";
@@ -35,8 +42,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
+import { PanelModeSwitcher } from "@/components/panel-mode-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { TourStyleSwitcher } from "@/components/tour-style-switcher";
+import { usePanelPrefs, type PanelMode } from "@/panel/panel-prefs";
 import { useTourStyle } from "@/tour/tour-style";
 
 const THEME_BLURB: Record<string, string> = {
@@ -52,12 +61,82 @@ const TOUR_BLURB: Record<string, string> = {
     "The whole tour lists in a rail beside the diagram — skim it, or jump to any stop.",
 };
 
+const PANEL_BLURB: Record<PanelMode, string> = {
+  fixed: "The node details panel keeps one width.",
+  resizable:
+    "Drag the details panel's left edge to size it; the width is remembered on this device.",
+};
+
+type SectionEntry = { id: string; label: string; element: ReactNode };
+type SectionGroup = { label: string | null; sections: SectionEntry[] };
+
 /**
- * Settings (GP-69): the three things that actually have content today —
- * who you are, how it looks, and whether the AI layer is on. Nothing
- * speculative: no team management, no roles, no API keys in the UI.
+ * Settings, grown past its GP-69 "deliberately thin" origins: identity,
+ * org management (GP-118), display preferences, the app-wide CI token and
+ * the AI readout. A sticky rail mirrors the sections — both render from the
+ * same `groups` value, so the nav can never drift from the page. Still
+ * nothing speculative: no API keys in the UI, no per-page auth checks.
  */
 export function SettingsPage() {
+  const { activeOrg, singleOrg } = useOrg();
+  const canManage = useCan("member:manage");
+  const canDelete = useCan("org:delete");
+  const showInvites = !singleOrg && canManage;
+  const showDanger = !singleOrg && canDelete && activeOrg !== null;
+
+  // A hash on arrival scrolls to its section (jsdom's scrollIntoView is a
+  // test-setup no-op). A hash for a hidden section simply finds no element.
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (hash) document.getElementById(hash)?.scrollIntoView();
+  }, []);
+
+  const groups: SectionGroup[] = [
+    {
+      label: "Personal",
+      sections: [
+        { id: "account", label: "Account", element: <AccountCard /> },
+        { id: "appearance", label: "Appearance", element: <AppearanceCard /> },
+      ],
+    },
+    {
+      label: "Organization",
+      sections: [
+        { id: "members", label: "Members", element: <MembersCard /> },
+        ...(showInvites
+          ? [
+              {
+                id: "invitations",
+                label: "Invitations",
+                element: <InvitesCard />,
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      label: "Workspace",
+      sections: [
+        {
+          id: "ci-token",
+          label: "CI ingestion token",
+          element: <IngestionCard />,
+        },
+        { id: "ai", label: "AI", element: <AiCard /> },
+      ],
+    },
+    ...(showDanger
+      ? [
+          {
+            label: null,
+            sections: [
+              { id: "danger", label: "Danger zone", element: <DangerCard /> },
+            ],
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div>
       <PageHeader
@@ -65,16 +144,107 @@ export function SettingsPage() {
         title="Settings"
         description="Your identity, the look of the canvas, and what the server has enabled."
       />
-      <div className="max-w-3xl space-y-6 p-8">
-        <AccountCard />
-        <MembersCard />
-        <InvitesCard />
-        <AppearanceCard />
-        <IngestionCard />
-        <AiCard />
-        <DangerCard />
+      <div className="mx-auto flex max-w-5xl items-start gap-10 px-8 py-8">
+        <SettingsRail groups={groups} />
+        {/* Group labels live in the rail alone; here the grouping is spacing —
+            tight within a group, wide between groups. */}
+        <div className="min-w-0 max-w-3xl flex-1 space-y-10">
+          {groups.map((group) => (
+            <div key={group.label ?? "danger"} className="space-y-4">
+              {group.sections.map((s) => (
+                <div key={s.id} id={s.id} className="scroll-mt-6">
+                  {s.element}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
+  );
+}
+
+/** The sidebar's tiny uppercase group label, reused for settings groups. */
+function GroupLabel({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <p className="text-muted-foreground font-mono text-[10px] font-medium tracking-[0.12em] uppercase">
+      {children}
+    </p>
+  );
+}
+
+/**
+ * The section rail: anchors into the page, grouped like the sidebar, the
+ * active section highlighted with the sidebar's exact active treatment so
+ * the two navs read as one system. Hidden below lg — the page is then just
+ * the stacked scroll it always was.
+ */
+function SettingsRail({ groups }: Readonly<{ groups: SectionGroup[] }>) {
+  const ids = groups.flatMap((g) => g.sections.map((s) => s.id));
+  // A click (or an arriving #hash) pins its section: the page is short, so
+  // the tail sections can never reach the spy's reading line and geometry
+  // alone would contradict an explicit choice. Real scrolling unpins.
+  const [pinned, setPinned] = useState<string | null>(() => {
+    const hash = window.location.hash.slice(1);
+    return ids.includes(hash) ? hash : null;
+  });
+  const spied = useScrollSpy(ids);
+  const active = pinned ?? spied;
+
+  useEffect(() => {
+    if (pinned === null) return;
+    const unpin = () => setPinned(null);
+    window.addEventListener("wheel", unpin, { passive: true });
+    window.addEventListener("touchmove", unpin, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", unpin);
+      window.removeEventListener("touchmove", unpin);
+    };
+  }, [pinned]);
+
+  return (
+    <nav
+      aria-label="Settings sections"
+      className="sticky top-8 hidden w-44 shrink-0 self-start lg:block"
+    >
+      <ul className="space-y-5">
+        {groups.map((group) => (
+          <li key={group.label ?? "danger"}>
+            {group.label && (
+              <div className="px-2.5 pb-1.5">
+                <GroupLabel>{group.label}</GroupLabel>
+              </div>
+            )}
+            <ul className="space-y-0.5">
+              {group.sections.map((s) => (
+                <li key={s.id}>
+                  <a
+                    href={`#${s.id}`}
+                    aria-current={active === s.id ? "true" : undefined}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setPinned(s.id);
+                      document
+                        .getElementById(s.id)
+                        ?.scrollIntoView({ behavior: "smooth" });
+                      window.history.replaceState(null, "", `#${s.id}`);
+                    }}
+                    className={cn(
+                      "block border-l-2 px-2.5 py-1.5 text-sm transition-colors",
+                      active === s.id
+                        ? "border-primary text-primary font-medium"
+                        : "text-muted-foreground hover:text-foreground border-transparent",
+                    )}
+                  >
+                    {s.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }
 
@@ -114,6 +284,7 @@ function AccountCard() {
 function AppearanceCard() {
   const { theme } = useTheme();
   const { style } = useTourStyle();
+  const { mode } = usePanelPrefs();
 
   return (
     <Section
@@ -132,6 +303,11 @@ function AppearanceCard() {
       <div className="mt-5 flex items-center gap-6">
         <TourStyleSwitcher className="w-80 shrink-0" />
         <p className="text-muted-foreground text-sm">{TOUR_BLURB[style]}</p>
+      </div>
+
+      <div className="mt-5 flex items-center gap-6">
+        <PanelModeSwitcher className="w-80 shrink-0" />
+        <p className="text-muted-foreground text-sm">{PANEL_BLURB[mode]}</p>
       </div>
     </Section>
   );
@@ -229,11 +405,8 @@ function MembersCard() {
   );
 }
 
-/** Invitations (GP-116/GP-118) — admins only, and never in single-org mode. */
+/** Invitations (GP-116/GP-118) — rendered only for multi-org admins (page gates). */
 function InvitesCard() {
-  const { singleOrg } = useOrg();
-  const canManage = useCan("member:manage");
-  if (singleOrg || !canManage) return null;
   return (
     <Section
       icon={<Mail className="size-4" />}
@@ -245,18 +418,17 @@ function InvitesCard() {
   );
 }
 
-/** Delete the organization (GP-118) — owner only, and never the single default org. */
+/** Delete the organization (GP-118) — rendered only for multi-org owners (page gates). */
 function DangerCard() {
-  const { activeOrg, singleOrg } = useOrg();
+  const { activeOrg } = useOrg();
   const { reloadUser } = useAuth();
-  const canDelete = useCan("org:delete");
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (singleOrg || !canDelete || !activeOrg) return null;
+  if (!activeOrg) return null;
 
   async function handleDelete(event: SyntheticEvent) {
     event.preventDefault();
@@ -279,6 +451,7 @@ function DangerCard() {
       icon={<Building2 className="size-4" />}
       title="Danger zone"
       description="Deleting an organization removes its projects, repositories and history. This cannot be undone."
+      className="border-destructive/40"
     >
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
@@ -327,15 +500,19 @@ function Section({
   icon,
   title,
   description,
+  className,
   children,
 }: Readonly<{
   icon: ReactNode;
   title: string;
   description: string;
+  className?: string;
   children: ReactNode;
 }>) {
   return (
-    <section className="bg-card rounded-md border border-border">
+    <section
+      className={cn("bg-card rounded-md border border-border", className)}
+    >
       <header className="border-b border-border px-5 py-3.5">
         <div className="text-muted-foreground flex items-center gap-2">
           {icon}

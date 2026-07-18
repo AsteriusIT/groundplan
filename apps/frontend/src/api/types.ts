@@ -295,6 +295,22 @@ export interface Identity {
   identity_ids?: string[];
 }
 
+/**
+ * v8: where a docs-flow node was defined, and the Terraform that defines it
+ * (GP-120). Verbatim repository source — absent on plan-flow and Kubernetes
+ * snapshots, and stripped from public share links.
+ */
+export interface NodeSource {
+  /** Repository-relative path, e.g. `modules/network/main.tf`. */
+  file: string;
+  /** 1-based line of the block's opening keyword. */
+  start_line: number;
+  /** 1-based line of the block's closing brace. */
+  end_line: number;
+  /** The block's text, exactly as it appears over `[start_line, end_line]`. */
+  code: string;
+}
+
 export interface GraphNode {
   id: string;
   name: string;
@@ -347,6 +363,8 @@ export interface GraphNode {
   attributes?: Record<string, string>;
   /** v7: true when the attribute list was capped. */
   attributes_truncated?: boolean;
+  /** v8: the Terraform block this node was parsed from — docs flow only (GP-120). */
+  source?: NodeSource;
 }
 
 export interface GraphEdge {
@@ -362,8 +380,11 @@ export interface GraphEdge {
 }
 
 export interface Graph {
-  /** 6 adds node labels — a Kubernetes namespace read (GP-96). All additive. */
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  /**
+   * 6 adds node labels — a Kubernetes namespace read (GP-96); 7 adds node
+   * attributes (GP-102); 8 adds the node's own HCL source (GP-120). All additive.
+   */
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
@@ -430,6 +451,54 @@ export interface Snapshot extends SnapshotSummary {
   graph: Graph;
   /** Deterministic rule-based Markdown change summary (GP-36). */
   summaryMd: string;
+}
+
+// --- Playground (GP-123..GP-126) -------------------------------------------
+
+/** One in-memory HCL file — the parse endpoint's input and a draft's unit. */
+export interface PlaygroundFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * The ephemeral snapshot `POST /playground/parse` returns: the same
+ * graph/stats/summary a stored docs snapshot carries, minus any identity —
+ * nothing was persisted, so there is no id, repository or commit.
+ */
+export interface PlaygroundSnapshot {
+  graph: Graph;
+  stats: GraphStats;
+  summaryMd: string;
+}
+
+/** Draft list entry (GP-124): identity and shape, never the file contents. */
+export interface PlaygroundDraftSummary {
+  id: string;
+  name: string;
+  updatedAt: string;
+  fileCount: number;
+}
+
+/** A saved playground (GP-124): the HCL sources verbatim — no snapshot. */
+export interface PlaygroundDraft {
+  id: string;
+  userId: string;
+  name: string;
+  files: PlaygroundFile[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePlaygroundDraftInput {
+  name: string;
+  files: PlaygroundFile[];
+}
+
+/** A rename sends `name`; a save sends `files` (always the full set). */
+export interface UpdatePlaygroundDraftInput {
+  name?: string;
+  files?: PlaygroundFile[];
 }
 
 // --- Docs snapshot diff (GP-40) --------------------------------------------

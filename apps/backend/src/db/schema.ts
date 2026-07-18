@@ -868,6 +868,32 @@ export function toPublicAiGeneration(row: AiGenerationRow): PublicAiGeneration {
   };
 }
 
+/**
+ * A playground draft (GP-124): the HCL source files a user is sketching, saved
+ * verbatim. Only the sources are stored — never the snapshot, which is
+ * re-parsed on load (determinism, ADR #3), so stored drafts never migrate.
+ * Strictly user-owned: no org, no project, no repository. A draft may hold HCL
+ * that does not parse; validity is the parse endpoint's concern, not storage's.
+ */
+export const playgroundDrafts = pgTable("playground_drafts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  files: jsonb("files")
+    .$type<{ path: string; content: string }[]>()
+    .notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type PlaygroundDraftRow = typeof playgroundDrafts.$inferSelect;
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   projects: many(projects),
@@ -888,6 +914,16 @@ export const clustersRelations = relations(clusters, ({ one }) => ({
     references: [organizations.id],
   }),
 }));
+
+export const playgroundDraftsRelations = relations(
+  playgroundDrafts,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [playgroundDrafts.userId],
+      references: [users.id],
+    }),
+  }),
+);
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
   user: one(users, {

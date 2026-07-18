@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Graph } from "@/api/types";
+import type { Graph, GraphEdge } from "@/api/types";
 import {
   ALL_FILTERS,
   categoryCounts,
@@ -15,9 +15,12 @@ import {
   neighborhood,
   networkProjection,
   nodePassesFilters,
+  reanchorStackEdges,
+  resourceStacks,
   toElkGraph,
   type ElkGraphNode,
 } from "./graph-layout";
+import { detectHubs } from "@/lib/hub";
 
 const allFilters = new Set(ALL_FILTERS);
 
@@ -837,4 +840,367 @@ describe("the filter options the canvas seeds itself from", () => {
 
     expect(nodes.filter((n) => n.data.dimmed)).toEqual([]);
   });
+});
+
+// --- GP-87: resource stacking (satellites nest inside their host card) -------
+
+/** vnet ⊃ subnet ⊃ lb (host), with three lb satellites stacked under the lb and
+ *  one external neighbour the probe depends on. */
+function stackFixture(): Graph {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  return {
+    version: 4,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("subnet", "azurerm_subnet", { parent_id: "vnet" }),
+      n("lb", "azurerm_lb", { parent_id: "subnet" }),
+      n("probe", "azurerm_lb_probe", { parent_id: "lb", change: "update" }),
+      n("pool", "azurerm_lb_backend_address_pool", { parent_id: "lb" }),
+      n("rule", "azurerm_lb_rule", { parent_id: "lb" }),
+      n("web", "azurerm_linux_virtual_machine", { parent_id: "subnet" }),
+    ],
+    edges: [{ from: "probe", to: "web", kind: "depends_on" }],
+  };
+}
+
+const CONTAINERS = new Set(["vnet", "subnet"]);
+
+function collectElkIds(node: ElkGraphNode, out: string[] = []): string[] {
+  out.push(node.id);
+  for (const c of node.children ?? []) collectElkIds(c, out);
+  return out;
+}
+
+function findElk(node: ElkGraphNode, id: string): ElkGraphNode | undefined {
+  if (node.id === id) return node;
+  for (const c of node.children ?? []) {
+    const hit = findElk(c, id);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+it("resourceStacks groups satellite children under their host, sorted", () => {
+  const stacks = resourceStacks(stackFixture(), CONTAINERS);
+  expect([...stacks.keys()]).toEqual(["lb"]);
+  expect(stacks.get("lb")?.map((c) => c.id)).toEqual(["pool", "probe", "rule"]);
+});
+
+it("networkProjection stacks satellites but keeps container nesting", () => {
+  const { graph: projected, stacks } = networkProjection(stackFixture());
+  // Children stay in the graph (search + detail panel still resolve them)…
+  expect(projected.nodes.map((n) => n.id)).toContain("probe");
+  // …but there is no contains edge from the resource host to its children.
+  expect(projected.edges.some((e) => e.kind === "contains" && e.from === "lb")).toBe(false);
+  // The container chain still nests via contains.
+  expect(projected.edges).toContainEqual({ from: "subnet", to: "lb", kind: "contains" });
+  expect(stacks.get("lb")?.map((c) => c.id)).toEqual(["pool", "probe", "rule"]);
+});
+
+it("toElkGraph omits stacked children and sizes the host taller", () => {
+  const { graph: projected, stacks } = networkProjection(stackFixture());
+  const elk = toElkGraph(projected, undefined, CONTAINERS, stacks);
+  const ids = collectElkIds(elk);
+  expect(ids).not.toContain("probe");
+  expect(ids).not.toContain("pool");
+  expect(ids).toContain("lb");
+  const lb = findElk(elk, "lb");
+  expect(lb?.height ?? 0).toBeGreaterThan(56); // header + three rows
+});
+
+it("elkToFlow delivers the stack to the host node data and flags a changed child", () => {
+  const { graph: projected, stacks } = networkProjection(stackFixture());
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "lb", x: 0, y: 0, width: 220, height: 120 },
+      { id: "web", x: 300, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { nodes, edges } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: null,
+    stacks,
+  });
+  const lb = nodes.find((n) => n.id === "lb");
+  expect(lb?.data.stack?.map((c) => c.id)).toEqual(["pool", "probe", "rule"]);
+  expect(lb?.data.stackChanged).toBe(true); // probe change=update
+  // A stacked child has no flow node, so its edge is not drawn (GP-88 re-anchors).
+  expect(nodes.some((n) => n.id === "probe")).toBe(false);
+  expect(edges.some((e) => e.source === "probe" || e.target === "probe")).toBe(false);
+});
+
+// --- GP-88: edges around stacks (re-anchor to host, merge parallels) ---------
+
+it("reanchorStackEdges re-anchors child endpoints to the host and merges parallels", () => {
+  const childToHost = new Map([
+    ["probe", "lb"],
+    ["pool", "lb"],
+    ["rule", "lb"],
+  ]);
+  const edges: GraphEdge[] = [
+    { from: "probe", to: "web", kind: "depends_on", inferred: true },
+    { from: "pool", to: "web", kind: "depends_on", inferred: true },
+    { from: "rule", to: "probe", kind: "depends_on", inferred: true }, // both children of lb
+    { from: "web", to: "lb", kind: "depends_on", inferred: true },
+  ];
+  const { edges: out, members } = reanchorStackEdges(edges, childToHost);
+  // probe→web and pool→web collapse into one lb→web edge carrying ×2.
+  const lbWeb = out.find((e) => e.from === "lb" && e.to === "web");
+  expect(lbWeb?.count).toBe(2);
+  // rule→probe: both endpoints re-anchor to lb → a self-loop, dropped.
+  expect(out.some((e) => e.from === "lb" && e.to === "lb")).toBe(false);
+  // The plain web→lb edge survives.
+  expect(out.some((e) => e.from === "web" && e.to === "lb")).toBe(true);
+  // The merged edge remembers the original endpoints behind it, so a stacked
+  // child can still be lit even though the drawn edge names only the host.
+  const members1 = members.get(depEdgeId(lbWeb!));
+  expect([...(members1 ?? [])].sort()).toEqual(["pool", "probe", "web"]);
+});
+
+it("reanchorStackEdges leaves an edge without stacked endpoints untouched", () => {
+  const { edges: out } = reanchorStackEdges(
+    [{ from: "a", to: "b", kind: "depends_on", inferred: false }],
+    new Map(),
+  );
+  expect(out).toEqual([{ from: "a", to: "b", kind: "depends_on", inferred: false }]);
+});
+
+it("elkToFlow draws re-anchored, merged edges and never terminates at a satellite", () => {
+  const { graph: projected, stacks } = networkProjection({
+    version: 4,
+    nodes: stackFixture().nodes,
+    edges: [
+      { from: "probe", to: "web", kind: "depends_on", inferred: true },
+      { from: "pool", to: "web", kind: "depends_on", inferred: true },
+    ],
+  });
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "lb", x: 0, y: 0, width: 220, height: 120 },
+      { id: "web", x: 400, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { edges } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: null,
+    stacks,
+  });
+  // One merged edge lb→web, none touching a satellite.
+  expect(edges).toHaveLength(1);
+  expect(edges[0]).toMatchObject({ source: "web", target: "lb" }); // drawn dep→dependent
+  expect(edges.some((e) => e.source === "probe" || e.target === "probe")).toBe(false);
+  expect(edges[0]?.data?.label).toBe("×2");
+});
+
+it("selecting a stacked child lights exactly the merged edges it participates in", () => {
+  const { graph: projected, stacks } = networkProjection({
+    version: 4,
+    nodes: stackFixture().nodes,
+    edges: [
+      { from: "probe", to: "web", kind: "depends_on", inferred: true },
+      { from: "pool", to: "web", kind: "depends_on", inferred: true },
+    ],
+  });
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      { id: "lb", x: 0, y: 0, width: 220, height: 120 },
+      { id: "web", x: 400, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { edges } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: "probe", // a stacked child
+    stacks,
+  });
+  // The merged lb→web edge carries the probe, so selecting the probe lights it.
+  expect(edges[0]?.data?.active).toBe(true);
+  expect(edges[0]?.data?.dimmed).toBe(false);
+});
+
+it("hub detection counts merged edges, dropping a node that only fanned out via a stack", () => {
+  // 16 satellites of `lb`, all depending on `web` → `web` has degree 16 raw
+  // (> HUB_DEGREE_THRESHOLD of 15), but one merged lb→web edge after re-anchoring.
+  const children = Array.from({ length: 16 }, (_, i) => `probe${i}`);
+  const nodes = [
+    { id: "web", name: "web", type: "azurerm_linux_virtual_machine", provider: "azurerm", module_path: [], change: null },
+    ...children.map((id) => ({ id, name: id, type: "azurerm_lb_probe", provider: "azurerm" as const, module_path: [] as string[], change: null })),
+  ];
+  const edges: GraphEdge[] = children.map((id) => ({ from: id, to: "web", kind: "depends_on" as const, inferred: true }));
+  const rawGraph: Graph = { version: 4, nodes, edges };
+  const childToHost = new Map(children.map((id) => [id, "lb"]));
+  const merged = reanchorStackEdges(edges, childToHost).edges;
+  const mergedGraph: Graph = { version: 4, nodes, edges: merged };
+
+  expect(detectHubs(rawGraph).has("web")).toBe(true); // 16 raw edges → a hub
+  expect(detectHubs(mergedGraph).has("web")).toBe(false); // one merged edge → not
+});
+
+// --- GP-89: subnet chips (NSG / route table attach to their subnet) ----------
+
+/** vnet ⊃ subnet, guarded by an NSG (associated) and a route table; a second
+ *  NSG guards the NIC card inside the subnet (a top-level card → a chip home). */
+function chipFixture(): Graph {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  return {
+    version: 4,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("subnet", "azurerm_subnet", { parent_id: "vnet" }),
+      n("nic", "azurerm_network_interface", { parent_id: "subnet" }),
+      n("nsg", "azurerm_network_security_group", { associated_ids: ["subnet"], change: "update" }),
+      n("rt", "azurerm_route_table", { associated_ids: ["subnet"] }),
+      // Guards the NIC — which renders as its own card, so the chip rides on it.
+      n("nicGuard", "azurerm_network_security_group", { associated_ids: ["nic"] }),
+    ],
+    edges: [{ from: "nsg", to: "nic", kind: "depends_on", inferred: true }],
+  };
+}
+
+it("attachmentChips groups NSGs / route tables under the subnet they guard", () => {
+  const { chips } = networkProjection(chipFixture());
+  expect(chips.get("subnet")?.map((c) => c.id)).toEqual(["nsg", "rt"]);
+});
+
+it("networkProjection removes chip nodes from the layout, wherever they anchor", () => {
+  const { graph: projected, chips } = networkProjection(chipFixture());
+  // Chip nodes stay in the graph (search + detail resolve them)…
+  expect(projected.nodes.map((n) => n.id)).toEqual(
+    expect.arrayContaining(["nsg", "rt", "nicGuard"]),
+  );
+  // …the NIC-guarding NSG chips onto the NIC's card (a top-level card).
+  expect(chips.get("nic")?.map((c) => c.id)).toEqual(["nicGuard"]);
+  const elk = toElkGraph(projected, undefined, new Set(["vnet", "subnet"]), undefined, chips);
+  const ids = collectElkIds(elk);
+  expect(ids).not.toContain("nsg"); // laid out as a chip, not a floating node
+  expect(ids).not.toContain("rt");
+  expect(ids).not.toContain("nicGuard"); // rides on the NIC card
+});
+
+it("elkToFlow delivers chips to the subnet container node data", () => {
+  const { graph: projected, chips, containerIds } = networkProjection(chipFixture());
+  const layout: ElkGraphNode = {
+    id: "root",
+    children: [
+      {
+        id: "vnet", x: 0, y: 0, width: 400, height: 300,
+        children: [{ id: "subnet", x: 20, y: 40, width: 320, height: 200, children: [{ id: "nic", x: 20, y: 60, width: 220, height: 56 }] }],
+      },
+      { id: "orphan", x: 500, y: 0, width: 220, height: 56 },
+    ],
+  };
+  const { nodes } = elkToFlow(layout, projected, {
+    activeFilters: allFilters,
+    selectedId: null,
+    containerIds,
+    chips,
+  });
+  const subnet = nodes.find((n) => n.id === "subnet");
+  expect(subnet?.data.chips?.map((c) => c.id)).toEqual(["nsg", "rt"]);
+});
+
+it("networkProjection drops edge-join plumbing (peerings, links) but keeps the direct edge", () => {
+  const g: Graph = {
+    version: 4,
+    nodes: [
+      { id: "hub", name: "hub", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+      { id: "spoke", name: "spoke", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+      { id: "peer", name: "peer", type: "azurerm_virtual_network_peering", provider: "azurerm", module_path: [], change: null },
+    ],
+    edges: [
+      // The peering's own reference edges, plus the direct edge the backend
+      // join catalog now emits between the two vnets.
+      { from: "peer", to: "hub", kind: "depends_on", inferred: true },
+      { from: "peer", to: "spoke", kind: "depends_on", inferred: true },
+      { from: "hub", to: "spoke", kind: "depends_on", inferred: true },
+    ],
+  };
+  const { graph: projected, hiddenCount } = networkProjection(g);
+  const ids = projected.nodes.map((n) => n.id).sort();
+  expect(ids).toEqual(["hub", "spoke"]); // the peering box is plumbing
+  expect(hiddenCount).toBe(0); // plumbing isn't a "hidden resource"
+  expect(projected.edges).toContainEqual({ from: "hub", to: "spoke", kind: "depends_on", inferred: true });
+});
+
+// --- host-card chips (avset on its member VMs, network-schema-polish) --------
+
+/** vnet ⊃ subnet ⊃ two VMs sharing an availability set; one VM stacks a NIC
+ *  guarded by an NSG (stacked anchor → no chip home). */
+function cardChipFixture(): Graph {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  return {
+    version: 4,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("subnet", "azurerm_subnet", { parent_id: "vnet" }),
+      n("vm1", "azurerm_linux_virtual_machine", { parent_id: "subnet" }),
+      n("vm2", "azurerm_linux_virtual_machine", { parent_id: "subnet" }),
+      n("avset", "azurerm_availability_set", { associated_ids: ["vm1", "vm2"] }),
+      n("nic", "azurerm_network_interface", { parent_id: "vm1" }),
+      n("nicGuard", "azurerm_network_security_group", { associated_ids: ["nic"] }),
+    ],
+    edges: [],
+  };
+}
+
+it("chips an avset onto its member VM cards and hides its node from the layout", () => {
+  const { graph: projected, chips, stacks, containerIds } = networkProjection(cardChipFixture());
+  expect(chips.get("vm1")?.map((c) => c.id)).toEqual(["avset"]);
+  expect(chips.get("vm2")?.map((c) => c.id)).toEqual(["avset"]);
+  const elk = toElkGraph(projected, undefined, containerIds, stacks, chips);
+  expect(collectElkIds(elk)).not.toContain("avset");
+});
+
+it("keeps a satellite floating when its only anchor is itself stacked", () => {
+  // The NSG guards a NIC stacked inside vm1: no chip home → stays a node.
+  const { graph: projected, chips, stacks, containerIds } = networkProjection(cardChipFixture());
+  expect([...chips.values()].flat().some((c) => c.id === "nicGuard")).toBe(false);
+  const elk = toElkGraph(projected, undefined, containerIds, stacks, chips);
+  expect(collectElkIds(elk)).toContain("nicGuard");
+});
+
+it("a chip-carrying resource card reserves extra height", () => {
+  const { graph: projected, chips, stacks, containerIds } = networkProjection(cardChipFixture());
+  const elk = toElkGraph(projected, undefined, containerIds, stacks, chips);
+  const vm2 = findElk(elk, "vm2"); // no stack, one chip
+  expect(vm2?.height).toBeGreaterThan(56);
+});
+
+// --- subnet ordering by CIDR (network-schema-polish) -------------------------
+
+it("orders a vnet's subnets by CIDR, not by id", () => {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  // Ids chosen so alphabetical order (sa, sb, sc) differs from CIDR order.
+  const graph: Graph = {
+    version: 7,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("sa", "azurerm_subnet", { parent_id: "vnet", attributes: { address_prefixes: "10.0.3.0/24" } }),
+      n("sb", "azurerm_subnet", { parent_id: "vnet", attributes: { address_prefixes: "10.0.1.0/24" } }),
+      n("sc", "azurerm_subnet", { parent_id: "vnet", attributes: { address_prefixes: "10.0.2.0/24" } }),
+      n("sd", "azurerm_subnet", { parent_id: "vnet" }), // no CIDR → sorts last
+    ],
+    edges: ["sa", "sb", "sc", "sd"].map((id) => ({ from: "vnet", to: id, kind: "contains" as const })),
+  };
+  const elk = toElkGraph(graph);
+  const vnet = findElk(elk, "vnet");
+  expect(vnet?.children?.map((c) => c.id)).toEqual(["sb", "sc", "sa", "sd"]);
+  // No model-order options: they crash elkjs inside an INCLUDE_CHILDREN
+  // hierarchy (see graph-layout.elk.test.ts) — the sort alone must stay.
+  expect(
+    vnet?.layoutOptions?.["elk.layered.considerModelOrder.strategy"],
+  ).toBeUndefined();
+  expect(
+    vnet?.layoutOptions?.["elk.layered.crossingMinimization.forceNodeModelOrder"],
+  ).toBeUndefined();
 });

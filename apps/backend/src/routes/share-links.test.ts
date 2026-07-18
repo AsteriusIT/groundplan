@@ -266,6 +266,61 @@ test("pinning a snapshot from another repository is rejected (422)", async () =>
   }
 });
 
+test("a share link never carries the repository's HCL source (GP-120)", async () => {
+  const app = await buildApp(env);
+  try {
+    const orgId = await seedOrg(app);
+    const { projectId, repoId } = await createRepo(app, orgId);
+    const sourced: Graph = {
+      version: 8,
+      nodes: [
+        {
+          id: "azurerm_subnet.a",
+          name: "a",
+          type: "azurerm_subnet",
+          provider: "azurerm",
+          module_path: [],
+          change: null,
+          source: {
+            file: "main.tf",
+            start_line: 1,
+            end_line: 3,
+            code: 'resource "azurerm_subnet" "a" {\n  secret_looking_thing = "internal"\n}',
+          },
+        },
+      ],
+      edges: [],
+    };
+    await insertGraphSnapshot(app.db, {
+      repositoryId: repoId,
+      source: "hcl",
+      ref: "main",
+      commitSha: "50urce00",
+      graph: sourced,
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/share-links`,
+      payload: { kind: "docs_latest" },
+    });
+    const { token } = created.json();
+    const view = await app.inject({ method: "GET", url: `/api/v1/public/${token}` });
+
+    assert.equal(view.statusCode, 200);
+    // The diagram is what was shared; the Terraform behind it was not.
+    assert.ok(!view.payload.includes("secret_looking_thing"));
+    const [node] = view.json().snapshot.graph.nodes;
+    assert.equal(node.source, undefined);
+    // Everything else about the node still arrives — this strips, it does not gut.
+    assert.equal(node.id, "azurerm_subnet.a");
+
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
 test("unknown token → 404", async () => {
   const app = await buildApp(env);
   try {

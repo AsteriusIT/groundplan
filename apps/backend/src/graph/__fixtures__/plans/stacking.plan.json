@@ -1,0 +1,99 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    { "address": "azurerm_virtual_network.main", "mode": "managed", "type": "azurerm_virtual_network", "name": "main", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_subnet.internal", "mode": "managed", "type": "azurerm_subnet", "name": "internal", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_lb.main", "mode": "managed", "type": "azurerm_lb", "name": "main", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_lb_probe.https", "mode": "managed", "type": "azurerm_lb_probe", "name": "https", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_lb_backend_address_pool.pool", "mode": "managed", "type": "azurerm_lb_backend_address_pool", "name": "pool", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_lb_rule.http", "mode": "managed", "type": "azurerm_lb_rule", "name": "http", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_application_gateway.appgw", "mode": "managed", "type": "azurerm_application_gateway", "name": "appgw", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_public_ip.appgw", "mode": "managed", "type": "azurerm_public_ip", "name": "appgw", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_bastion_host.bastion", "mode": "managed", "type": "azurerm_bastion_host", "name": "bastion", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_public_ip.bastion", "mode": "managed", "type": "azurerm_public_ip", "name": "bastion", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_linux_virtual_machine.vm", "mode": "managed", "type": "azurerm_linux_virtual_machine", "name": "vm", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_network_interface.nic", "mode": "managed", "type": "azurerm_network_interface", "name": "nic", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_nat_gateway.nat", "mode": "managed", "type": "azurerm_nat_gateway", "name": "nat", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_public_ip.nat", "mode": "managed", "type": "azurerm_public_ip", "name": "nat", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } },
+    { "address": "azurerm_nat_gateway_public_ip_association.nat", "mode": "managed", "type": "azurerm_nat_gateway_public_ip_association", "name": "nat", "provider_name": "registry.terraform.io/hashicorp/azurerm", "change": { "actions": ["create"] } }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "azurerm_virtual_network.main", "mode": "managed", "type": "azurerm_virtual_network", "name": "main",
+          "expressions": { "address_space": { "references": ["var.vnet_cidr"] } }
+        },
+        {
+          "address": "azurerm_subnet.internal", "mode": "managed", "type": "azurerm_subnet", "name": "internal",
+          "expressions": { "virtual_network_name": { "references": ["azurerm_virtual_network.main.name", "azurerm_virtual_network.main"] } }
+        },
+        {
+          "address": "azurerm_lb.main", "mode": "managed", "type": "azurerm_lb", "name": "main",
+          "expressions": { "frontend_ip_configuration": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"] } }
+        },
+        {
+          "address": "azurerm_lb_probe.https", "mode": "managed", "type": "azurerm_lb_probe", "name": "https",
+          "expressions": { "loadbalancer_id": { "references": ["azurerm_lb.main.id", "azurerm_lb.main"] } }
+        },
+        {
+          "address": "azurerm_lb_backend_address_pool.pool", "mode": "managed", "type": "azurerm_lb_backend_address_pool", "name": "pool",
+          "expressions": { "loadbalancer_id": { "references": ["azurerm_lb.main.id", "azurerm_lb.main"] } }
+        },
+        {
+          "address": "azurerm_lb_rule.http", "mode": "managed", "type": "azurerm_lb_rule", "name": "http",
+          "expressions": {
+            "loadbalancer_id": { "references": ["azurerm_lb.main.id", "azurerm_lb.main"] },
+            "backend_address_pool_ids": { "references": ["azurerm_lb_backend_address_pool.pool.id", "azurerm_lb_backend_address_pool.pool"] },
+            "probe_id": { "references": ["azurerm_lb_probe.https.id", "azurerm_lb_probe.https"] }
+          }
+        },
+        {
+          "address": "azurerm_application_gateway.appgw", "mode": "managed", "type": "azurerm_application_gateway", "name": "appgw",
+          "expressions": {
+            "gateway_ip_configuration": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"] },
+            "frontend_ip_configuration": { "references": ["azurerm_public_ip.appgw.id", "azurerm_public_ip.appgw"] }
+          }
+        },
+        {
+          "address": "azurerm_public_ip.appgw", "mode": "managed", "type": "azurerm_public_ip", "name": "appgw",
+          "expressions": { "allocation_method": { "constant_value": "Static" } }
+        },
+        {
+          "address": "azurerm_bastion_host.bastion", "mode": "managed", "type": "azurerm_bastion_host", "name": "bastion",
+          "expressions": {
+            "ip_configuration": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal", "azurerm_public_ip.bastion.id", "azurerm_public_ip.bastion"] }
+          }
+        },
+        {
+          "address": "azurerm_public_ip.bastion", "mode": "managed", "type": "azurerm_public_ip", "name": "bastion",
+          "expressions": { "allocation_method": { "constant_value": "Static" } }
+        },
+        {
+          "address": "azurerm_linux_virtual_machine.vm", "mode": "managed", "type": "azurerm_linux_virtual_machine", "name": "vm",
+          "expressions": { "network_interface_ids": { "references": ["azurerm_network_interface.nic.id", "azurerm_network_interface.nic"] } }
+        },
+        {
+          "address": "azurerm_network_interface.nic", "mode": "managed", "type": "azurerm_network_interface", "name": "nic",
+          "expressions": { "ip_configuration": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"] } }
+        },
+        {
+          "address": "azurerm_nat_gateway.nat", "mode": "managed", "type": "azurerm_nat_gateway", "name": "nat",
+          "expressions": { "sku_name": { "constant_value": "Standard" } }
+        },
+        {
+          "address": "azurerm_public_ip.nat", "mode": "managed", "type": "azurerm_public_ip", "name": "nat",
+          "expressions": { "allocation_method": { "constant_value": "Static" } }
+        },
+        {
+          "address": "azurerm_nat_gateway_public_ip_association.nat", "mode": "managed", "type": "azurerm_nat_gateway_public_ip_association", "name": "nat",
+          "expressions": {
+            "nat_gateway_id": { "references": ["azurerm_nat_gateway.nat.id", "azurerm_nat_gateway.nat"] },
+            "public_ip_address_id": { "references": ["azurerm_public_ip.nat.id", "azurerm_public_ip.nat"] }
+          }
+        }
+      ]
+    }
+  }
+}

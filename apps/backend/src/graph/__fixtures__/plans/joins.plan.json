@@ -1,0 +1,249 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_virtual_network.hub",
+      "mode": "managed",
+      "type": "azurerm_virtual_network",
+      "name": "hub",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_virtual_network.spoke",
+      "mode": "managed",
+      "type": "azurerm_virtual_network",
+      "name": "spoke",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_virtual_network_peering.hub_to_spoke",
+      "mode": "managed",
+      "type": "azurerm_virtual_network_peering",
+      "name": "hub_to_spoke",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_subnet.internal",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "internal",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": { "address_prefixes": ["10.0.1.0/24"] }
+      }
+    },
+    {
+      "address": "azurerm_nat_gateway.out",
+      "mode": "managed",
+      "type": "azurerm_nat_gateway",
+      "name": "out",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_subnet_nat_gateway_association.a",
+      "mode": "managed",
+      "type": "azurerm_subnet_nat_gateway_association",
+      "name": "a",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_network_interface.nic",
+      "mode": "managed",
+      "type": "azurerm_network_interface",
+      "name": "nic",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_lb.main",
+      "mode": "managed",
+      "type": "azurerm_lb",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_lb_backend_address_pool.pool",
+      "mode": "managed",
+      "type": "azurerm_lb_backend_address_pool",
+      "name": "pool",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_network_interface_backend_address_pool_association.npa",
+      "mode": "managed",
+      "type": "azurerm_network_interface_backend_address_pool_association",
+      "name": "npa",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_network_security_group.web",
+      "mode": "managed",
+      "type": "azurerm_network_security_group",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_linux_virtual_machine_scale_set.workers",
+      "mode": "managed",
+      "type": "azurerm_linux_virtual_machine_scale_set",
+      "name": "workers",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_managed_disk.data",
+      "mode": "managed",
+      "type": "azurerm_managed_disk",
+      "name": "data",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_linux_virtual_machine.app",
+      "mode": "managed",
+      "type": "azurerm_linux_virtual_machine",
+      "name": "app",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_virtual_machine_data_disk_attachment.da",
+      "mode": "managed",
+      "type": "azurerm_virtual_machine_data_disk_attachment",
+      "name": "da",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_subnet.internal2",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "internal2",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_nat_gateway.shared",
+      "mode": "managed",
+      "type": "azurerm_nat_gateway",
+      "name": "shared",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_subnet_nat_gateway_association.s1",
+      "mode": "managed",
+      "type": "azurerm_subnet_nat_gateway_association",
+      "name": "s1",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    },
+    {
+      "address": "azurerm_subnet_nat_gateway_association.s2",
+      "mode": "managed",
+      "type": "azurerm_subnet_nat_gateway_association",
+      "name": "s2",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["create"], "before": null, "after": {} }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "azurerm_virtual_network_peering.hub_to_spoke",
+          "expressions": {
+            "virtual_network_name": { "references": ["azurerm_virtual_network.hub.name", "azurerm_virtual_network.hub"] },
+            "remote_virtual_network_id": { "references": ["azurerm_virtual_network.spoke.id", "azurerm_virtual_network.spoke"] }
+          }
+        },
+        {
+          "address": "azurerm_subnet.internal",
+          "expressions": {
+            "virtual_network_name": { "references": ["azurerm_virtual_network.hub.name", "azurerm_virtual_network.hub"] }
+          }
+        },
+        {
+          "address": "azurerm_subnet_nat_gateway_association.a",
+          "expressions": {
+            "subnet_id": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"] },
+            "nat_gateway_id": { "references": ["azurerm_nat_gateway.out.id", "azurerm_nat_gateway.out"] }
+          }
+        },
+        {
+          "address": "azurerm_network_interface.nic",
+          "expressions": {
+            "ip_configuration": [
+              { "subnet_id": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"] } }
+            ]
+          }
+        },
+        {
+          "address": "azurerm_lb_backend_address_pool.pool",
+          "expressions": {
+            "loadbalancer_id": { "references": ["azurerm_lb.main.id", "azurerm_lb.main"] }
+          }
+        },
+        {
+          "address": "azurerm_network_interface_backend_address_pool_association.npa",
+          "expressions": {
+            "network_interface_id": { "references": ["azurerm_network_interface.nic.id", "azurerm_network_interface.nic"] },
+            "backend_address_pool_id": { "references": ["azurerm_lb_backend_address_pool.pool.id", "azurerm_lb_backend_address_pool.pool"] }
+          }
+        },
+        {
+          "address": "azurerm_linux_virtual_machine_scale_set.workers",
+          "expressions": {
+            "network_interface": [
+              {
+                "network_security_group_id": { "references": ["azurerm_network_security_group.web.id", "azurerm_network_security_group.web"] },
+                "ip_configuration": [
+                  { "subnet_id": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"] } }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "azurerm_virtual_machine_data_disk_attachment.da",
+          "expressions": {
+            "managed_disk_id": { "references": ["azurerm_managed_disk.data.id", "azurerm_managed_disk.data"] },
+            "virtual_machine_id": { "references": ["azurerm_linux_virtual_machine.app.id", "azurerm_linux_virtual_machine.app"] }
+          }
+        },
+        {
+          "address": "azurerm_subnet.internal2",
+          "expressions": {
+            "virtual_network_name": { "references": ["azurerm_virtual_network.hub.name", "azurerm_virtual_network.hub"] }
+          }
+        },
+        {
+          "address": "azurerm_subnet_nat_gateway_association.s1",
+          "expressions": {
+            "subnet_id": { "references": ["azurerm_subnet.internal.id", "azurerm_subnet.internal"] },
+            "nat_gateway_id": { "references": ["azurerm_nat_gateway.shared.id", "azurerm_nat_gateway.shared"] }
+          }
+        },
+        {
+          "address": "azurerm_subnet_nat_gateway_association.s2",
+          "expressions": {
+            "subnet_id": { "references": ["azurerm_subnet.internal2.id", "azurerm_subnet.internal2"] },
+            "nat_gateway_id": { "references": ["azurerm_nat_gateway.shared.id", "azurerm_nat_gateway.shared"] }
+          }
+        }
+      ]
+    }
+  }
+}

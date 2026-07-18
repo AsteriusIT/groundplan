@@ -8,8 +8,8 @@
   "additionalProperties": false,
   "properties": {
     "version": {
-      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47); 5 adds the annotation-adapted projection — logical edges, group containers, display labels, notes (GP-72/GP-77); 6 adds optional node labels, which is how a Kubernetes namespace read says what a workload is (GP-96); 7 adds optional node attributes, which is what lets one Kubernetes graph be diffed against another when there is no plan to ask (GP-102/GP-103). All additive/optional; all stay valid.",
-      "enum": [1, 2, 3, 4, 5, 6, 7]
+      "description": "1 = docs (hcl) snapshots; 2 adds optional node impact fields (GP-22); 3 adds optional node attribute-diff fields (GP-32); 4 adds optional node parent_id containment + NSG payload (GP-42/GP-43) + IAM payload (GP-47); 5 adds the annotation-adapted projection — logical edges, group containers, display labels, notes (GP-72/GP-77); 6 adds optional node labels, which is how a Kubernetes namespace read says what a workload is (GP-96); 7 adds optional node attributes, which is what lets one Kubernetes graph be diffed against another when there is no plan to ask (GP-102/GP-103); 8 adds the optional node source — the file, line span and verbatim HCL the docs flow parsed the node from (GP-120). All additive/optional; all stay valid.",
+      "enum": [1, 2, 3, 4, 5, 6, 7, 8]
     },
     "nodes": {
       "type": "array",
@@ -168,6 +168,18 @@
         "attributes_truncated": {
           "type": "boolean",
           "description": "v7: true when the attribute list exceeded the cap and was capped."
+        },
+        "source": {
+          "type": "object",
+          "description": "v8: the Terraform block this node was parsed from (GP-120) — repository-relative file, 1-based line span, and the block's verbatim text. Producer B only: a plan has no source to point at. Never re-formatted or masked; it is the reader's own repository source, and a snippet that differs from the file is worse than none.",
+          "required": ["file", "start_line", "end_line", "code"],
+          "additionalProperties": false,
+          "properties": {
+            "file": { "type": "string", "minLength": 1 },
+            "start_line": { "type": "integer", "minimum": 1 },
+            "end_line": { "type": "integer", "minimum": 1 },
+            "code": { "type": "string" }
+          }
         }
       }
     },

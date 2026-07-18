@@ -233,10 +233,20 @@ export async function listRemoteHeads(
   source: RemoteSource,
 ): Promise<Map<string, string>> {
   const url = buildAuthenticatedUrl(source.url, source.provider, source.accessToken);
-  const { stdout } = await execFileAsync("git", ["ls-remote", "--heads", url], {
-    timeout: CLONE_TIMEOUT_MS,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-  });
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("git", ["ls-remote", "--heads", url], {
+      timeout: CLONE_TIMEOUT_MS,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    }));
+  } catch (err) {
+    // The raw exec error carries the authenticated URL — token and all — in its
+    // `cmd`/`message`/`stack`. Redact it at the source so no caller can leak the
+    // PAT into a log or the stored `pollError`, however it handles the error.
+    throw new Error(
+      `git ls-remote failed: ${redact(toErrorText(err), source.accessToken)}`,
+    );
+  }
   const prefix = "refs/heads/";
   const heads = new Map<string, string>();
   for (const line of stdout.split("\n")) {

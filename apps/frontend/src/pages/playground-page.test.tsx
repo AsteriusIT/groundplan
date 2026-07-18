@@ -1,0 +1,795 @@
+import { beforeEach, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { axe } from "vitest-axe";
+
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return {
+    ...actual,
+    parsePlayground: vi.fn(),
+    listPlaygroundDrafts: vi.fn(),
+    getPlaygroundDraft: vi.fn(),
+    createPlaygroundDraft: vi.fn(),
+    updatePlaygroundDraft: vi.fn(),
+    deletePlaygroundDraft: vi.fn(),
+  };
+});
+
+// The real editor (CodeMirror) is covered by hcl-editor.test.tsx; here a
+// textarea stand-in keeps the page tests black-box and jsdom-simple.
+vi.mock("@/components/hcl-editor", () => ({
+  HclEditor: ({
+    value,
+    onChange,
+    ariaLabel,
+    errorLine,
+  }: {
+    value: string;
+    onChange: (content: string) => void;
+    ariaLabel: string;
+    errorLine?: number | null;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-error-line={errorLine ?? ""}
+    />
+  ),
+}));
+
+vi.mock("@/components/graph-canvas", () => ({
+  GraphCanvas: ({
+    graph,
+    variant,
+  }: {
+    graph: { nodes: unknown[] };
+    variant: string;
+  }) => (
+    <div data-testid="canvas" data-variant={variant}>
+      {graph.nodes.length} nodes
+    </div>
+  ),
+}));
+
+import {
+  ApiError,
+  createPlaygroundDraft,
+  deletePlaygroundDraft,
+  getPlaygroundDraft,
+  listPlaygroundDrafts,
+  parsePlayground,
+  updatePlaygroundDraft,
+} from "@/api/client";
+import type { PlaygroundDraft, PlaygroundSnapshot } from "@/api/types";
+import { PlaygroundPage } from "./playground-page";
+
+const parsePlaygroundMock = vi.mocked(parsePlayground);
+const listDraftsMock = vi.mocked(listPlaygroundDrafts);
+const getDraftMock = vi.mocked(getPlaygroundDraft);
+const createDraftMock = vi.mocked(createPlaygroundDraft);
+const updateDraftMock = vi.mocked(updatePlaygroundDraft);
+const deleteDraftMock = vi.mocked(deletePlaygroundDraft);
+
+const DRAFT: PlaygroundDraft = {
+  id: "d1",
+  userId: "u1",
+  name: "azure sketch",
+  files: [
+    { path: "saved.tf", content: `resource "azurerm_storage_account" "sa" {}` },
+  ],
+  createdAt: "2026-07-01T00:00:00.000Z",
+  updatedAt: "2026-07-02T00:00:00.000Z",
+};
+
+const DRAFT_SUMMARY = {
+  id: "d1",
+  name: "azure sketch",
+  updatedAt: "2026-07-02T00:00:00.000Z",
+  fileCount: 1,
+};
+
+function snap(nodeCount: number): PlaygroundSnapshot {
+  return {
+    graph: {
+      version: 1,
+      nodes: Array.from({ length: nodeCount }, (_, i) => ({
+        id: `n${i}`,
+        name: `n${i}`,
+        type: "azurerm_resource_group",
+        provider: "azurerm",
+        module_path: [],
+        change: null,
+      })),
+      edges: [],
+    },
+    stats: {
+      nodes: nodeCount,
+      edges: 0,
+      changes: { create: 0, update: 0, delete: 0, noop: 0, unchanged: nodeCount },
+    },
+    summaryMd: "",
+  };
+}
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={["/playground"]}>
+      <PlaygroundPage />
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  parsePlaygroundMock.mockReset();
+  listDraftsMock.mockReset().mockResolvedValue([]);
+  getDraftMock.mockReset();
+  createDraftMock.mockReset();
+  updateDraftMock.mockReset();
+  deleteDraftMock.mockReset();
+});
+
+it("preloads a small Azure example so the page is never empty", () => {
+  renderPage();
+
+  expect(screen.getByText("main.tf")).toBeInTheDocument();
+  expect(screen.getByText("network.tf")).toBeInTheDocument();
+  // The editor shows the selected file's HCL.
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", {
+    name: /file content/i,
+  });
+  expect(editor.value).toContain("azurerm_resource_group");
+});
+
+it("Visualize parses the current files and renders the canvas", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(4));
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("4 nodes");
+  expect(screen.getByTestId("canvas")).toHaveAttribute("data-variant", "docs");
+  const sent = parsePlaygroundMock.mock.calls[0]?.[0];
+  expect(sent?.map((f) => f.path)).toEqual(["main.tf", "network.tf"]);
+});
+
+it("a parse failure names the file, marks it, and keeps the last good diagram", async () => {
+  parsePlaygroundMock.mockResolvedValueOnce(snap(2));
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("2 nodes");
+
+  parsePlaygroundMock.mockRejectedValueOnce(
+    new ApiError(422, "HCL parse failed", [
+      { field: "main.tf", message: "unbalanced braces" },
+    ]),
+  );
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("main.tf");
+  expect(alert).toHaveTextContent("unbalanced braces");
+  // The canvas still shows the last valid render.
+  expect(screen.getByTestId("canvas")).toHaveTextContent("2 nodes");
+});
+
+it("hands the parse error's line to the failing file's editor (GP-127)", async () => {
+  parsePlaygroundMock.mockRejectedValueOnce(
+    new ApiError(422, "HCL parse failed", [
+      { field: "main.tf", message: "unbalanced braces at line 3" },
+    ]),
+  );
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByRole("alert");
+
+  // main.tf is the active file — its editor gets the line.
+  const editor = screen.getByRole("textbox", { name: /file content/i });
+  expect(editor).toHaveAttribute("data-error-line", "3");
+});
+
+it("does not mark the editor when the error is in another file", async () => {
+  parsePlaygroundMock.mockRejectedValueOnce(
+    new ApiError(422, "HCL parse failed", [
+      { field: "network.tf", message: "unbalanced braces at line 2" },
+    ]),
+  );
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByRole("alert");
+
+  const editor = screen.getByRole("textbox", { name: /file content/i });
+  expect(editor).toHaveAttribute("data-error-line", "");
+});
+
+/** Radix opens a menu on keyboard activation; jsdom has no real pointer. */
+function openAddMenu() {
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: /add or upload files/i }),
+    { key: "Enter" },
+  );
+}
+
+it("adds a new file from the + menu, all in local state", async () => {
+  renderPage();
+
+  openAddMenu();
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /new terraform file/i }),
+  );
+  expect(screen.getByText("untitled-1.tf")).toBeInTheDocument();
+});
+
+it("deletes a file only after an inline confirmation (GP-128)", async () => {
+  renderPage();
+
+  openAddMenu();
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /new terraform file/i }),
+  );
+
+  fireEvent.click(
+    screen.getByRole("button", { name: /delete untitled-1\.tf/i }),
+  );
+  // Nothing removed yet — the confirm is the decision point.
+  expect(screen.getByText("untitled-1.tf")).toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: /confirm delete untitled-1\.tf/i }),
+  );
+  expect(screen.queryByText("untitled-1.tf")).not.toBeInTheDocument();
+});
+
+it("marks a file modified since the last Visualize, cleared by the next one", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  // No Visualize yet — nothing to be modified *since*.
+  expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+  expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# touched" },
+  });
+  expect(
+    screen.getByLabelText(/main\.tf modified since last visualize/i),
+  ).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await waitFor(() =>
+    expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument(),
+  );
+});
+
+it("identifies the selected file and follows selection", () => {
+  renderPage();
+
+  expect(screen.getByRole("button", { name: "main.tf" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "network.tf" }));
+  expect(screen.getByRole("button", { name: "network.tf" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "main.tf" })).not.toHaveAttribute(
+    "aria-current",
+  );
+});
+
+it("collapses the files panel to a rail and expands it back", () => {
+  renderPage();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: /collapse files panel/i }),
+  );
+  expect(screen.queryByText("main.tf")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /expand files panel/i }));
+  expect(screen.getByText("main.tf")).toBeInTheDocument();
+});
+
+it("resizes the files panel from its edge handle", () => {
+  renderPage();
+
+  const handle = screen.getByRole("separator", {
+    name: /resize files panel/i,
+  });
+  const before = Number(handle.getAttribute("aria-valuenow"));
+  fireEvent.keyDown(handle, { key: "ArrowRight" });
+  expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before + 16);
+  fireEvent.keyDown(handle, { key: "ArrowLeft" });
+  expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before);
+});
+
+it("renames a file inline", async () => {
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /rename main\.tf/i }));
+  const input = screen.getByRole("textbox", { name: /new name/i });
+  fireEvent.change(input, { target: { value: "renamed.tf" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  expect(await screen.findByText("renamed.tf")).toBeInTheDocument();
+  expect(screen.queryByText("main.tf")).not.toBeInTheDocument();
+});
+
+it("editing the active file feeds the next parse", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  const editor = screen.getByRole("textbox", { name: /file content/i });
+  fireEvent.change(editor, { target: { value: "# rewritten" } });
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+
+  await screen.findByTestId("canvas");
+  const sent = parsePlaygroundMock.mock.calls[0]?.[0];
+  expect(sent?.find((f) => f.path === "main.tf")?.content).toBe("# rewritten");
+});
+
+it("uploads .tf files through the file input", async () => {
+  renderPage();
+
+  const input = screen.getByLabelText(/upload files/i, { selector: "input" });
+  const file = new File([`resource "a" "b" {}`], "uploaded.tf", {
+    type: "text/plain",
+  });
+  fireEvent.change(input, { target: { files: [file] } });
+
+  expect(await screen.findByText("uploaded.tf")).toBeInTheDocument();
+});
+
+it("has no axe violations", async () => {
+  const { baseElement } = renderPage();
+  await waitFor(async () => {
+    const results = await axe(baseElement);
+    expect(results.violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drafts (GP-126) through the draft-centric header (GP-129): the grouped menu,
+// the editable title, the actionable save status, Ctrl+S — and the dirty guard.
+// ---------------------------------------------------------------------------
+
+/** Open the grouped draft menu (shows "Drafts", or the open draft's name). */
+function openDraftMenu() {
+  fireEvent.keyDown(screen.getByRole("button", { name: /draft actions/i }), {
+    key: "Enter",
+  });
+}
+
+/** Drive the Save as… flow from the menu to a created draft named `name`. */
+async function saveAsDraft(name: string) {
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /save as/i }));
+  fireEvent.change(await screen.findByLabelText(/draft name/i), {
+    target: { value: name },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
+  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
+}
+
+it("titles an unsaved playground Untitled, with the status by the actions", () => {
+  renderPage();
+
+  expect(
+    screen.getByRole("heading", { name: /untitled/i }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /unsaved changes/i }),
+  ).toBeInTheDocument();
+});
+
+it("saves as a named draft from the menu and titles the page with it", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  renderPage();
+
+  await saveAsDraft("my stack");
+
+  const input = createDraftMock.mock.calls[0]?.[0];
+  expect(input?.name).toBe("my stack");
+  expect(input?.files.map((f) => f.path)).toEqual(["main.tf", "network.tf"]);
+  expect(
+    await screen.findByRole("heading", { name: /my stack/i }),
+  ).toBeInTheDocument();
+});
+
+it("Save from the menu updates the current draft — no duplication", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue(DRAFT);
+  renderPage();
+
+  await saveAsDraft("my stack");
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# edited" },
+  });
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /^save$/i }));
+
+  await waitFor(() => expect(updateDraftMock).toHaveBeenCalledTimes(1));
+  const [id, payload] = updateDraftMock.mock.calls[0] ?? [];
+  expect(id).toBe("d1");
+  expect(
+    payload?.files?.find((f) => f.path === "main.tf")?.content,
+  ).toBe("# edited");
+  expect(createDraftMock).toHaveBeenCalledTimes(1);
+});
+
+it("clicking the Unsaved status starts the Save as flow", async () => {
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /unsaved changes/i }));
+  expect(await screen.findByLabelText(/draft name/i)).toBeInTheDocument();
+});
+
+it("clicking the status with a dirty draft saves it", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue(DRAFT);
+  renderPage();
+
+  await saveAsDraft("my stack");
+  expect(screen.getByRole("button", { name: /^saved$/i })).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# edited" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /unsaved changes/i }));
+
+  await waitFor(() => expect(updateDraftMock).toHaveBeenCalledTimes(1));
+});
+
+it("renames the current draft from its title, inline", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue({ ...DRAFT, name: "renamed" });
+  renderPage();
+
+  await saveAsDraft("my stack");
+
+  fireEvent.click(screen.getByRole("button", { name: "my stack" }));
+  const input = screen.getByRole("textbox", { name: /rename draft/i });
+  fireEvent.change(input, { target: { value: "renamed" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  await waitFor(() =>
+    expect(updateDraftMock).toHaveBeenCalledWith("d1", { name: "renamed" }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: /renamed/i }),
+  ).toBeInTheDocument();
+});
+
+it("Ctrl+S saves the current draft; unsaved, it opens Save as", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue(DRAFT);
+  renderPage();
+
+  // No draft yet: the shortcut opens the naming dialog.
+  fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+  expect(await screen.findByLabelText(/draft name/i)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/draft name/i), {
+    target: { value: "my stack" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
+  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
+
+  // With a draft open: the shortcut saves in place.
+  fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+  await waitFor(() => expect(updateDraftMock).toHaveBeenCalledTimes(1));
+});
+
+it("disables Rename and Delete in the menu until a draft is open", async () => {
+  renderPage();
+
+  openDraftMenu();
+  expect(
+    await screen.findByRole("menuitem", { name: /rename/i }),
+  ).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("menuitem", { name: /delete/i })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+});
+
+it("deletes the current draft from the menu, behind a confirmation", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  deleteDraftMock.mockResolvedValue(undefined);
+  renderPage();
+
+  await saveAsDraft("my stack");
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+  expect(deleteDraftMock).not.toHaveBeenCalled();
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: /delete draft/i }),
+  );
+  await waitFor(() => expect(deleteDraftMock).toHaveBeenCalledWith("d1"));
+  expect(
+    await screen.findByRole("heading", { name: /untitled/i }),
+  ).toBeInTheDocument();
+});
+
+it("opens a draft: files restored, parse re-runs automatically", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  getDraftMock.mockResolvedValue(DRAFT);
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /open azure sketch/i }),
+  );
+
+  expect(await screen.findByText("saved.tf")).toBeInTheDocument();
+  await waitFor(() => expect(parsePlaygroundMock).toHaveBeenCalledTimes(1));
+  expect(parsePlaygroundMock.mock.calls[0]?.[0]).toEqual(DRAFT.files);
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("1 nodes");
+  // The opened draft's name becomes the page title (GP-129).
+  expect(
+    screen.getByRole("heading", { name: /azure sketch/i }),
+  ).toBeInTheDocument();
+});
+
+it("a draft that no longer parses still opens, error on display", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  getDraftMock.mockResolvedValue(DRAFT);
+  parsePlaygroundMock.mockRejectedValue(
+    new ApiError(422, "HCL parse failed", [
+      { field: "saved.tf", message: "unbalanced braces" },
+    ]),
+  );
+  renderPage();
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /open azure sketch/i }),
+  );
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("saved.tf");
+  // The editor stays usable — a draft may be invalid, it is a draft.
+  expect(
+    screen.getByRole("textbox", { name: /file content/i }),
+  ).toBeInTheDocument();
+});
+
+it("renames a draft from the list", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  updateDraftMock.mockResolvedValue({ ...DRAFT, name: "renamed" });
+  renderPage();
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /rename azure sketch/i }),
+  );
+  const input = screen.getByRole("textbox", { name: /new draft name/i });
+  fireEvent.change(input, { target: { value: "renamed" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  await waitFor(() =>
+    expect(updateDraftMock).toHaveBeenCalledWith("d1", { name: "renamed" }),
+  );
+});
+
+it("deletes a draft from the list only after confirmation", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  deleteDraftMock.mockResolvedValue(undefined);
+  renderPage();
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /delete azure sketch/i }),
+  );
+  expect(deleteDraftMock).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: /delete draft/i }));
+  await waitFor(() => expect(deleteDraftMock).toHaveBeenCalledWith("d1"));
+});
+
+it("warns before unload only when there are unsaved changes", () => {
+  renderPage();
+
+  const pristine = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(pristine);
+  expect(pristine.defaultPrevented).toBe(false);
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# touched" },
+  });
+  expect(screen.getByLabelText(/unsaved changes/i)).toBeInTheDocument();
+
+  const dirty = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(dirty);
+  expect(dirty.defaultPrevented).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Kubernetes mode: the centered stack switch, per-mode snapshots, and the
+// mode-deriving draft open.
+// ---------------------------------------------------------------------------
+
+const K8S_DRAFT: PlaygroundDraft = {
+  id: "d2",
+  userId: "u1",
+  name: "manifests",
+  files: [
+    {
+      path: "app.yaml",
+      content: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n",
+    },
+  ],
+  createdAt: "2026-07-18T00:00:00.000Z",
+  updatedAt: "2026-07-18T00:00:00.000Z",
+};
+
+it("renders both switch sides; Kubernetes is disabled without .yaml files", () => {
+  renderPage();
+
+  const tf = screen.getByRole("button", { name: "Terraform" });
+  const k8s = screen.getByRole("button", { name: "Kubernetes" });
+  expect(tf).toHaveAttribute("aria-pressed", "true");
+  expect(k8s).toBeDisabled();
+  expect(k8s).toHaveAttribute("title", "No .yaml files");
+});
+
+it("New manifest enables the Kubernetes side; switching mutes the .tf files", async () => {
+  renderPage();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
+  expect(screen.getByText("untitled-1.yaml")).toBeInTheDocument();
+
+  const k8s = screen.getByRole("button", { name: "Kubernetes" });
+  expect(k8s).toBeEnabled();
+  fireEvent.click(k8s);
+  expect(k8s).toHaveAttribute("aria-pressed", "true");
+  // The .tf example files stay listed, muted as not-in-this-view.
+  expect(screen.getByRole("button", { name: "main.tf" })).toHaveAttribute(
+    "title",
+    "Not in the Kubernetes view",
+  );
+});
+
+it("Visualize sends the active iacType and keeps one snapshot per mode", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(2));
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+  expect(parsePlaygroundMock).toHaveBeenCalledWith(
+    expect.any(Array),
+    "terraform",
+  );
+
+  // A fresh manifest file, switch to Kubernetes: that mode has no snapshot yet.
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Kubernetes" }));
+  expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
+
+  // Flipping back shows Terraform's last render again — nothing was lost.
+  fireEvent.click(screen.getByRole("button", { name: "Terraform" }));
+  expect(screen.getByTestId("canvas")).toBeInTheDocument();
+});
+
+it("opening a manifests-only draft lands in Kubernetes mode and parses it as such", async () => {
+  listDraftsMock.mockResolvedValue([
+    { id: "d2", name: "manifests", updatedAt: K8S_DRAFT.updatedAt, fileCount: 1 },
+  ]);
+  getDraftMock.mockResolvedValue(K8S_DRAFT);
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /open manifests/i }));
+
+  await waitFor(() =>
+    expect(parsePlaygroundMock).toHaveBeenCalledWith(
+      K8S_DRAFT.files,
+      "kubernetes",
+    ),
+  );
+  expect(screen.getByRole("button", { name: "Kubernetes" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Views: Global / Network / IAM on a Terraform snapshot; diagram-only for
+// Kubernetes (the GP-105 rule, kept consistent).
+// ---------------------------------------------------------------------------
+
+/** A snapshot whose graph carries one role assignment, so IAM has a row. */
+function iamSnap(): PlaygroundSnapshot {
+  const base = snap(2);
+  base.graph.nodes.push({
+    id: "azurerm_role_assignment.ops",
+    name: "ops",
+    type: "azurerm_role_assignment",
+    provider: "azurerm",
+    module_path: [],
+    change: null,
+    privileged: true,
+    role_assignment: {
+      principal: "ops-team",
+      role: "Owner",
+      scope: "subscription",
+    },
+  });
+  return base;
+}
+
+it("a Terraform snapshot offers Global/Network/IAM; IAM renders the table", async () => {
+  parsePlaygroundMock.mockResolvedValue(iamSnap());
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+
+  fireEvent.click(screen.getByRole("button", { name: "IAM" }));
+  expect(screen.getByText("ops-team")).toBeInTheDocument();
+  expect(screen.getByText("Owner")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Network" }));
+  expect(screen.getByTestId("canvas")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Global" }));
+  expect(screen.getByTestId("canvas")).toBeInTheDocument();
+});
+
+it("a Kubernetes snapshot gets the diagram and nothing else", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Kubernetes" }));
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+
+  expect(
+    screen.queryByRole("button", { name: "Global" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "IAM" })).not.toBeInTheDocument();
+});

@@ -16,6 +16,14 @@
  * dropped and counted in `stats.warnings`. References inside comments/strings
  * that don't resolve are ignored (best effort, documented limitation).
  */
+import {
+  classifyJoins,
+  inlineScaleSetLinks,
+  inlineVmAttachLinks,
+  joinEdgeAdditions,
+  joinEffects,
+  type JoinLink,
+} from "./azurerm-joins.js";
 import { deriveContainment } from "./containment.js";
 import {
   buildDependencyEdges,
@@ -30,12 +38,13 @@ import type {
   GraphEdge,
   GraphNode,
   Identity,
+  NodeSource,
   NsgRule,
   RoleAssignment,
   UnresolvedReference,
 } from "./graph.js";
 import { attachIam, type ExtractedIam } from "./iam.js";
-import { attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
+import { attachAssociations, attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 export type HclFile = { path: string; content: string };
 export type HclParseResult = {
@@ -45,7 +54,15 @@ export type HclParseResult = {
   unresolvedReferences: UnresolvedReference[];
 };
 
-type Block = { type: string; labels: string[]; body: string };
+type Block = {
+  type: string;
+  labels: string[];
+  body: string;
+  /** Offset of the block's opening keyword in the source (GP-120). */
+  start: number;
+  /** Offset just past the block's closing brace (GP-120). */
+  end: number;
+};
 
 /** Thrown when a `.tf` file can't be scanned (e.g. unbalanced braces). */
 class HclSyntaxError extends Error {}
@@ -139,6 +156,8 @@ function scanTopLevelBlocks(src: string): Block[] {
     skipTrivia();
     if (i >= n) break;
     if (!isIdent(src[i]!)) { i++; continue; }
+    // Where the block's own text begins — its keyword, not the trivia above it.
+    const blockStart = i;
     const type = readIdent();
     const labels: string[] = [];
     for (;;) {
@@ -150,7 +169,9 @@ function scanTopLevelBlocks(src: string): Block[] {
         readString();
         labels.push(src.slice(start + 1, i - 1));
       } else if (c === "{") {
-        blocks.push({ type, labels, body: readBody() });
+        // `readBody` leaves `i` just past the closing brace — read it after.
+        const body = readBody();
+        blocks.push({ type, labels, body, start: blockStart, end: i });
         break;
       } else if (isIdent(c)) {
         labels.push(readIdent());
@@ -164,6 +185,49 @@ function scanTopLevelBlocks(src: string): Block[] {
     }
   }
   return blocks;
+}
+
+/**
+ * The offsets of every line start in a file, so a block's byte offset resolves to
+ * a line number by binary search rather than by re-counting newlines from the top
+ * (a file with many blocks would otherwise be quadratic).
+ */
+function lineStarts(src: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] === "\n") starts.push(i + 1);
+  }
+  return starts;
+}
+
+/** 1-based line holding `offset`, given that file's `lineStarts`. */
+function lineAt(starts: readonly number[], offset: number): number {
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid]! <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo + 1;
+}
+
+/**
+ * The verbatim source of a block (GP-120): its text, and the 1-based span it
+ * occupies. `end` points just past the closing brace, so the last line of the
+ * span is the line that brace sits on.
+ */
+function blockSource(
+  file: HclFile,
+  starts: readonly number[],
+  block: Block,
+): NodeSource {
+  return {
+    file: file.path,
+    start_line: lineAt(starts, block.start),
+    end_line: lineAt(starts, block.end - 1),
+    code: file.content.slice(block.start, block.end),
+  };
 }
 
 /** First `source = "..."` value in a module block body. */
@@ -196,6 +260,47 @@ function readAttr(body: string, key: string): string | undefined {
   const m = new RegExp(String.raw`(?:^|\n)\s*${key}\s*=\s*(?:"([^"]*)"|(\d+))`).exec(body);
   if (!m) return undefined;
   return m[1] ?? m[2];
+}
+
+/** Read a flat list-of-strings attribute (`key = ["a", "b"]`) from a block body. */
+function readStringList(body: string, key: string): string[] | undefined {
+  const m = new RegExp(
+    String.raw`(?:^|\n)[ \t]*${key}[ \t]*=[ \t]*\[([^\]]*)\]`,
+  ).exec(body);
+  if (!m) return undefined;
+  const items = [...(m[1] as string).matchAll(/"([^"]*)"/g)].map(
+    (x) => x[1] as string,
+  );
+  return items.length > 0 ? items : undefined;
+}
+
+/** v7 attributes a node carries statically: a network frame's declared CIDRs,
+ * and a literal `count` (knowable without evaluation; an expression is not). */
+function hclNodeAttributes(
+  type: string,
+  body: string,
+): Record<string, string> | undefined {
+  const attrs: Record<string, string> = {};
+  let key: string | null = null;
+  if (type === "azurerm_subnet") key = "address_prefixes";
+  else if (type === "azurerm_virtual_network") key = "address_space";
+  if (key) {
+    const values = readStringList(body, key);
+    if (values) attrs[key] = values.join(", ");
+  }
+  const count = readAttr(body, "count");
+  if (count !== undefined && /^\d+$/.test(count)) attrs["count"] = count;
+  return Object.keys(attrs).length > 0 ? attrs : undefined;
+}
+
+/** Stamp v7 attributes (CIDRs, literal count) onto nodes from their bodies. */
+function attachHclAttributes(ctx: Ctx): void {
+  for (const ps of ctx.pendingSources) {
+    const node = ctx.nodes.get(ps.fromBase);
+    if (!node) continue;
+    const attrs = hclNodeAttributes(node.type, ps.body);
+    if (attrs) node.attributes = attrs;
+  }
 }
 
 /** Inline `security_rule { … }` blocks within an NSG body → NsgRule[]. */
@@ -299,6 +404,10 @@ function parseModuleDir(
       continue;
     }
 
+    // Line offsets are per file, computed once — every block below resolves its
+    // span against this rather than re-counting newlines (GP-120).
+    const starts = lineStarts(file.content);
+
     for (const block of blocks) {
       if (block.type === "resource" || block.type === "data") {
         const [type, name] = block.labels;
@@ -313,6 +422,7 @@ function parseModuleDir(
           provider: providerFromType(type),
           module_path: modulePath,
           change: null,
+          source: blockSource(file, starts, block),
         });
         if (block.type === "resource") ctx.resourceTypes.add(type);
         if (type === "azurerm_network_security_group") {
@@ -332,6 +442,9 @@ function parseModuleDir(
           provider: null,
           module_path: modulePath,
           change: null,
+          // A module container's source is the `module "x" {}` call that created
+          // it — the module's own files belong to the nodes inside it (GP-120).
+          source: blockSource(file, starts, block),
         });
         addContains(ctx, parentModuleId, moduleId);
         // Module inputs can reference resources → edges from the module node.
@@ -359,43 +472,38 @@ function isReferenceable(ref: string, resourceTypes: ReadonlySet<string>): boole
   return resourceTypes.has(firstType);
 }
 
-/** Resolve an association block body's refs to the (NSG, subnet/NIC) it links. */
-function hclAssociationTargets(
-  ps: PendingSource,
-  ctx: Ctx,
-  edgeCtx: EdgeContext,
-): { nsgId: string; targetId: string } | null {
-  const resolved = extractReferences(ps.body).flatMap((ref) =>
-    resolveReference(ps.prefix, ref, edgeCtx),
-  );
-  const nsgId = resolved.find(
-    (rid) => ctx.nodes.get(rid)?.type === "azurerm_network_security_group",
-  );
-  const targetId = resolved.find((rid) => {
-    const t = ctx.nodes.get(rid)?.type;
-    return t === "azurerm_subnet" || t === "azurerm_network_interface";
-  });
-  return nsgId && targetId ? { nsgId, targetId } : null;
-}
-
-/** Collect per-NSG inline rules + subnet/NIC associations for the docs producer. */
-function extractHclNsg(ctx: Ctx, edgeCtx: EdgeContext): Map<string, ExtractedNsg> {
+/** Collect per-NSG inline rules for the docs producer. The subnet/NIC
+ * associations that used to be resolved here now come from the join catalog
+ * (`azurerm-joins.ts`). */
+function extractHclNsg(ctx: Ctx): Map<string, ExtractedNsg> {
   const extracted = new Map<string, ExtractedNsg>();
-  const nsgOf = (id: string): ExtractedNsg => {
-    let e = extracted.get(id);
-    if (!e) {
-      e = { rules: [], associatedIds: [] };
-      extracted.set(id, e);
-    }
-    return e;
-  };
-  for (const [id, rules] of ctx.nsgRules) nsgOf(id).rules.push(...rules);
-  for (const ps of ctx.pendingSources) {
-    if (!ps.fromBase.includes("_security_group_association")) continue;
-    const assoc = hclAssociationTargets(ps, ctx, edgeCtx);
-    if (assoc) nsgOf(assoc.nsgId).associatedIds.push(assoc.targetId);
+  for (const [id, rules] of ctx.nsgRules) {
+    extracted.set(id, { rules: [...rules] });
   }
   return extracted;
+}
+
+/**
+ * The join links an HCL repo states: every association/attachment resource
+ * classified through the catalog, plus the scale sets' inline NSG/ASG duality
+ * read from their block bodies.
+ */
+function hclJoinLinks(
+  ctx: Ctx,
+  sources: readonly DependencySource[],
+  edgeCtx: EdgeContext,
+  typeById: ReadonlyMap<string, string>,
+): JoinLink[] {
+  const links = classifyJoins(sources, edgeCtx, typeById);
+  for (const ps of ctx.pendingSources) {
+    if (!ps.fromBase.includes("_virtual_machine")) continue;
+    const refs = extractReferences(ps.body);
+    links.push(
+      ...inlineScaleSetLinks(ps.fromBase, ps.prefix, refs, edgeCtx, typeById),
+      ...inlineVmAttachLinks(ps.fromBase, ps.prefix, refs, edgeCtx, typeById),
+    );
+  }
+  return links;
 }
 
 /** Read the raw right-hand side of `key = <rhs>` up to end of line (may be a ref). */
@@ -534,6 +642,7 @@ export function parseHclRepo(
   }
 
   parseModuleDir(ctx, rootDir, "", [], null);
+  attachHclAttributes(ctx);
 
   const resourceIds = new Set<string>();
   const moduleIds = new Set<string>();
@@ -564,18 +673,36 @@ export function parseHclRepo(
     out: unresolvedRefs,
   });
 
-  // Network containment (GP-42): set parent_id on nodes with a single unambiguous
-  // vnet/subnet parent. Mutates the node objects still held in ctx.nodes.
-  deriveContainment([...ctx.nodes.values()], sources, edgeCtx);
+  // The azurerm join catalog (docs/azurerm-connection-catalog.md): classify every
+  // association/attachment resource — plus the scale sets' inline NSG/ASG duality
+  // — into containment parents, `associated_ids`, and direct edges.
+  const typeById = new Map<string, string>(
+    [...ctx.nodes.values()].map((n) => [n.id, n.type]),
+  );
+  const joins = joinEffects(hclJoinLinks(ctx, sources, edgeCtx, typeById), typeById);
 
-  // NSG payload (GP-43): rules + internet_exposed + associations on NSG nodes.
-  attachNsg([...ctx.nodes.values()], extractHclNsg(ctx, edgeCtx));
+  // Network containment (GP-42): parents the join catalog stated, then nodes with
+  // a single unambiguous vnet/subnet parent; ambiguous multi-anchor sets degrade
+  // to their nearest common ancestor. Mutates the nodes in ctx.nodes.
+  deriveContainment([...ctx.nodes.values()], sources, edgeCtx, joins);
+
+  // NSG payload (GP-43): rules + internet_exposed on NSG nodes.
+  attachNsg([...ctx.nodes.values()], extractHclNsg(ctx));
+
+  // Attachments (GP-43/89 + the join catalog): associated_ids on every satellite.
+  attachAssociations([...ctx.nodes.values()], joins.attachments);
 
   // IAM payload (GP-47): role-assignment triples, identities, privileged flag.
   attachIam([...ctx.nodes.values()], extractHclIam(ctx, edgeCtx));
 
   const nodes = [...ctx.nodes.values()].toSorted((a, b) => compareStrings(a.id, b.id));
-  const edges = [...ctx.containsEdges.values(), ...dependsOnEdges].toSorted(
+  const edges = [
+    ...ctx.containsEdges.values(),
+    ...dependsOnEdges,
+    // Direct edges the joins state (a peering, a NIC → pool binding), unless a
+    // reference already drew the same pair.
+    ...joinEdgeAdditions(joins, dependsOnEdges),
+  ].toSorted(
     (a, b) =>
       compareStrings(a.kind, b.kind) ||
       compareStrings(a.from, b.from) ||
@@ -593,9 +720,15 @@ export function parseHclRepo(
     n.parent_id !== undefined ||
     n.rules !== undefined ||
     n.internet_exposed !== undefined ||
+    n.associated_ids !== undefined ||
     n.role_assignment !== undefined ||
     n.identity !== undefined;
-  const version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
+  let version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
+  // v7 when any node carries `attributes` (a subnet/vnet CIDR).
+  if (nodes.some((n) => n.attributes !== undefined)) version = 7;
+  // v8 when any node carries the HCL it was parsed from (GP-120) — in practice
+  // every docs snapshot, since every parsed block has a source.
+  if (nodes.some((n) => n.source !== undefined)) version = 8;
   return {
     graph: { version, nodes, edges },
     warnings: [...ctx.warnings].sort(compareStrings),

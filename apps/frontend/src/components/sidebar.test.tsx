@@ -73,10 +73,10 @@ it("puts Clusters beside Projects — a cluster is not inside one", () => {
   expect(clusters).toHaveAttribute("href", "/clusters");
   expect(clusters).toHaveAttribute("aria-current", "page");
 
-  // The four top-level places, in order.
+  // The five top-level places, in order.
   expect(
     screen.getAllByRole("link").map((a) => a.textContent),
-  ).toEqual(["Dashboard", "Projects", "Clusters", "Settings"]);
+  ).toEqual(["Dashboard", "Projects", "Clusters", "Playground", "Settings"]);
 });
 
 it("signs out from the user card", () => {

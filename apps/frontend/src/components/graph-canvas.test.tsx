@@ -1,5 +1,14 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+// The instance handed to onInit — lets tests observe camera calls (GP-130).
+const rfInstance = vi.hoisted(() => ({
+  fitView: vi.fn(() => Promise.resolve(true)),
+  setViewport: vi.fn(),
+  getZoom: vi.fn(() => 1),
+  zoomIn: vi.fn(),
+  zoomOut: vi.fn(),
+}));
 
 // Mock ELK: return the input graph with trivial positions so elkToFlow works.
 vi.mock("elkjs/lib/elk.bundled.js", () => {
@@ -29,13 +38,18 @@ vi.mock("elkjs/lib/elk.bundled.js", () => {
 
 // Mock React Flow: render each node as a button wired to onNodeClick, plus a
 // pane target for onPaneClick. Node internals are covered by graph-layout tests.
-vi.mock("@xyflow/react", () => ({
+// onInit receives the shared rfInstance so camera behaviour is observable.
+vi.mock("@xyflow/react", async () => {
+  const { useEffect } = await import("react");
+  return {
   ReactFlow: ({
     nodes,
+    onInit,
     onNodeClick,
     onNodesChange,
     onPaneClick,
   }: {
+    onInit?: (instance: typeof rfInstance) => void;
     // Loosened so annotation overlay nodes (which carry no real graphNode)
     // render without crashing; falls back to the node id for a label.
     nodes: {
@@ -43,12 +57,24 @@ vi.mock("@xyflow/react", () => ({
       width?: number;
       height?: number;
       measured?: { width?: number; height?: number };
-      data: { graphNode?: { name?: string } };
+      data: {
+        graphNode?: { name?: string };
+        chips?: { id: string; name: string }[];
+        highlightedChipId?: string;
+        onSelectChip?: (chip: unknown) => void;
+      };
     }[];
     onNodeClick?: (e: unknown, n: unknown) => void;
     onNodesChange?: (changes: { type: string; id: string; selected: boolean }[]) => void;
     onPaneClick?: () => void;
-  }) => (
+  }) => {
+    // The real ReactFlow reports its instance once, after mount.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useEffect(() => {
+      onInit?.(rfInstance);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    return (
     <div>
       <button type="button" data-testid="pane" onClick={() => onPaneClick?.()}>
         pane
@@ -66,17 +92,31 @@ vi.mock("@xyflow/react", () => ({
           >
             select:{n.data.graphNode?.name || n.id}
           </button>
+          {/* Stand-in for the chip row a container / card renders from data. */}
+          {n.data.chips?.map((c) => (
+            <button
+              type="button"
+              key={c.id}
+              data-testid={`rf-chip:${c.id}`}
+              data-lit={n.data.highlightedChipId === c.id ? "true" : "false"}
+              onClick={() => n.data.onSelectChip?.(c)}
+            >
+              chip:{c.name}
+            </button>
+          ))}
         </span>
       ))}
     </div>
-  ),
+    );
+  },
   Background: () => null,
   BackgroundVariant: { Dots: "dots", Lines: "lines", Cross: "cross" },
   SelectionMode: { Partial: "partial", Full: "full" },
   Controls: () => null,
   Handle: () => null,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
-}));
+  };
+});
 
 vi.mock("@xyflow/react/dist/style.css", () => ({}));
 
@@ -96,6 +136,27 @@ const graph: Graph = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+it("fits the view after layout; refits on a new graph, never on a re-render (GP-130)", async () => {
+  const { rerender } = render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  await waitFor(() =>
+    expect(rfInstance.fitView).toHaveBeenCalledWith({ padding: 0.1 }),
+  );
+  const fits = rfInstance.fitView.mock.calls.length;
+
+  // Same graph re-rendered: no relayout, and the user's pan/zoom survives.
+  rerender(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  expect(rfInstance.fitView.mock.calls.length).toBe(fits);
+
+  // A changed graph lays out again — and frames itself again.
+  const next: Graph = { ...graph, nodes: graph.nodes.slice(0, 2), edges: [] };
+  rerender(<GraphCanvas graph={next} variant="plan" />);
+  await waitFor(() =>
+    expect(rfInstance.fitView.mock.calls.length).toBeGreaterThan(fits),
+  );
 });
 
 /** The filter panel rests collapsed — open it before asserting on its contents. */
@@ -590,4 +651,49 @@ it("shows every node of a module-less graph, and offers no Module filter for it"
 
   openFilters();
   expect(screen.queryByText("Module")).not.toBeInTheDocument();
+});
+
+// --- chip selection ring (network-schema-polish fix) --------------------------
+
+const chipGraph: Graph = {
+  version: 4,
+  nodes: [
+    { id: "vnet", name: "vnet", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+    { id: "subnet", name: "subnet", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null, parent_id: "vnet" },
+    { id: "vm", name: "vm", type: "azurerm_linux_virtual_machine", provider: "azurerm", module_path: [], change: null, parent_id: "subnet" },
+    { id: "nsg", name: "web-nsg", type: "azurerm_network_security_group", provider: "azurerm", module_path: [], change: null, associated_ids: ["subnet"] },
+  ],
+  edges: [
+    { from: "vnet", to: "subnet", kind: "contains" },
+    { from: "subnet", to: "vm", kind: "contains" },
+  ],
+};
+const nsgNode = chipGraph.nodes[3]!;
+
+it("a chip's ring follows the selection instead of sticking", async () => {
+  render(
+    <GraphCanvas
+      graph={chipGraph}
+      variant="docs"
+      containerIds={new Set(["vnet", "subnet"])}
+      chips={new Map([["subnet", [nsgNode]]])}
+    />,
+  );
+  const chip = await screen.findByTestId("rf-chip:nsg");
+  expect(chip.dataset.lit).toBe("false");
+
+  // Clicking the chip selects its node: panel opens, ring lights.
+  fireEvent.click(chip);
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("true");
+
+  // Selecting something else moves the selection — the ring must follow it,
+  // not stay burnt onto the chip.
+  fireEvent.click(screen.getByText("node:vm"));
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("false");
+
+  // And a pane click (deselect) leaves no ring anywhere.
+  fireEvent.click(chip);
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("true");
+  fireEvent.click(screen.getByTestId("pane"));
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("false");
 });

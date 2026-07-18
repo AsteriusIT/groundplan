@@ -1,7 +1,13 @@
-import type { ReactNode } from "react";
-import { ArrowRight } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { ArrowRight, Maximize2 } from "lucide-react";
 
-import type { AttributeDiffRow, Graph, GraphNode } from "@/api/types";
+import type { AttributeDiffRow, Graph, GraphNode, NodeSource } from "@/api/types";
+import { tokenizeHcl, type CodeTokenKind } from "@/lib/hcl-highlight";
+import {
+  PANEL_MAX_WIDTH,
+  PANEL_MIN_WIDTH,
+  usePanelPrefs,
+} from "@/panel/panel-prefs";
 import { changeLabel, STATUS_META, statusOf } from "@/lib/status";
 import { categorize, CATEGORY_META, shortType } from "@/lib/resource-category";
 import {
@@ -20,6 +26,14 @@ import {
   SidePanelHeader,
   SidePanelSection,
 } from "@/components/ui/side-panel";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/copy-button";
 import { ResourceIcon } from "@/components/resource-icon";
 
@@ -55,8 +69,29 @@ export function NodeDetailsPanel({
   const rules = sortedRules(node);
   const catClass = CATEGORY_META[categorize(node.type)].className;
 
+  // Opt-in resizing (Settings → Appearance). While a drag is live the width
+  // previews through local state; only release persists it.
+  const { mode, width, setWidth } = usePanelPrefs();
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const resizable = mode === "resizable";
+  const shownWidth = dragWidth ?? width;
+
   return (
-    <SidePanel label={`Details for ${node.name}`}>
+    <SidePanel
+      label={`Details for ${node.name}`}
+      className="w-[26rem]"
+      style={resizable ? { width: shownWidth } : undefined}
+    >
+      {resizable && (
+        <ResizeHandle
+          width={shownWidth}
+          onPreview={setDragWidth}
+          onCommit={(w) => {
+            setDragWidth(null);
+            setWidth(w);
+          }}
+        />
+      )}
       <SidePanelHeader onClose={onClose}>
         <p className="text-muted-foreground font-mono text-[10px] tracking-[0.08em] uppercase">
           Resource
@@ -194,6 +229,11 @@ export function NodeDetailsPanel({
             <SecurityRules rules={rules} />
           </SidePanelSection>
         )}
+
+        {/* The Terraform that defines this node (GP-121). Docs-flow only: a plan
+            snapshot has no source to point at, so the section simply is not there
+            — which is also why the PR view needs no flag to suppress it. */}
+        {node.source && <SourceSection source={node.source} />}
       </SidePanelBody>
 
       {footer && (
@@ -259,28 +299,203 @@ function SecurityRules({ rules }: Readonly<{ rules: FlaggedRule[] }>) {
         <div
           key={rule.name}
           className={cn(
-            "flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5",
+            "flex flex-col gap-1 px-2.5 py-1.5",
             internet && "bg-exposed-soft",
           )}
         >
-          <span className="text-faint w-8 shrink-0">{rule.priority}</span>
-          <span className="text-ink min-w-0 flex-1 break-all">{rule.name}</span>
-          <span className="text-muted-foreground">
-            {rule.direction} {rule.access}
-          </span>
-          <span className="text-muted-foreground">:{rule.ports}</span>
-          {internet ? (
-            <span aria-label="internet source" className="text-exposed font-medium">
-              {rule.source}
+          {/* Priority + name on their own line: the name takes the full width so
+              it never collapses into a one-character-per-line strip in the narrow
+              panel (the metadata below no longer competes for the row). */}
+          <div className="flex items-baseline gap-2">
+            <span className="text-faint w-8 shrink-0 tabular-nums">{rule.priority}</span>
+            <span className="text-ink min-w-0 flex-1 break-words font-medium">
+              {rule.name}
             </span>
-          ) : (
-            <span className="text-muted-foreground">{rule.source}</span>
-          )}
+          </div>
+          {/* Direction/access · ports · source, indented under the name. */}
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-10">
+            <span>
+              {rule.direction} {rule.access}
+            </span>
+            <span>:{rule.ports}</span>
+            {internet ? (
+              <span aria-label="internet source" className="text-exposed font-medium">
+                {rule.source}
+              </span>
+            ) : (
+              <span>{rule.source}</span>
+            )}
+          </div>
         </div>
       ))}
     </div>
   );
 }
+
+/**
+ * The Terraform block this node was parsed from (GP-121): where it lives, and
+ * what it says. Verbatim — the snippet the backend stored is the file's own text
+ * (GP-120), and highlighting only colours it, never rewrites it.
+ *
+ * Collapsible, open by default: seeing the HCL is the point of the epic, and it
+ * sits last so it never pushes the change data a reviewer came for off-screen.
+ */
+function SourceSection({ source }: Readonly<{ source: NodeSource }>) {
+  const [expanded, setExpanded] = useState(false);
+  const span =
+    source.start_line === source.end_line
+      ? `L${source.start_line}`
+      : `L${source.start_line}–L${source.end_line}`;
+
+  return (
+    <SidePanelSection>
+      <details open className="group">
+        {/* The buttons ride the summary row so the path below them gets the
+            panel's full width — squeezed beside a button it wraps, and a line
+            beginning "· L12–L22" reads like a fragment of nothing. */}
+        <summary className="text-muted-foreground hover:text-foreground marker:text-faint flex cursor-pointer items-center gap-1.5 text-[10px] font-medium">
+          <span className="flex-1 font-mono tracking-[0.08em] uppercase">Source</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label="Expand source"
+            title="Expand source"
+            className="shrink-0"
+            onClick={() => setExpanded(true)}
+          >
+            <Maximize2 className="size-3.5" />
+          </Button>
+          {/* Copies the raw block, not what is on screen — highlighting is a lens. */}
+          <CopyButton value={source.code} label="Copy source" className="shrink-0" />
+        </summary>
+
+        <p
+          className="text-faint mt-1.5 font-mono text-[11px] break-all"
+          title={`${source.file} · ${span}`}
+        >
+          {source.file} · {span}
+        </p>
+
+        {/* Horizontal scroll rather than wrapping: a wrapped HCL block stops
+            looking like the file it came from. Capped at half the viewport so a
+            300-line resource can never swallow the panel. */}
+        <HclBlock code={source.code} className="mt-1.5 max-h-[50vh] text-[11px]" />
+      </details>
+
+      {/* The same verbatim block at reading width — the panel is a letterbox
+          for real HCL, and this is where a whole resource fits on screen. */}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="sm:max-w-[min(92vw,60rem)]">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm font-medium break-all">
+              {source.file}
+            </DialogTitle>
+            <DialogDescription>
+              {span} · verbatim from the repository
+            </DialogDescription>
+          </DialogHeader>
+          <HclBlock code={source.code} className="max-h-[70vh] text-xs" />
+          <div className="flex justify-end">
+            <CopyButton value={source.code} label="Copy source" />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </SidePanelSection>
+  );
+}
+
+/** The tokenized, verbatim HCL block — one renderer for panel and overlay. */
+function HclBlock({
+  code,
+  className,
+}: Readonly<{ code: string; className?: string }>) {
+  return (
+    <pre
+      className={cn(
+        "border-border bg-muted text-ink overflow-auto rounded-md border p-2.5 font-mono leading-relaxed",
+        className,
+      )}
+    >
+      <code>
+        {tokenizeHcl(code).map((token, i) => (
+          <span
+            // Tokens are positional and the list is regenerated wholesale on
+            // every source change; the index is the only stable identity.
+            key={`${i}-${token.kind}`}
+            className={token.kind === "plain" ? undefined : CODE_TOKEN_CLASS[token.kind]}
+          >
+            {token.text}
+          </span>
+        ))}
+      </code>
+    </pre>
+  );
+}
+
+/**
+ * The resizable panel's left-edge grip. Pointer capture previews the width
+ * live; release commits it. Left grows the panel (the edge moves left),
+ * arrows nudge by 16px — the provider clamps whatever comes in.
+ */
+function ResizeHandle({
+  width,
+  onPreview,
+  onCommit,
+}: Readonly<{
+  width: number;
+  onPreview: (width: number | null) => void;
+  onCommit: (width: number) => void;
+}>) {
+  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const clamp = (w: number) =>
+    Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, w));
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize panel"
+      aria-valuenow={width}
+      aria-valuemin={PANEL_MIN_WIDTH}
+      aria-valuemax={PANEL_MAX_WIDTH}
+      tabIndex={0}
+      className="hover:bg-primary/40 focus-visible:bg-primary/60 absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize rounded-l-lg transition-colors outline-none"
+      onPointerDown={(e) => {
+        drag.current = { startX: e.clientX, startWidth: width };
+        // jsdom has no pointer capture; in browsers it routes the drag here.
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        if (!drag.current) return;
+        onPreview(clamp(drag.current.startWidth + (drag.current.startX - e.clientX)));
+      }}
+      onPointerUp={(e) => {
+        if (!drag.current) return;
+        const next = clamp(drag.current.startWidth + (drag.current.startX - e.clientX));
+        drag.current = null;
+        onCommit(next);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+        onPreview(null);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") onCommit(clamp(width + 16));
+        if (e.key === "ArrowRight") onCommit(clamp(width - 16));
+      }}
+    />
+  );
+}
+
+const CODE_TOKEN_CLASS: Record<CodeTokenKind, string> = {
+  comment: "text-code-comment italic",
+  string: "text-code-string",
+  number: "text-code-number",
+  keyword: "text-code-keyword",
+  plain: "",
+};
 
 const SPECIAL_VALUES = new Set(["(sensitive)", "(known after apply)"]);
 

@@ -1,5 +1,6 @@
-import { expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { axe } from "vitest-axe";
 
 import type { GraphNode } from "@/api/types";
 import { NodeCard } from "./graph-node";
@@ -12,6 +13,18 @@ const rg: GraphNode = {
   module_path: [],
   change: null,
 };
+
+const child = (id: string, over: Partial<GraphNode> = {}): GraphNode => ({
+  id,
+  name: id,
+  type: "azurerm_lb_probe",
+  provider: "azurerm",
+  module_path: [],
+  change: null,
+  ...over,
+});
+
+const lb: GraphNode = { ...rg, id: "lb", name: "lb", type: "azurerm_lb" };
 
 it("shows the hidden-connection counter chip on a hub node (GP-35)", () => {
   render(<NodeCard graphNode={rg} isHub hubHiddenCount={80} />);
@@ -80,4 +93,123 @@ it("prefers the projection's display_label over a locally-known rename", () => {
     />,
   );
   expect(screen.getByText("From the projection")).toBeInTheDocument();
+});
+
+// --- Stacked host card (GP-87) ----------------------------------------------
+
+it("renders each stacked satellite child as a row with its name and status", () => {
+  render(
+    <NodeCard
+      graphNode={lb}
+      stack={[
+        child("web-probe", { change: "update" }),
+        child("web-pool", { type: "azurerm_lb_backend_address_pool" }),
+      ]}
+    />,
+  );
+  expect(screen.getByText("web-probe")).toBeInTheDocument();
+  expect(screen.getByText("web-pool")).toBeInTheDocument();
+  // The changed child shows its status on the row.
+  expect(screen.getByLabelText("Update")).toBeInTheDocument();
+});
+
+it("selects the child when its row is clicked", () => {
+  const onSelect = vi.fn();
+  const probe = child("web-probe");
+  render(<NodeCard graphNode={lb} stack={[probe]} onSelectStackChild={onSelect} />);
+  fireEvent.click(screen.getByText("web-probe"));
+  expect(onSelect).toHaveBeenCalledWith(probe);
+});
+
+it("collapses past six children behind a +n more that expands in place", () => {
+  const many = Array.from({ length: 9 }, (_, i) => child(`c${i}`));
+  render(<NodeCard graphNode={lb} stack={many} />);
+  expect(screen.getByText("+3 more")).toBeInTheDocument();
+  expect(screen.queryByText("c8")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("+3 more"));
+  expect(screen.getByText("c8")).toBeInTheDocument();
+});
+
+it("shows no +n more row at six children or fewer", () => {
+  const six = Array.from({ length: 6 }, (_, i) => child(`c${i}`));
+  render(<NodeCard graphNode={lb} stack={six} />);
+  expect(screen.queryByText(/more/)).not.toBeInTheDocument();
+});
+
+it("wears the impacted ring when a stacked child changed", () => {
+  const { container } = render(
+    <NodeCard graphNode={lb} stack={[child("probe", { change: "update" })]} stackChanged />,
+  );
+  expect(container.querySelector(".outline-impacted")).toBeTruthy();
+});
+
+it("renders no stack section for a node with no children", () => {
+  const { container } = render(<NodeCard graphNode={rg} />);
+  expect(container.querySelector('[data-stack-row]')).toBeFalsy();
+});
+
+it("a stacked host card is accessible (keyboard-reachable rows, GP-87)", async () => {
+  const { baseElement } = render(
+    <main>
+      <NodeCard
+        graphNode={lb}
+        stack={[child("probe", { change: "update" }), child("pool")]}
+      />
+    </main>,
+  );
+  const results = await axe(baseElement);
+  expect(results.violations).toEqual([]);
+});
+
+it("renders attachment chips on the card and selects on click", () => {
+  const onSelectChip = vi.fn();
+  const avset = child("avset", { type: "azurerm_availability_set", name: "app" });
+  render(
+    <NodeCard
+      graphNode={{ ...rg, id: "vm", type: "azurerm_linux_virtual_machine" }}
+      chips={[avset]}
+      onSelectChip={onSelectChip}
+    />,
+  );
+  const chip = screen.getByTitle("azurerm_availability_set · app");
+  fireEvent.click(chip);
+  expect(onSelectChip).toHaveBeenCalledWith(avset);
+});
+
+it("renders no chip row without chips", () => {
+  render(<NodeCard graphNode={rg} />);
+  expect(document.querySelector("[data-subnet-chip]")).toBeFalsy();
+});
+
+it("prefixes a stacked row with its kind", () => {
+  render(
+    <NodeCard
+      graphNode={lb}
+      stack={[
+        child("p", { name: "app", type: "azurerm_lb_backend_address_pool" }),
+        child("pr", { name: "app", type: "azurerm_lb_probe" }),
+      ]}
+    />,
+  );
+  expect(screen.getByText("pool")).toBeInTheDocument();
+  expect(screen.getByText("probe")).toBeInTheDocument();
+});
+
+it("shows a ×n badge for a literal count", () => {
+  render(
+    <NodeCard
+      graphNode={{
+        ...rg,
+        id: "vm",
+        type: "azurerm_linux_virtual_machine",
+        attributes: { count: "2" },
+      }}
+    />,
+  );
+  expect(screen.getByText("×2")).toBeInTheDocument();
+});
+
+it("shows no count badge without the attribute", () => {
+  render(<NodeCard graphNode={rg} />);
+  expect(screen.queryByText(/^×/)).not.toBeInTheDocument();
 });

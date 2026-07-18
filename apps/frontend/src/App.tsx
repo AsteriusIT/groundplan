@@ -12,6 +12,7 @@ import { DocsPage } from "@/pages/docs-page";
 import { InvitePage } from "@/pages/invite-page";
 import { OnboardingPage } from "@/pages/onboarding-page";
 import { OrgLandingPage } from "@/pages/org-landing-page";
+import { PlaygroundPage } from "@/pages/playground-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
 import { PullDetailPage } from "@/pages/pull-detail-page";
@@ -108,6 +109,7 @@ function App() {
         <Route path="/clusters" element={<ClustersPage />} />
         <Route path="/clusters/:id" element={<ClusterPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/playground" element={<PlaygroundPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
 

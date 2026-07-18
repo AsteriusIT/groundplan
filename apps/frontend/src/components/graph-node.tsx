@@ -11,7 +11,7 @@
  * /styleguide route renders it directly); `ResourceFlowNode` is the memoized
  * React Flow node that wraps it with connection handles.
  */
-import { memo } from "react";
+import { memo, useState } from "react";
 import {
   Handle,
   Position,
@@ -21,13 +21,118 @@ import {
 import { EyeOff, ShieldAlert, Waypoints } from "lucide-react";
 
 import type { GraphNode } from "@/api/types";
-import { changeClasses } from "@/lib/graph-layout";
+import { changeClasses, STACK_MAX_ROWS } from "@/lib/graph-layout";
 import { STATUS_META, statusOf } from "@/lib/status";
 import { categorize, CATEGORY_META, shortType } from "@/lib/resource-category";
 import type { GraphNodeData } from "@/lib/graph-layout";
 import { cn } from "@/lib/utils";
+import { AttachmentChip } from "@/components/attachment-chip";
 import { ResourceIcon } from "@/components/resource-icon";
 import { StatusBadge } from "@/components/ui/status-badge";
+
+/** Short kind labels for common satellite rows; anything else falls back to
+ * shortType. Three LB rows all named "app" must not read identically. */
+const STACK_KIND_LABELS: Record<string, string> = {
+  azurerm_lb_backend_address_pool: "pool",
+  azurerm_lb_probe: "probe",
+  azurerm_lb_rule: "rule",
+  azurerm_lb_nat_rule: "nat rule",
+  azurerm_lb_outbound_rule: "outbound",
+  azurerm_network_interface: "nic",
+  azurerm_public_ip: "pip",
+  azurerm_public_ip_prefix: "pip prefix",
+  azurerm_managed_disk: "disk",
+};
+
+const stackKindOf = (type: string): string =>
+  STACK_KIND_LABELS[type] ?? shortType(type);
+
+/**
+ * GP-87: one satellite child inside a host card's stack — a kind prefix, a
+ * category icon, the child's name, and its status badge. Clicking it selects
+ * the child (its own detail panel), so a satellite is inspectable exactly as a
+ * top-level node is.
+ */
+function StackRow({
+  child,
+  highlighted = false,
+  onSelect,
+}: Readonly<{
+  child: GraphNode;
+  highlighted?: boolean;
+  onSelect?: (child: GraphNode) => void;
+}>) {
+  const status = statusOf(child.change);
+  const iconClass = CATEGORY_META[categorize(child.type)].className;
+  const label = child.display_label ?? child.name;
+  return (
+    <button
+      type="button"
+      data-stack-row
+      title={child.type}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.(child);
+      }}
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left transition-colors",
+        highlighted ? "bg-accent ring-primary ring-1" : "hover:bg-accent",
+      )}
+    >
+      <ResourceIcon type={child.type} className={cn("size-3 shrink-0", iconClass)} />
+      <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
+        {stackKindOf(child.type)}
+      </span>
+      <span className="text-ink min-w-0 flex-1 truncate font-mono text-[10px]">
+        {label}
+      </span>
+      {status && <StatusBadge kind={status} size="sm" />}
+    </button>
+  );
+}
+
+/**
+ * The stack section of a host card (GP-87): up to {@link STACK_MAX_ROWS} rows,
+ * then a `+n more` control that reveals the rest in place. No scrolling — the
+ * card grows and overflows, which is fine for an on-demand reveal.
+ */
+function StackSection({
+  stack,
+  highlightedChildId,
+  onSelectChild,
+}: Readonly<{
+  stack: GraphNode[];
+  highlightedChildId?: string;
+  onSelectChild?: (child: GraphNode) => void;
+}>) {
+  const [expanded, setExpanded] = useState(false);
+  const overflow = stack.length > STACK_MAX_ROWS;
+  const visible = expanded || !overflow ? stack : stack.slice(0, STACK_MAX_ROWS);
+  return (
+    <div className="border-border mt-auto flex flex-col gap-0.5 border-t px-1.5 py-1">
+      {visible.map((child) => (
+        <StackRow
+          key={child.id}
+          child={child}
+          highlighted={child.id === highlightedChildId}
+          onSelect={onSelectChild}
+        />
+      ))}
+      {overflow && !expanded && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(true);
+          }}
+          className="text-muted-foreground hover:text-foreground px-1.5 py-0.5 text-left font-mono text-[10px]"
+        >
+          +{stack.length - STACK_MAX_ROWS} more
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function NodeCard({
   graphNode,
@@ -39,6 +144,13 @@ export function NodeCard({
   exposed = false,
   hiddenByAnnotation = false,
   renameLabel,
+  stack,
+  stackChanged = false,
+  highlightedChildId,
+  onSelectStackChild,
+  chips,
+  highlightedChipId,
+  onSelectChip,
 }: Readonly<{
   graphNode: GraphNode;
   selected?: boolean;
@@ -59,6 +171,20 @@ export function NodeCard({
   hiddenByAnnotation?: boolean;
   /** GP-73: the name a `rename` annotation will give this node in Adapted. */
   renameLabel?: string;
+  /** GP-87: satellite children stacked inside this host card, as rows. */
+  stack?: GraphNode[];
+  /** GP-87: a stacked child changed — the host wears the impacted ring. */
+  stackChanged?: boolean;
+  /** GP-87: a stacked child to pulse (search fly-to landed on it). */
+  highlightedChildId?: string;
+  /** GP-87: select a stacked child (opens its detail panel). */
+  onSelectStackChild?: (child: GraphNode) => void;
+  /** Attachments riding on this card as chips (avset on its member VM). */
+  chips?: GraphNode[];
+  /** A chip to pulse (search fly-to landed on it). */
+  highlightedChipId?: string;
+  /** Select a chip's node (opens its detail panel). */
+  onSelectChip?: (node: GraphNode) => void;
 }>) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
@@ -68,6 +194,13 @@ export function NodeCard({
   const displayName = graphNode.display_label ?? renameLabel ?? graphNode.name;
   // Extracted out of the hub title to avoid a nested ternary (S3358).
   const hubHiddenPlural = hubHiddenCount === 1 ? "" : "s";
+  const hasStack = stack !== undefined && stack.length > 0;
+  const hasChips = chips !== undefined && chips.length > 0;
+  // A literal `count` from the docs producer (plan snapshots expand instances).
+  const countLiteral = graphNode.attributes?.["count"];
+  // A diff inside the stack must never be less visible than a floating one: the
+  // host takes the impacted ring when any child changed (GP-87).
+  const showImpactRing = impacted || stackChanged;
 
   return (
     <div
@@ -75,13 +208,13 @@ export function NodeCard({
       className={cn(
         // No overflow-hidden here: the status badge intentionally overhangs the
         // top-right corner and must not be clipped (GP-30).
-        "relative flex h-full w-full items-center gap-2 rounded-[7px] border-[1.5px] py-1.5 pr-3 pl-4 shadow-sm transition-shadow hover:shadow-md",
+        "relative flex h-full w-full flex-col rounded-[7px] border-[1.5px] shadow-sm transition-shadow hover:shadow-md",
         changeClasses(graphNode.change),
         // A picked node (annotate mode) gets the strongest, filled treatment so
         // link endpoints / group members read at a glance (GP-58).
         picked && "ring-primary ring-offset-background bg-primary/10 ring-[3px] ring-offset-1",
         selected && !picked && "ring-primary ring-offset-background ring-2 ring-offset-1",
-        impacted &&
+        showImpactRing &&
           !selected &&
           !picked &&
           "outline-impacted outline-2 outline-offset-2 outline-dashed",
@@ -95,6 +228,14 @@ export function NodeCard({
         dimmed && "opacity-20",
       )}
     >
+      {/* The card header — the node's own anatomy. Fills the card when there is
+          no stack, so a plain node looks exactly as it did before (GP-87). */}
+      <div
+        className={cn(
+          "flex w-full items-center gap-2 py-1.5 pr-3 pl-4",
+          !hasStack && "h-full flex-1",
+        )}
+      >
       {picked && (
         <span
           aria-hidden="true"
@@ -148,6 +289,16 @@ export function NodeCard({
         </span>
       )}
 
+      {/* ×n for a literal count — one card standing for n instances. */}
+      {countLiteral !== undefined && (
+        <span
+          className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[10px]"
+          title={`count = ${countLiteral}`}
+        >
+          ×{countLiteral}
+        </span>
+      )}
+
       {/* GP-35: hub indicator + hidden-connection counter chip. */}
       {isHub && (
         <span
@@ -161,6 +312,30 @@ export function NodeCard({
           <Waypoints className="size-3" />
           {hubHiddenCount > 0 && <span>{hubHiddenCount}</span>}
         </span>
+      )}
+      </div>
+
+      {/* Attachments riding on this card as chips (avset on its member VM). */}
+      {hasChips && (
+        <div className="flex flex-wrap gap-1 px-2 pb-1">
+          {chips.map((chip) => (
+            <AttachmentChip
+              key={chip.id}
+              node={chip}
+              highlighted={chip.id === highlightedChipId}
+              onSelect={onSelectChip}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* GP-87: the satellite stack — the host's children as rows. */}
+      {hasStack && (
+        <StackSection
+          stack={stack}
+          highlightedChildId={highlightedChildId}
+          onSelectChild={onSelectStackChild}
+        />
       )}
 
       {status && (
@@ -207,6 +382,15 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         exposed={data.exposed === true}
         hiddenByAnnotation={data.hiddenByAnnotation === true}
         renameLabel={data.renameLabel as string | undefined}
+        stack={data.stack}
+        stackChanged={data.stackChanged === true}
+        highlightedChildId={data.highlightedChildId as string | undefined}
+        onSelectStackChild={
+          data.onSelectStackChild as ((child: GraphNode) => void) | undefined
+        }
+        chips={data.chips}
+        highlightedChipId={data.highlightedChipId as string | undefined}
+        onSelectChip={data.onSelectChip as ((node: GraphNode) => void) | undefined}
       />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>

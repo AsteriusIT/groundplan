@@ -201,6 +201,21 @@ export async function resolveShareToken(
   };
 }
 
+/**
+ * A share link is unauthenticated, so the node's HCL source (v8, GP-120) does not
+ * travel on it: a diagram of the estate is what the reader chose to share, the
+ * repository's Terraform is not. Stripped here rather than at the renderer — the
+ * payload is the boundary, and the epic's own note defers this to GP-39, which is
+ * this file. Everything else about the node is unchanged.
+ */
+function withoutSource(graph: ResolvedShare["snapshot"]["graph"]) {
+  if (!graph.nodes.some((n) => n.source !== undefined)) return graph;
+  return {
+    ...graph,
+    nodes: graph.nodes.map(({ source: _source, ...node }) => node),
+  };
+}
+
 /** The minimal, credential-free snapshot payload served on public routes. */
 export function toPublicSnapshotView(resolved: ResolvedShare) {
   const { snapshot } = resolved;
@@ -226,7 +241,7 @@ export function toPublicSnapshotView(resolved: ResolvedShare) {
       createdAt: snapshot.createdAt,
       stats: snapshot.stats,
       summaryMd: snapshot.summaryMd,
-      graph: snapshot.graph,
+      graph: withoutSource(snapshot.graph),
     },
   };
 }

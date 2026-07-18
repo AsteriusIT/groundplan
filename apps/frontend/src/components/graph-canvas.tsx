@@ -72,6 +72,7 @@ import {
   elkToFlow,
   moduleCounts,
   moduleOptions,
+  reanchorStackEdges,
   toElkGraph,
   type ElkGraphNode,
   type FilterKey,
@@ -187,12 +188,15 @@ const NODE_TYPES = {
 const EDGE_TYPES = { relationship: RelationshipEdge };
 
 /**
- * Default viewport: 100% zoom, not fit-to-diagram (a large plan should not be
- * shrunk to illegibility on load). The small offset keeps the top-left of the
- * graph clear of the floating filter panel / search overlays. Re-applied on each
- * relayout so switching views also starts at 100% rather than a stale zoom.
+ * The viewport before the first layout lands. Once ELK positions exist the
+ * canvas frames the whole graph (`fitView`, GP-130) — on the first render and
+ * again on every relayout — so a Visualize never opens on empty canvas. A
+ * manual pan/zoom is only ever overridden by a *graph change*, never by a
+ * re-render of the same snapshot.
  */
 const DEFAULT_VIEWPORT = { x: 220, y: 72, zoom: 1 } as const;
+
+const FIT_VIEW_PADDING = 0.1;
 
 const FILTER_LABELS: Record<FilterKey, string> = {
   create: "Create",
@@ -289,6 +293,18 @@ function toggle<T>(set: Set<T>, key: T): Set<T> {
   return next;
 }
 
+/** Invert an attachment map (anchor id → attached nodes) to attached id → anchor
+ * id, keeping the first anchor for a node listed under several (GP-87/89). */
+function attachAnchors(
+  groups?: ReadonlyMap<string, GraphNode[]>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [anchorId, nodes] of groups ?? []) {
+    for (const node of nodes) if (!map.has(node.id)) map.set(node.id, anchorId);
+  }
+  return map;
+}
+
 /**
  * Shared graph canvas (GP-17 / GP-24 / GP-25): an ELK-laid-out React Flow diagram
  * with type-first labels, category icons, module nesting, change/impact colouring,
@@ -300,6 +316,8 @@ export function GraphCanvas({
   variant = "plan",
   focusNodeId,
   containerIds,
+  stacks,
+  chips,
   annotations,
   annotate = false,
   onCreateAnnotation,
@@ -315,6 +333,11 @@ export function GraphCanvas({
   focusNodeId?: string | null;
   /** vnet/subnet ids to render as containers even when empty (GP-44 network view). */
   containerIds?: ReadonlySet<string>;
+  /** GP-87: host id → its stacked satellite children (network view only). Their
+   * cards render as rows inside the host; ELK never lays them out. */
+  stacks?: ReadonlyMap<string, GraphNode[]>;
+  /** GP-89: subnet id → the NSG / route-table chips on its header (network view). */
+  chips?: ReadonlyMap<string, GraphNode[]>;
   /** GP-58: the annotation layer. Rendered as an overlay in every mode; when
    * absent the canvas behaves exactly as before (no annotate affordances). */
   annotations?: Annotation[];
@@ -351,7 +374,6 @@ export function GraphCanvas({
 }>) {
   const categoryOpts = useMemo(() => categoryOptions(graph), [graph]);
   const moduleOpts = useMemo(() => moduleOptions(graph), [graph]);
-  const hubs = useMemo(() => detectHubs(graph), [graph]);
   // What each filter option covers, so a checkbox says what unticking it costs.
   const changeCount = useMemo(() => changeCounts(graph), [graph]);
   const categoryCount = useMemo(() => categoryCounts(graph), [graph]);
@@ -364,12 +386,54 @@ export function GraphCanvas({
   const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Which host each stacked child belongs to (GP-87), which subnet each chip
+  // belongs to (GP-89), and — for edge re-anchoring / hub detection — both at once.
+  const childToHost = useMemo(() => attachAnchors(stacks), [stacks]);
+  const chipToAnchor = useMemo(() => attachAnchors(chips), [chips]);
+  // GP-87/89: the attached node (a stacked row or a chip) whose ring is lit —
+  // exactly the current selection, when the selection *is* an attached node.
+  // Derived, never stored: the ring follows the selection and cannot go stale
+  // on a chip after you select something else or click the pane.
+  const highlightedChild =
+    selected && childToHost.has(selected.id) ? selected.id : null;
+  const highlightedChip =
+    selected && chipToAnchor.has(selected.id) ? selected.id : null;
+  const anchorOf = useMemo(() => {
+    const map = new Map(childToHost);
+    for (const [id, subnet] of chipToAnchor) if (!map.has(id)) map.set(id, subnet);
+    return map;
+  }, [childToHost, chipToAnchor]);
+
+  // Selecting an attached node (row / chip click) opens its own detail panel and
+  // lights it — the camera stays put, since it is already on screen on its host.
+  const selectStackChild = useCallback((child: GraphNode) => {
+    setSelected(child);
+  }, []);
+  const selectChip = useCallback((node: GraphNode) => {
+    setSelected(node);
+  }, []);
+
+  // GP-88: hub detection and the layout run on the *drawn* edge set — edges
+  // re-anchored onto host cards / subnet containers and merged. Merging collapses
+  // an attachment's fan of lines into one, which can drop a node below the hub
+  // threshold, so degrees are counted on what is actually drawn.
+  const hubGraph = useMemo(
+    () =>
+      anchorOf.size > 0
+        ? { ...graph, edges: reanchorStackEdges(graph.edges, anchorOf).edges }
+        : graph,
+    [graph, anchorOf],
+  );
+  const hubs = useMemo(() => detectHubs(hubGraph), [hubGraph]);
   const [showHubEdges, setShowHubEdges] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
 
   const rfRef = useRef<ReactFlowInstance<FlowNode<GraphNodeData>> | null>(null);
+  // Flips once onInit hands over the instance, so the fit-after-layout effect
+  // can wait for whichever of {instance, layout} arrives last (GP-130).
+  const [rfReady, setRfReady] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -383,24 +447,37 @@ export function GraphCanvas({
     setActiveCategories(new Set(categoryOptions(graph)));
     setActiveModules(new Set(moduleOptions(graph)));
     elk
-      .layout(toElkGraph(graph, detectHubs(graph), containerIds))
+      .layout(toElkGraph(graph, hubs, containerIds, stacks, chips))
       .then((result) => {
         if (!cancelled) {
           setLayout(result as ElkGraphNode);
           setLaying(false);
-          // Start every (re)layout at 100% rather than inheriting a stale
-          // zoom/pan — so view switches don't leave the diagram tiny or off-screen.
-          rfRef.current?.setViewport(DEFAULT_VIEWPORT);
-          setZoom(1);
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        // A swallowed layout failure renders as a stale, scattered diagram
+        // with no clue why — say what happened, at least to the console.
+        console.error("ELK layout failed; keeping the previous layout", err);
         if (!cancelled) setLaying(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [graph, containerIds]);
+  }, [graph, containerIds, stacks, chips, hubs]);
+
+  // Frame the graph once its positions exist (GP-130): on the first layout and
+  // on every relayout — a relayout only ever follows a graph change, so a
+  // manual pan/zoom over an unchanged snapshot is never overwritten. Runs after
+  // the commit that handed ReactFlow the laid-out nodes, so fitView measures
+  // real geometry.
+  useEffect(() => {
+    if (!layout || !rfReady) return;
+    const rf = rfRef.current;
+    if (!rf) return;
+    void rf.fitView({ padding: FIT_VIEW_PADDING }).then(() => {
+      setZoom(rf.getZoom());
+    });
+  }, [layout, rfReady]);
 
   // `/` focuses the search box (unless already typing in a field).
   useEffect(() => {
@@ -440,10 +517,12 @@ export function GraphCanvas({
             hubs,
             showHubEdges,
             containerIds,
+            stacks,
+            chips,
             tourAnchors,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, tourAnchors],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, stacks, chips, tourAnchors],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
@@ -565,7 +644,25 @@ export function GraphCanvas({
     // Colour picked resources and, for the multi-select tools, make them
     // box-selectable (rubber-band drag). Overlay/module/container nodes never are.
     const mapped = elements.nodes.map((node) => {
-      if (node.type !== "resource") return { ...node, selectable: false };
+      if (node.type !== "resource") {
+        // A subnet container carries its NSG / route-table chips (GP-89): wire
+        // chip selection + the pulse a search fly-to leaves on a chip.
+        if (node.type === "container") {
+          return {
+            ...node,
+            selectable: false,
+            data: {
+              ...node.data,
+              onSelectChip: selectChip,
+              highlightedChipId:
+                highlightedChip && chipToAnchor.get(highlightedChip) === node.id
+                  ? highlightedChip
+                  : undefined,
+            },
+          };
+        }
+        return { ...node, selectable: false };
+      }
       const chosen = pickedSet.has(node.id);
       // A proposal being hovered in the inbox lights its anchors the same way a
       // picked node lights: "these are the resources in question" is one idea.
@@ -579,6 +676,20 @@ export function GraphCanvas({
           picked: chosen || previewed,
           hiddenByAnnotation: hidden.has(node.id),
           renameLabel: renamed.get(node.id),
+          // GP-87: clicking a stacked child row selects that child; a child the
+          // search flew to pulses on its host card.
+          onSelectStackChild: selectStackChild,
+          highlightedChildId:
+            highlightedChild && childToHost.get(highlightedChild) === node.id
+              ? highlightedChild
+              : undefined,
+          // A resource card can carry attachment chips too (avset on its VM):
+          // same wiring as the subnet container's chip row.
+          onSelectChip: selectChip,
+          highlightedChipId:
+            highlightedChip && chipToAnchor.get(highlightedChip) === node.id
+              ? highlightedChip
+              : undefined,
         },
       };
     });
@@ -592,6 +703,12 @@ export function GraphCanvas({
     hidden,
     renamed,
     highlightIds,
+    highlightedChild,
+    childToHost,
+    selectStackChild,
+    highlightedChip,
+    chipToAnchor,
+    selectChip,
   ]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
@@ -707,11 +824,23 @@ export function GraphCanvas({
     [marqueeSelecting, resourceNodeIds],
   );
 
-  const flyTo = useCallback((node: GraphNode) => {
-    setSelected(node);
-    setQuery(""); // close the results dropdown once a result is chosen
-    void rfRef.current?.fitView({ nodes: [{ id: node.id }], duration: 500, maxZoom: 1.5 });
-  }, []);
+  const flyTo = useCallback(
+    (node: GraphNode) => {
+      setSelected(node);
+      setQuery(""); // close the results dropdown once a result is chosen
+      // An attached node (a stacked child, GP-87, or a chip, GP-89) has no node
+      // of its own on the canvas: fly to the host / anchor that carries it. The
+      // row / chip lights up by being the selection — no separate pulse state.
+      const hostId = childToHost.get(node.id);
+      const subnetId = chipToAnchor.get(node.id);
+      void rfRef.current?.fitView({
+        nodes: [{ id: hostId ?? subnetId ?? node.id }],
+        duration: 500,
+        maxZoom: 1.5,
+      });
+    },
+    [childToHost, chipToAnchor],
+  );
 
   // Fly to a node requested from outside (GP-40 compare summary lists).
   useEffect(() => {
@@ -773,6 +902,7 @@ export function GraphCanvas({
         edgeTypes={EDGE_TYPES}
         onInit={(instance) => {
           rfRef.current = instance;
+          setRfReady(true);
           setZoom(instance.getZoom());
         }}
         onMove={(_, viewport) => setZoom(viewport.zoom)}

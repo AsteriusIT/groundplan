@@ -197,6 +197,8 @@ export function PullDetailPage() {
           graph={network ? network.graph : graph.snapshot.graph}
           variant="plan"
           containerIds={network?.containerIds}
+          stacks={network?.stacks}
+          chips={network?.chips}
           focusNodeId={focusNodeId}
           tour={tourChrome}
         />

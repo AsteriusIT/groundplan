@@ -3,7 +3,7 @@
  * scrolling body of labelled sections (mono, uppercase labels), reused by the
  * node detail panel (GP-33) and available to any future inspector.
  */
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -12,16 +12,20 @@ import { Button } from "@/components/ui/button";
 export function SidePanel({
   children,
   className,
+  style,
   label,
 }: Readonly<{
   children: ReactNode;
   className?: string;
+  /** Inline overrides for user-driven sizing (e.g. a resizable width). */
+  style?: CSSProperties;
   /** Accessible name for the panel region. */
   label?: string;
 }>) {
   return (
     <aside
       aria-label={label}
+      style={style}
       className={cn(
         "bg-panel border-border-strong absolute top-3 right-3 bottom-3 z-10 flex w-80 flex-col rounded-lg border shadow-lg",
         className,

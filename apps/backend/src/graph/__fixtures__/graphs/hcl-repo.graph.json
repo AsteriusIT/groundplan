@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 8,
   "nodes": [
     {
       "id": "aws_iam_role.app",
@@ -7,7 +7,13 @@
       "type": "aws_iam_role",
       "provider": "aws",
       "module_path": [],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 22,
+        "end_line": 30,
+        "code": "resource \"aws_iam_role\" \"app\" {\n  name       = \"app\"\n  depends_on = [aws_s3_bucket.logs]\n\n  # Nested block — must not be mistaken for a top-level block.\n  inline_policy {\n    name = \"inline\"\n  }\n}"
+      }
     },
     {
       "id": "aws_s3_bucket.logs",
@@ -15,7 +21,13 @@
       "type": "aws_s3_bucket",
       "provider": "aws",
       "module_path": [],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 11,
+        "end_line": 18,
+        "code": "resource \"aws_s3_bucket\" \"logs\" {\n  bucket = \"logs\"\n\n  # Heredoc with braces/brackets the scanner must not count as blocks.\n  policy = <<POLICY\n{ \"Statement\": [{ \"Effect\": \"Allow\" }] }\nPOLICY\n}"
+      }
     },
     {
       "id": "data.aws_caller_identity.current",
@@ -23,7 +35,13 @@
       "type": "aws_caller_identity",
       "provider": "aws",
       "module_path": [],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 20,
+        "end_line": 20,
+        "code": "data \"aws_caller_identity\" \"current\" {}"
+      }
     },
     {
       "id": "module.network",
@@ -31,23 +49,45 @@
       "type": "module",
       "provider": null,
       "module_path": [],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 33,
+        "end_line": 35,
+        "code": "module \"network\" {\n  source = \"./modules/network\"\n}"
+      }
     },
     {
       "id": "module.network.aws_flow_log.this",
       "name": "this",
       "type": "aws_flow_log",
       "provider": "aws",
-      "module_path": ["network"],
-      "change": null
+      "module_path": [
+        "network"
+      ],
+      "change": null,
+      "source": {
+        "file": "modules/network/network.tf",
+        "start_line": 5,
+        "end_line": 10,
+        "code": "resource \"aws_flow_log\" \"this\" {\n  # Expression reference (aws_vpc.this.id) is intentionally NOT turned into an\n  # edge — only explicit depends_on is (GP-15: no expression evaluation).\n  vpc_id     = aws_vpc.this.id\n  depends_on = [aws_vpc.this]\n}"
+      }
     },
     {
       "id": "module.network.aws_vpc.this",
       "name": "this",
       "type": "aws_vpc",
       "provider": "aws",
-      "module_path": ["network"],
-      "change": null
+      "module_path": [
+        "network"
+      ],
+      "change": null,
+      "source": {
+        "file": "modules/network/network.tf",
+        "start_line": 1,
+        "end_line": 3,
+        "code": "resource \"aws_vpc\" \"this\" {\n  cidr_block = \"10.0.0.0/16\"\n}"
+      }
     },
     {
       "id": "module.vpc_registry",
@@ -55,12 +95,26 @@
       "type": "module",
       "provider": null,
       "module_path": [],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 38,
+        "end_line": 41,
+        "code": "module \"vpc_registry\" {\n  source  = \"terraform-aws-modules/vpc/aws\"\n  version = \"5.0.0\"\n}"
+      }
     }
   ],
   "edges": [
-    { "from": "module.network", "to": "module.network.aws_flow_log.this", "kind": "contains" },
-    { "from": "module.network", "to": "module.network.aws_vpc.this", "kind": "contains" },
+    {
+      "from": "module.network",
+      "to": "module.network.aws_flow_log.this",
+      "kind": "contains"
+    },
+    {
+      "from": "module.network",
+      "to": "module.network.aws_vpc.this",
+      "kind": "contains"
+    },
     {
       "from": "aws_iam_role.app",
       "to": "aws_s3_bucket.logs",

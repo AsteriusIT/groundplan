@@ -51,14 +51,15 @@ export function useGraphView(
 
 /**
  * The "infra" tab is the same view either way, but it reads differently by
- * context: on a pull request it is the impact of the plan, on the docs page it
- * is simply everything the repository builds.
+ * context: on a pull request it is the impact of the plan, on the docs page
+ * and in the playground it is simply everything the files build.
  */
-export type ViewSwitcherVariant = "plan" | "docs";
+export type ViewSwitcherVariant = "plan" | "docs" | "playground";
 
 const INFRA_LABEL: Record<ViewSwitcherVariant, string> = {
   plan: "Plan impact",
   docs: "Global",
+  playground: "Global",
 };
 
 const LABELS: Record<Exclude<GraphView, "infra">, string> = {
@@ -84,15 +85,19 @@ const LABELS: Record<Exclude<GraphView, "infra">, string> = {
  * it tells the reader their system has no network and no permissions, which is a
  * lie shaped like information. This is the rule GP-99 set for the cluster page,
  * stated once, where every caller can reach it.
+ *
+ * The **playground** has no annotation layer, so adapted/c4 would fold over
+ * nothing — it gets the docs page's remaining lenses.
  */
 export function viewsFor(
   variant: ViewSwitcherVariant,
   kubernetes: boolean,
 ): GraphView[] {
   if (kubernetes) return ["infra"];
-  return variant === "docs"
-    ? ["infra", "adapted", "c4", "network", "iam"]
-    : ["infra", "network", "iam"];
+  if (variant === "docs") return ["infra", "adapted", "c4", "network", "iam"];
+  // "plan" and "playground" share the set for different reasons: a diff should
+  // not be reviewed through the annotation lens; the playground has no lens.
+  return ["infra", "network", "iam"];
 }
 
 /**

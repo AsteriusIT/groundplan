@@ -114,9 +114,27 @@ test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (G
     "azurerm_subnet.internal",
   );
   // A VM references only a NIC (not a subnet) → no containment parent.
-  assert.equal(byId.get("azurerm_virtual_machine.main")?.parent_id, undefined);
+  // The via rule (network-schema-polish): the VM lands in its NIC's subnet.
+  assert.equal(
+    byId.get("azurerm_virtual_machine.main")?.parent_id,
+    "azurerm_subnet.internal",
+  );
   // route_table references a count subnet (2 instances) → ambiguous → no parent.
   assert.equal(byId.get("azurerm_route_table.rt")?.parent_id, undefined);
+});
+
+test("derives satellite stacking from a plan: probe/pool/rule → lb, public IP → host, NIC → VM (GP-86)", () => {
+  const graph = parsePlanToGraph(readJson("plans/stacking.plan.json"));
+  const parent = new Map(graph.nodes.map((n) => [n.id, n.parent_id]));
+  assert.equal(parent.get("azurerm_lb.main"), "azurerm_subnet.internal");
+  assert.equal(parent.get("azurerm_lb_probe.https"), "azurerm_lb.main");
+  assert.equal(parent.get("azurerm_lb_backend_address_pool.pool"), "azurerm_lb.main");
+  assert.equal(parent.get("azurerm_lb_rule.http"), "azurerm_lb.main");
+  assert.equal(parent.get("azurerm_public_ip.appgw"), "azurerm_application_gateway.appgw");
+  assert.equal(parent.get("azurerm_public_ip.bastion"), "azurerm_bastion_host.bastion");
+  assert.equal(parent.get("azurerm_network_interface.nic"), "azurerm_linux_virtual_machine.vm");
+  // A NAT gateway binds its public IP via an association resource → resolved through it.
+  assert.equal(parent.get("azurerm_public_ip.nat"), "azurerm_nat_gateway.nat");
 });
 
 test("attaches NSG rules, internet_exposed, and associations from a plan (GP-43)", () => {
@@ -138,6 +156,15 @@ test("attaches NSG rules, internet_exposed, and associations from a plan (GP-43)
   assert.equal(open.internet_exposed, true);
   assert.deepEqual(open.associated_ids, ["azurerm_subnet.web"]);
   assert.equal(byId.get("azurerm_network_security_group.closed")!.internet_exposed, false);
+});
+
+test("attaches route-table associated_ids to the route table, without NSG payload (GP-89)", () => {
+  const graph = parsePlanToGraph(readJson("plans/nsg.plan.json"));
+  const rt = new Map(graph.nodes.map((n) => [n.id, n])).get("azurerm_route_table.rt")!;
+  assert.deepEqual(rt.associated_ids, ["azurerm_subnet.web"]);
+  // A route table is not a security group — it carries no rules / exposure flag.
+  assert.equal(rt.rules, undefined);
+  assert.equal(rt.internet_exposed, undefined);
 });
 
 test("a reference to a count resource fans out to all its instances", () => {
@@ -381,4 +408,65 @@ test("validateGraph accepts both a hand-written v1 node and a v3 node", () => {
     attribute_diff_truncated: false,
   };
   assert.equal(validateGraph({ version: 3, nodes: [v3Node], edges: [] }).valid, true);
+});
+
+test("the join catalog places, attaches, and edges association resources (azurerm joins)", () => {
+  const graph = parsePlanToGraph(readJson("plans/joins.plan.json"));
+  assert.equal(validateGraph(graph).valid, true);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const hasEdge = (from: string, to: string) =>
+    graph.edges.some((e) => e.kind === "depends_on" && e.from === from && e.to === to);
+
+  // subnet_nat_gateway_association → the NAT gateway nests in its subnet.
+  assert.equal(byId.get("azurerm_nat_gateway.out")?.parent_id, "azurerm_subnet.internal");
+  // Two subnets share one NAT gateway → nearest common ancestor: the vnet —
+  // with a dashed edge to each served subnet.
+  assert.equal(
+    byId.get("azurerm_nat_gateway.shared")?.parent_id,
+    "azurerm_virtual_network.hub",
+  );
+  assert.ok(
+    hasEdge("azurerm_nat_gateway.shared", "azurerm_subnet.internal") &&
+      hasEdge("azurerm_nat_gateway.shared", "azurerm_subnet.internal2"),
+    "expected direct edges from the shared NAT gateway to both served subnets",
+  );
+  // data-disk attachment → the disk stacks under its VM.
+  assert.equal(
+    byId.get("azurerm_managed_disk.data")?.parent_id,
+    "azurerm_linux_virtual_machine.app",
+  );
+  // vnet peering collapses to one direct vnet ⇄ vnet edge.
+  assert.ok(
+    hasEdge("azurerm_virtual_network.hub", "azurerm_virtual_network.spoke") ||
+      hasEdge("azurerm_virtual_network.spoke", "azurerm_virtual_network.hub"),
+    "expected a direct edge between the peered vnets",
+  );
+  // NIC ↔ LB pool association collapses to a direct NIC → pool edge.
+  assert.ok(
+    hasEdge("azurerm_network_interface.nic", "azurerm_lb_backend_address_pool.pool"),
+    "expected a direct NIC → pool edge",
+  );
+  // VMSS inline NSG duality: the NSG records the scale set it guards.
+  assert.deepEqual(byId.get("azurerm_network_security_group.web")?.associated_ids, [
+    "azurerm_linux_virtual_machine_scale_set.workers",
+  ]);
+  // The subnet's planned CIDR lands in v7 attributes.
+  assert.equal(
+    byId.get("azurerm_subnet.internal")?.attributes?.["address_prefixes"],
+    "10.0.1.0/24",
+  );
+  assert.equal(graph.version, 7);
+});
+
+test("a synthetic join edge never duplicates an existing reference edge", () => {
+  const graph = parsePlanToGraph(readJson("plans/joins.plan.json"));
+  // The VMSS already references its NSG inline — the attach semantic must not
+  // add a second (reversed) edge between the same two nodes.
+  const between = graph.edges.filter(
+    (e) =>
+      e.kind === "depends_on" &&
+      [e.from, e.to].includes("azurerm_network_security_group.web") &&
+      [e.from, e.to].includes("azurerm_linux_virtual_machine_scale_set.workers"),
+  );
+  assert.equal(between.length, 1);
 });
