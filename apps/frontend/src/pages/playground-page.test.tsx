@@ -734,3 +734,62 @@ it("opening a manifests-only draft lands in Kubernetes mode and parses it as suc
     "true",
   );
 });
+
+// ---------------------------------------------------------------------------
+// Views: Global / Network / IAM on a Terraform snapshot; diagram-only for
+// Kubernetes (the GP-105 rule, kept consistent).
+// ---------------------------------------------------------------------------
+
+/** A snapshot whose graph carries one role assignment, so IAM has a row. */
+function iamSnap(): PlaygroundSnapshot {
+  const base = snap(2);
+  base.graph.nodes.push({
+    id: "azurerm_role_assignment.ops",
+    name: "ops",
+    type: "azurerm_role_assignment",
+    provider: "azurerm",
+    module_path: [],
+    change: null,
+    privileged: true,
+    role_assignment: {
+      principal: "ops-team",
+      role: "Owner",
+      scope: "subscription",
+    },
+  });
+  return base;
+}
+
+it("a Terraform snapshot offers Global/Network/IAM; IAM renders the table", async () => {
+  parsePlaygroundMock.mockResolvedValue(iamSnap());
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+
+  fireEvent.click(screen.getByRole("button", { name: "IAM" }));
+  expect(screen.getByText("ops-team")).toBeInTheDocument();
+  expect(screen.getByText("Owner")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Network" }));
+  expect(screen.getByTestId("canvas")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Global" }));
+  expect(screen.getByTestId("canvas")).toBeInTheDocument();
+});
+
+it("a Kubernetes snapshot gets the diagram and nothing else", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Kubernetes" }));
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+
+  expect(
+    screen.queryByRole("button", { name: "Global" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "IAM" })).not.toBeInTheDocument();
+});

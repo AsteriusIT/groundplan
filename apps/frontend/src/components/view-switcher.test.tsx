@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, it } from "vitest";
 
-import { ViewSwitcher } from "./view-switcher";
+import { ViewSwitcher, viewsFor } from "./view-switcher";
 
 it("reflects the ?view=network param and toggles between views", () => {
   render(
@@ -75,4 +75,9 @@ it("reflects and selects the ?view=iam param (GP-48)", () => {
     "aria-pressed",
     "false",
   );
+});
+
+it("playground offers Global/Network/IAM for Terraform, diagram only for Kubernetes", () => {
+  expect(viewsFor("playground", false)).toEqual(["infra", "network", "iam"]);
+  expect(viewsFor("playground", true)).toEqual(["infra"]);
 });

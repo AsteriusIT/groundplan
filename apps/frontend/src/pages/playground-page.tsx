@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import {
   ChevronDown,
@@ -23,6 +23,7 @@ import {
   updatePlaygroundDraft,
 } from "@/api/client";
 import type {
+  GraphNode,
   IacType,
   PlaygroundDraft,
   PlaygroundFile,
@@ -31,6 +32,13 @@ import type {
 import { GraphCanvas } from "@/components/graph-canvas";
 import { HclEditor } from "@/components/hcl-editor";
 import { IacSwitch } from "@/components/iac-switch";
+import { IamTable } from "@/components/iam-table";
+import {
+  ViewSwitcher,
+  useGraphView,
+  viewsFor,
+} from "@/components/view-switcher";
+import { networkProjection } from "@/lib/graph-layout";
 import {
   DraftsDialog,
   SaveDraftDialog,
@@ -196,6 +204,26 @@ export function PlaygroundPage() {
     terraform: files.some((f) => fileIacType(f.path) === "terraform"),
     kubernetes: files.some((f) => fileIacType(f.path) === "kubernetes"),
   };
+  // The lenses on the active snapshot: Global / Network / IAM for Terraform,
+  // diagram only for Kubernetes (viewsFor states the rule; ?view= deep links
+  // onto the wrong stack fall back to infra inside useGraphView).
+  const kubernetes = iacType === "kubernetes";
+  const { view, setView } = useGraphView(viewsFor("playground", kubernetes));
+  // Network view (GP-44's projection, client-side and pure).
+  const network = useMemo(
+    () =>
+      snapshot && view === "network" ? networkProjection(snapshot.graph) : null,
+    [snapshot, view],
+  );
+  // GP-49's jump: an IAM row lands selected on the Global canvas.
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const viewOnCanvas = useCallback(
+    (node: GraphNode) => {
+      setFocusNodeId(node.id);
+      setView("infra");
+    },
+    [setView],
+  );
   const dirty = JSON.stringify(files) !== savedSerial;
   // A scratch playground is never "Saved" — it has nowhere to be saved to.
   const unsaved = !draft || dirty;
@@ -778,22 +806,60 @@ export function PlaygroundPage() {
         </aside>
         )}
 
-        <section
-          aria-label="Diagram"
-          className="blueprint-grid relative min-h-0 flex-1"
-        >
-          {snapshot ? (
-            <GraphCanvas graph={snapshot.graph} variant="docs" />
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-muted-foreground max-w-sm text-center text-sm">
-                Edit the files on the left, then click{" "}
-                <span className="text-foreground font-medium">Visualize</span> to
-                draw the diagram. Nothing is saved or sent anywhere else.
-              </p>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* The lens tabs, once there is a snapshot to look through. In
+              Kubernetes mode the switcher removes itself, so no empty bar. */}
+          {snapshot && !kubernetes && (
+            <div className="bg-card border-border flex items-center border-b px-4 pt-2">
+              <ViewSwitcher variant="playground" kubernetes={kubernetes} />
             </div>
           )}
-        </section>
+          {/* The gridded paper is the diagram's surface — the IAM view is a
+              table and sits on plain background, as on the docs page. */}
+          <section
+            aria-label="Diagram"
+            className={cn(
+              "relative min-h-0 flex-1",
+              view !== "iam" && "blueprint-grid",
+            )}
+          >
+            {(() => {
+              if (!snapshot) {
+                return (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-muted-foreground max-w-sm text-center text-sm">
+                      Edit the files on the left, then click{" "}
+                      <span className="text-foreground font-medium">
+                        Visualize
+                      </span>{" "}
+                      to draw the diagram. Nothing is saved or sent anywhere
+                      else.
+                    </p>
+                  </div>
+                );
+              }
+              if (view === "iam") {
+                return (
+                  <IamTable
+                    graph={snapshot.graph}
+                    variant="docs"
+                    onViewInPlanImpact={viewOnCanvas}
+                  />
+                );
+              }
+              return (
+                <GraphCanvas
+                  graph={network ? network.graph : snapshot.graph}
+                  variant="docs"
+                  containerIds={network?.containerIds}
+                  stacks={network?.stacks}
+                  chips={network?.chips}
+                  focusNodeId={focusNodeId}
+                />
+              );
+            })()}
+          </section>
+        </div>
       </div>
 
       <SaveDraftDialog
