@@ -85,7 +85,7 @@ export function SettingsPage() {
 
   const groups: SectionGroup[] = [
     {
-      label: "You",
+      label: "Personal",
       sections: [
         { id: "account", label: "Account", element: <AccountCard /> },
         { id: "appearance", label: "Appearance", element: <AppearanceCard /> },

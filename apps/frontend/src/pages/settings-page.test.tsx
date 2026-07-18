@@ -243,10 +243,10 @@ it("pins the section named by the URL hash on arrival", () => {
   }
 });
 
-it("groups the page under You / Organization / Workspace labels", () => {
+it("groups the page under Personal / Organization / Workspace labels", () => {
   renderPage();
   // Once in the rail, once above the cards.
-  expect(screen.getAllByText("You").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText("Personal").length).toBeGreaterThanOrEqual(2);
   expect(screen.getAllByText("Organization").length).toBeGreaterThanOrEqual(2);
   expect(screen.getAllByText("Workspace").length).toBeGreaterThanOrEqual(2);
 });
