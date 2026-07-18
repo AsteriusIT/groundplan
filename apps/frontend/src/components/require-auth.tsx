@@ -15,11 +15,18 @@ export function RequireAuth({ children }: Readonly<{ children: ReactNode }>) {
 
   useEffect(() => {
     if (isLoading || isAuthenticated || redirecting.current) return;
-    // Kick off the redirect once; preserve path + query so e.g. an
-    // /invite/:token link survives the round-trip.
+    // Kick off the redirect once; preserve path + query + hash so e.g. an
+    // /invite/:token link or a /settings#section anchor survives the round-trip.
     redirecting.current = true;
-    void login(location.pathname + location.search);
-  }, [isLoading, isAuthenticated, login, location.pathname, location.search]);
+    void login(location.pathname + location.search + location.hash);
+  }, [
+    isLoading,
+    isAuthenticated,
+    login,
+    location.pathname,
+    location.search,
+    location.hash,
+  ]);
 
   // Wait for auth to settle before rendering the protected subtree. During
   // session restore `isAuthenticated` flips true while GET /me is still in

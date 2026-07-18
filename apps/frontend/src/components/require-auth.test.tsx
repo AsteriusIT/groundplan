@@ -39,6 +39,15 @@ it("starts the OIDC sign-in for unauthenticated users, preserving the target pat
   expect(screen.queryByText("protected content")).not.toBeInTheDocument();
 });
 
+it("preserves the hash through the sign-in round trip (settings section anchors)", () => {
+  const login = vi.fn();
+  renderGuard(
+    { isAuthenticated: false, isLoading: false, login },
+    "/settings#ci-token",
+  );
+  expect(login).toHaveBeenCalledWith("/settings#ci-token");
+});
+
 it("renders children when authenticated", () => {
   renderGuard({ isAuthenticated: true });
   expect(screen.getByText("protected content")).toBeInTheDocument();

@@ -91,6 +91,18 @@ TDD; frontend vitest + Testing Library + vitest-axe.
   active entry carries `aria-current`; `useScrollSpy` unit test with a
   mocked IntersectionObserver; axe stays clean with the new nav.
 
+## Addendum (found in browser verification)
+
+- **Click/hash pins the highlight.** The page is short: the tail sections can
+  never reach the spy's reading line, so geometry alone contradicted an
+  explicit click (clicking "AI" left "Members" highlighted). A click — or an
+  arriving `#hash` — pins its section as active; real scrolling
+  (wheel/touchmove) unpins and hands back to the spy.
+- **The auth flow dropped URL hashes.** `RequireAuth` stored
+  `pathname + search` as the OIDC return target, so a fresh arrival at
+  `/settings#ci-token` came back from Keycloak as `/settings`. It now
+  preserves the hash too — a one-line fix in `require-auth.tsx`, with a test.
+
 ## Out of scope
 
 - No route changes (`/settings` remains one page), no new backend calls,

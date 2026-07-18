@@ -1,18 +1,23 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { axe } from "vitest-axe";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, getAiStatus: vi.fn(), listMembers: vi.fn() };
+  return {
+    ...actual,
+    getAiStatus: vi.fn(),
+    listMembers: vi.fn(),
+    listInvitations: vi.fn(),
+  };
 });
 
 const logout = vi.fn();
 const useAuthMock = vi.fn();
 vi.mock("@/auth/use-auth", () => ({ useAuth: () => useAuthMock() }));
 
-import { getAiStatus, listMembers } from "@/api/client";
+import { getAiStatus, listInvitations, listMembers } from "@/api/client";
 import type { AiStatus, User } from "@/api/types";
 import { OrgContext, type OrgContextValue } from "@/org/org-context";
 import { resetAiStatus } from "@/lib/use-ai-status";
@@ -22,6 +27,7 @@ import { SettingsPage } from "./settings-page";
 
 const getAiStatusMock = vi.mocked(getAiStatus);
 const listMembersMock = vi.mocked(listMembers);
+const listInvitationsMock = vi.mocked(listInvitations);
 
 // Single-org context: the members roster shows; invites and danger zone hide.
 const orgValue: OrgContextValue = {
@@ -43,12 +49,12 @@ function user(over: Partial<User> = {}): User {
 }
 
 /** The appearance card writes through the two display-preference providers. */
-function renderPage() {
+function renderPage(org: Partial<OrgContextValue> = {}) {
   return render(
     <MemoryRouter>
       <ThemeProvider>
         <TourStyleProvider>
-          <OrgContext.Provider value={orgValue}>
+          <OrgContext.Provider value={{ ...orgValue, ...org }}>
             <SettingsPage />
           </OrgContext.Provider>
         </TourStyleProvider>
@@ -62,6 +68,8 @@ beforeEach(() => {
   getAiStatusMock.mockReset();
   listMembersMock.mockReset();
   listMembersMock.mockResolvedValue([]);
+  listInvitationsMock.mockReset();
+  listInvitationsMock.mockResolvedValue([]);
   logout.mockReset();
   localStorage.clear();
   useAuthMock.mockReturnValue({
@@ -142,6 +150,114 @@ it("explains where AI is configured when it is off", async () => {
   expect(screen.getByText(/AI_API_KEY/)).toBeInTheDocument();
   // Config is server-side by design (GP-62) — no key input in the UI.
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+});
+
+function rail() {
+  return screen.getByRole("navigation", { name: /settings sections/i });
+}
+
+it("lists exactly the rendered sections in the rail", () => {
+  renderPage(); // single-org member: no invitations, no danger zone
+  const links = within(rail())
+    .getAllByRole("link")
+    .map((a) => a.textContent);
+  expect(links).toEqual([
+    "Account",
+    "Appearance",
+    "Members",
+    "CI ingestion token",
+    "AI",
+  ]);
+});
+
+it("adds invitations and the danger zone for a multi-org owner", () => {
+  renderPage({
+    singleOrg: false,
+    activeOrg: { id: "o1", name: "Asterius", slug: "asterius", role: "owner" },
+  });
+  const links = within(rail())
+    .getAllByRole("link")
+    .map((a) => a.textContent);
+  expect(links).toEqual([
+    "Account",
+    "Appearance",
+    "Members",
+    "Invitations",
+    "CI ingestion token",
+    "AI",
+    "Danger zone",
+  ]);
+  // …and the sections themselves render.
+  expect(
+    screen.getByRole("button", { name: /delete organization/i }),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText(/email \(optional\)/i)).toBeInTheDocument();
+});
+
+it("anchors rail links to their sections", () => {
+  renderPage();
+  const account = within(rail()).getByRole("link", { name: "Account" });
+  expect(account).toHaveAttribute("href", "#account");
+  expect(document.getElementById("account")).not.toBeNull();
+});
+
+it("marks the first section as current where nothing has scrolled", () => {
+  renderPage(); // jsdom: no IntersectionObserver, spy stays on the first id
+  expect(within(rail()).getByRole("link", { name: "Account" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  expect(
+    within(rail()).getByRole("link", { name: "Members" }),
+  ).not.toHaveAttribute("aria-current");
+});
+
+it("pins a clicked section as current — the tail can never reach the reading line", () => {
+  renderPage();
+  fireEvent.click(within(rail()).getByRole("link", { name: "AI" }));
+  expect(within(rail()).getByRole("link", { name: "AI" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+});
+
+it("unpins on real scrolling, returning the highlight to the spy", () => {
+  renderPage();
+  fireEvent.click(within(rail()).getByRole("link", { name: "AI" }));
+  fireEvent.wheel(window);
+  expect(within(rail()).getByRole("link", { name: "Account" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+});
+
+it("pins the section named by the URL hash on arrival", () => {
+  window.history.replaceState(null, "", "#ci-token");
+  try {
+    renderPage();
+    expect(
+      within(rail()).getByRole("link", { name: "CI ingestion token" }),
+    ).toHaveAttribute("aria-current", "true");
+  } finally {
+    window.history.replaceState(null, "", "/");
+  }
+});
+
+it("groups the page under You / Organization / Workspace labels", () => {
+  renderPage();
+  // Once in the rail, once above the cards.
+  expect(screen.getAllByText("You").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText("Organization").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText("Workspace").length).toBeGreaterThanOrEqual(2);
+});
+
+it("tints the danger zone card destructive", () => {
+  renderPage({
+    singleOrg: false,
+    activeOrg: { id: "o1", name: "Asterius", slug: "asterius", role: "owner" },
+  });
+  const section = document.getElementById("danger")?.querySelector("section");
+  expect(section?.className).toContain("border-destructive/40");
 });
 
 it("has no accessibility violations", async () => {
