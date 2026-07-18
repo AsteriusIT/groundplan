@@ -194,3 +194,22 @@ it("prefixes a stacked row with its kind", () => {
   expect(screen.getByText("pool")).toBeInTheDocument();
   expect(screen.getByText("probe")).toBeInTheDocument();
 });
+
+it("shows a ×n badge for a literal count", () => {
+  render(
+    <NodeCard
+      graphNode={{
+        ...rg,
+        id: "vm",
+        type: "azurerm_linux_virtual_machine",
+        attributes: { count: "2" },
+      }}
+    />,
+  );
+  expect(screen.getByText("×2")).toBeInTheDocument();
+});
+
+it("shows no count badge without the attribute", () => {
+  render(<NodeCard graphNode={rg} />);
+  expect(screen.queryByText(/^×/)).not.toBeInTheDocument();
+});

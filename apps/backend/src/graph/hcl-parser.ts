@@ -218,26 +218,31 @@ function readStringList(body: string, key: string): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
-/** v7 attributes a network frame carries: its statically-declared CIDRs. An
- * expression value is unknowable without evaluation — no attribute at all. */
-function hclNetworkAttributes(
+/** v7 attributes a node carries statically: a network frame's declared CIDRs,
+ * and a literal `count` (knowable without evaluation; an expression is not). */
+function hclNodeAttributes(
   type: string,
   body: string,
 ): Record<string, string> | undefined {
+  const attrs: Record<string, string> = {};
   let key: string | null = null;
   if (type === "azurerm_subnet") key = "address_prefixes";
   else if (type === "azurerm_virtual_network") key = "address_space";
-  if (!key) return undefined;
-  const values = readStringList(body, key);
-  return values ? { [key]: values.join(", ") } : undefined;
+  if (key) {
+    const values = readStringList(body, key);
+    if (values) attrs[key] = values.join(", ");
+  }
+  const count = readAttr(body, "count");
+  if (count !== undefined && /^\d+$/.test(count)) attrs["count"] = count;
+  return Object.keys(attrs).length > 0 ? attrs : undefined;
 }
 
-/** Stamp v7 CIDR attributes onto subnet/vnet nodes from their block bodies. */
+/** Stamp v7 attributes (CIDRs, literal count) onto nodes from their bodies. */
 function attachHclAttributes(ctx: Ctx): void {
   for (const ps of ctx.pendingSources) {
     const node = ctx.nodes.get(ps.fromBase);
     if (!node) continue;
-    const attrs = hclNetworkAttributes(node.type, ps.body);
+    const attrs = hclNodeAttributes(node.type, ps.body);
     if (attrs) node.attributes = attrs;
   }
 }

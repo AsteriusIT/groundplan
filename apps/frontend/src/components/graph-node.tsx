@@ -196,6 +196,8 @@ export function NodeCard({
   const hubHiddenPlural = hubHiddenCount === 1 ? "" : "s";
   const hasStack = stack !== undefined && stack.length > 0;
   const hasChips = chips !== undefined && chips.length > 0;
+  // A literal `count` from the docs producer (plan snapshots expand instances).
+  const countLiteral = graphNode.attributes?.["count"];
   // A diff inside the stack must never be less visible than a floating one: the
   // host takes the impacted ring when any child changed (GP-87).
   const showImpactRing = impacted || stackChanged;
@@ -284,6 +286,16 @@ export function NodeCard({
           className="bg-muted text-muted-foreground inline-grid size-4 shrink-0 place-items-center rounded-full"
         >
           <EyeOff className="size-2.5" />
+        </span>
+      )}
+
+      {/* ×n for a literal count — one card standing for n instances. */}
+      {countLiteral !== undefined && (
+        <span
+          className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[10px]"
+          title={`count = ${countLiteral}`}
+        >
+          ×{countLiteral}
         </span>
       )}
 

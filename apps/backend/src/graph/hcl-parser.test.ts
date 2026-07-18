@@ -379,3 +379,30 @@ resource "azurerm_subnet" "dynamic" {
   );
   assert.equal(graph.version, 7);
 });
+
+test("a literal count lands in attributes; an expression count does not", () => {
+  const { graph } = parseHclRepo([
+    {
+      path: "main.tf",
+      content: `
+resource "azurerm_linux_virtual_machine" "app" {
+  name  = "app"
+  count = 2
+}
+resource "azurerm_linux_virtual_machine" "dyn" {
+  name  = "dyn"
+  count = var.n
+}
+`,
+    },
+  ]);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  assert.equal(
+    byId.get("azurerm_linux_virtual_machine.app")?.attributes?.["count"],
+    "2",
+  );
+  assert.equal(
+    byId.get("azurerm_linux_virtual_machine.dyn")?.attributes?.["count"],
+    undefined,
+  );
+});
