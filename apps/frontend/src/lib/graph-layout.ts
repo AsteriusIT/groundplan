@@ -121,6 +121,8 @@ const ELK_MODULE_OPTIONS: Record<string, string> = {
 };
 // GP-89: extra top band inside a subnet frame for its NSG / route-table chip row.
 const CHIP_BAND = 30;
+// Extra band on a resource card carrying attachment chips (avset on its VM).
+const CARD_CHIP_BAND = 26;
 
 export type GraphNodeData = {
   graphNode: GraphNode;
@@ -368,33 +370,43 @@ export function networkProjection(graph: Graph): {
     nodes,
     edges: [...containsEdges, ...dependsOn],
   };
+  const stacks = resourceStacks(projected, containerIds);
   return {
     graph: projected,
     hiddenCount,
     containerIds,
-    stacks: resourceStacks(projected, containerIds),
-    chips: subnetChips(projected, containerIds),
+    stacks,
+    chips: attachmentChips(projected, containerIds, stacks),
   };
 }
 
 /**
- * GP-89: NSGs and route tables are not resources that sit *in* a subnet — they are
- * attachments *to* one. Group every node that carries an `associated_ids` pointing
- * at a kept subnet under that subnet, as a header chip. A node associated with
- * several subnets appears under each (one chip per subnet, one identity); a node
- * whose association resolves to no kept subnet is not grouped here — it stays a
- * floating node, so a chip is never lost to a missing anchor.
+ * GP-89, generalized: attachments render as chips on their anchor — an NSG /
+ * route table on its subnet frame header, an availability set on each member
+ * VM's card. An eligible anchor is a kept subnet container or a top-level
+ * resource card; an anchor that is itself stacked inside a host (a NIC row) or
+ * absent offers no chip home, so a satellite with no eligible anchor stays a
+ * floating node — a chip is never lost to a missing anchor. A node associated
+ * with several anchors appears on each (one chip per anchor, one identity).
  */
-export function subnetChips(
+export function attachmentChips(
   graph: Graph,
   containerIds: ReadonlySet<string>,
+  stacks: ReadonlyMap<string, GraphNode[]>,
 ): Map<string, GraphNode[]> {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const stacked = new Set<string>();
+  for (const list of stacks.values()) for (const c of list) stacked.add(c.id);
+  const eligible = (anchor: string): boolean => {
+    const node = byId.get(anchor);
+    if (!node || isModule(node)) return false;
+    if (containerIds.has(anchor)) return node.type === "azurerm_subnet";
+    return !stacked.has(anchor); // a top-level resource card
+  };
   const chips = new Map<string, GraphNode[]>();
   for (const node of graph.nodes) {
     for (const anchor of node.associated_ids ?? []) {
-      if (!containerIds.has(anchor)) continue;
-      if (byId.get(anchor)?.type !== "azurerm_subnet") continue;
+      if (!eligible(anchor)) continue;
       const list = chips.get(anchor);
       if (list) list.push(node);
       else chips.set(anchor, [node]);
@@ -653,10 +665,14 @@ function elkNodeFor(
     return { id: node.id, layoutOptions, children: [] };
   }
   const hostChildren = stacks?.get(node.id);
+  const chipCount = chips?.get(node.id)?.length ?? 0;
+  const base = hostChildren
+    ? stackHostHeight(hostChildren.length)
+    : RESOURCE_HEIGHT;
   return {
     id: node.id,
     width: RESOURCE_WIDTH,
-    height: hostChildren ? stackHostHeight(hostChildren.length) : RESOURCE_HEIGHT,
+    height: base + (chipCount > 0 ? CARD_CHIP_BAND : 0),
   };
 }
 

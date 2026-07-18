@@ -322,4 +322,13 @@ test("the join catalog places, attaches, and edges association resources (azurer
   assert.deepEqual(byId.get("azurerm_network_security_group.web")?.associated_ids, [
     "azurerm_linux_virtual_machine_scale_set.workers",
   ]);
+  // Inline avset duality: availability_set_id → the avset chips onto its VM.
+  assert.deepEqual(byId.get("azurerm_availability_set.app")?.associated_ids, [
+    "azurerm_linux_virtual_machine.app",
+  ]);
+  // And the via rule places the VM in its NIC's subnet.
+  assert.equal(
+    byId.get("azurerm_linux_virtual_machine.app")?.parent_id,
+    "azurerm_subnet.internal",
+  );
 });

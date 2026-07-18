@@ -20,6 +20,7 @@ import { computeAttributeDiff, type PlanResourceChange } from "./attribute-diff.
 import {
   classifyJoins,
   inlineScaleSetLinks,
+  inlineVmAttachLinks,
   joinEdgeAdditions,
   joinEffects,
   type JoinLink,
@@ -420,11 +421,12 @@ function planJoinLinks(
 ): JoinLink[] {
   const links = classifyJoins(sources, edgeCtx, typeById);
   for (const [address, entry] of configByAddress) {
-    if (!address.includes("_virtual_machine_scale_set.")) continue;
+    if (!address.includes("_virtual_machine")) continue;
     const refs = new Set<string>();
     collectReferences(entry.expressions, refs);
     links.push(
       ...inlineScaleSetLinks(address, entry.prefix, refs, edgeCtx, typeById),
+      ...inlineVmAttachLinks(address, entry.prefix, refs, edgeCtx, typeById),
     );
   }
   return links;

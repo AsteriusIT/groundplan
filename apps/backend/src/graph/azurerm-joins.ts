@@ -401,6 +401,42 @@ export function inlineScaleSetLinks(
   return links;
 }
 
+/** Satellite types a VM binds inline (no association resource exists for them). */
+const INLINE_VM_ATTACH_SATELLITES = new Set(["azurerm_availability_set"]);
+
+/**
+ * The inline half of the availability-set duality: a VM states its avset via
+ * `availability_set_id`, not an association resource. A referenced satellite
+ * attaches to each VM instance exactly as an association resource would have
+ * said it. `refs` are the VM's own raw references; anything not resolving to a
+ * listed satellite type is ignored.
+ */
+export function inlineVmAttachLinks(
+  fromBase: string,
+  prefix: string,
+  refs: Iterable<string>,
+  ctx: EdgeContext,
+  typeById: ReadonlyMap<string, string>,
+): JoinLink[] {
+  if (!VM_TYPES.includes(typeOfBase(fromBase))) return [];
+  const anchors = ctx.instancesByBase.get(fromBase) ?? [fromBase];
+  const satellites = new Set<string>();
+  for (const ref of refs) {
+    for (const id of resolveReference(prefix, ref, ctx)) {
+      if (INLINE_VM_ATTACH_SATELLITES.has(typeById.get(id) ?? "")) {
+        satellites.add(id);
+      }
+    }
+  }
+  const links: JoinLink[] = [];
+  for (const satelliteId of [...satellites].sort(compareStrings)) {
+    for (const anchorId of anchors) {
+      links.push({ semantic: "attach", satelliteId, anchorId });
+    }
+  }
+  return links;
+}
+
 /** What the classified links do to the graph, ready for the producers to apply. */
 export type JoinEffects = {
   /** satellite id → anchor ids, for `associated_ids` (`attach` semantic). */

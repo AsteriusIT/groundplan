@@ -1042,8 +1042,8 @@ it("hub detection counts merged edges, dropping a node that only fanned out via 
 
 // --- GP-89: subnet chips (NSG / route table attach to their subnet) ----------
 
-/** vnet ⊃ subnet, guarded by an NSG (associated) and a route table; a lone NSG
- *  whose subnet isn't in the graph stays floating. */
+/** vnet ⊃ subnet, guarded by an NSG (associated) and a route table; a second
+ *  NSG guards the NIC card inside the subnet (a top-level card → a chip home). */
 function chipFixture(): Graph {
   const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
     id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
@@ -1056,31 +1056,31 @@ function chipFixture(): Graph {
       n("nic", "azurerm_network_interface", { parent_id: "subnet" }),
       n("nsg", "azurerm_network_security_group", { associated_ids: ["subnet"], change: "update" }),
       n("rt", "azurerm_route_table", { associated_ids: ["subnet"] }),
-      // Guards a NIC, not a subnet → kept, but not a chip: stays a floating node.
-      n("orphan", "azurerm_network_security_group", { associated_ids: ["nic"] }),
+      // Guards the NIC — which renders as its own card, so the chip rides on it.
+      n("nicGuard", "azurerm_network_security_group", { associated_ids: ["nic"] }),
     ],
     edges: [{ from: "nsg", to: "nic", kind: "depends_on", inferred: true }],
   };
 }
 
-it("subnetChips groups NSGs / route tables under the subnet they guard", () => {
+it("attachmentChips groups NSGs / route tables under the subnet they guard", () => {
   const { chips } = networkProjection(chipFixture());
   expect(chips.get("subnet")?.map((c) => c.id)).toEqual(["nsg", "rt"]);
 });
 
-it("networkProjection removes chip nodes from the layout but keeps the orphan floating", () => {
+it("networkProjection removes chip nodes from the layout, wherever they anchor", () => {
   const { graph: projected, chips } = networkProjection(chipFixture());
   // Chip nodes stay in the graph (search + detail resolve them)…
   expect(projected.nodes.map((n) => n.id)).toEqual(
-    expect.arrayContaining(["nsg", "rt", "orphan"]),
+    expect.arrayContaining(["nsg", "rt", "nicGuard"]),
   );
-  // …the orphan NSG (subnet not in graph) is not a chip anywhere.
-  expect([...chips.values()].flat().some((c) => c.id === "orphan")).toBe(false);
+  // …the NIC-guarding NSG chips onto the NIC's card (a top-level card).
+  expect(chips.get("nic")?.map((c) => c.id)).toEqual(["nicGuard"]);
   const elk = toElkGraph(projected, undefined, new Set(["vnet", "subnet"]), undefined, chips);
   const ids = collectElkIds(elk);
   expect(ids).not.toContain("nsg"); // laid out as a chip, not a floating node
   expect(ids).not.toContain("rt");
-  expect(ids).toContain("orphan"); // no subnet → still a floating node
+  expect(ids).not.toContain("nicGuard"); // rides on the NIC card
 });
 
 it("elkToFlow delivers chips to the subnet container node data", () => {
@@ -1126,4 +1126,50 @@ it("networkProjection drops edge-join plumbing (peerings, links) but keeps the d
   expect(ids).toEqual(["hub", "spoke"]); // the peering box is plumbing
   expect(hiddenCount).toBe(0); // plumbing isn't a "hidden resource"
   expect(projected.edges).toContainEqual({ from: "hub", to: "spoke", kind: "depends_on", inferred: true });
+});
+
+// --- host-card chips (avset on its member VMs, network-schema-polish) --------
+
+/** vnet ⊃ subnet ⊃ two VMs sharing an availability set; one VM stacks a NIC
+ *  guarded by an NSG (stacked anchor → no chip home). */
+function cardChipFixture(): Graph {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  return {
+    version: 4,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("subnet", "azurerm_subnet", { parent_id: "vnet" }),
+      n("vm1", "azurerm_linux_virtual_machine", { parent_id: "subnet" }),
+      n("vm2", "azurerm_linux_virtual_machine", { parent_id: "subnet" }),
+      n("avset", "azurerm_availability_set", { associated_ids: ["vm1", "vm2"] }),
+      n("nic", "azurerm_network_interface", { parent_id: "vm1" }),
+      n("nicGuard", "azurerm_network_security_group", { associated_ids: ["nic"] }),
+    ],
+    edges: [],
+  };
+}
+
+it("chips an avset onto its member VM cards and hides its node from the layout", () => {
+  const { graph: projected, chips, stacks, containerIds } = networkProjection(cardChipFixture());
+  expect(chips.get("vm1")?.map((c) => c.id)).toEqual(["avset"]);
+  expect(chips.get("vm2")?.map((c) => c.id)).toEqual(["avset"]);
+  const elk = toElkGraph(projected, undefined, containerIds, stacks, chips);
+  expect(collectElkIds(elk)).not.toContain("avset");
+});
+
+it("keeps a satellite floating when its only anchor is itself stacked", () => {
+  // The NSG guards a NIC stacked inside vm1: no chip home → stays a node.
+  const { graph: projected, chips, stacks, containerIds } = networkProjection(cardChipFixture());
+  expect([...chips.values()].flat().some((c) => c.id === "nicGuard")).toBe(false);
+  const elk = toElkGraph(projected, undefined, containerIds, stacks, chips);
+  expect(collectElkIds(elk)).toContain("nicGuard");
+});
+
+it("a chip-carrying resource card reserves extra height", () => {
+  const { graph: projected, chips, stacks, containerIds } = networkProjection(cardChipFixture());
+  const elk = toElkGraph(projected, undefined, containerIds, stacks, chips);
+  const vm2 = findElk(elk, "vm2"); // no stack, one chip
+  expect(vm2?.height).toBeGreaterThan(56);
 });

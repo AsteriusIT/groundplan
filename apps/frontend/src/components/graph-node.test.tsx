@@ -160,3 +160,23 @@ it("a stacked host card is accessible (keyboard-reachable rows, GP-87)", async (
   const results = await axe(baseElement);
   expect(results.violations).toEqual([]);
 });
+
+it("renders attachment chips on the card and selects on click", () => {
+  const onSelectChip = vi.fn();
+  const avset = child("avset", { type: "azurerm_availability_set", name: "app" });
+  render(
+    <NodeCard
+      graphNode={{ ...rg, id: "vm", type: "azurerm_linux_virtual_machine" }}
+      chips={[avset]}
+      onSelectChip={onSelectChip}
+    />,
+  );
+  const chip = screen.getByTitle("azurerm_availability_set · app");
+  fireEvent.click(chip);
+  expect(onSelectChip).toHaveBeenCalledWith(avset);
+});
+
+it("renders no chip row without chips", () => {
+  render(<NodeCard graphNode={rg} />);
+  expect(document.querySelector("[data-subnet-chip]")).toBeFalsy();
+});

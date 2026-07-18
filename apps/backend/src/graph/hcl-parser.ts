@@ -19,6 +19,7 @@
 import {
   classifyJoins,
   inlineScaleSetLinks,
+  inlineVmAttachLinks,
   joinEdgeAdditions,
   joinEffects,
   type JoinLink,
@@ -390,15 +391,11 @@ function hclJoinLinks(
 ): JoinLink[] {
   const links = classifyJoins(sources, edgeCtx, typeById);
   for (const ps of ctx.pendingSources) {
-    if (!ps.fromBase.includes("_virtual_machine_scale_set.")) continue;
+    if (!ps.fromBase.includes("_virtual_machine")) continue;
+    const refs = extractReferences(ps.body);
     links.push(
-      ...inlineScaleSetLinks(
-        ps.fromBase,
-        ps.prefix,
-        extractReferences(ps.body),
-        edgeCtx,
-        typeById,
-      ),
+      ...inlineScaleSetLinks(ps.fromBase, ps.prefix, refs, edgeCtx, typeById),
+      ...inlineVmAttachLinks(ps.fromBase, ps.prefix, refs, edgeCtx, typeById),
     );
   }
   return links;

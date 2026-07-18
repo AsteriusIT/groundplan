@@ -79,8 +79,14 @@ resource "azurerm_linux_virtual_machine_scale_set" "workers" {
   }
 }
 
+resource "azurerm_availability_set" "app" {
+  name = "app-avset"
+}
+
 resource "azurerm_linux_virtual_machine" "app" {
-  name = "app"
+  name                  = "app"
+  availability_set_id   = azurerm_availability_set.app.id
+  network_interface_ids = [azurerm_network_interface.nic.id]
 }
 
 resource "azurerm_managed_disk" "data" {

@@ -391,12 +391,12 @@ export function GraphCanvas({
   // Which host each stacked child belongs to (GP-87), which subnet each chip
   // belongs to (GP-89), and — for edge re-anchoring / hub detection — both at once.
   const childToHost = useMemo(() => attachAnchors(stacks), [stacks]);
-  const chipToSubnet = useMemo(() => attachAnchors(chips), [chips]);
+  const chipToAnchor = useMemo(() => attachAnchors(chips), [chips]);
   const anchorOf = useMemo(() => {
     const map = new Map(childToHost);
-    for (const [id, subnet] of chipToSubnet) if (!map.has(id)) map.set(id, subnet);
+    for (const [id, subnet] of chipToAnchor) if (!map.has(id)) map.set(id, subnet);
     return map;
-  }, [childToHost, chipToSubnet]);
+  }, [childToHost, chipToAnchor]);
 
   // Selecting an attached node (row / chip click) opens its own detail panel and
   // pulses it — the camera stays put, since it is already on screen on its host.
@@ -637,7 +637,7 @@ export function GraphCanvas({
               ...node.data,
               onSelectChip: selectChip,
               highlightedChipId:
-                highlightedChip && chipToSubnet.get(highlightedChip) === node.id
+                highlightedChip && chipToAnchor.get(highlightedChip) === node.id
                   ? highlightedChip
                   : undefined,
             },
@@ -665,6 +665,13 @@ export function GraphCanvas({
             highlightedChild && childToHost.get(highlightedChild) === node.id
               ? highlightedChild
               : undefined,
+          // A resource card can carry attachment chips too (avset on its VM):
+          // same wiring as the subnet container's chip row.
+          onSelectChip: selectChip,
+          highlightedChipId:
+            highlightedChip && chipToAnchor.get(highlightedChip) === node.id
+              ? highlightedChip
+              : undefined,
         },
       };
     });
@@ -682,7 +689,7 @@ export function GraphCanvas({
     childToHost,
     selectStackChild,
     highlightedChip,
-    chipToSubnet,
+    chipToAnchor,
     selectChip,
   ]);
   const flowEdges = useMemo(
@@ -807,7 +814,7 @@ export function GraphCanvas({
       // node of its own on the canvas: fly to the host / subnet that carries it
       // and pulse the row / chip instead.
       const hostId = childToHost.get(node.id);
-      const subnetId = chipToSubnet.get(node.id);
+      const subnetId = chipToAnchor.get(node.id);
       setHighlightedChild(hostId ? node.id : null);
       setHighlightedChip(subnetId ? node.id : null);
       void rfRef.current?.fitView({
@@ -816,7 +823,7 @@ export function GraphCanvas({
         maxZoom: 1.5,
       });
     },
-    [childToHost, chipToSubnet],
+    [childToHost, chipToAnchor],
   );
 
   // Fly to a node requested from outside (GP-40 compare summary lists).

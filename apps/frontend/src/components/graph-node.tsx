@@ -26,6 +26,7 @@ import { STATUS_META, statusOf } from "@/lib/status";
 import { categorize, CATEGORY_META, shortType } from "@/lib/resource-category";
 import type { GraphNodeData } from "@/lib/graph-layout";
 import { cn } from "@/lib/utils";
+import { AttachmentChip } from "@/components/attachment-chip";
 import { ResourceIcon } from "@/components/resource-icon";
 import { StatusBadge } from "@/components/ui/status-badge";
 
@@ -126,6 +127,9 @@ export function NodeCard({
   stackChanged = false,
   highlightedChildId,
   onSelectStackChild,
+  chips,
+  highlightedChipId,
+  onSelectChip,
 }: Readonly<{
   graphNode: GraphNode;
   selected?: boolean;
@@ -154,6 +158,12 @@ export function NodeCard({
   highlightedChildId?: string;
   /** GP-87: select a stacked child (opens its detail panel). */
   onSelectStackChild?: (child: GraphNode) => void;
+  /** Attachments riding on this card as chips (avset on its member VM). */
+  chips?: GraphNode[];
+  /** A chip to pulse (search fly-to landed on it). */
+  highlightedChipId?: string;
+  /** Select a chip's node (opens its detail panel). */
+  onSelectChip?: (node: GraphNode) => void;
 }>) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
@@ -164,6 +174,7 @@ export function NodeCard({
   // Extracted out of the hub title to avoid a nested ternary (S3358).
   const hubHiddenPlural = hubHiddenCount === 1 ? "" : "s";
   const hasStack = stack !== undefined && stack.length > 0;
+  const hasChips = chips !== undefined && chips.length > 0;
   // A diff inside the stack must never be less visible than a floating one: the
   // host takes the impacted ring when any child changed (GP-87).
   const showImpactRing = impacted || stackChanged;
@@ -271,6 +282,20 @@ export function NodeCard({
       )}
       </div>
 
+      {/* Attachments riding on this card as chips (avset on its member VM). */}
+      {hasChips && (
+        <div className="flex flex-wrap gap-1 px-2 pb-1">
+          {chips.map((chip) => (
+            <AttachmentChip
+              key={chip.id}
+              node={chip}
+              highlighted={chip.id === highlightedChipId}
+              onSelect={onSelectChip}
+            />
+          ))}
+        </div>
+      )}
+
       {/* GP-87: the satellite stack — the host's children as rows. */}
       {hasStack && (
         <StackSection
@@ -330,6 +355,9 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         onSelectStackChild={
           data.onSelectStackChild as ((child: GraphNode) => void) | undefined
         }
+        chips={data.chips}
+        highlightedChipId={data.highlightedChipId as string | undefined}
+        onSelectChip={data.onSelectChip as ((node: GraphNode) => void) | undefined}
       />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>

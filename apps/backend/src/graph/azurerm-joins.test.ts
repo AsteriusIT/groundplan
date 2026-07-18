@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyJoins, joinEffects } from "./azurerm-joins.js";
+import {
+  classifyJoins,
+  inlineVmAttachLinks,
+  joinEffects,
+} from "./azurerm-joins.js";
 import {
   buildInstancesByBase,
   type DependencySource,
@@ -404,4 +408,43 @@ test("a NAT gateway bound to two subnets is exposed as ambiguous, with edges kep
     { from: "azurerm_nat_gateway.shared", to: "azurerm_subnet.a" },
     { from: "azurerm_nat_gateway.shared", to: "azurerm_subnet.b" },
   ]);
+});
+
+test("a VM's availability_set_id attaches the avset to the VM (inline duality)", () => {
+  const { ctx, typeById } = setup({
+    "azurerm_linux_virtual_machine.app": "azurerm_linux_virtual_machine",
+    "azurerm_availability_set.app": "azurerm_availability_set",
+  });
+  const links = inlineVmAttachLinks(
+    "azurerm_linux_virtual_machine.app",
+    "",
+    ["azurerm_availability_set.app.id", "azurerm_resource_group.this.name"],
+    ctx,
+    typeById,
+  );
+  assert.deepEqual(links, [
+    {
+      semantic: "attach",
+      satelliteId: "azurerm_availability_set.app",
+      anchorId: "azurerm_linux_virtual_machine.app",
+    },
+  ]);
+});
+
+test("inlineVmAttachLinks ignores non-VM sources", () => {
+  const { ctx, typeById } = setup({
+    "azurerm_linux_virtual_machine_scale_set.web":
+      "azurerm_linux_virtual_machine_scale_set",
+    "azurerm_availability_set.app": "azurerm_availability_set",
+  });
+  assert.deepEqual(
+    inlineVmAttachLinks(
+      "azurerm_linux_virtual_machine_scale_set.web",
+      "",
+      ["azurerm_availability_set.app.id"],
+      ctx,
+      typeById,
+    ),
+    [],
+  );
 });
