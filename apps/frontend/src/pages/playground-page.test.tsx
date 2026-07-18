@@ -16,6 +16,29 @@ vi.mock("@/api/client", async (importOriginal) => {
   };
 });
 
+// The real editor (CodeMirror) is covered by hcl-editor.test.tsx; here a
+// textarea stand-in keeps the page tests black-box and jsdom-simple.
+vi.mock("@/components/hcl-editor", () => ({
+  HclEditor: ({
+    value,
+    onChange,
+    ariaLabel,
+    errorLine,
+  }: {
+    value: string;
+    onChange: (content: string) => void;
+    ariaLabel: string;
+    errorLine?: number | null;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-error-line={errorLine ?? ""}
+    />
+  ),
+}));
+
 vi.mock("@/components/graph-canvas", () => ({
   GraphCanvas: ({
     graph,
@@ -150,6 +173,37 @@ it("a parse failure names the file, marks it, and keeps the last good diagram", 
   expect(alert).toHaveTextContent("unbalanced braces");
   // The canvas still shows the last valid render.
   expect(screen.getByTestId("canvas")).toHaveTextContent("2 nodes");
+});
+
+it("hands the parse error's line to the failing file's editor (GP-127)", async () => {
+  parsePlaygroundMock.mockRejectedValueOnce(
+    new ApiError(422, "HCL parse failed", [
+      { field: "main.tf", message: "unbalanced braces at line 3" },
+    ]),
+  );
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByRole("alert");
+
+  // main.tf is the active file — its editor gets the line.
+  const editor = screen.getByRole("textbox", { name: /file content/i });
+  expect(editor).toHaveAttribute("data-error-line", "3");
+});
+
+it("does not mark the editor when the error is in another file", async () => {
+  parsePlaygroundMock.mockRejectedValueOnce(
+    new ApiError(422, "HCL parse failed", [
+      { field: "network.tf", message: "unbalanced braces at line 2" },
+    ]),
+  );
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByRole("alert");
+
+  const editor = screen.getByRole("textbox", { name: /file content/i });
+  expect(editor).toHaveAttribute("data-error-line", "");
 });
 
 it("adds a new file and removes one, all in local state", () => {

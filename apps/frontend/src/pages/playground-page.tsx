@@ -18,13 +18,14 @@ import type {
   PlaygroundSnapshot,
 } from "@/api/types";
 import { GraphCanvas } from "@/components/graph-canvas";
+import { HclEditor } from "@/components/hcl-editor";
 import {
   DraftsDialog,
   SaveDraftDialog,
 } from "@/components/playground-draft-dialogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { errorLineOf } from "@/lib/error-line";
 import { cn } from "@/lib/utils";
 
 /** Extensions the backend accepts (GP-123); uploads are filtered to these. */
@@ -113,6 +114,9 @@ export function PlaygroundPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const active = files.find((f) => f.path === activePath) ?? null;
+  // The parse error naming the open file, if any — its line (when the message
+  // carries one) is marked in the editor (GP-127).
+  const activeError = active ? failure?.byFile.get(active.path) : undefined;
   const dirty = JSON.stringify(files) !== savedSerial;
   let saveLabel = "Save as draft…";
   if (draft) saveLabel = saving ? "Saving…" : "Save";
@@ -417,12 +421,12 @@ export function PlaygroundPage() {
           </ul>
 
           {active ? (
-            <Textarea
-              aria-label="File content"
+            <HclEditor
+              key={active.path}
               value={active.content}
-              onChange={(e) => updateActiveContent(e.target.value)}
-              spellCheck={false}
-              className="min-h-0 flex-1 resize-none rounded-none border-0 font-mono text-xs leading-relaxed shadow-none focus-visible:ring-0"
+              onChange={updateActiveContent}
+              ariaLabel="File content"
+              errorLine={activeError ? errorLineOf(activeError) : null}
             />
           ) : (
             <p className="text-muted-foreground flex-1 px-4 py-6 text-center text-sm">
