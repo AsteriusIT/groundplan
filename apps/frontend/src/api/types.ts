@@ -453,6 +453,25 @@ export interface Snapshot extends SnapshotSummary {
   summaryMd: string;
 }
 
+// --- Playground (GP-123..GP-126) -------------------------------------------
+
+/** One in-memory HCL file — the parse endpoint's input and a draft's unit. */
+export interface PlaygroundFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * The ephemeral snapshot `POST /playground/parse` returns: the same
+ * graph/stats/summary a stored docs snapshot carries, minus any identity —
+ * nothing was persisted, so there is no id, repository or commit.
+ */
+export interface PlaygroundSnapshot {
+  graph: Graph;
+  stats: GraphStats;
+  summaryMd: string;
+}
+
 // --- Docs snapshot diff (GP-40) --------------------------------------------
 
 export interface DiffNode {

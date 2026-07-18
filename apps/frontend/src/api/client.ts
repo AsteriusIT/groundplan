@@ -30,6 +30,8 @@ import type {
   Invitation,
   Member,
   Organization,
+  PlaygroundFile,
+  PlaygroundSnapshot,
   Role,
   UpdateClusterInput,
   Project,
@@ -61,13 +63,19 @@ function apiBase(): string {
   return `${apiRoot()}/api/v1`;
 }
 
+/** One entry of a 422's per-field details (e.g. an offending playground file). */
+export type ApiFieldError = { field: string; message: string };
+
 /** Thrown for any non-2xx response; carries the HTTP status and server message. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** Per-field details when the server sent them (validation 422s). */
+  readonly fields?: ApiFieldError[];
+  constructor(status: number, message: string, fields?: ApiFieldError[]) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    if (fields) this.fields = fields;
   }
 }
 
@@ -142,7 +150,7 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, await extractErrorMessage(response));
+    throw await apiErrorFrom(response);
   }
 
   // 204 No Content (e.g. DELETE) carries no body.
@@ -152,21 +160,33 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
-async function extractErrorMessage(response: Response): Promise<string> {
+async function apiErrorFrom(response: Response): Promise<ApiError> {
+  let message =
+    response.statusText || `Request failed with status ${response.status}`;
+  let fields: ApiFieldError[] | undefined;
   try {
     const data: unknown = await response.json();
-    if (
-      data &&
-      typeof data === "object" &&
-      "message" in data &&
-      typeof (data as { message: unknown }).message === "string"
-    ) {
-      return (data as { message: string }).message;
+    if (data && typeof data === "object") {
+      if (typeof (data as { message?: unknown }).message === "string") {
+        message = (data as { message: string }).message;
+      }
+      // Validation 422s carry per-field details; keep them for the callers
+      // that can point at the offender (e.g. the playground file panel).
+      const raw = (data as { fields?: unknown }).fields;
+      if (Array.isArray(raw)) {
+        fields = raw.filter(
+          (f): f is ApiFieldError =>
+            !!f &&
+            typeof f === "object" &&
+            typeof (f as { field?: unknown }).field === "string" &&
+            typeof (f as { message?: unknown }).message === "string",
+        );
+      }
     }
   } catch {
     // Non-JSON body — fall back to the status text.
   }
-  return response.statusText || `Request failed with status ${response.status}`;
+  return new ApiError(response.status, message, fields);
 }
 
 const encode = encodeURIComponent;
@@ -194,7 +214,7 @@ export async function getSnapshotExport(
   );
   if (response.status === 401) unauthorizedHandler();
   if (!response.ok) {
-    throw new ApiError(response.status, await extractErrorMessage(response));
+    throw await apiErrorFrom(response);
   }
   return response.blob();
 }
@@ -712,6 +732,20 @@ export function generateTour(
   });
 }
 
+// --- Playground (GP-123..GP-126) --------------------------------------------
+// User-scoped, org-free: parse is ephemeral and a draft belongs to its author
+// alone, so these use the global `request`, never `orgRequest`.
+
+/** Parse HCL files into an ephemeral snapshot — nothing is persisted. */
+export function parsePlayground(
+  files: PlaygroundFile[],
+): Promise<PlaygroundSnapshot> {
+  return request<PlaygroundSnapshot>("/playground/parse", {
+    method: "POST",
+    body: { files },
+  });
+}
+
 /**
  * The `fetch` the AI SDK's streaming hooks must use. They own the request, so
  * they bypass `request()` above — this keeps them on the same rails anyway:
@@ -728,7 +762,7 @@ export const aiFetch: typeof fetch = async (input, init) => {
 
   if (response.status === 401) unauthorizedHandler();
   if (!response.ok) {
-    throw new ApiError(response.status, await extractErrorMessage(response));
+    throw await apiErrorFrom(response);
   }
   return response;
 };

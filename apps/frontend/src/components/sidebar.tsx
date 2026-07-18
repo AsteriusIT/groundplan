@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { NavLink } from "react-router-dom";
-import { Boxes, LayoutDashboard, Settings } from "lucide-react";
+import { Boxes, FlaskConical, LayoutDashboard, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { KubernetesMark } from "./kubernetes-mark";
@@ -24,6 +24,7 @@ const NAV: NavEntry[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/projects", label: "Projects", icon: Boxes },
   { to: "/clusters", label: "Clusters", icon: KubernetesMark },
+  { to: "/playground", label: "Playground", icon: FlaskConical },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
