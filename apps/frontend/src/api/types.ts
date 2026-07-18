@@ -472,6 +472,35 @@ export interface PlaygroundSnapshot {
   summaryMd: string;
 }
 
+/** Draft list entry (GP-124): identity and shape, never the file contents. */
+export interface PlaygroundDraftSummary {
+  id: string;
+  name: string;
+  updatedAt: string;
+  fileCount: number;
+}
+
+/** A saved playground (GP-124): the HCL sources verbatim — no snapshot. */
+export interface PlaygroundDraft {
+  id: string;
+  userId: string;
+  name: string;
+  files: PlaygroundFile[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePlaygroundDraftInput {
+  name: string;
+  files: PlaygroundFile[];
+}
+
+/** A rename sends `name`; a save sends `files` (always the full set). */
+export interface UpdatePlaygroundDraftInput {
+  name?: string;
+  files?: PlaygroundFile[];
+}
+
 // --- Docs snapshot diff (GP-40) --------------------------------------------
 
 export interface DiffNode {

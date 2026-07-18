@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { ApiError, parsePlayground, setAuthTokenProvider, setOnUnauthorized } from "./client";
+import {
+  ApiError,
+  createPlaygroundDraft,
+  deletePlaygroundDraft,
+  getPlaygroundDraft,
+  listPlaygroundDrafts,
+  parsePlayground,
+  setAuthTokenProvider,
+  setOnUnauthorized,
+  updatePlaygroundDraft,
+} from "./client";
 
 const fetchMock = vi.fn();
 
@@ -64,4 +74,47 @@ it("a 422 surfaces the per-file details on ApiError.fields", async () => {
   expect((err as ApiError).fields).toEqual([
     { field: "broken.tf", message: "unbalanced braces" },
   ]);
+});
+
+it("draft CRUD hits the global /playground/drafts endpoints", async () => {
+  const draft = {
+    id: "d1",
+    userId: "u1",
+    name: "sketch",
+    files: FILES,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  };
+
+  fetchMock.mockResolvedValueOnce(jsonResponse(201, draft));
+  await createPlaygroundDraft({ name: "sketch", files: FILES });
+
+  fetchMock.mockResolvedValueOnce(
+    jsonResponse(200, [
+      { id: "d1", name: "sketch", updatedAt: draft.updatedAt, fileCount: 1 },
+    ]),
+  );
+  await listPlaygroundDrafts();
+
+  fetchMock.mockResolvedValueOnce(jsonResponse(200, draft));
+  await getPlaygroundDraft("d1");
+
+  fetchMock.mockResolvedValueOnce(jsonResponse(200, draft));
+  await updatePlaygroundDraft("d1", { name: "renamed" });
+
+  fetchMock.mockResolvedValueOnce(jsonResponse(204));
+  await deletePlaygroundDraft("d1");
+
+  const calls = fetchMock.mock.calls.map((c) => {
+    const init = (c[1] ?? {}) as { method?: string };
+    return [init.method ?? "GET", String(c[0])] as const;
+  });
+  expect(calls).toEqual([
+    ["POST", expect.stringContaining("/api/v1/playground/drafts")],
+    ["GET", expect.stringContaining("/api/v1/playground/drafts")],
+    ["GET", expect.stringContaining("/api/v1/playground/drafts/d1")],
+    ["PUT", expect.stringContaining("/api/v1/playground/drafts/d1")],
+    ["DELETE", expect.stringContaining("/api/v1/playground/drafts/d1")],
+  ]);
+  for (const [, url] of calls) expect(url).not.toContain("/orgs/");
 });

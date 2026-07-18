@@ -5,7 +5,15 @@ import { axe } from "vitest-axe";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, parsePlayground: vi.fn() };
+  return {
+    ...actual,
+    parsePlayground: vi.fn(),
+    listPlaygroundDrafts: vi.fn(),
+    getPlaygroundDraft: vi.fn(),
+    createPlaygroundDraft: vi.fn(),
+    updatePlaygroundDraft: vi.fn(),
+    deletePlaygroundDraft: vi.fn(),
+  };
 });
 
 vi.mock("@/components/graph-canvas", () => ({
@@ -22,11 +30,42 @@ vi.mock("@/components/graph-canvas", () => ({
   ),
 }));
 
-import { ApiError, parsePlayground } from "@/api/client";
-import type { PlaygroundSnapshot } from "@/api/types";
+import {
+  ApiError,
+  createPlaygroundDraft,
+  deletePlaygroundDraft,
+  getPlaygroundDraft,
+  listPlaygroundDrafts,
+  parsePlayground,
+  updatePlaygroundDraft,
+} from "@/api/client";
+import type { PlaygroundDraft, PlaygroundSnapshot } from "@/api/types";
 import { PlaygroundPage } from "./playground-page";
 
 const parsePlaygroundMock = vi.mocked(parsePlayground);
+const listDraftsMock = vi.mocked(listPlaygroundDrafts);
+const getDraftMock = vi.mocked(getPlaygroundDraft);
+const createDraftMock = vi.mocked(createPlaygroundDraft);
+const updateDraftMock = vi.mocked(updatePlaygroundDraft);
+const deleteDraftMock = vi.mocked(deletePlaygroundDraft);
+
+const DRAFT: PlaygroundDraft = {
+  id: "d1",
+  userId: "u1",
+  name: "azure sketch",
+  files: [
+    { path: "saved.tf", content: `resource "azurerm_storage_account" "sa" {}` },
+  ],
+  createdAt: "2026-07-01T00:00:00.000Z",
+  updatedAt: "2026-07-02T00:00:00.000Z",
+};
+
+const DRAFT_SUMMARY = {
+  id: "d1",
+  name: "azure sketch",
+  updatedAt: "2026-07-02T00:00:00.000Z",
+  fileCount: 1,
+};
 
 function snap(nodeCount: number): PlaygroundSnapshot {
   return {
@@ -61,6 +100,11 @@ function renderPage() {
 
 beforeEach(() => {
   parsePlaygroundMock.mockReset();
+  listDraftsMock.mockReset().mockResolvedValue([]);
+  getDraftMock.mockReset();
+  createDraftMock.mockReset();
+  updateDraftMock.mockReset();
+  deleteDraftMock.mockReset();
 });
 
 it("preloads a small Azure example so the page is never empty", () => {
@@ -163,4 +207,148 @@ it("has no axe violations", async () => {
     const results = await axe(baseElement);
     expect(results.violations).toEqual([]);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Drafts (GP-126): save, list, open, rename, delete — and the dirty guard.
+// ---------------------------------------------------------------------------
+
+it("saves the playground as a named draft and shows the name", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /save as draft/i }));
+  const nameInput = await screen.findByLabelText(/draft name/i);
+  fireEvent.change(nameInput, { target: { value: "my stack" } });
+  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
+
+  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
+  const input = createDraftMock.mock.calls[0]?.[0];
+  expect(input?.name).toBe("my stack");
+  expect(input?.files.map((f) => f.path)).toEqual(["main.tf", "network.tf"]);
+  expect(await screen.findByText("my stack")).toBeInTheDocument();
+});
+
+it("Save updates the current draft — no duplication", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue(DRAFT);
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /save as draft/i }));
+  fireEvent.change(await screen.findByLabelText(/draft name/i), {
+    target: { value: "my stack" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
+  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# edited" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+  await waitFor(() => expect(updateDraftMock).toHaveBeenCalledTimes(1));
+  const [id, payload] = updateDraftMock.mock.calls[0] ?? [];
+  expect(id).toBe("d1");
+  expect(
+    payload?.files?.find((f) => f.path === "main.tf")?.content,
+  ).toBe("# edited");
+  expect(createDraftMock).toHaveBeenCalledTimes(1);
+});
+
+it("opens a draft: files restored, parse re-runs automatically", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  getDraftMock.mockResolvedValue(DRAFT);
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /open azure sketch/i }),
+  );
+
+  expect(await screen.findByText("saved.tf")).toBeInTheDocument();
+  await waitFor(() => expect(parsePlaygroundMock).toHaveBeenCalledTimes(1));
+  expect(parsePlaygroundMock.mock.calls[0]?.[0]).toEqual(DRAFT.files);
+  expect(await screen.findByTestId("canvas")).toHaveTextContent("1 nodes");
+});
+
+it("a draft that no longer parses still opens, error on display", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  getDraftMock.mockResolvedValue(DRAFT);
+  parsePlaygroundMock.mockRejectedValue(
+    new ApiError(422, "HCL parse failed", [
+      { field: "saved.tf", message: "unbalanced braces" },
+    ]),
+  );
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /open azure sketch/i }),
+  );
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("saved.tf");
+  // The editor stays usable — a draft may be invalid, it is a draft.
+  expect(
+    screen.getByRole("textbox", { name: /file content/i }),
+  ).toBeInTheDocument();
+});
+
+it("renames a draft from the list", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  updateDraftMock.mockResolvedValue({ ...DRAFT, name: "renamed" });
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /rename azure sketch/i }),
+  );
+  const input = screen.getByRole("textbox", { name: /new draft name/i });
+  fireEvent.change(input, { target: { value: "renamed" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  await waitFor(() =>
+    expect(updateDraftMock).toHaveBeenCalledWith("d1", { name: "renamed" }),
+  );
+});
+
+it("deletes a draft only after confirmation", async () => {
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  deleteDraftMock.mockResolvedValue(undefined);
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /delete azure sketch/i }),
+  );
+  expect(deleteDraftMock).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: /delete draft/i }));
+  await waitFor(() => expect(deleteDraftMock).toHaveBeenCalledWith("d1"));
+});
+
+it("warns before unload only when there are unsaved changes", () => {
+  renderPage();
+
+  const pristine = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(pristine);
+  expect(pristine.defaultPrevented).toBe(false);
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# touched" },
+  });
+  expect(screen.getByLabelText(/unsaved changes/i)).toBeInTheDocument();
+
+  const dirty = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(dirty);
+  expect(dirty.defaultPrevented).toBe(true);
 });

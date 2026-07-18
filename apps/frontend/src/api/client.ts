@@ -30,9 +30,13 @@ import type {
   Invitation,
   Member,
   Organization,
+  CreatePlaygroundDraftInput,
+  PlaygroundDraft,
+  PlaygroundDraftSummary,
   PlaygroundFile,
   PlaygroundSnapshot,
   Role,
+  UpdatePlaygroundDraftInput,
   UpdateClusterInput,
   Project,
   PublicSnapshotView,
@@ -743,6 +747,39 @@ export function parsePlayground(
   return request<PlaygroundSnapshot>("/playground/parse", {
     method: "POST",
     body: { files },
+  });
+}
+
+export function listPlaygroundDrafts(): Promise<PlaygroundDraftSummary[]> {
+  return request<PlaygroundDraftSummary[]>("/playground/drafts");
+}
+
+export function getPlaygroundDraft(id: string): Promise<PlaygroundDraft> {
+  return request<PlaygroundDraft>(`/playground/drafts/${encode(id)}`);
+}
+
+export function createPlaygroundDraft(
+  input: CreatePlaygroundDraftInput,
+): Promise<PlaygroundDraft> {
+  return request<PlaygroundDraft>("/playground/drafts", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function updatePlaygroundDraft(
+  id: string,
+  input: UpdatePlaygroundDraftInput,
+): Promise<PlaygroundDraft> {
+  return request<PlaygroundDraft>(`/playground/drafts/${encode(id)}`, {
+    method: "PUT",
+    body: input,
+  });
+}
+
+export function deletePlaygroundDraft(id: string): Promise<void> {
+  return request<void>(`/playground/drafts/${encode(id)}`, {
+    method: "DELETE",
   });
 }
 

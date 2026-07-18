@@ -1,10 +1,27 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { FilePlus2, Loader2, Pencil, Play, Trash2, Upload } from "lucide-react";
+import {
+  FilePlus2,
+  FolderOpen,
+  Loader2,
+  Pencil,
+  Play,
+  Save,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
-import { ApiError, parsePlayground } from "@/api/client";
-import type { PlaygroundFile, PlaygroundSnapshot } from "@/api/types";
+import { ApiError, parsePlayground, updatePlaygroundDraft } from "@/api/client";
+import type {
+  PlaygroundDraft,
+  PlaygroundFile,
+  PlaygroundSnapshot,
+} from "@/api/types";
 import { GraphCanvas } from "@/components/graph-canvas";
+import {
+  DraftsDialog,
+  SaveDraftDialog,
+} from "@/components/playground-draft-dialogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -68,9 +85,10 @@ type ParseFailure = {
 };
 
 /**
- * Playground (GP-125): scratch HCL files in local state, parsed on demand into
- * the same canvas the docs view uses. Nothing here persists — drafts are the
- * next story — and the parse is a button, never a keystroke.
+ * Playground (GP-125/GP-126): scratch HCL files in local state, parsed on
+ * demand into the same canvas the docs view uses. Drafts persist the files
+ * (never the snapshot — it is regenerated on load); the parse is a button,
+ * never a keystroke.
  */
 export function PlaygroundPage() {
   const [files, setFiles] = useState<PlaygroundFile[]>(EXAMPLE_FILES);
@@ -83,13 +101,36 @@ export function PlaygroundPage() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const uploadRef = useRef<HTMLInputElement>(null);
+  // Drafts (GP-126): the loaded draft, the baseline of the last save (for the
+  // dirty flag), and the two dialogs.
+  const [draft, setDraft] = useState<{ id: string; name: string } | null>(null);
+  const [savedSerial, setSavedSerial] = useState<string>(() =>
+    JSON.stringify(EXAMPLE_FILES),
+  );
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const active = files.find((f) => f.path === activePath) ?? null;
+  const dirty = JSON.stringify(files) !== savedSerial;
+  let saveLabel = "Save as draft…";
+  if (draft) saveLabel = saving ? "Saving…" : "Save";
 
-  const visualize = useCallback(async () => {
+  // Leaving with unsaved changes deserves a warning (GP-126).
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  const runParse = useCallback(async (input: PlaygroundFile[]) => {
     setParsing(true);
     try {
-      setSnapshot(await parsePlayground(files));
+      setSnapshot(await parsePlayground(input));
       setFailure(null);
     } catch (err) {
       // The last valid render stays on the canvas — only the error changes.
@@ -104,7 +145,40 @@ export function PlaygroundPage() {
     } finally {
       setParsing(false);
     }
-  }, [files]);
+  }, []);
+
+  const visualize = useCallback(() => runParse(files), [runParse, files]);
+
+  async function saveCurrentDraft() {
+    if (!draft) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await updatePlaygroundDraft(draft.id, { files });
+      setSavedSerial(JSON.stringify(files));
+    } catch (err) {
+      setSaveError(
+        err instanceof ApiError ? err.message : "Could not save the draft.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSaved(saved: PlaygroundDraft) {
+    setDraft({ id: saved.id, name: saved.name });
+    setSavedSerial(JSON.stringify(saved.files));
+  }
+
+  /** Restore a draft's files and redraw — an invalid draft still opens. */
+  function openDraft(opened: PlaygroundDraft) {
+    setFiles(opened.files);
+    setActivePath(opened.files[0]?.path ?? "");
+    setDraft({ id: opened.id, name: opened.name });
+    setSavedSerial(JSON.stringify(opened.files));
+    setSaveError(null);
+    void runParse(opened.files);
+  }
 
   function addFile() {
     let n = 1;
@@ -181,15 +255,45 @@ export function PlaygroundPage() {
               Sandbox
             </p>
             <h1 className="font-display text-xl font-semibold">Playground</h1>
+            <p className="text-muted-foreground flex items-center gap-1.5 font-mono text-[11px]">
+              <span className="truncate">{draft ? draft.name : "Unsaved"}</span>
+              {dirty && (
+                <span
+                  aria-label="Unsaved changes"
+                  title="Unsaved changes"
+                  className="bg-update inline-block size-1.5 shrink-0 rounded-full"
+                />
+              )}
+            </p>
           </div>
-          <Button onClick={() => void visualize()} disabled={parsing || files.length === 0}>
-            {parsing ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Play className="size-4" />
-            )}
-            {parsing ? "Parsing…" : "Visualize"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => setDraftsOpen(true)}>
+              <FolderOpen className="size-4" />
+              Drafts
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (draft) void saveCurrentDraft();
+                else setSaveOpen(true);
+              }}
+              disabled={saving || files.length === 0}
+            >
+              <Save className="size-4" />
+              {saveLabel}
+            </Button>
+            <Button
+              onClick={() => void visualize()}
+              disabled={parsing || files.length === 0}
+            >
+              {parsing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Play className="size-4" />
+              )}
+              {parsing ? "Parsing…" : "Visualize"}
+            </Button>
+          </div>
         </div>
         {failure && (
           <p className="text-destructive mt-2 text-sm" role="alert">
@@ -199,6 +303,11 @@ export function PlaygroundPage() {
                 <span className="font-mono">{path}</span> — {message}
               </span>
             ))}
+          </p>
+        )}
+        {saveError && (
+          <p className="text-destructive mt-2 text-sm" role="alert">
+            {saveError}
           </p>
         )}
       </header>
@@ -339,6 +448,22 @@ export function PlaygroundPage() {
           )}
         </section>
       </div>
+
+      <SaveDraftDialog
+        open={saveOpen}
+        onOpenChange={setSaveOpen}
+        files={files}
+        onSaved={handleSaved}
+      />
+      <DraftsDialog
+        open={draftsOpen}
+        onOpenChange={setDraftsOpen}
+        onOpen={openDraft}
+        onRenamed={(id, name) =>
+          setDraft((d) => (d && d.id === id ? { ...d, name } : d))
+        }
+        onDeleted={(id) => setDraft((d) => (d && d.id === id ? null : d))}
+      />
     </div>
   );
 }
