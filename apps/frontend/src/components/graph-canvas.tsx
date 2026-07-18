@@ -453,7 +453,10 @@ export function GraphCanvas({
           setZoom(1);
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        // A swallowed layout failure renders as a stale, scattered diagram
+        // with no clue why — say what happened, at least to the console.
+        console.error("ELK layout failed; keeping the previous layout", err);
         if (!cancelled) setLaying(false);
       });
     return () => {

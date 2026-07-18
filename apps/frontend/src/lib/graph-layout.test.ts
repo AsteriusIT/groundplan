@@ -1176,7 +1176,7 @@ it("a chip-carrying resource card reserves extra height", () => {
 
 // --- subnet ordering by CIDR (network-schema-polish) -------------------------
 
-it("orders a vnet's subnets by CIDR, not by id, and pins the model order", () => {
+it("orders a vnet's subnets by CIDR, not by id", () => {
   const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
     id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
   });
@@ -1195,7 +1195,12 @@ it("orders a vnet's subnets by CIDR, not by id, and pins the model order", () =>
   const elk = toElkGraph(graph);
   const vnet = findElk(elk, "vnet");
   expect(vnet?.children?.map((c) => c.id)).toEqual(["sb", "sc", "sa", "sd"]);
-  expect(vnet?.layoutOptions?.["elk.layered.considerModelOrder.strategy"]).toBe(
-    "NODES_AND_EDGES",
-  );
+  // No model-order options: they crash elkjs inside an INCLUDE_CHILDREN
+  // hierarchy (see graph-layout.elk.test.ts) — the sort alone must stay.
+  expect(
+    vnet?.layoutOptions?.["elk.layered.considerModelOrder.strategy"],
+  ).toBeUndefined();
+  expect(
+    vnet?.layoutOptions?.["elk.layered.crossingMinimization.forceNodeModelOrder"],
+  ).toBeUndefined();
 });

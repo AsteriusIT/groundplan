@@ -690,9 +690,16 @@ function cidrSortValue(node: GraphNode | undefined): number | null {
 
 /**
  * Order a container's children by CIDR (known CIDRs first, numerically; the
- * rest keep id order) and tell ELK to respect that model order — so subnets lay
- * out by address plan, stable across code refactors, not by declaration or id.
- * A container with no CIDR-carrying child is left untouched.
+ * rest keep id order) so ELK receives subnets in address-plan order and its
+ * order-dependent tie-breaks resolve the same way on every render.
+ *
+ * Deliberately NO model-order layout options here: both
+ * `elk.layered.considerModelOrder.strategy` and
+ * `elk.layered.crossingMinimization.forceNodeModelOrder` make elkjs 0.11.1
+ * throw inside an `INCLUDE_CHILDREN` hierarchy (see graph-layout.elk.test.ts),
+ * and the canvas swallows the rejection — the whole diagram then renders from
+ * a stale layout, scattered. Where subnets are tied together by edges, edge
+ * routing still outranks this order; that is a known, accepted limit.
  */
 function orderChildrenByCidr(
   elk: ElkGraphNode,
@@ -712,11 +719,6 @@ function orderChildrenByCidr(
     if (b !== null) return 1;
     return x.id.localeCompare(y.id);
   });
-  elk.layoutOptions = {
-    ...elk.layoutOptions,
-    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
-    "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
-  };
 }
 
 export function toElkGraph(
