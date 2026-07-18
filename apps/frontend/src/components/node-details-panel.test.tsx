@@ -128,3 +128,80 @@ it("hides the Security rules section when a node has no rules", () => {
   render(<NodeDetailsPanel graph={graph} node={subnet} onClose={() => {}} onSelect={() => {}} />);
   expect(screen.queryByText("Security rules")).not.toBeInTheDocument();
 });
+
+// --- Source section (GP-121) ------------------------------------------------
+
+const HCL = [
+  'resource "azurerm_subnet" "internal" {',
+  '  name             = "internal"   # the app tier',
+  '  address_prefixes = ["10.0.1.0/24"]',
+  "}",
+].join("\n");
+
+const sourced: GraphNode = {
+  ...subnet,
+  source: {
+    file: "modules/network/main.tf",
+    start_line: 12,
+    end_line: 15,
+    code: HCL,
+  },
+};
+
+it("shows the file, the line range and the block's code (GP-121)", () => {
+  const graph: Graph = { version: 8, nodes: [sourced], edges: [] };
+  render(
+    <NodeDetailsPanel
+      graph={graph}
+      node={sourced}
+      onClose={() => {}}
+      onSelect={() => {}}
+      showChange={false}
+    />,
+  );
+
+  expect(screen.getByText("Source")).toBeInTheDocument();
+  expect(screen.getByText(/modules\/network\/main\.tf · L12–L15/)).toBeInTheDocument();
+  // Highlighting splits the block across spans; the rendered text must still be
+  // the file's text, byte for byte — a snippet that differs is worse than none.
+  const code = document.querySelector("pre code");
+  expect(code?.textContent).toBe(HCL);
+});
+
+it("copies the raw source, not the highlighted markup (GP-121)", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+
+  const graph: Graph = { version: 8, nodes: [sourced], edges: [] };
+  render(
+    <NodeDetailsPanel graph={graph} node={sourced} onClose={() => {}} onSelect={() => {}} />,
+  );
+
+  fireEvent.click(screen.getByLabelText("Copy source"));
+  expect(writeText).toHaveBeenCalledWith(HCL);
+  // The button sits in the <summary>; copying must not collapse the section out
+  // from under the reader. Browsers skip summary's toggle for an interactive
+  // descendant — this pins that, since the layout depends on it.
+  expect(document.querySelector("details")?.open).toBe(true);
+});
+
+it("renders a single-line block's span without a range (GP-121)", () => {
+  const oneLiner: GraphNode = {
+    ...subnet,
+    source: { file: "main.tf", start_line: 7, end_line: 7, code: 'data "aws_x" "y" {}' },
+  };
+  const graph: Graph = { version: 8, nodes: [oneLiner], edges: [] };
+  render(
+    <NodeDetailsPanel graph={graph} node={oneLiner} onClose={() => {}} onSelect={() => {}} />,
+  );
+  expect(screen.getByText(/main\.tf · L7$/)).toBeInTheDocument();
+});
+
+it("omits the Source section when a node has no source (plan flow, GP-121)", () => {
+  const graph: Graph = { version: 3, nodes: [shopDb], edges: [] };
+  render(
+    <NodeDetailsPanel graph={graph} node={shopDb} onClose={() => {}} onSelect={() => {}} />,
+  );
+  expect(screen.queryByText("Source")).not.toBeInTheDocument();
+  expect(document.querySelector("pre")).toBeNull();
+});

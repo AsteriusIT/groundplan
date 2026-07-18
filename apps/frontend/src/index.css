@@ -80,6 +80,13 @@
   --cat-observability: #a032b8;
   --cat-other: #5d7391;
 
+  /* — HCL source syntax (GP-121) — four roles, no more. A code block in a 320px
+       panel is read for orientation, not studied; more hues than this is noise. */
+  --code-keyword: #2f5bb8;
+  --code-string: #0f7d6d;
+  --code-comment: #8a9cb5;
+  --code-number: #a8690c;
+
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", monospace;
@@ -157,6 +164,12 @@
   --cat-identity: #d99a3a;
   --cat-observability: #c964dd;
   --cat-other: #93b0d8;
+
+  /* — HCL source syntax (GP-121) — */
+  --code-keyword: #6ba4f5;
+  --code-string: #3fc4a8;
+  --code-comment: #6b86b3;
+  --code-number: #e0a94e;
 }
 
 /*
@@ -198,6 +211,12 @@
   --grid-strong: #24272f;
   --edge: #565c66;
   --edge-inferred: #3e434b;
+
+  /* — HCL source syntax, neutralised to match the graphite surface (GP-121) — */
+  --code-keyword: #7aa7e8;
+  --code-string: #55c2a4;
+  --code-comment: #6b7079;
+  --code-number: #d4a04a;
 }
 
 @theme inline {
@@ -256,6 +275,11 @@
   --color-cat-identity: var(--cat-identity);
   --color-cat-observability: var(--cat-observability);
   --color-cat-other: var(--cat-other);
+
+  --color-code-keyword: var(--code-keyword);
+  --color-code-string: var(--code-string);
+  --color-code-comment: var(--code-comment);
+  --color-code-number: var(--code-number);
 
   --font-sans: var(--font-sans);
   --font-display: var(--font-display);

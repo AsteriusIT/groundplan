@@ -243,6 +243,12 @@ export function StyleguidePage() {
                 ),
               )}
             </Group>
+            <Group title="HCL source (GP-121)">
+              <Swatch name="keyword" token="--code-keyword" swatchClass="bg-code-keyword" />
+              <Swatch name="string" token="--code-string" swatchClass="bg-code-string" />
+              <Swatch name="comment" token="--code-comment" swatchClass="bg-code-comment" />
+              <Swatch name="number" token="--code-number" swatchClass="bg-code-number" />
+            </Group>
           </Section>
 
           <Section eyebrow="02 · type" title="Typography">

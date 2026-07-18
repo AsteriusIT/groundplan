@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 
-import type { AttributeDiffRow, Graph, GraphNode } from "@/api/types";
+import type { AttributeDiffRow, Graph, GraphNode, NodeSource } from "@/api/types";
+import { tokenizeHcl, type CodeTokenKind } from "@/lib/hcl-highlight";
 import { changeLabel, STATUS_META, statusOf } from "@/lib/status";
 import { categorize, CATEGORY_META, shortType } from "@/lib/resource-category";
 import {
@@ -194,6 +195,11 @@ export function NodeDetailsPanel({
             <SecurityRules rules={rules} />
           </SidePanelSection>
         )}
+
+        {/* The Terraform that defines this node (GP-121). Docs-flow only: a plan
+            snapshot has no source to point at, so the section simply is not there
+            — which is also why the PR view needs no flag to suppress it. */}
+        {node.source && <SourceSection source={node.source} />}
       </SidePanelBody>
 
       {footer && (
@@ -291,6 +297,69 @@ function SecurityRules({ rules }: Readonly<{ rules: FlaggedRule[] }>) {
     </div>
   );
 }
+
+/**
+ * The Terraform block this node was parsed from (GP-121): where it lives, and
+ * what it says. Verbatim — the snippet the backend stored is the file's own text
+ * (GP-120), and highlighting only colours it, never rewrites it.
+ *
+ * Collapsible, open by default: seeing the HCL is the point of the epic, and it
+ * sits last so it never pushes the change data a reviewer came for off-screen.
+ */
+function SourceSection({ source }: Readonly<{ source: NodeSource }>) {
+  const span =
+    source.start_line === source.end_line
+      ? `L${source.start_line}`
+      : `L${source.start_line}–L${source.end_line}`;
+
+  return (
+    <SidePanelSection>
+      <details open className="group">
+        {/* The copy button rides the summary row so the path below it gets the
+            panel's full width — squeezed beside a button it wraps, and a line
+            beginning "· L12–L22" reads like a fragment of nothing. */}
+        <summary className="text-muted-foreground hover:text-foreground marker:text-faint flex cursor-pointer items-center gap-1.5 text-[10px] font-medium">
+          <span className="flex-1 font-mono tracking-[0.08em] uppercase">Source</span>
+          {/* Copies the raw block, not what is on screen — highlighting is a lens. */}
+          <CopyButton value={source.code} label="Copy source" className="shrink-0" />
+        </summary>
+
+        <p
+          className="text-faint mt-1.5 font-mono text-[11px] break-all"
+          title={`${source.file} · ${span}`}
+        >
+          {source.file} · {span}
+        </p>
+
+        {/* Horizontal scroll rather than wrapping: a wrapped HCL block stops
+            looking like the file it came from. Capped at half the viewport so a
+            300-line resource can never swallow the panel. */}
+        <pre className="border-border bg-muted text-ink mt-1.5 max-h-[50vh] overflow-auto rounded-md border p-2.5 font-mono text-[11px] leading-relaxed">
+          <code>
+            {tokenizeHcl(source.code).map((token, i) => (
+              <span
+                // Tokens are positional and the list is regenerated wholesale on
+                // every source change; the index is the only stable identity.
+                key={`${i}-${token.kind}`}
+                className={token.kind === "plain" ? undefined : CODE_TOKEN_CLASS[token.kind]}
+              >
+                {token.text}
+              </span>
+            ))}
+          </code>
+        </pre>
+      </details>
+    </SidePanelSection>
+  );
+}
+
+const CODE_TOKEN_CLASS: Record<CodeTokenKind, string> = {
+  comment: "text-code-comment italic",
+  string: "text-code-string",
+  number: "text-code-number",
+  keyword: "text-code-keyword",
+  plain: "",
+};
 
 const SPECIAL_VALUES = new Set(["(sensitive)", "(known after apply)"]);
 
