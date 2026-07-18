@@ -2,6 +2,11 @@ import { expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { Graph, GraphNode } from "@/api/types";
+import {
+  PANEL_MODE_STORAGE_KEY,
+  PANEL_WIDTH_STORAGE_KEY,
+  PanelPrefsProvider,
+} from "@/panel/panel-prefs";
 import { NodeDetailsPanel } from "./node-details-panel";
 
 const vnet: GraphNode = {
@@ -204,4 +209,83 @@ it("omits the Source section when a node has no source (plan flow, GP-121)", () 
   );
   expect(screen.queryByText("Source")).not.toBeInTheDocument();
   expect(document.querySelector("pre")).toBeNull();
+});
+
+// --- Source overlay + panel sizing ------------------------------------------
+
+it("expands the source into a wide overlay, verbatim, with its own copy", () => {
+  const graph: Graph = { version: 8, nodes: [sourced], edges: [] };
+  render(
+    <NodeDetailsPanel graph={graph} node={sourced} onClose={() => {}} onSelect={() => {}} />,
+  );
+
+  fireEvent.click(screen.getByLabelText("Expand source"));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByText("modules/network/main.tf")).toBeInTheDocument();
+  expect(within(dialog).getByText(/L12–L15/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText("Copy source")).toBeInTheDocument();
+  // Same byte-for-byte guarantee as the inline snippet.
+  const code = dialog.querySelector("pre code");
+  expect(code?.textContent).toBe(HCL);
+  // Expanding must not collapse the inline section behind the overlay.
+  expect(document.querySelector("details")?.open).toBe(true);
+});
+
+it("keeps a fixed 416px panel by default — no resize handle", () => {
+  render(
+    <NodeDetailsPanel graph={graph} node={subnet} onClose={() => {}} onSelect={() => {}} />,
+  );
+  const panel = screen.getByRole("complementary");
+  expect(panel.className).toContain("w-[26rem]");
+  expect(panel.style.width).toBe("");
+  expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+});
+
+function renderResizable(width = 512) {
+  localStorage.setItem(PANEL_MODE_STORAGE_KEY, "resizable");
+  localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(width));
+  return render(
+    <PanelPrefsProvider>
+      <NodeDetailsPanel graph={graph} node={subnet} onClose={() => {}} onSelect={() => {}} />
+    </PanelPrefsProvider>,
+  );
+}
+
+it("resizable mode: the stored width applies and a handle appears", () => {
+  localStorage.clear();
+  renderResizable(512);
+  const panel = screen.getByRole("complementary");
+  expect(panel.style.width).toBe("512px");
+  const handle = screen.getByRole("separator", { name: /resize panel/i });
+  expect(handle).toHaveAttribute("aria-valuenow", "512");
+  expect(handle).toHaveAttribute("aria-valuemin", "320");
+  expect(handle).toHaveAttribute("aria-valuemax", "720");
+});
+
+it("dragging the handle resizes the panel and persists on release", () => {
+  localStorage.clear();
+  renderResizable(512);
+  const handle = screen.getByRole("separator", { name: /resize panel/i });
+
+  fireEvent.pointerDown(handle, { clientX: 800, pointerId: 1 });
+  fireEvent.pointerMove(handle, { clientX: 750, pointerId: 1 });
+  expect(screen.getByRole("complementary").style.width).toBe("562px");
+  // Live preview only — nothing stored until release.
+  expect(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)).toBe("512");
+
+  fireEvent.pointerUp(handle, { clientX: 750, pointerId: 1 });
+  expect(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)).toBe("562");
+  expect(screen.getByRole("complementary").style.width).toBe("562px");
+});
+
+it("arrow keys nudge the width by 16px, clamped, persisting", () => {
+  localStorage.clear();
+  renderResizable(712);
+  const handle = screen.getByRole("separator", { name: /resize panel/i });
+
+  fireEvent.keyDown(handle, { key: "ArrowLeft" }); // wider, hits the 720 cap
+  expect(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)).toBe("720");
+  fireEvent.keyDown(handle, { key: "ArrowRight" }); // narrower
+  expect(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)).toBe("704");
+  expect(screen.getByRole("complementary").style.width).toBe("704px");
 });

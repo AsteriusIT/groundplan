@@ -42,8 +42,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
+import { PanelModeSwitcher } from "@/components/panel-mode-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { TourStyleSwitcher } from "@/components/tour-style-switcher";
+import { usePanelPrefs, type PanelMode } from "@/panel/panel-prefs";
 import { useTourStyle } from "@/tour/tour-style";
 
 const THEME_BLURB: Record<string, string> = {
@@ -57,6 +59,12 @@ const TOUR_BLURB: Record<string, string> = {
     "The diagram dims and a card is pinned to the resources each stop is about.",
   guide:
     "The whole tour lists in a rail beside the diagram — skim it, or jump to any stop.",
+};
+
+const PANEL_BLURB: Record<PanelMode, string> = {
+  fixed: "The node details panel keeps one width.",
+  resizable:
+    "Drag the details panel's left edge to size it; the width is remembered on this device.",
 };
 
 type SectionEntry = { id: string; label: string; element: ReactNode };
@@ -276,6 +284,7 @@ function AccountCard() {
 function AppearanceCard() {
   const { theme } = useTheme();
   const { style } = useTourStyle();
+  const { mode } = usePanelPrefs();
 
   return (
     <Section
@@ -294,6 +303,11 @@ function AppearanceCard() {
       <div className="mt-5 flex items-center gap-6">
         <TourStyleSwitcher className="w-80 shrink-0" />
         <p className="text-muted-foreground text-sm">{TOUR_BLURB[style]}</p>
+      </div>
+
+      <div className="mt-5 flex items-center gap-6">
+        <PanelModeSwitcher className="w-80 shrink-0" />
+        <p className="text-muted-foreground text-sm">{PANEL_BLURB[mode]}</p>
       </div>
     </Section>
   );

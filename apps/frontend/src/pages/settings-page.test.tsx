@@ -21,6 +21,7 @@ import { getAiStatus, listInvitations, listMembers } from "@/api/client";
 import type { AiStatus, User } from "@/api/types";
 import { OrgContext, type OrgContextValue } from "@/org/org-context";
 import { resetAiStatus } from "@/lib/use-ai-status";
+import { PANEL_MODE_STORAGE_KEY, PanelPrefsProvider } from "@/panel/panel-prefs";
 import { ThemeProvider } from "@/theme/theme-provider";
 import { TourStyleProvider } from "@/tour/tour-style";
 import { SettingsPage } from "./settings-page";
@@ -54,9 +55,11 @@ function renderPage(org: Partial<OrgContextValue> = {}) {
     <MemoryRouter>
       <ThemeProvider>
         <TourStyleProvider>
-          <OrgContext.Provider value={{ ...orgValue, ...org }}>
-            <SettingsPage />
-          </OrgContext.Provider>
+          <PanelPrefsProvider>
+            <OrgContext.Provider value={{ ...orgValue, ...org }}>
+              <SettingsPage />
+            </OrgContext.Provider>
+          </PanelPrefsProvider>
         </TourStyleProvider>
       </ThemeProvider>
     </MemoryRouter>,
@@ -129,6 +132,20 @@ it("changes the theme, reflects it immediately, and persists the choice", () => 
   fireEvent.click(screen.getByRole("button", { name: "Light" }));
   expect(root.classList.contains("dark")).toBe(false);
   expect(localStorage.getItem("groundplan-theme")).toBe("light");
+});
+
+it("switches the details panel to resizable and persists the choice", () => {
+  renderPage();
+
+  const resizable = screen.getByRole("button", { name: "Resizable" });
+  expect(resizable).toHaveAttribute("aria-pressed", "false");
+
+  fireEvent.click(resizable);
+  expect(localStorage.getItem(PANEL_MODE_STORAGE_KEY)).toBe("resizable");
+  expect(resizable).toHaveAttribute("aria-pressed", "true");
+
+  fireEvent.click(screen.getByRole("button", { name: "Fixed" }));
+  expect(localStorage.getItem(PANEL_MODE_STORAGE_KEY)).toBe("fixed");
 });
 
 it("reports the AI layer as on, with the model that generates", async () => {
