@@ -40,9 +40,9 @@ export function AttachmentChip({
       }}
       className={cn(
         "rounded-full transition-shadow hover:shadow-sm",
-        // ring-offset-background, not the default white: on the dark themes a
-        // white offset renders as a glowing halo around the chip.
-        highlighted && "ring-primary ring-offset-background ring-2 ring-offset-1",
+        // The small-element ring (same as a stacked row): 1px, no offset. The
+        // card-sized ring-2 + offset reads as a fat halo on a 20px pill.
+        highlighted && "ring-primary ring-1",
       )}
     >
       <Chip variant={chipVariant(node)}>

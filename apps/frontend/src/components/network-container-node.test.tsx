@@ -102,10 +102,12 @@ it("shows the vnet address space on the frame header", () => {
   expect(screen.getByText("10.0.0.0/16")).toBeInTheDocument();
 });
 
-it("a highlighted chip offsets its ring with the theme background, not white", () => {
+it("a highlighted chip wears a tight 1px ring — no fat offset halo on a small pill", () => {
   render(
     <NetworkContainer graphNode={subnet} chips={[nsg()]} highlightedChipId="nsg" />,
   );
   const btn = screen.getByTitle("azurerm_network_security_group · web-nsg");
-  expect(btn.className).toContain("ring-offset-background");
+  expect(btn.className).toContain("ring-1");
+  expect(btn.className).not.toContain("ring-2");
+  expect(btn.className).not.toContain("ring-offset");
 });
