@@ -101,3 +101,11 @@ it("shows the vnet address space on the frame header", () => {
   );
   expect(screen.getByText("10.0.0.0/16")).toBeInTheDocument();
 });
+
+it("a highlighted chip offsets its ring with the theme background, not white", () => {
+  render(
+    <NetworkContainer graphNode={subnet} chips={[nsg()]} highlightedChipId="nsg" />,
+  );
+  const btn = screen.getByTitle("azurerm_network_security_group · web-nsg");
+  expect(btn.className).toContain("ring-offset-background");
+});

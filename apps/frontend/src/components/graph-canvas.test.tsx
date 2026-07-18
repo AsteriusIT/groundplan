@@ -43,7 +43,12 @@ vi.mock("@xyflow/react", () => ({
       width?: number;
       height?: number;
       measured?: { width?: number; height?: number };
-      data: { graphNode?: { name?: string } };
+      data: {
+        graphNode?: { name?: string };
+        chips?: { id: string; name: string }[];
+        highlightedChipId?: string;
+        onSelectChip?: (chip: unknown) => void;
+      };
     }[];
     onNodeClick?: (e: unknown, n: unknown) => void;
     onNodesChange?: (changes: { type: string; id: string; selected: boolean }[]) => void;
@@ -66,6 +71,18 @@ vi.mock("@xyflow/react", () => ({
           >
             select:{n.data.graphNode?.name || n.id}
           </button>
+          {/* Stand-in for the chip row a container / card renders from data. */}
+          {n.data.chips?.map((c) => (
+            <button
+              type="button"
+              key={c.id}
+              data-testid={`rf-chip:${c.id}`}
+              data-lit={n.data.highlightedChipId === c.id ? "true" : "false"}
+              onClick={() => n.data.onSelectChip?.(c)}
+            >
+              chip:{c.name}
+            </button>
+          ))}
         </span>
       ))}
     </div>
@@ -590,4 +607,49 @@ it("shows every node of a module-less graph, and offers no Module filter for it"
 
   openFilters();
   expect(screen.queryByText("Module")).not.toBeInTheDocument();
+});
+
+// --- chip selection ring (network-schema-polish fix) --------------------------
+
+const chipGraph: Graph = {
+  version: 4,
+  nodes: [
+    { id: "vnet", name: "vnet", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: null },
+    { id: "subnet", name: "subnet", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null, parent_id: "vnet" },
+    { id: "vm", name: "vm", type: "azurerm_linux_virtual_machine", provider: "azurerm", module_path: [], change: null, parent_id: "subnet" },
+    { id: "nsg", name: "web-nsg", type: "azurerm_network_security_group", provider: "azurerm", module_path: [], change: null, associated_ids: ["subnet"] },
+  ],
+  edges: [
+    { from: "vnet", to: "subnet", kind: "contains" },
+    { from: "subnet", to: "vm", kind: "contains" },
+  ],
+};
+const nsgNode = chipGraph.nodes[3]!;
+
+it("a chip's ring follows the selection instead of sticking", async () => {
+  render(
+    <GraphCanvas
+      graph={chipGraph}
+      variant="docs"
+      containerIds={new Set(["vnet", "subnet"])}
+      chips={new Map([["subnet", [nsgNode]]])}
+    />,
+  );
+  const chip = await screen.findByTestId("rf-chip:nsg");
+  expect(chip.dataset.lit).toBe("false");
+
+  // Clicking the chip selects its node: panel opens, ring lights.
+  fireEvent.click(chip);
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("true");
+
+  // Selecting something else moves the selection — the ring must follow it,
+  // not stay burnt onto the chip.
+  fireEvent.click(screen.getByText("node:vm"));
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("false");
+
+  // And a pane click (deselect) leaves no ring anywhere.
+  fireEvent.click(chip);
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("true");
+  fireEvent.click(screen.getByTestId("pane"));
+  expect(screen.getByTestId("rf-chip:nsg").dataset.lit).toBe("false");
 });

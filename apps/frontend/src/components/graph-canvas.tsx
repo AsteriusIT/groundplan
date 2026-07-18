@@ -383,15 +383,18 @@ export function GraphCanvas({
   const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  // GP-87/89: an attached node (a stacked row or a subnet chip) that search /
-  // fly-to landed on — it pulses on its host card / subnet header until the next
-  // navigation.
-  const [highlightedChild, setHighlightedChild] = useState<string | null>(null);
-  const [highlightedChip, setHighlightedChip] = useState<string | null>(null);
   // Which host each stacked child belongs to (GP-87), which subnet each chip
   // belongs to (GP-89), and — for edge re-anchoring / hub detection — both at once.
   const childToHost = useMemo(() => attachAnchors(stacks), [stacks]);
   const chipToAnchor = useMemo(() => attachAnchors(chips), [chips]);
+  // GP-87/89: the attached node (a stacked row or a chip) whose ring is lit —
+  // exactly the current selection, when the selection *is* an attached node.
+  // Derived, never stored: the ring follows the selection and cannot go stale
+  // on a chip after you select something else or click the pane.
+  const highlightedChild =
+    selected && childToHost.has(selected.id) ? selected.id : null;
+  const highlightedChip =
+    selected && chipToAnchor.has(selected.id) ? selected.id : null;
   const anchorOf = useMemo(() => {
     const map = new Map(childToHost);
     for (const [id, subnet] of chipToAnchor) if (!map.has(id)) map.set(id, subnet);
@@ -399,14 +402,12 @@ export function GraphCanvas({
   }, [childToHost, chipToAnchor]);
 
   // Selecting an attached node (row / chip click) opens its own detail panel and
-  // pulses it — the camera stays put, since it is already on screen on its host.
+  // lights it — the camera stays put, since it is already on screen on its host.
   const selectStackChild = useCallback((child: GraphNode) => {
     setSelected(child);
-    setHighlightedChild(child.id);
   }, []);
   const selectChip = useCallback((node: GraphNode) => {
     setSelected(node);
-    setHighlightedChip(node.id);
   }, []);
 
   // GP-88: hub detection and the layout run on the *drawn* edge set — edges
@@ -434,8 +435,6 @@ export function GraphCanvas({
     setLaying(true);
     setSelected(null);
     setHoveredId(null);
-    setHighlightedChild(null);
-    setHighlightedChip(null);
     setQuery("");
     setShowHubEdges(false);
     setActiveFilters(new Set(ALL_FILTERS));
@@ -813,13 +812,11 @@ export function GraphCanvas({
     (node: GraphNode) => {
       setSelected(node);
       setQuery(""); // close the results dropdown once a result is chosen
-      // An attached node (a stacked child, GP-87, or a subnet chip, GP-89) has no
-      // node of its own on the canvas: fly to the host / subnet that carries it
-      // and pulse the row / chip instead.
+      // An attached node (a stacked child, GP-87, or a chip, GP-89) has no node
+      // of its own on the canvas: fly to the host / anchor that carries it. The
+      // row / chip lights up by being the selection — no separate pulse state.
       const hostId = childToHost.get(node.id);
       const subnetId = chipToAnchor.get(node.id);
-      setHighlightedChild(hostId ? node.id : null);
-      setHighlightedChip(subnetId ? node.id : null);
       void rfRef.current?.fitView({
         nodes: [{ id: hostId ?? subnetId ?? node.id }],
         duration: 500,
@@ -901,11 +898,7 @@ export function GraphCanvas({
         }
         onNodeMouseLeave={() => setHoveredId(null)}
         onNodesChange={handleNodesChange}
-        onPaneClick={() => {
-          setSelected(null);
-          setHighlightedChild(null);
-          setHighlightedChip(null);
-        }}
+        onPaneClick={() => setSelected(null)}
         nodesDraggable={false}
         nodesConnectable={false}
         // Group/hide tools: left-drag draws a selection box; middle/right-drag pans.
