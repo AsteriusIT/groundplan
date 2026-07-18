@@ -65,7 +65,7 @@ test("validateGraph rejects an edge with an unknown kind", () => {
   assert.equal(res.valid, false);
 });
 
-test("validateGraph accepts v2..v7 but rejects an unknown version", () => {
+test("validateGraph accepts v2..v8 but rejects an unknown version", () => {
   assert.equal(validateGraph({ ...validGraph, version: 2 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 3 }).valid, true);
   assert.equal(validateGraph({ ...validGraph, version: 4 }).valid, true);
@@ -74,7 +74,52 @@ test("validateGraph accepts v2..v7 but rejects an unknown version", () => {
   assert.equal(validateGraph({ ...validGraph, version: 6 }).valid, true);
   // v7 (GP-102) adds node attributes — what a Kubernetes graph is diffed by.
   assert.equal(validateGraph({ ...validGraph, version: 7 }).valid, true);
-  assert.equal(validateGraph({ ...validGraph, version: 8 }).valid, false);
+  // v8 (GP-120) adds the HCL source snippet a docs node was defined by.
+  assert.equal(validateGraph({ ...validGraph, version: 8 }).valid, true);
+  assert.equal(validateGraph({ ...validGraph, version: 9 }).valid, false);
+});
+
+test("validateGraph accepts a v8 node source, and rejects a malformed one", () => {
+  const sourced = {
+    version: 8,
+    nodes: [
+      {
+        id: "azurerm_resource_group.main",
+        name: "main",
+        type: "azurerm_resource_group",
+        provider: "azurerm",
+        module_path: [],
+        change: null,
+        source: {
+          file: "modules/network/main.tf",
+          start_line: 12,
+          end_line: 34,
+          code: 'resource "azurerm_resource_group" "main" {\n  name = "rg"\n}',
+        },
+      },
+    ],
+    edges: [],
+  };
+  assert.equal(validateGraph(sourced).valid, true);
+
+  // A line span must be a whole line number: a 0 or a float is a parser bug, not
+  // a snippet, and storing it would put a nonsense range in the panel header.
+  const zeroLine = {
+    ...sourced,
+    nodes: [{ ...sourced.nodes[0], source: { ...sourced.nodes[0]!.source, start_line: 0 } }],
+  };
+  assert.equal(validateGraph(zeroLine).valid, false);
+
+  const missingCode = {
+    ...sourced,
+    nodes: [
+      {
+        ...sourced.nodes[0],
+        source: { file: "main.tf", start_line: 1, end_line: 2 },
+      },
+    ],
+  };
+  assert.equal(validateGraph(missingCode).valid, false);
 });
 
 test("validateGraph accepts v6 node labels, and rejects non-string values", () => {

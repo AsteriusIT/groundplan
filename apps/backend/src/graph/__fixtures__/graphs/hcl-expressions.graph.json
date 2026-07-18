@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "nodes": [
     {
       "id": "azurerm_network_interface.main",
@@ -8,6 +8,12 @@
       "provider": "azurerm",
       "module_path": [],
       "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 22,
+        "end_line": 29,
+        "code": "resource \"azurerm_network_interface\" \"main\" {\n  name = \"nic\"\n\n  ip_configuration {\n    name      = \"primary\"\n    subnet_id = azurerm_subnet.internal.id\n  }\n}"
+      },
       "parent_id": "azurerm_subnet.internal"
     },
     {
@@ -17,6 +23,12 @@
       "provider": "azurerm",
       "module_path": [],
       "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 13,
+        "end_line": 16,
+        "code": "resource \"azurerm_subnet\" \"internal\" {\n  name                 = \"internal\"\n  virtual_network_name = azurerm_virtual_network.main.name\n}"
+      },
       "parent_id": "azurerm_virtual_network.main"
     },
     {
@@ -26,6 +38,12 @@
       "provider": "azurerm",
       "module_path": [],
       "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 31,
+        "end_line": 38,
+        "code": "resource \"azurerm_virtual_machine\" \"main\" {\n  name                  = \"vm\"\n  network_interface_ids = [azurerm_network_interface.main.id]\n  source_image_id       = data.azurerm_image.ubuntu.id\n\n  # Reference to a resource that isn't declared here → dropped + counted.\n  secondary_vnet_id = azurerm_virtual_network.secondary.id\n}"
+      },
       "parent_id": "azurerm_subnet.internal"
     },
     {
@@ -35,7 +53,15 @@
       "provider": "azurerm",
       "module_path": [],
       "change": null,
-      "attributes": { "address_space": "10.0.0.0/16" }
+      "source": {
+        "file": "main.tf",
+        "start_line": 8,
+        "end_line": 11,
+        "code": "resource \"azurerm_virtual_network\" \"main\" {\n  name          = \"vnet\"\n  address_space = [\"10.0.0.0/16\"]\n}"
+      },
+      "attributes": {
+        "address_space": "10.0.0.0/16"
+      }
     },
     {
       "id": "data.azurerm_image.ubuntu",
@@ -43,7 +69,13 @@
       "type": "azurerm_image",
       "provider": "azurerm",
       "module_path": [],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 18,
+        "end_line": 20,
+        "code": "data \"azurerm_image\" \"ubuntu\" {\n  name = \"ubuntu\"\n}"
+      }
     },
     {
       "id": "module.monitoring",
@@ -51,7 +83,13 @@
       "type": "module",
       "provider": null,
       "module_path": [],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "main.tf",
+        "start_line": 40,
+        "end_line": 43,
+        "code": "module \"monitoring\" {\n  source     = \"./modules/monitoring\"\n  network_id = azurerm_virtual_network.main.id\n}"
+      }
     },
     {
       "id": "module.monitoring.azurerm_monitor_diagnostic_setting.main",
@@ -61,7 +99,13 @@
       "module_path": [
         "monitoring"
       ],
-      "change": null
+      "change": null,
+      "source": {
+        "file": "modules/monitoring/monitoring.tf",
+        "start_line": 1,
+        "end_line": 3,
+        "code": "resource \"azurerm_monitor_diagnostic_setting\" \"main\" {\n  name = \"diag\"\n}"
+      }
     }
   ],
   "edges": [

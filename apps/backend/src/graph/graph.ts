@@ -60,6 +60,23 @@ export type Identity = {
   identity_ids?: string[];
 };
 
+/**
+ * v8: where a docs-flow node was defined, and the Terraform that defines it
+ * (GP-120). Verbatim text — no re-formatting, no highlighting, no masking: it is
+ * the reader's own repository source, and a snippet that differs from the file is
+ * worse than no snippet at all. Absent on plan-flow and Kubernetes snapshots.
+ */
+export type NodeSource = {
+  /** Repository-relative path of the `.tf` file, e.g. `modules/network/main.tf`. */
+  file: string;
+  /** 1-based line of the block's opening keyword. */
+  start_line: number;
+  /** 1-based line of the block's closing brace. */
+  end_line: number;
+  /** The block's text, exactly as it appears over `[start_line, end_line]`. */
+  code: string;
+};
+
 export type GraphNode = {
   /** Terraform address, e.g. `module.payments.aws_ecs_service.this`. */
   id: string;
@@ -135,6 +152,12 @@ export type GraphNode = {
   attributes?: Record<string, string>;
   /** v7: true when the attribute list exceeded the cap and was capped. */
   attributes_truncated?: boolean;
+  /**
+   * v8: the Terraform block this node was parsed from (GP-120) — file, line span
+   * and verbatim code. Set by Producer B only: a plan has no source to point at,
+   * and a Kubernetes object's YAML is not what the graph is derived from.
+   */
+  source?: NodeSource;
 };
 
 export type GraphEdge = {
@@ -162,10 +185,11 @@ export type Graph = {
    * display labels, notes (GP-72/GP-77); 6 adds node labels, which is how a
    * Kubernetes namespace read says what a workload is (GP-96); 7 adds node
    * attributes, which is what lets one Kubernetes graph be diffed against another
-   * when there is no plan to ask (GP-102/GP-103).
+   * when there is no plan to ask (GP-102/GP-103); 8 adds the node's own HCL —
+   * the file, line span and verbatim code the docs flow parsed it from (GP-120).
    * All stay valid — every version bump is additive/optional.
    */
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };

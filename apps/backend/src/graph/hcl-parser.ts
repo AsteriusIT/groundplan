@@ -38,6 +38,7 @@ import type {
   GraphEdge,
   GraphNode,
   Identity,
+  NodeSource,
   NsgRule,
   RoleAssignment,
   UnresolvedReference,
@@ -53,7 +54,15 @@ export type HclParseResult = {
   unresolvedReferences: UnresolvedReference[];
 };
 
-type Block = { type: string; labels: string[]; body: string };
+type Block = {
+  type: string;
+  labels: string[];
+  body: string;
+  /** Offset of the block's opening keyword in the source (GP-120). */
+  start: number;
+  /** Offset just past the block's closing brace (GP-120). */
+  end: number;
+};
 
 /** Thrown when a `.tf` file can't be scanned (e.g. unbalanced braces). */
 class HclSyntaxError extends Error {}
@@ -147,6 +156,8 @@ function scanTopLevelBlocks(src: string): Block[] {
     skipTrivia();
     if (i >= n) break;
     if (!isIdent(src[i]!)) { i++; continue; }
+    // Where the block's own text begins — its keyword, not the trivia above it.
+    const blockStart = i;
     const type = readIdent();
     const labels: string[] = [];
     for (;;) {
@@ -158,7 +169,9 @@ function scanTopLevelBlocks(src: string): Block[] {
         readString();
         labels.push(src.slice(start + 1, i - 1));
       } else if (c === "{") {
-        blocks.push({ type, labels, body: readBody() });
+        // `readBody` leaves `i` just past the closing brace — read it after.
+        const body = readBody();
+        blocks.push({ type, labels, body, start: blockStart, end: i });
         break;
       } else if (isIdent(c)) {
         labels.push(readIdent());
@@ -172,6 +185,49 @@ function scanTopLevelBlocks(src: string): Block[] {
     }
   }
   return blocks;
+}
+
+/**
+ * The offsets of every line start in a file, so a block's byte offset resolves to
+ * a line number by binary search rather than by re-counting newlines from the top
+ * (a file with many blocks would otherwise be quadratic).
+ */
+function lineStarts(src: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] === "\n") starts.push(i + 1);
+  }
+  return starts;
+}
+
+/** 1-based line holding `offset`, given that file's `lineStarts`. */
+function lineAt(starts: readonly number[], offset: number): number {
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid]! <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo + 1;
+}
+
+/**
+ * The verbatim source of a block (GP-120): its text, and the 1-based span it
+ * occupies. `end` points just past the closing brace, so the last line of the
+ * span is the line that brace sits on.
+ */
+function blockSource(
+  file: HclFile,
+  starts: readonly number[],
+  block: Block,
+): NodeSource {
+  return {
+    file: file.path,
+    start_line: lineAt(starts, block.start),
+    end_line: lineAt(starts, block.end - 1),
+    code: file.content.slice(block.start, block.end),
+  };
 }
 
 /** First `source = "..."` value in a module block body. */
@@ -348,6 +404,10 @@ function parseModuleDir(
       continue;
     }
 
+    // Line offsets are per file, computed once — every block below resolves its
+    // span against this rather than re-counting newlines (GP-120).
+    const starts = lineStarts(file.content);
+
     for (const block of blocks) {
       if (block.type === "resource" || block.type === "data") {
         const [type, name] = block.labels;
@@ -362,6 +422,7 @@ function parseModuleDir(
           provider: providerFromType(type),
           module_path: modulePath,
           change: null,
+          source: blockSource(file, starts, block),
         });
         if (block.type === "resource") ctx.resourceTypes.add(type);
         if (type === "azurerm_network_security_group") {
@@ -381,6 +442,9 @@ function parseModuleDir(
           provider: null,
           module_path: modulePath,
           change: null,
+          // A module container's source is the `module "x" {}` call that created
+          // it — the module's own files belong to the nodes inside it (GP-120).
+          source: blockSource(file, starts, block),
         });
         addContains(ctx, parentModuleId, moduleId);
         // Module inputs can reference resources → edges from the module node.
@@ -662,6 +726,9 @@ export function parseHclRepo(
   let version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
   // v7 when any node carries `attributes` (a subnet/vnet CIDR).
   if (nodes.some((n) => n.attributes !== undefined)) version = 7;
+  // v8 when any node carries the HCL it was parsed from (GP-120) — in practice
+  // every docs snapshot, since every parsed block has a source.
+  if (nodes.some((n) => n.source !== undefined)) version = 8;
   return {
     graph: { version, nodes, edges },
     warnings: [...ctx.warnings].sort(compareStrings),

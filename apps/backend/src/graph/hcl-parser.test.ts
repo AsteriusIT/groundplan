@@ -57,8 +57,9 @@ test("the vm -> nic -> subnet -> vnet chain is visible via expressions", () => {
 test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (GP-42)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-expressions"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  // v7 since the vnet's literal CIDR lands in attributes (network-schema-polish).
-  assert.equal(graph.version, 7);
+  // v8 since every parsed block now carries its HCL source (GP-120) — the ladder
+  // still runs through v4 containment and v7 attributes, it just tops out higher.
+  assert.equal(graph.version, 8);
   assert.equal(
     byId.get("azurerm_subnet.internal")?.parent_id,
     "azurerm_virtual_network.main",
@@ -92,8 +93,8 @@ test("derives satellite stacking from HCL: probe/pool/rule → lb, public IP →
 
 test("attaches NSG rules, internet_exposed, and associations from HCL (GP-43)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-nsg"));
-  // v7 since the fixture's literal CIDRs land in attributes (network-schema-polish).
-  assert.equal(graph.version, 7);
+  // v8 since every parsed block carries its HCL source (GP-120).
+  assert.equal(graph.version, 8);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const open = byId.get("azurerm_network_security_group.open")!;
   assert.equal(open.rules?.length, 2);
@@ -121,7 +122,8 @@ test("attaches route-table associated_ids to the route table, without NSG payloa
 
 test("attaches role-assignment triples, privileged flags, and identities from HCL (GP-47)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-iam"));
-  assert.equal(graph.version, 4);
+  // v8 since every parsed block carries its HCL source (GP-120).
+  assert.equal(graph.version, 8);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
   // AcrPull: principal resolves to the identity, scope to the registry; narrow.
@@ -335,7 +337,7 @@ test("the join catalog places, attaches, and edges association resources (azurer
   );
 });
 
-test("subnet and vnet CIDRs land in attributes and escalate to v7", () => {
+test("subnet and vnet CIDRs land in attributes", () => {
   const { graph } = parseHclRepo([
     {
       path: "main.tf",
@@ -377,7 +379,6 @@ resource "azurerm_subnet" "dynamic" {
     byId.get("azurerm_virtual_network.hub")?.attributes?.["address_space"],
     "10.0.0.0/16",
   );
-  assert.equal(graph.version, 7);
 });
 
 test("a literal count lands in attributes; an expression count does not", () => {
@@ -405,4 +406,83 @@ resource "azurerm_linux_virtual_machine" "dyn" {
     byId.get("azurerm_linux_virtual_machine.dyn")?.attributes?.["count"],
     undefined,
   );
+});
+
+// --- HCL source snippets (GP-120) -------------------------------------------
+
+/** The lines `source` claims, taken straight out of the file it names. */
+function linesOf(files: HclFile[], file: string, from: number, to: number): string {
+  const content = files.find((f) => f.path === file)?.content;
+  assert.ok(content !== undefined, `fixture has no file ${file}`);
+  return content.split("\n").slice(from - 1, to).join("\n");
+}
+
+test("every parsed node carries the source that defines it, verbatim (GP-120)", () => {
+  const files = readRepo("hcl-repo");
+  const { graph } = parseHclRepo(files);
+
+  for (const node of graph.nodes) {
+    const src = node.source;
+    assert.ok(src, `${node.id} has no source`);
+    assert.ok(src.code.length > 0, `${node.id} has empty source code`);
+    assert.ok(src.start_line >= 1 && src.end_line >= src.start_line, `${node.id} span`);
+    // Byte-for-byte: the snippet IS the file's text over the span it claims.
+    assert.equal(
+      src.code,
+      linesOf(files, src.file, src.start_line, src.end_line),
+      `${node.id} source does not match ${src.file}:${src.start_line}-${src.end_line}`,
+    );
+  }
+});
+
+test("a source snippet spans the whole block, comments included (GP-120)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-repo"));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  const role = byId.get("aws_iam_role.app")?.source;
+  assert.equal(role?.file, "main.tf");
+  // Opens on the `resource` keyword, closes on the block's own brace.
+  assert.ok(role?.code.startsWith('resource "aws_iam_role" "app" {'));
+  assert.ok(role?.code.endsWith("}"));
+  // A comment inside the block is part of the block — the reader wrote it there.
+  assert.ok(role?.code.includes("# Nested block"));
+  assert.ok(role?.code.includes("inline_policy {"));
+
+  // A heredoc holding braces must not end the block early (scanner regression).
+  const bucket = byId.get("aws_s3_bucket.logs")?.source;
+  assert.ok(bucket?.code.includes("POLICY"));
+  assert.ok(bucket?.code.trimEnd().endsWith("}"));
+});
+
+test("a module node's source is its call block, not the module's files (GP-120)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-repo"));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  const call = byId.get("module.network")?.source;
+  assert.equal(call?.file, "main.tf");
+  assert.ok(call?.code.startsWith('module "network" {'));
+  assert.ok(call?.code.includes('source = "./modules/network"'));
+
+  // A resource *inside* the module points at the module's own file.
+  assert.equal(byId.get("module.network.aws_vpc.this")?.source?.file, "modules/network/network.tf");
+});
+
+test("line numbers are 1-based and count from the top of the file (GP-120)", () => {
+  const [file] = [
+    {
+      path: "main.tf",
+      content: '# a comment\n\nresource "aws_s3_bucket" "b" {\n  bucket = "b"\n}\n',
+    },
+  ];
+  const { graph } = parseHclRepo([file!]);
+  const src = graph.nodes[0]?.source;
+  assert.equal(src?.start_line, 3);
+  assert.equal(src?.end_line, 5);
+  assert.equal(src?.code, 'resource "aws_s3_bucket" "b" {\n  bucket = "b"\n}');
+});
+
+test("carrying source escalates the graph to v8 (GP-120)", () => {
+  const { graph } = parseHclRepo(readRepo("hcl-repo"));
+  assert.equal(graph.version, 8);
+  assert.equal(validateGraph(graph).valid, true);
 });
