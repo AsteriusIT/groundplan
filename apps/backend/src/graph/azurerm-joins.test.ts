@@ -367,3 +367,41 @@ test("a for_each association expands the satellite over its instances", () => {
     'azurerm_subnet.tier["b"]',
   ]);
 });
+
+test("a NAT gateway bound to two subnets is exposed as ambiguous, with edges kept", () => {
+  const { ctx, typeById } = setup({
+    "azurerm_nat_gateway.shared": "azurerm_nat_gateway",
+    "azurerm_subnet.a": "azurerm_subnet",
+    "azurerm_subnet.b": "azurerm_subnet",
+    "azurerm_subnet_nat_gateway_association.s1":
+      "azurerm_subnet_nat_gateway_association",
+    "azurerm_subnet_nat_gateway_association.s2":
+      "azurerm_subnet_nat_gateway_association",
+  });
+  const links = classifyJoins(
+    [
+      source(
+        "azurerm_subnet_nat_gateway_association.s1",
+        "azurerm_nat_gateway.shared.id",
+        "azurerm_subnet.a.id",
+      ),
+      source(
+        "azurerm_subnet_nat_gateway_association.s2",
+        "azurerm_nat_gateway.shared.id",
+        "azurerm_subnet.b.id",
+      ),
+    ],
+    ctx,
+    typeById,
+  );
+  const fx = joinEffects(links, typeById);
+  assert.equal(fx.parents.size, 0);
+  assert.deepEqual(fx.ambiguous.get("azurerm_nat_gateway.shared"), [
+    "azurerm_subnet.a",
+    "azurerm_subnet.b",
+  ]);
+  assert.deepEqual(fx.edges, [
+    { from: "azurerm_nat_gateway.shared", to: "azurerm_subnet.a" },
+    { from: "azurerm_nat_gateway.shared", to: "azurerm_subnet.b" },
+  ]);
+});

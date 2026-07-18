@@ -92,3 +92,24 @@ resource "azurerm_virtual_machine_data_disk_attachment" "da" {
   virtual_machine_id = azurerm_linux_virtual_machine.app.id
   lun                = 0
 }
+
+# A second subnet and a NAT gateway serving both: ambiguous containment must
+# degrade to the vnet (nearest common ancestor), never guess a subnet.
+resource "azurerm_subnet" "internal2" {
+  name                 = "internal2"
+  virtual_network_name = azurerm_virtual_network.hub.name
+}
+
+resource "azurerm_nat_gateway" "shared" {
+  name = "shared"
+}
+
+resource "azurerm_subnet_nat_gateway_association" "s1" {
+  subnet_id      = azurerm_subnet.internal.id
+  nat_gateway_id = azurerm_nat_gateway.shared.id
+}
+
+resource "azurerm_subnet_nat_gateway_association" "s2" {
+  subnet_id      = azurerm_subnet.internal2.id
+  nat_gateway_id = azurerm_nat_gateway.shared.id
+}

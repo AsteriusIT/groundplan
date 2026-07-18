@@ -34,6 +34,13 @@ type ContainmentRule = {
    * is the single node whose references point at this child.
    */
   direction?: "down" | "up";
+  /** Resolve through an intermediate hop: child → refs of these types → each
+   * hop's own refs of `parentTypes` (a VM never references a subnet; its NIC's
+   * ip_configuration does). */
+  via?: readonly string[];
+  /** On 2+ candidates, defer to the common-ancestor pass instead of falling
+   * through to a lower-priority rule. */
+  ancestorFallback?: boolean;
 };
 
 // Data-driven, ordered; for each node the first rule that yields a *unique* parent
@@ -46,6 +53,12 @@ const LB_SATELLITES = new Set([
   "azurerm_lb_rule",
   "azurerm_lb_nat_rule",
   "azurerm_lb_outbound_rule",
+]);
+
+const VM_HOST_TYPES = new Set([
+  "azurerm_linux_virtual_machine",
+  "azurerm_windows_virtual_machine",
+  "azurerm_virtual_machine",
 ]);
 
 const RULES: ContainmentRule[] = [
@@ -78,6 +91,14 @@ const RULES: ContainmentRule[] = [
       "azurerm_windows_virtual_machine",
     ],
     direction: "up",
+  },
+  // A VM is placed through its NICs (VM → NIC → subnet). Several distinct
+  // subnets (a multi-homed VM) degrade to the nearest common ancestor.
+  {
+    childMatches: (n) => VM_HOST_TYPES.has(n.type),
+    parentTypes: ["azurerm_subnet"],
+    via: ["azurerm_network_interface"],
+    ancestorFallback: true,
   },
   // Anything else that references a subnet (NIC ip_configuration.subnet_id, AKS
   // vnet_subnet_id, bastion, app gateway, private endpoint, …) is contained by
@@ -142,6 +163,25 @@ function collectRefsOfType(
   }
 }
 
+/** Candidates for a `via` rule: the node's refs of the via types, then each
+ * hop's own refs of the wanted parent types (VM → NIC → subnet). */
+function viaCandidates(
+  node: GraphNode,
+  via: readonly string[],
+  wanted: ReadonlySet<string>,
+  r: ResolveCtx,
+): Set<string> {
+  const out = new Set<string>();
+  const mids = new Set<string>();
+  const source = r.sourceByBase.get(stripInstanceIndex(node.id));
+  if (source) collectRefsOfType(source, node.id, new Set(via), r, mids);
+  for (const mid of mids) {
+    const midSource = r.sourceByBase.get(stripInstanceIndex(mid));
+    if (midSource) collectRefsOfType(midSource, mid, wanted, r, out);
+  }
+  return out;
+}
+
 /** The parent nodes a single rule proposes for `node` (0, 1, or many). */
 function parentCandidates(
   node: GraphNode,
@@ -150,6 +190,7 @@ function parentCandidates(
 ): Set<string> {
   const wanted = new Set(rule.parentTypes);
   const out = new Set<string>();
+  if (rule.via) return viaCandidates(node, rule.via, wanted, r);
   if (rule.direction === "up") {
     for (const refId of r.referrersOf.get(node.id) ?? []) {
       const refType = r.typeById.get(refId) ?? "";
@@ -183,21 +224,63 @@ function applyJoinParents(
   }
 }
 
+/** What the join catalog tells containment (GP: azurerm joins). */
+export type JoinContainment = {
+  /** satellite id → its single unambiguous parent (`contain` semantic). */
+  parents?: ReadonlyMap<string, string>;
+  /** satellite id → 2+ contain anchors — resolved here to their nearest
+   * common ancestor once phase 1 has derived the parent chains. */
+  ambiguous?: ReadonlyMap<string, readonly string[]>;
+};
+
+/** A node and its ancestors, innermost first, cycle-guarded. */
+function chainOf(
+  id: string,
+  parentOf: ReadonlyMap<string, string | undefined>,
+): string[] {
+  const chain: string[] = [];
+  const seen = new Set<string>();
+  let current: string | undefined = id;
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    chain.push(current);
+    current = parentOf.get(current);
+  }
+  return chain;
+}
+
+/** First node present in every anchor's ancestor chain (anchors included, so an
+ * anchor that contains the others is itself the answer). */
+function nearestCommonAncestor(
+  anchors: readonly string[],
+  parentOf: ReadonlyMap<string, string | undefined>,
+): string | undefined {
+  const [first, ...rest] = anchors;
+  if (first === undefined) return undefined;
+  const restChains = rest.map((a) => new Set(chainOf(a, parentOf)));
+  return chainOf(first, parentOf).find((id) => restChains.every((s) => s.has(id)));
+}
+
 /**
  * Set `parent_id` on every node that has exactly one qualifying container
- * reference. Mutates the nodes in place.
+ * reference. Mutates the nodes in place. Two phases:
  *
- * `joinParents` (GP: azurerm join catalog) are parents stated by a dedicated
- * association/attachment resource (`azurerm_subnet_nat_gateway_association`,
- * `azurerm_virtual_machine_data_disk_attachment`, …). What a join resource says
- * outranks what a reference implies, so those land first and the rules below
- * never override them.
+ * Phase 1 — `joins.parents` (GP: azurerm join catalog) are parents stated by a
+ * dedicated association/attachment resource; what a join resource says outranks
+ * what a reference implies, so those land first and the rules never override
+ * them. Then each node takes the first rule yielding a unique candidate.
+ *
+ * Phase 2 — an ambiguous multi-anchor set (`joins.ambiguous`, or a rule marked
+ * `ancestorFallback`) resolves to the nearest common ancestor of its anchors
+ * along the freshly-derived chains — a NAT gateway serving two subnets of one
+ * vnet lands in that vnet. No common ancestor leaves the node unplaced,
+ * degraded, never guessed.
  */
 export function deriveContainment(
   nodes: GraphNode[],
   sources: readonly DependencySource[],
   ctx: EdgeContext,
-  joinParents?: ReadonlyMap<string, string>,
+  joins?: JoinContainment,
 ): void {
   const r: ResolveCtx = {
     ctx,
@@ -206,19 +289,56 @@ export function deriveContainment(
     referrersOf: buildReferrers(sources, ctx),
   };
 
-  applyJoinParents(nodes, joinParents, r.typeById);
+  applyJoinParents(nodes, joins?.parents, r.typeById);
 
+  const deferred = new Map<string, readonly string[]>(joins?.ambiguous ?? []);
   for (const node of nodes) {
     if (node.parent_id !== undefined) continue; // a join already placed it
-    for (const rule of RULES) {
-      if (!rule.childMatches(node)) continue;
-      const targets = parentCandidates(node, rule, r);
-      if (targets.size === 1) {
-        node.parent_id = [...targets][0];
-        break; // resolved — do not fall through to a lower-priority rule
-      }
-      // Zero or 2+ candidates: never guess. Fall through to the next matching
-      // rule (a satellite's fallback is the generic subnet rule).
+    applyRules(node, r, (id, anchors) => deferred.set(id, anchors));
+  }
+  applyAncestorFallback(nodes, deferred);
+}
+
+const compareStrings = (a: string, b: string): number => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
+
+/** Phase 1 for one node: the first rule yielding a unique candidate places it;
+ * a rule marked `ancestorFallback` defers its multi-candidate set instead. */
+function applyRules(
+  node: GraphNode,
+  r: ResolveCtx,
+  defer: (id: string, anchors: readonly string[]) => void,
+): void {
+  for (const rule of RULES) {
+    if (!rule.childMatches(node)) continue;
+    const targets = parentCandidates(node, rule, r);
+    if (targets.size === 1) {
+      node.parent_id = [...targets][0];
+      return; // resolved — do not fall through to a lower-priority rule
     }
+    if (targets.size > 1 && rule.ancestorFallback) {
+      defer(node.id, [...targets].sort(compareStrings));
+      return;
+    }
+    // Zero or 2+ candidates: never guess. Fall through to the next matching
+    // rule (a satellite's fallback is the generic subnet rule).
+  }
+}
+
+/** Phase 2: resolve each deferred set to its anchors' nearest common ancestor. */
+function applyAncestorFallback(
+  nodes: GraphNode[],
+  deferred: ReadonlyMap<string, readonly string[]>,
+): void {
+  if (deferred.size === 0) return;
+  const parentOf = new Map(nodes.map((n) => [n.id, n.parent_id]));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const [id, anchors] of deferred) {
+    const node = byId.get(id);
+    if (!node || node.parent_id !== undefined) continue;
+    const ancestor = nearestCommonAncestor(anchors, parentOf);
+    if (ancestor !== undefined && ancestor !== id) node.parent_id = ancestor;
   }
 }

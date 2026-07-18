@@ -407,6 +407,9 @@ export type JoinEffects = {
   attachments: Map<string, string[]>;
   /** satellite id → its single unambiguous parent (`contain` semantic). */
   parents: Map<string, string>;
+  /** satellite id → 2+ contain anchors, deferred to deriveContainment's
+   * common-ancestor pass (each anchor still gets a direct edge). */
+  ambiguous: Map<string, string[]>;
   /** Direct edges: `edge` links, ambiguous containment, non-subnet attachments. */
   edges: { from: string; to: string }[];
 };
@@ -423,17 +426,22 @@ function addTo(map: Map<string, string[]>, key: string, value: string): void {
   map.set(key, list);
 }
 
-/** Unique parent per satellite; an ambiguous one degrades to edges instead. */
+/** Unique parent per satellite; an ambiguous one keeps edges to each anchor and
+ * is exposed for the common-ancestor pass in deriveContainment. */
 function resolveParents(
   containAnchors: ReadonlyMap<string, string[]>,
   pushEdge: (from: string, to: string) => void,
-): Map<string, string> {
+): { parents: Map<string, string>; ambiguous: Map<string, string[]> } {
   const parents = new Map<string, string>();
+  const ambiguous = new Map<string, string[]>();
   for (const [satelliteId, anchors] of containAnchors) {
     if (anchors.length === 1) parents.set(satelliteId, anchors[0] as string);
-    else for (const anchorId of anchors) pushEdge(satelliteId, anchorId);
+    else {
+      ambiguous.set(satelliteId, [...anchors].sort(compareStrings));
+      for (const anchorId of anchors) pushEdge(satelliteId, anchorId);
+    }
   }
-  return parents;
+  return { parents, ambiguous };
 }
 
 export function joinEffects(
@@ -467,10 +475,10 @@ export function joinEffects(
     }
   }
 
-  const parents = resolveParents(containAnchors, pushEdge);
+  const { parents, ambiguous } = resolveParents(containAnchors, pushEdge);
   for (const list of attachments.values()) list.sort(compareStrings);
   edges.sort((a, b) => compareStrings(a.from, b.from) || compareStrings(a.to, b.to));
-  return { attachments, parents, edges };
+  return { attachments, parents, ambiguous, edges };
 }
 
 /**

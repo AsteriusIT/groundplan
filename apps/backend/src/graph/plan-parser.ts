@@ -551,8 +551,9 @@ export function parsePlanToGraph(
   );
 
   // Network containment (GP-42): parents the join catalog stated, then nodes with
-  // a single unambiguous vnet/subnet parent. Mutates the nodes in nodesById.
-  deriveContainment([...nodesById.values()], sources, edgeCtx, joins.parents);
+  // a single unambiguous vnet/subnet parent; ambiguous multi-anchor sets degrade
+  // to their nearest common ancestor. Mutates the nodes in nodesById.
+  deriveContainment([...nodesById.values()], sources, edgeCtx, joins);
 
   // NSG payload (GP-43): rules + internet_exposed on NSG nodes.
   attachNsg([...nodesById.values()], extractPlanNsg(changes));

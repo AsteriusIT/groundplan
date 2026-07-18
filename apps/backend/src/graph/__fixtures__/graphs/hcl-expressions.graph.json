@@ -25,7 +25,8 @@
       "type": "azurerm_virtual_machine",
       "provider": "azurerm",
       "module_path": [],
-      "change": null
+      "change": null,
+      "parent_id": "azurerm_subnet.internal"
     },
     {
       "id": "azurerm_virtual_network.main",

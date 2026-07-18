@@ -579,8 +579,9 @@ export function parseHclRepo(
   const joins = joinEffects(hclJoinLinks(ctx, sources, edgeCtx, typeById), typeById);
 
   // Network containment (GP-42): parents the join catalog stated, then nodes with
-  // a single unambiguous vnet/subnet parent. Mutates the nodes in ctx.nodes.
-  deriveContainment([...ctx.nodes.values()], sources, edgeCtx, joins.parents);
+  // a single unambiguous vnet/subnet parent; ambiguous multi-anchor sets degrade
+  // to their nearest common ancestor. Mutates the nodes in ctx.nodes.
+  deriveContainment([...ctx.nodes.values()], sources, edgeCtx, joins);
 
   // NSG payload (GP-43): rules + internet_exposed on NSG nodes.
   attachNsg([...ctx.nodes.values()], extractHclNsg(ctx));

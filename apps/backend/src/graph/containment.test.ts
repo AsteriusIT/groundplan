@@ -353,7 +353,7 @@ test("the demo estate produces the full stacked parent_id map", () => {
     "azurerm_public_ip.appgw": "azurerm_application_gateway.appgw",
     "azurerm_bastion_host.bastion": "azurerm_subnet.internal",
     "azurerm_public_ip.bastion": "azurerm_bastion_host.bastion",
-    "azurerm_linux_virtual_machine.vm": null,
+    "azurerm_linux_virtual_machine.vm": "azurerm_subnet.internal",
     "azurerm_network_interface.nic": "azurerm_linux_virtual_machine.vm",
   });
 });
@@ -395,12 +395,9 @@ test("join-derived parents place the NAT gateway in its associated subnet", () =
       ],
     },
   ];
-  deriveContainment(
-    nodes,
-    sources,
-    ctxFor(nodes),
-    new Map([["azurerm_nat_gateway.out", "azurerm_subnet.internal"]]),
-  );
+  deriveContainment(nodes, sources, ctxFor(nodes), {
+    parents: new Map([["azurerm_nat_gateway.out", "azurerm_subnet.internal"]]),
+  });
   assert.equal(nodes[1]!.parent_id, "azurerm_subnet.internal");
 });
 
@@ -419,22 +416,146 @@ test("a join-derived parent wins over the reference rules", () => {
       refs: [{ ref: "azurerm_public_ip.out.id", inferred: true }],
     },
   ];
-  deriveContainment(
-    nodes,
-    sources,
-    ctxFor(nodes),
-    new Map([["azurerm_public_ip.out", "azurerm_nat_gateway.out"]]),
-  );
+  deriveContainment(nodes, sources, ctxFor(nodes), {
+    parents: new Map([["azurerm_public_ip.out", "azurerm_nat_gateway.out"]]),
+  });
   assert.equal(nodes[0]!.parent_id, "azurerm_nat_gateway.out");
 });
 
 test("a join parent pointing at a node not in the graph is ignored", () => {
   const nodes = [node("azurerm_nat_gateway.out", "azurerm_nat_gateway")];
-  deriveContainment(
-    nodes,
-    [],
-    ctxFor(nodes),
-    new Map([["azurerm_nat_gateway.out", "azurerm_subnet.gone"]]),
-  );
+  deriveContainment(nodes, [], ctxFor(nodes), {
+    parents: new Map([["azurerm_nat_gateway.out", "azurerm_subnet.gone"]]),
+  });
   assert.equal(nodes[0]!.parent_id, undefined);
+});
+
+test("ambiguous containment degrades to the nearest common ancestor", () => {
+  // vnet ⊃ subnet a, subnet b; NAT gateway anchored to both subnets.
+  const nodes = [
+    node("azurerm_virtual_network.hub", "azurerm_virtual_network"),
+    node("azurerm_subnet.a", "azurerm_subnet"),
+    node("azurerm_subnet.b", "azurerm_subnet"),
+    node("azurerm_nat_gateway.shared", "azurerm_nat_gateway"),
+  ];
+  const sources: DependencySource[] = [
+    {
+      fromBase: "azurerm_subnet.a",
+      prefix: "",
+      refs: [{ ref: "azurerm_virtual_network.hub.name", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_subnet.b",
+      prefix: "",
+      refs: [{ ref: "azurerm_virtual_network.hub.name", inferred: true }],
+    },
+  ];
+  deriveContainment(nodes, sources, ctxFor(nodes), {
+    ambiguous: new Map([
+      ["azurerm_nat_gateway.shared", ["azurerm_subnet.a", "azurerm_subnet.b"]],
+    ]),
+  });
+  assert.equal(nodes[3]!.parent_id, "azurerm_virtual_network.hub");
+});
+
+test("no common ancestor leaves the ambiguous node unplaced", () => {
+  // Two subnets in two different vnets.
+  const nodes = [
+    node("azurerm_virtual_network.v1", "azurerm_virtual_network"),
+    node("azurerm_virtual_network.v2", "azurerm_virtual_network"),
+    node("azurerm_subnet.a", "azurerm_subnet"),
+    node("azurerm_subnet.b", "azurerm_subnet"),
+    node("azurerm_nat_gateway.shared", "azurerm_nat_gateway"),
+  ];
+  const sources: DependencySource[] = [
+    {
+      fromBase: "azurerm_subnet.a",
+      prefix: "",
+      refs: [{ ref: "azurerm_virtual_network.v1.name", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_subnet.b",
+      prefix: "",
+      refs: [{ ref: "azurerm_virtual_network.v2.name", inferred: true }],
+    },
+  ];
+  deriveContainment(nodes, sources, ctxFor(nodes), {
+    ambiguous: new Map([
+      ["azurerm_nat_gateway.shared", ["azurerm_subnet.a", "azurerm_subnet.b"]],
+    ]),
+  });
+  assert.equal(nodes[4]!.parent_id, undefined);
+});
+
+test("a VM lands in the subnet its NIC references (via rule)", () => {
+  const nodes = [
+    node("azurerm_virtual_network.hub", "azurerm_virtual_network"),
+    node("azurerm_subnet.app", "azurerm_subnet"),
+    node("azurerm_network_interface.nic", "azurerm_network_interface"),
+    node("azurerm_linux_virtual_machine.vm", "azurerm_linux_virtual_machine"),
+  ];
+  const sources: DependencySource[] = [
+    {
+      fromBase: "azurerm_subnet.app",
+      prefix: "",
+      refs: [{ ref: "azurerm_virtual_network.hub.name", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_network_interface.nic",
+      prefix: "",
+      refs: [{ ref: "azurerm_subnet.app.id", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_linux_virtual_machine.vm",
+      prefix: "",
+      refs: [{ ref: "azurerm_network_interface.nic.id", inferred: true }],
+    },
+  ];
+  deriveContainment(nodes, sources, ctxFor(nodes));
+  assert.equal(nodes[3]!.parent_id, "azurerm_subnet.app");
+  // The NIC still stacks under its VM (GP-86) — the via rule must not disturb it.
+  assert.equal(nodes[2]!.parent_id, "azurerm_linux_virtual_machine.vm");
+});
+
+test("a VM homed in two subnets degrades to the common vnet", () => {
+  const nodes = [
+    node("azurerm_virtual_network.hub", "azurerm_virtual_network"),
+    node("azurerm_subnet.a", "azurerm_subnet"),
+    node("azurerm_subnet.b", "azurerm_subnet"),
+    node("azurerm_network_interface.n1", "azurerm_network_interface"),
+    node("azurerm_network_interface.n2", "azurerm_network_interface"),
+    node("azurerm_linux_virtual_machine.vm", "azurerm_linux_virtual_machine"),
+  ];
+  const sources: DependencySource[] = [
+    {
+      fromBase: "azurerm_subnet.a",
+      prefix: "",
+      refs: [{ ref: "azurerm_virtual_network.hub.name", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_subnet.b",
+      prefix: "",
+      refs: [{ ref: "azurerm_virtual_network.hub.name", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_network_interface.n1",
+      prefix: "",
+      refs: [{ ref: "azurerm_subnet.a.id", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_network_interface.n2",
+      prefix: "",
+      refs: [{ ref: "azurerm_subnet.b.id", inferred: true }],
+    },
+    {
+      fromBase: "azurerm_linux_virtual_machine.vm",
+      prefix: "",
+      refs: [
+        { ref: "azurerm_network_interface.n1.id", inferred: true },
+        { ref: "azurerm_network_interface.n2.id", inferred: true },
+      ],
+    },
+  ];
+  deriveContainment(nodes, sources, ctxFor(nodes));
+  assert.equal(nodes[5]!.parent_id, "azurerm_virtual_network.hub");
 });

@@ -67,7 +67,11 @@ test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (G
     "azurerm_subnet.internal",
   );
   // The VM references only a NIC → no subnet containment parent.
-  assert.equal(byId.get("azurerm_virtual_machine.main")?.parent_id, undefined);
+  // The via rule (network-schema-polish): the VM lands in its NIC's subnet.
+  assert.equal(
+    byId.get("azurerm_virtual_machine.main")?.parent_id,
+    "azurerm_subnet.internal",
+  );
 });
 
 test("derives satellite stacking from HCL: probe/pool/rule → lb, public IP → host, NIC → VM (GP-86)", () => {
@@ -287,6 +291,17 @@ test("the join catalog places, attaches, and edges association resources (azurer
 
   // subnet_nat_gateway_association → the NAT gateway nests in its subnet.
   assert.equal(byId.get("azurerm_nat_gateway.out")?.parent_id, "azurerm_subnet.internal");
+  // Two subnets share one NAT gateway → nearest common ancestor: the vnet —
+  // with a dashed edge to each served subnet.
+  assert.equal(
+    byId.get("azurerm_nat_gateway.shared")?.parent_id,
+    "azurerm_virtual_network.hub",
+  );
+  assert.ok(
+    hasEdge("azurerm_nat_gateway.shared", "azurerm_subnet.internal") &&
+      hasEdge("azurerm_nat_gateway.shared", "azurerm_subnet.internal2"),
+    "expected direct edges from the shared NAT gateway to both served subnets",
+  );
   // data-disk attachment → the disk stacks under its VM.
   assert.equal(
     byId.get("azurerm_managed_disk.data")?.parent_id,
