@@ -7,7 +7,10 @@ import { and, desc, eq, sql } from "drizzle-orm";
 
 import { playgroundDrafts } from "../db/schema.js";
 import { assertValidGraph, computeGraphStats } from "../graph/graph.js";
+import type { UnresolvedReference } from "../graph/graph.js";
 import { parseHclRepo, type HclFile } from "../graph/hcl-parser.js";
+import { mapK8sObjects } from "../graph/k8s-mapper.js";
+import { parseManifests } from "../graph/manifest-parser.js";
 import { summarize } from "../graph/summarize.js";
 
 // GP-123: the playground is a paste-and-look tool, not an ingestion path —
@@ -17,7 +20,10 @@ export const MAX_PLAYGROUND_BYTES = 1024 * 1024;
 // Raw-body headroom over MAX_PLAYGROUND_BYTES for JSON escaping + envelope.
 const PARSE_BODY_LIMIT = 2 * 1024 * 1024;
 
-const ALLOWED_EXTENSIONS = [".tf", ".tfvars"];
+const ALLOWED_EXTENSIONS = [".tf", ".tfvars", ".yaml", ".yml"];
+
+/** Which stack the parse reads — the playground's mirror of `repositories.iac_type` (GP-101). */
+export type PlaygroundIacType = "terraform" | "kubernetes";
 
 export const playgroundFilesSchema = {
   type: "array",
@@ -37,7 +43,10 @@ const parseBodySchema = {
   type: "object",
   required: ["files"],
   additionalProperties: false,
-  properties: { files: playgroundFilesSchema },
+  properties: {
+    files: playgroundFilesSchema,
+    iacType: { type: "string", enum: ["terraform", "kubernetes"] },
+  },
 };
 
 const UUID_PATTERN =
@@ -105,7 +114,7 @@ export function rejectInvalidFiles(
     if (!ALLOWED_EXTENSIONS.some((ext) => file.path.endsWith(ext))) {
       fields.push({
         field: file.path,
-        message: "only .tf and .tfvars files are allowed",
+        message: "only .tf, .tfvars, .yaml and .yml files are allowed",
       });
     }
     if (seen.has(file.path)) {
@@ -124,6 +133,92 @@ export function rejectInvalidFiles(
   return false;
 }
 
+/** `skipped <path>: <why>` warnings → the 422 `fields` shape, naming each file. */
+function skippedFields(
+  warnings: string[],
+): { field: string; message: string }[] {
+  return warnings.flatMap((w) => {
+    const match = /^skipped (.+?): (.+)$/.exec(w);
+    return match ? [{ field: match[1] ?? "", message: match[2] ?? "" }] : [];
+  });
+}
+
+/**
+ * The Terraform producer: the original GP-123 body. `parseHclRepo` selects the
+ * `.tf` subset itself, so a mixed set simply leaves its manifests unread.
+ */
+function parseTerraform(files: HclFile[], reply: FastifyReply) {
+  if (!files.some((f) => f.path.endsWith(".tf"))) {
+    return reply.code(422).send({
+      error: "Unprocessable Entity",
+      message: "no .tf files to parse",
+    });
+  }
+  const { graph, warnings, unresolvedReferences } = parseHclRepo(files);
+
+  // A file the scanner had to skip is a parse failure the user must fix —
+  // surface it as a 422 naming the file, never as a silently thinner graph.
+  const skipped = skippedFields(warnings);
+  if (skipped.length > 0) {
+    return reply.code(422).send({
+      error: "Unprocessable Entity",
+      message: "HCL parse failed",
+      fields: skipped,
+    });
+  }
+
+  assertValidGraph(graph);
+  const stats = {
+    ...computeGraphStats(graph),
+    warnings,
+    ...(unresolvedReferences.length > 0 ? { unresolvedReferences } : {}),
+  };
+  return { graph, stats, summaryMd: summarize(graph) };
+}
+
+/**
+ * The Kubernetes producer: the repo-docs pipeline (GP-102), minus the clone and
+ * the insert — parse the YAML subset, map the objects, answer ephemerally.
+ */
+function parseKubernetes(files: HclFile[], reply: FastifyReply) {
+  if (!files.some((f) => f.path.endsWith(".yaml") || f.path.endsWith(".yml"))) {
+    return reply.code(422).send({
+      error: "Unprocessable Entity",
+      message: "no .yaml manifests to parse",
+    });
+  }
+  const result = parseManifests(files);
+
+  // In a repository walk an unreadable file is just a file; here the user
+  // pasted it, so it is theirs to fix — the HCL branch's exact rule.
+  const skipped = skippedFields(result.warnings);
+  if (skipped.length > 0) {
+    return reply.code(422).send({
+      error: "Unprocessable Entity",
+      message: "YAML parse failed",
+      fields: skipped,
+    });
+  }
+  if (result.objects.length === 0) {
+    return reply.code(422).send({
+      error: "Unprocessable Entity",
+      message: "no Kubernetes objects found in the .yaml files",
+    });
+  }
+
+  const unresolved: UnresolvedReference[] = [];
+  const graph = mapK8sObjects(result.objects, { unresolved });
+  assertValidGraph(graph);
+  const stats = {
+    ...computeGraphStats(graph),
+    warnings: result.warnings,
+    skippedDocuments: result.skippedDocuments,
+    skippedFiles: result.skippedFiles,
+    ...(unresolved.length > 0 ? { unresolvedReferences: unresolved } : {}),
+  };
+  return { graph, stats, summaryMd: summarize(graph) };
+}
+
 /** The authenticated user, or a 401 (defensive — the hook guards this). */
 function requireUser(request: FastifyRequest, reply: FastifyReply) {
   const user = request.authUser;
@@ -137,42 +232,27 @@ function requireUser(request: FastifyRequest, reply: FastifyReply) {
 }
 
 /**
- * GP-123: ephemeral HCL → GraphSnapshot. The parser already works on in-memory
- * `{ path, content }` files, so nothing touches disk and nothing is persisted —
- * the response is the same validate → stats → summarize assembly the docs flow
- * stores, minus the insert (determinism, ADR #3).
+ * GP-123: ephemeral files → GraphSnapshot. Both parsers already work on
+ * in-memory `{ path, content }` files, so nothing touches disk and nothing is
+ * persisted — the response is the same validate → stats → summarize assembly
+ * the docs flow stores, minus the insert (determinism, ADR #3).
  */
 export const playgroundRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/playground/parse",
     { bodyLimit: PARSE_BODY_LIMIT, schema: { body: parseBodySchema } },
     async (request, reply) => {
-      const { files } = request.body as { files: HclFile[] };
-      if (rejectInvalidFiles(files, reply)) return;
-
-      const { graph, warnings, unresolvedReferences } = parseHclRepo(files);
-
-      // A file the scanner had to skip is a parse failure the user must fix —
-      // surface it as a 422 naming the file, never as a silently thinner graph.
-      const skipped = warnings.flatMap((w) => {
-        const match = /^skipped (.+?): (.+)$/.exec(w);
-        return match ? [{ field: match[1] ?? "", message: match[2] ?? "" }] : [];
-      });
-      if (skipped.length > 0) {
-        return reply.code(422).send({
-          error: "Unprocessable Entity",
-          message: "HCL parse failed",
-          fields: skipped,
-        });
-      }
-
-      assertValidGraph(graph);
-      const stats = {
-        ...computeGraphStats(graph),
-        warnings,
-        ...(unresolvedReferences.length > 0 ? { unresolvedReferences } : {}),
+      const { files, iacType = "terraform" } = request.body as {
+        files: HclFile[];
+        iacType?: PlaygroundIacType;
       };
-      return { graph, stats, summaryMd: summarize(graph) };
+      if (rejectInvalidFiles(files, reply)) return;
+      // Both parsers select their own subset of the set (`.tf` / `.yaml`), the
+      // way the repo-docs producers do (GP-101) — but a mode with nothing to
+      // parse is a 422, never a silently empty diagram.
+      return iacType === "kubernetes"
+        ? parseKubernetes(files, reply)
+        : parseTerraform(files, reply);
     },
   );
 

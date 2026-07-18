@@ -500,3 +500,194 @@ test("drafts: every route requires a bearer token", async () => {
     await app.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Kubernetes mode: the same endpoint, branched by `iacType`. The
+// repo-docs pipeline (GP-102), minus the clone and the insert.
+// ---------------------------------------------------------------------------
+
+/** A deployment + service in one namespace, plus a values.yaml that is YAML
+ *  but not Kubernetes — the minimal "real" manifests playground. */
+const K8S_FILES = [
+  {
+    path: "app.yaml",
+    content: [
+      `apiVersion: apps/v1`,
+      `kind: Deployment`,
+      `metadata:`,
+      `  name: api`,
+      `  namespace: prod`,
+      `spec:`,
+      `  selector:`,
+      `    matchLabels:`,
+      `      app: api`,
+      `---`,
+      `apiVersion: v1`,
+      `kind: Service`,
+      `metadata:`,
+      `  name: api`,
+      `  namespace: prod`,
+      `spec:`,
+      `  selector:`,
+      `    app: api`,
+    ].join("\n"),
+  },
+  { path: "values.yaml", content: `replicas: 3\nimage: api:latest\n` },
+];
+
+test("POST /playground/parse iacType=kubernetes: manifests → graph, stats carry skips", async () => {
+  const app = await buildApp(env, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: { files: K8S_FILES, iacType: "kubernetes" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    const ids = body.graph.nodes.map((n: { id: string }) => n.id);
+    assert.ok(
+      ids.includes("prod/Deployment/api"),
+      `namespace-qualified id, got ${ids}`,
+    );
+    assert.ok(ids.includes("prod/Service/api"));
+    // values.yaml parsed as YAML but is not a Kubernetes object — counted, not fatal.
+    assert.equal(body.stats.skippedDocuments, 1);
+    assert.equal(body.stats.skippedFiles, 0);
+    assert.equal(typeof body.summaryMd, "string");
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /playground/parse iacType=kubernetes: .tf files in the set are ignored", async () => {
+  const app = await buildApp(env, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: { files: [...K8S_FILES, ...CROSS_FILE_HCL], iacType: "kubernetes" },
+    });
+    assert.equal(res.statusCode, 200);
+    const ids = res.json().graph.nodes.map((n: { id: string }) => n.id);
+    assert.ok(!ids.some((id: string) => id.startsWith("azurerm_")));
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /playground/parse default terraform: .yaml files in the set are ignored", async () => {
+  const app = await buildApp(env, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: { files: [...CROSS_FILE_HCL, ...K8S_FILES] },
+    });
+    assert.equal(res.statusCode, 200);
+    const ids = res.json().graph.nodes.map((n: { id: string }) => n.id);
+    assert.ok(!ids.some((id: string) => id.includes("Deployment")));
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /playground/parse: zero files matching the mode is a 422", async () => {
+  const app = await buildApp(env, { pool: poisonedPool() });
+  try {
+    const noTf = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: { files: K8S_FILES }, // default terraform
+    });
+    assert.equal(noTf.statusCode, 422);
+    assert.equal(noTf.json().message, "no .tf files to parse");
+
+    const noYaml = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: { files: CROSS_FILE_HCL, iacType: "kubernetes" },
+    });
+    assert.equal(noYaml.statusCode, 422);
+    assert.equal(noYaml.json().message, "no .yaml manifests to parse");
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /playground/parse iacType=kubernetes: unreadable YAML is a 422 naming the file", async () => {
+  const app = await buildApp(env, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: {
+        files: [
+          // A Helm template: Go source that happens to end in .yaml.
+          {
+            path: "tpl.yaml",
+            content: `apiVersion: v1\nkind: {{ .Values.kind }\n  :bad`,
+          },
+        ],
+        iacType: "kubernetes",
+      },
+    });
+    assert.equal(res.statusCode, 422);
+    const body = res.json();
+    assert.equal(body.message, "YAML parse failed");
+    assert.equal(body.fields[0].field, "tpl.yaml");
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /playground/parse iacType=kubernetes: YAML holding no Kubernetes objects is a 422", async () => {
+  const app = await buildApp(env, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: {
+        files: [{ path: "values.yaml", content: `replicas: 3\n` }],
+        iacType: "kubernetes",
+      },
+    });
+    assert.equal(res.statusCode, 422);
+    assert.equal(
+      res.json().message,
+      "no Kubernetes objects found in the .yaml files",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /playground/parse: an unknown iacType is a validation 422", async () => {
+  // Schema failures are 422s app-wide (plugins/error-handler.ts), not 400s.
+  const app = await buildApp(env, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/parse",
+      payload: { files: CROSS_FILE_HCL, iacType: "pulumi" },
+    });
+    assert.equal(res.statusCode, 422);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /playground/drafts: a draft may hold .yaml manifests", async () => {
+  const app = await buildTestApp();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/drafts",
+      headers: await authHeader(),
+      payload: { name: "k8s scratch", files: K8S_FILES },
+    });
+    assert.equal(res.statusCode, 201);
+  } finally {
+    await app.close();
+  }
+});
