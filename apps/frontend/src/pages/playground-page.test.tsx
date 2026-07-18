@@ -352,10 +352,40 @@ it("has no axe violations", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Drafts (GP-126): save, list, open, rename, delete — and the dirty guard.
+// Drafts (GP-126) through the draft-centric header (GP-129): the grouped menu,
+// the editable title, the actionable save status, Ctrl+S — and the dirty guard.
 // ---------------------------------------------------------------------------
 
-it("saves the playground as a named draft and shows the name", async () => {
+/** Open the grouped draft menu (shows "Drafts", or the open draft's name). */
+function openDraftMenu() {
+  fireEvent.keyDown(screen.getByRole("button", { name: /draft actions/i }), {
+    key: "Enter",
+  });
+}
+
+/** Drive the Save as… flow from the menu to a created draft named `name`. */
+async function saveAsDraft(name: string) {
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /save as/i }));
+  fireEvent.change(await screen.findByLabelText(/draft name/i), {
+    target: { value: name },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
+  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
+}
+
+it("titles an unsaved playground Untitled, with the status by the actions", () => {
+  renderPage();
+
+  expect(
+    screen.getByRole("heading", { name: /untitled/i }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /unsaved changes/i }),
+  ).toBeInTheDocument();
+});
+
+it("saves as a named draft from the menu and titles the page with it", async () => {
   createDraftMock.mockImplementation(async (input) => ({
     ...DRAFT,
     name: input.name,
@@ -363,19 +393,17 @@ it("saves the playground as a named draft and shows the name", async () => {
   }));
   renderPage();
 
-  fireEvent.click(screen.getByRole("button", { name: /save as draft/i }));
-  const nameInput = await screen.findByLabelText(/draft name/i);
-  fireEvent.change(nameInput, { target: { value: "my stack" } });
-  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
+  await saveAsDraft("my stack");
 
-  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
   const input = createDraftMock.mock.calls[0]?.[0];
   expect(input?.name).toBe("my stack");
   expect(input?.files.map((f) => f.path)).toEqual(["main.tf", "network.tf"]);
-  expect(await screen.findByText("my stack")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: /my stack/i }),
+  ).toBeInTheDocument();
 });
 
-it("Save updates the current draft — no duplication", async () => {
+it("Save from the menu updates the current draft — no duplication", async () => {
   createDraftMock.mockImplementation(async (input) => ({
     ...DRAFT,
     name: input.name,
@@ -384,17 +412,13 @@ it("Save updates the current draft — no duplication", async () => {
   updateDraftMock.mockResolvedValue(DRAFT);
   renderPage();
 
-  fireEvent.click(screen.getByRole("button", { name: /save as draft/i }));
-  fireEvent.change(await screen.findByLabelText(/draft name/i), {
-    target: { value: "my stack" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
-  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
+  await saveAsDraft("my stack");
 
   fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
     target: { value: "# edited" },
   });
-  fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /^save$/i }));
 
   await waitFor(() => expect(updateDraftMock).toHaveBeenCalledTimes(1));
   const [id, payload] = updateDraftMock.mock.calls[0] ?? [];
@@ -405,13 +429,125 @@ it("Save updates the current draft — no duplication", async () => {
   expect(createDraftMock).toHaveBeenCalledTimes(1);
 });
 
+it("clicking the Unsaved status starts the Save as flow", async () => {
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /unsaved changes/i }));
+  expect(await screen.findByLabelText(/draft name/i)).toBeInTheDocument();
+});
+
+it("clicking the status with a dirty draft saves it", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue(DRAFT);
+  renderPage();
+
+  await saveAsDraft("my stack");
+  expect(screen.getByRole("button", { name: /^saved$/i })).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# edited" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /unsaved changes/i }));
+
+  await waitFor(() => expect(updateDraftMock).toHaveBeenCalledTimes(1));
+});
+
+it("renames the current draft from its title, inline", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue({ ...DRAFT, name: "renamed" });
+  renderPage();
+
+  await saveAsDraft("my stack");
+
+  fireEvent.click(screen.getByRole("button", { name: "my stack" }));
+  const input = screen.getByRole("textbox", { name: /rename draft/i });
+  fireEvent.change(input, { target: { value: "renamed" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  await waitFor(() =>
+    expect(updateDraftMock).toHaveBeenCalledWith("d1", { name: "renamed" }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: /renamed/i }),
+  ).toBeInTheDocument();
+});
+
+it("Ctrl+S saves the current draft; unsaved, it opens Save as", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue(DRAFT);
+  renderPage();
+
+  // No draft yet: the shortcut opens the naming dialog.
+  fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+  expect(await screen.findByLabelText(/draft name/i)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/draft name/i), {
+    target: { value: "my stack" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /save draft/i }));
+  await waitFor(() => expect(createDraftMock).toHaveBeenCalledTimes(1));
+
+  // With a draft open: the shortcut saves in place.
+  fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+  await waitFor(() => expect(updateDraftMock).toHaveBeenCalledTimes(1));
+});
+
+it("disables Rename and Delete in the menu until a draft is open", async () => {
+  renderPage();
+
+  openDraftMenu();
+  expect(
+    await screen.findByRole("menuitem", { name: /rename/i }),
+  ).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("menuitem", { name: /delete/i })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+});
+
+it("deletes the current draft from the menu, behind a confirmation", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  deleteDraftMock.mockResolvedValue(undefined);
+  renderPage();
+
+  await saveAsDraft("my stack");
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+  expect(deleteDraftMock).not.toHaveBeenCalled();
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: /delete draft/i }),
+  );
+  await waitFor(() => expect(deleteDraftMock).toHaveBeenCalledWith("d1"));
+  expect(
+    await screen.findByRole("heading", { name: /untitled/i }),
+  ).toBeInTheDocument();
+});
+
 it("opens a draft: files restored, parse re-runs automatically", async () => {
   listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
   getDraftMock.mockResolvedValue(DRAFT);
   parsePlaygroundMock.mockResolvedValue(snap(1));
   renderPage();
 
-  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
   fireEvent.click(
     await screen.findByRole("button", { name: /open azure sketch/i }),
   );
@@ -420,6 +556,10 @@ it("opens a draft: files restored, parse re-runs automatically", async () => {
   await waitFor(() => expect(parsePlaygroundMock).toHaveBeenCalledTimes(1));
   expect(parsePlaygroundMock.mock.calls[0]?.[0]).toEqual(DRAFT.files);
   expect(await screen.findByTestId("canvas")).toHaveTextContent("1 nodes");
+  // The opened draft's name becomes the page title (GP-129).
+  expect(
+    screen.getByRole("heading", { name: /azure sketch/i }),
+  ).toBeInTheDocument();
 });
 
 it("a draft that no longer parses still opens, error on display", async () => {
@@ -432,7 +572,8 @@ it("a draft that no longer parses still opens, error on display", async () => {
   );
   renderPage();
 
-  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
   fireEvent.click(
     await screen.findByRole("button", { name: /open azure sketch/i }),
   );
@@ -450,7 +591,8 @@ it("renames a draft from the list", async () => {
   updateDraftMock.mockResolvedValue({ ...DRAFT, name: "renamed" });
   renderPage();
 
-  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
   fireEvent.click(
     await screen.findByRole("button", { name: /rename azure sketch/i }),
   );
@@ -463,12 +605,13 @@ it("renames a draft from the list", async () => {
   );
 });
 
-it("deletes a draft only after confirmation", async () => {
+it("deletes a draft from the list only after confirmation", async () => {
   listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
   deleteDraftMock.mockResolvedValue(undefined);
   renderPage();
 
-  fireEvent.click(screen.getByRole("button", { name: /^drafts$/i }));
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
   fireEvent.click(
     await screen.findByRole("button", { name: /delete azure sketch/i }),
   );

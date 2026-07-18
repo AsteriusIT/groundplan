@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import {
+  ChevronDown,
   FilePlus2,
   FolderOpen,
   Loader2,
@@ -10,11 +11,17 @@ import {
   Play,
   Plus,
   Save,
+  SaveAll,
   Trash2,
   Upload,
 } from "lucide-react";
 
-import { ApiError, parsePlayground, updatePlaygroundDraft } from "@/api/client";
+import {
+  ApiError,
+  deletePlaygroundDraft,
+  parsePlayground,
+  updatePlaygroundDraft,
+} from "@/api/client";
 import type {
   PlaygroundDraft,
   PlaygroundFile,
@@ -28,9 +35,18 @@ import {
 } from "@/components/playground-draft-dialogs";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -136,14 +152,19 @@ export function PlaygroundPage() {
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // GP-129: the header centres on the draft — inline title rename and the
+  // delete-current-draft confirmation.
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
 
   const active = files.find((f) => f.path === activePath) ?? null;
   // The parse error naming the open file, if any — its line (when the message
   // carries one) is marked in the editor (GP-127).
   const activeError = active ? failure?.byFile.get(active.path) : undefined;
   const dirty = JSON.stringify(files) !== savedSerial;
-  let saveLabel = "Save as draft…";
-  if (draft) saveLabel = saving ? "Saving…" : "Save";
+  // A scratch playground is never "Saved" — it has nowhere to be saved to.
+  const unsaved = !draft || dirty;
 
   // Leaving with unsaved changes deserves a warning (GP-126).
   useEffect(() => {
@@ -181,7 +202,7 @@ export function PlaygroundPage() {
 
   const visualize = useCallback(() => runParse(files), [runParse, files]);
 
-  async function saveCurrentDraft() {
+  const saveCurrentDraft = useCallback(async () => {
     if (!draft) return;
     setSaving(true);
     setSaveError(null);
@@ -195,6 +216,61 @@ export function PlaygroundPage() {
     } finally {
       setSaving(false);
     }
+  }, [draft, files]);
+
+  /** Save, or start the Save as flow when nothing is saved yet (GP-129). */
+  const save = useCallback(() => {
+    if (files.length === 0) return;
+    if (draft) void saveCurrentDraft();
+    else setSaveOpen(true);
+  }, [files.length, draft, saveCurrentDraft]);
+
+  // Cmd/Ctrl+S saves in place — the browser's save dialog has nothing to offer.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        save();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [save]);
+
+  /** Inline title rename → PUT, like renaming from the drafts list. */
+  async function commitTitleRename() {
+    const name = titleDraft.trim();
+    setTitleEditing(false);
+    if (!draft || !name || name === draft.name) return;
+    try {
+      await updatePlaygroundDraft(draft.id, { name });
+      setDraft({ ...draft, name });
+    } catch (err) {
+      setSaveError(
+        err instanceof ApiError ? err.message : "Could not rename the draft.",
+      );
+    }
+  }
+
+  /** Delete the open draft; the files stay as an unsaved playground. */
+  async function confirmDeleteDraft() {
+    if (!draft) return;
+    try {
+      await deletePlaygroundDraft(draft.id);
+      setDraft(null);
+      setDeleteDraftOpen(false);
+    } catch (err) {
+      setSaveError(
+        err instanceof ApiError ? err.message : "Could not delete the draft.",
+      );
+      setDeleteDraftOpen(false);
+    }
+  }
+
+  function startTitleRename() {
+    if (!draft) return;
+    setTitleDraft(draft.name);
+    setTitleEditing(true);
   }
 
   function handleSaved(saved: PlaygroundDraft) {
@@ -284,36 +360,105 @@ export function PlaygroundPage() {
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <div className="min-w-0">
             <p className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
-              Sandbox
+              Playground
             </p>
-            <h1 className="font-display text-xl font-semibold">Playground</h1>
-            <p className="text-muted-foreground flex items-center gap-1.5 font-mono text-[11px]">
-              <span className="truncate">{draft ? draft.name : "Unsaved"}</span>
-              {dirty && (
-                <span
-                  aria-label="Unsaved changes"
-                  title="Unsaved changes"
-                  className="bg-update inline-block size-1.5 shrink-0 rounded-full"
-                />
-              )}
-            </p>
+            {/* Title = the draft (GP-129): its name, editable in place; a
+                scratch playground is "Untitled" until it is saved as one. */}
+            {titleEditing && draft ? (
+              <Input
+                autoFocus
+                aria-label="Rename draft"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={() => void commitTitleRename()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void commitTitleRename();
+                  if (e.key === "Escape") setTitleEditing(false);
+                }}
+                className="font-display h-8 max-w-xs text-xl font-semibold"
+              />
+            ) : (
+              <h1 className="font-display truncate text-xl font-semibold">
+                {draft ? (
+                  <button
+                    type="button"
+                    title="Rename draft"
+                    onClick={startTitleRename}
+                    className="hover:bg-accent/60 -mx-1 truncate rounded px-1 text-left"
+                  >
+                    {draft.name}
+                  </button>
+                ) : (
+                  "Untitled"
+                )}
+              </h1>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => setDraftsOpen(true)}>
-              <FolderOpen className="size-4" />
-              Drafts
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                if (draft) void saveCurrentDraft();
-                else setSaveOpen(true);
-              }}
+            {/* The save status lives beside the actions it points at, and is
+                itself the shortest path to saving. */}
+            <button
+              type="button"
+              aria-label={unsaved ? "Unsaved changes" : "Saved"}
+              onClick={save}
               disabled={saving || files.length === 0}
+              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 px-1 font-mono text-[11px] disabled:pointer-events-none"
             >
-              <Save className="size-4" />
-              {saveLabel}
-            </Button>
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  unsaved ? "bg-update" : "bg-create",
+                )}
+              />
+              {(() => {
+                if (saving) return "Saving…";
+                return unsaved ? "Unsaved changes" : "Saved";
+              })()}
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" aria-label="Draft actions">
+                  <FolderOpen className="size-4" />
+                  <span className="max-w-40 truncate">
+                    {draft ? draft.name : "Drafts"}
+                  </span>
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={saving || files.length === 0}
+                  onSelect={save}
+                >
+                  <Save className="size-4" />
+                  Save
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={files.length === 0}
+                  onSelect={() => setSaveOpen(true)}
+                >
+                  <SaveAll className="size-4" />
+                  Save as…
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setDraftsOpen(true)}>
+                  <FolderOpen className="size-4" />
+                  Open draft…
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={!draft} onSelect={startTitleRename}>
+                  <Pencil className="size-4" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!draft}
+                  variant="destructive"
+                  onSelect={() => setDeleteDraftOpen(true)}
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               onClick={() => void visualize()}
               disabled={parsing || files.length === 0}
@@ -586,6 +731,31 @@ export function PlaygroundPage() {
         }
         onDeleted={(id) => setDraft((d) => (d && d.id === id ? null : d))}
       />
+      {/* Deleting the *open* draft (GP-129) — the files stay on screen as an
+          unsaved playground; only the saved copy goes. */}
+      <Dialog open={deleteDraftOpen} onOpenChange={setDeleteDraftOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-display">Delete draft</DialogTitle>
+            <DialogDescription>
+              This permanently deletes{" "}
+              <span className="text-foreground font-medium">{draft?.name}</span>
+              . The files stay open as an unsaved playground.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDraftOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void confirmDeleteDraft()}
+            >
+              Delete draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
