@@ -34,6 +34,7 @@ import { ingestionRoutes } from "./routes/ingestion.js";
 import { invitationAcceptRoutes } from "./routes/invitations.js";
 import { meRoutes } from "./routes/me.js";
 import { orgRoutes } from "./routes/organizations.js";
+import { playgroundRoutes } from "./routes/playground.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { sharePublicRoutes } from "./routes/share-links.js";
 
@@ -162,6 +163,9 @@ export async function buildApp(
   await app.register(settingsRoutes, { prefix: "/api/v1" });
   await app.register(sharePublicRoutes, { prefix: "/api/v1" });
   await app.register(aiStatusRoutes, { prefix: "/api/v1" });
+  // Playground (GP-123): user-scoped, org-free — parse is ephemeral, drafts
+  // belong to their author alone, so none of it sits under /orgs/:orgId.
+  await app.register(playgroundRoutes, { prefix: "/api/v1" });
 
   // Everything a tenant owns — projects, repos, snapshots, PRs, clusters, docs,
   // annotations, AI generation, exports, tours, dashboard — lives under
