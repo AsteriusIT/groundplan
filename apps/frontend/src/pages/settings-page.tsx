@@ -138,10 +138,11 @@ export function SettingsPage() {
       />
       <div className="mx-auto flex max-w-5xl items-start gap-10 px-8 py-8">
         <SettingsRail groups={groups} />
-        <div className="min-w-0 max-w-3xl flex-1 space-y-8">
+        {/* Group labels live in the rail alone; here the grouping is spacing —
+            tight within a group, wide between groups. */}
+        <div className="min-w-0 max-w-3xl flex-1 space-y-10">
           {groups.map((group) => (
             <div key={group.label ?? "danger"} className="space-y-4">
-              {group.label && <GroupLabel>{group.label}</GroupLabel>}
               {group.sections.map((s) => (
                 <div key={s.id} id={s.id} className="scroll-mt-6">
                   {s.element}

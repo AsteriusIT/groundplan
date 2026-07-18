@@ -243,12 +243,12 @@ it("pins the section named by the URL hash on arrival", () => {
   }
 });
 
-it("groups the page under Personal / Organization / Workspace labels", () => {
+it("labels the groups in the rail only — never duplicated over the cards", () => {
   renderPage();
-  // Once in the rail, once above the cards.
-  expect(screen.getAllByText("Personal").length).toBeGreaterThanOrEqual(2);
-  expect(screen.getAllByText("Organization").length).toBeGreaterThanOrEqual(2);
-  expect(screen.getAllByText("Workspace").length).toBeGreaterThanOrEqual(2);
+  for (const label of ["Personal", "Organization", "Workspace"]) {
+    within(rail()).getByText(label);
+    expect(screen.getAllByText(label)).toHaveLength(1);
+  }
 });
 
 it("tints the danger zone card destructive", () => {
