@@ -206,6 +206,42 @@ function readAttr(body: string, key: string): string | undefined {
   return m[1] ?? m[2];
 }
 
+/** Read a flat list-of-strings attribute (`key = ["a", "b"]`) from a block body. */
+function readStringList(body: string, key: string): string[] | undefined {
+  const m = new RegExp(
+    String.raw`(?:^|\n)[ \t]*${key}[ \t]*=[ \t]*\[([^\]]*)\]`,
+  ).exec(body);
+  if (!m) return undefined;
+  const items = [...(m[1] as string).matchAll(/"([^"]*)"/g)].map(
+    (x) => x[1] as string,
+  );
+  return items.length > 0 ? items : undefined;
+}
+
+/** v7 attributes a network frame carries: its statically-declared CIDRs. An
+ * expression value is unknowable without evaluation — no attribute at all. */
+function hclNetworkAttributes(
+  type: string,
+  body: string,
+): Record<string, string> | undefined {
+  let key: string | null = null;
+  if (type === "azurerm_subnet") key = "address_prefixes";
+  else if (type === "azurerm_virtual_network") key = "address_space";
+  if (!key) return undefined;
+  const values = readStringList(body, key);
+  return values ? { [key]: values.join(", ") } : undefined;
+}
+
+/** Stamp v7 CIDR attributes onto subnet/vnet nodes from their block bodies. */
+function attachHclAttributes(ctx: Ctx): void {
+  for (const ps of ctx.pendingSources) {
+    const node = ctx.nodes.get(ps.fromBase);
+    if (!node) continue;
+    const attrs = hclNetworkAttributes(node.type, ps.body);
+    if (attrs) node.attributes = attrs;
+  }
+}
+
 /** Inline `security_rule { … }` blocks within an NSG body → NsgRule[]. */
 function scanSecurityRules(body: string): NsgRule[] {
   return scanTopLevelBlocks(body)
@@ -537,6 +573,7 @@ export function parseHclRepo(
   }
 
   parseModuleDir(ctx, rootDir, "", [], null);
+  attachHclAttributes(ctx);
 
   const resourceIds = new Set<string>();
   const moduleIds = new Set<string>();
@@ -617,7 +654,9 @@ export function parseHclRepo(
     n.associated_ids !== undefined ||
     n.role_assignment !== undefined ||
     n.identity !== undefined;
-  const version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
+  let version: Graph["version"] = nodes.some(isV4) ? 4 : 1;
+  // v7 when any node carries `attributes` (a subnet/vnet CIDR).
+  if (nodes.some((n) => n.attributes !== undefined)) version = 7;
   return {
     graph: { version, nodes, edges },
     warnings: [...ctx.warnings].sort(compareStrings),

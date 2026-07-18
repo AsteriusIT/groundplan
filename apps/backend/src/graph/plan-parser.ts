@@ -258,6 +258,20 @@ function extractPlanNsg(changes: readonly unknown[]): Map<string, ExtractedNsg> 
   return extracted;
 }
 
+/** v7 attributes a network frame carries: its CIDRs, from the plan's `after`. */
+function planNetworkAttributes(
+  type: string,
+  after: Record<string, unknown>,
+): Record<string, string> | undefined {
+  let key: string | null = null;
+  if (type === "azurerm_subnet") key = "address_prefixes";
+  else if (type === "azurerm_virtual_network") key = "address_space";
+  if (!key) return undefined;
+  const value = after[key];
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  return { [key]: value.map(String).join(", ") };
+}
+
 /** One configuration resource's module prefix + raw per-attribute expressions. */
 type ConfigEntry = { prefix: string; expressions: Record<string, unknown> };
 
@@ -477,6 +491,11 @@ export function parsePlanToGraph(
       }
     }
 
+    // v7 CIDR attributes for network frames, read from the planned `after`.
+    const after = (rc.change?.after ?? {}) as Record<string, unknown>;
+    const attrs = planNetworkAttributes(node.type, after);
+    if (attrs) node.attributes = attrs;
+
     nodesById.set(id, node);
 
     // Synthetic module nodes + contains edges for the module hierarchy.
@@ -594,6 +613,8 @@ export function parsePlanToGraph(
   let version: Graph["version"] = 2;
   if (withImpact.nodes.some((n) => n.attribute_diff !== undefined)) version = 3;
   if (withImpact.nodes.some(isV4)) version = 4;
+  // v7 when any node carries `attributes` (a subnet/vnet CIDR).
+  if (withImpact.nodes.some((n) => n.attributes !== undefined)) version = 7;
 
   if (out) {
     out.unresolved.push(

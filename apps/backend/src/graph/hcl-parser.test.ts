@@ -57,7 +57,8 @@ test("the vm -> nic -> subnet -> vnet chain is visible via expressions", () => {
 test("derives vnet⊃subnet⊃NIC containment (parent_id) and escalates to v4 (GP-42)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-expressions"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  assert.equal(graph.version, 4);
+  // v7 since the vnet's literal CIDR lands in attributes (network-schema-polish).
+  assert.equal(graph.version, 7);
   assert.equal(
     byId.get("azurerm_subnet.internal")?.parent_id,
     "azurerm_virtual_network.main",
@@ -91,7 +92,8 @@ test("derives satellite stacking from HCL: probe/pool/rule → lb, public IP →
 
 test("attaches NSG rules, internet_exposed, and associations from HCL (GP-43)", () => {
   const { graph } = parseHclRepo(readRepo("hcl-nsg"));
-  assert.equal(graph.version, 4);
+  // v7 since the fixture's literal CIDRs land in attributes (network-schema-polish).
+  assert.equal(graph.version, 7);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const open = byId.get("azurerm_network_security_group.open")!;
   assert.equal(open.rules?.length, 2);
@@ -331,4 +333,49 @@ test("the join catalog places, attaches, and edges association resources (azurer
     byId.get("azurerm_linux_virtual_machine.app")?.parent_id,
     "azurerm_subnet.internal",
   );
+});
+
+test("subnet and vnet CIDRs land in attributes and escalate to v7", () => {
+  const { graph } = parseHclRepo([
+    {
+      path: "main.tf",
+      content: `
+resource "azurerm_virtual_network" "hub" {
+  name          = "hub"
+  address_space = ["10.0.0.0/16"]
+}
+resource "azurerm_subnet" "app" {
+  name                 = "app"
+  virtual_network_name = azurerm_virtual_network.hub.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+resource "azurerm_subnet" "multi" {
+  name                 = "multi"
+  virtual_network_name = azurerm_virtual_network.hub.name
+  address_prefixes     = ["10.0.2.0/24", "10.0.3.0/24"]
+}
+resource "azurerm_subnet" "dynamic" {
+  name                 = "dynamic"
+  virtual_network_name = azurerm_virtual_network.hub.name
+  address_prefixes     = var.prefixes
+}
+`,
+    },
+  ]);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  assert.equal(
+    byId.get("azurerm_subnet.app")?.attributes?.["address_prefixes"],
+    "10.0.1.0/24",
+  );
+  assert.equal(
+    byId.get("azurerm_subnet.multi")?.attributes?.["address_prefixes"],
+    "10.0.2.0/24, 10.0.3.0/24",
+  );
+  // An expression CIDR is unknowable statically — no attribute at all.
+  assert.equal(byId.get("azurerm_subnet.dynamic")?.attributes, undefined);
+  assert.equal(
+    byId.get("azurerm_virtual_network.hub")?.attributes?.["address_space"],
+    "10.0.0.0/16",
+  );
+  assert.equal(graph.version, 7);
 });

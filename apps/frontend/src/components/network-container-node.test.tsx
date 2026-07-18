@@ -83,3 +83,21 @@ it("a subnet header with chips is accessible", async () => {
   const results = await axe(baseElement);
   expect(results.violations).toEqual([]);
 });
+
+it("shows the subnet CIDR on the frame header", () => {
+  render(
+    <NetworkContainer
+      graphNode={{ ...subnet, attributes: { address_prefixes: "10.0.2.0/24" } }}
+    />,
+  );
+  expect(screen.getByText("10.0.2.0/24")).toBeInTheDocument();
+});
+
+it("shows the vnet address space on the frame header", () => {
+  render(
+    <NetworkContainer
+      graphNode={{ ...vnet, attributes: { address_space: "10.0.0.0/16" } }}
+    />,
+  );
+  expect(screen.getByText("10.0.0.0/16")).toBeInTheDocument();
+});

@@ -44,6 +44,10 @@ export function NetworkContainer({
   const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
   const layer = isVnet ? "vnet" : shortType(graphNode.type);
   const hasChips = chips !== undefined && chips.length > 0;
+  // The frame's CIDR (v7 attributes), when the producer knew it statically.
+  const cidr =
+    graphNode.attributes?.["address_prefixes"] ??
+    graphNode.attributes?.["address_space"];
   return (
     <div
       className={cn(
@@ -71,6 +75,7 @@ export function NetworkContainer({
         />
         <span className="tracking-[0.14em] uppercase">{layer}</span>
         <span className="text-ink font-semibold">{graphNode.name}</span>
+        {cidr && <span className="text-faint">{cidr}</span>}
       </span>
 
       {/* GP-89: the subnet's guardians, pinned along the top of its frame. */}

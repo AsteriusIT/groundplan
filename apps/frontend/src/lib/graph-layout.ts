@@ -676,6 +676,49 @@ function elkNodeFor(
   };
 }
 
+/** Numeric sort value of a node's first CIDR, or null when it has none. */
+function cidrSortValue(node: GraphNode | undefined): number | null {
+  const raw = node?.attributes?.["address_prefixes"]?.split(",")[0]?.trim();
+  const m = raw ? /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/\d+$/.exec(raw) : null;
+  if (!m) return null;
+  const [, a, b, c, d] = m;
+  if (a === undefined || b === undefined || c === undefined || d === undefined) {
+    return null;
+  }
+  return ((Number(a) * 256 + Number(b)) * 256 + Number(c)) * 256 + Number(d);
+}
+
+/**
+ * Order a container's children by CIDR (known CIDRs first, numerically; the
+ * rest keep id order) and tell ELK to respect that model order — so subnets lay
+ * out by address plan, stable across code refactors, not by declaration or id.
+ * A container with no CIDR-carrying child is left untouched.
+ */
+function orderChildrenByCidr(
+  elk: ElkGraphNode,
+  byId: ReadonlyMap<string, GraphNode>,
+): void {
+  const children = elk.children;
+  if (!children || children.length < 2) return;
+  const values = new Map(
+    children.map((c) => [c.id, cidrSortValue(byId.get(c.id))]),
+  );
+  if (![...values.values()].some((v) => v !== null)) return;
+  children.sort((x, y) => {
+    const a = values.get(x.id) ?? null;
+    const b = values.get(y.id) ?? null;
+    if (a !== null && b !== null) return a - b;
+    if (a !== null) return -1;
+    if (b !== null) return 1;
+    return x.id.localeCompare(y.id);
+  });
+  elk.layoutOptions = {
+    ...elk.layoutOptions,
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+    "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
+  };
+}
+
 export function toElkGraph(
   graph: Graph,
   hubs?: ReadonlySet<string>,
@@ -707,6 +750,10 @@ export function toElkGraph(
     }
   }
   const roots = nestElkNodes(graph, elkById, parentOf, forced);
+
+  // Subnets inside a vnet lay out by address plan, not id order.
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  for (const elk of elkById.values()) orderChildrenByCidr(elk, nodeById);
 
   // Lay out the edges as they will be drawn: re-anchored onto host cards / subnet
   // containers and merged (GP-88/89). With nothing attached this is exactly the

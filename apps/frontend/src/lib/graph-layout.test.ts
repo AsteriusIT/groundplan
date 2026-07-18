@@ -1173,3 +1173,29 @@ it("a chip-carrying resource card reserves extra height", () => {
   const vm2 = findElk(elk, "vm2"); // no stack, one chip
   expect(vm2?.height).toBeGreaterThan(56);
 });
+
+// --- subnet ordering by CIDR (network-schema-polish) -------------------------
+
+it("orders a vnet's subnets by CIDR, not by id, and pins the model order", () => {
+  const n = (id: string, type: string, over: Partial<Graph["nodes"][number]> = {}) => ({
+    id, name: id, type, provider: "azurerm" as const, module_path: [] as string[], change: null, ...over,
+  });
+  // Ids chosen so alphabetical order (sa, sb, sc) differs from CIDR order.
+  const graph: Graph = {
+    version: 7,
+    nodes: [
+      n("vnet", "azurerm_virtual_network"),
+      n("sa", "azurerm_subnet", { parent_id: "vnet", attributes: { address_prefixes: "10.0.3.0/24" } }),
+      n("sb", "azurerm_subnet", { parent_id: "vnet", attributes: { address_prefixes: "10.0.1.0/24" } }),
+      n("sc", "azurerm_subnet", { parent_id: "vnet", attributes: { address_prefixes: "10.0.2.0/24" } }),
+      n("sd", "azurerm_subnet", { parent_id: "vnet" }), // no CIDR → sorts last
+    ],
+    edges: ["sa", "sb", "sc", "sd"].map((id) => ({ from: "vnet", to: id, kind: "contains" as const })),
+  };
+  const elk = toElkGraph(graph);
+  const vnet = findElk(elk, "vnet");
+  expect(vnet?.children?.map((c) => c.id)).toEqual(["sb", "sc", "sa", "sd"]);
+  expect(vnet?.layoutOptions?.["elk.layered.considerModelOrder.strategy"]).toBe(
+    "NODES_AND_EDGES",
+  );
+});

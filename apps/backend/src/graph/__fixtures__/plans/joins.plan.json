@@ -32,7 +32,11 @@
       "type": "azurerm_subnet",
       "name": "internal",
       "provider_name": "registry.terraform.io/hashicorp/azurerm",
-      "change": { "actions": ["create"], "before": null, "after": {} }
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": { "address_prefixes": ["10.0.1.0/24"] }
+      }
     },
     {
       "address": "azurerm_nat_gateway.out",

@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 7,
   "nodes": [
     {
       "id": "azurerm_network_interface.main",
@@ -34,7 +34,8 @@
       "type": "azurerm_virtual_network",
       "provider": "azurerm",
       "module_path": [],
-      "change": null
+      "change": null,
+      "attributes": { "address_space": "10.0.0.0/16" }
     },
     {
       "id": "data.azurerm_image.ubuntu",

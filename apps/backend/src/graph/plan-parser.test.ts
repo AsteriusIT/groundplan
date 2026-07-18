@@ -450,6 +450,12 @@ test("the join catalog places, attaches, and edges association resources (azurer
   assert.deepEqual(byId.get("azurerm_network_security_group.web")?.associated_ids, [
     "azurerm_linux_virtual_machine_scale_set.workers",
   ]);
+  // The subnet's planned CIDR lands in v7 attributes.
+  assert.equal(
+    byId.get("azurerm_subnet.internal")?.attributes?.["address_prefixes"],
+    "10.0.1.0/24",
+  );
+  assert.equal(graph.version, 7);
 });
 
 test("a synthetic join edge never duplicates an existing reference edge", () => {
