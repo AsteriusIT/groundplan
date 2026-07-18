@@ -102,22 +102,22 @@ it("renders each stacked satellite child as a row with its name and status", () 
     <NodeCard
       graphNode={lb}
       stack={[
-        child("probe", { change: "update" }),
-        child("pool", { type: "azurerm_lb_backend_address_pool" }),
+        child("web-probe", { change: "update" }),
+        child("web-pool", { type: "azurerm_lb_backend_address_pool" }),
       ]}
     />,
   );
-  expect(screen.getByText("probe")).toBeInTheDocument();
-  expect(screen.getByText("pool")).toBeInTheDocument();
+  expect(screen.getByText("web-probe")).toBeInTheDocument();
+  expect(screen.getByText("web-pool")).toBeInTheDocument();
   // The changed child shows its status on the row.
   expect(screen.getByLabelText("Update")).toBeInTheDocument();
 });
 
 it("selects the child when its row is clicked", () => {
   const onSelect = vi.fn();
-  const probe = child("probe");
+  const probe = child("web-probe");
   render(<NodeCard graphNode={lb} stack={[probe]} onSelectStackChild={onSelect} />);
-  fireEvent.click(screen.getByText("probe"));
+  fireEvent.click(screen.getByText("web-probe"));
   expect(onSelect).toHaveBeenCalledWith(probe);
 });
 
@@ -179,4 +179,18 @@ it("renders attachment chips on the card and selects on click", () => {
 it("renders no chip row without chips", () => {
   render(<NodeCard graphNode={rg} />);
   expect(document.querySelector("[data-subnet-chip]")).toBeFalsy();
+});
+
+it("prefixes a stacked row with its kind", () => {
+  render(
+    <NodeCard
+      graphNode={lb}
+      stack={[
+        child("p", { name: "app", type: "azurerm_lb_backend_address_pool" }),
+        child("pr", { name: "app", type: "azurerm_lb_probe" }),
+      ]}
+    />,
+  );
+  expect(screen.getByText("pool")).toBeInTheDocument();
+  expect(screen.getByText("probe")).toBeInTheDocument();
 });

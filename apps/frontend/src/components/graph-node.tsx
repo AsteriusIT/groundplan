@@ -30,10 +30,28 @@ import { AttachmentChip } from "@/components/attachment-chip";
 import { ResourceIcon } from "@/components/resource-icon";
 import { StatusBadge } from "@/components/ui/status-badge";
 
+/** Short kind labels for common satellite rows; anything else falls back to
+ * shortType. Three LB rows all named "app" must not read identically. */
+const STACK_KIND_LABELS: Record<string, string> = {
+  azurerm_lb_backend_address_pool: "pool",
+  azurerm_lb_probe: "probe",
+  azurerm_lb_rule: "rule",
+  azurerm_lb_nat_rule: "nat rule",
+  azurerm_lb_outbound_rule: "outbound",
+  azurerm_network_interface: "nic",
+  azurerm_public_ip: "pip",
+  azurerm_public_ip_prefix: "pip prefix",
+  azurerm_managed_disk: "disk",
+};
+
+const stackKindOf = (type: string): string =>
+  STACK_KIND_LABELS[type] ?? shortType(type);
+
 /**
- * GP-87: one satellite child inside a host card's stack — a category icon, the
- * child's name, and its status badge. Clicking it selects the child (its own
- * detail panel), so a satellite is inspectable exactly as a top-level node is.
+ * GP-87: one satellite child inside a host card's stack — a kind prefix, a
+ * category icon, the child's name, and its status badge. Clicking it selects
+ * the child (its own detail panel), so a satellite is inspectable exactly as a
+ * top-level node is.
  */
 function StackRow({
   child,
@@ -62,6 +80,9 @@ function StackRow({
       )}
     >
       <ResourceIcon type={child.type} className={cn("size-3 shrink-0", iconClass)} />
+      <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
+        {stackKindOf(child.type)}
+      </span>
       <span className="text-ink min-w-0 flex-1 truncate font-mono text-[10px]">
         {label}
       </span>
