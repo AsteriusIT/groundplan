@@ -27,6 +27,7 @@ import type {
   CreatedInvitation,
   Dashboard,
   IngestionEvent,
+  IacType,
   Invitation,
   Member,
   Organization,
@@ -740,13 +741,15 @@ export function generateTour(
 // User-scoped, org-free: parse is ephemeral and a draft belongs to its author
 // alone, so these use the global `request`, never `orgRequest`.
 
-/** Parse HCL files into an ephemeral snapshot — nothing is persisted. */
+/** Parse files into an ephemeral snapshot — nothing is persisted. The server
+ *  parses only the subset matching `iacType` and ignores the rest. */
 export function parsePlayground(
   files: PlaygroundFile[],
+  iacType: IacType = "terraform",
 ): Promise<PlaygroundSnapshot> {
   return request<PlaygroundSnapshot>("/playground/parse", {
     method: "POST",
-    body: { files },
+    body: { files, iacType },
   });
 }
 

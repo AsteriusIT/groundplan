@@ -218,7 +218,9 @@ it("adds a new file from the + menu, all in local state", async () => {
   renderPage();
 
   openAddMenu();
-  fireEvent.click(await screen.findByRole("menuitem", { name: /new file/i }));
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /new terraform file/i }),
+  );
   expect(screen.getByText("untitled-1.tf")).toBeInTheDocument();
 });
 
@@ -226,7 +228,9 @@ it("deletes a file only after an inline confirmation (GP-128)", async () => {
   renderPage();
 
   openAddMenu();
-  fireEvent.click(await screen.findByRole("menuitem", { name: /new file/i }));
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /new terraform file/i }),
+  );
 
   fireEvent.click(
     screen.getByRole("button", { name: /delete untitled-1\.tf/i }),
@@ -636,4 +640,97 @@ it("warns before unload only when there are unsaved changes", () => {
   const dirty = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(dirty);
   expect(dirty.defaultPrevented).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Kubernetes mode: the centered stack switch, per-mode snapshots, and the
+// mode-deriving draft open.
+// ---------------------------------------------------------------------------
+
+const K8S_DRAFT: PlaygroundDraft = {
+  id: "d2",
+  userId: "u1",
+  name: "manifests",
+  files: [
+    {
+      path: "app.yaml",
+      content: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n",
+    },
+  ],
+  createdAt: "2026-07-18T00:00:00.000Z",
+  updatedAt: "2026-07-18T00:00:00.000Z",
+};
+
+it("renders both switch sides; Kubernetes is disabled without .yaml files", () => {
+  renderPage();
+
+  const tf = screen.getByRole("button", { name: "Terraform" });
+  const k8s = screen.getByRole("button", { name: "Kubernetes" });
+  expect(tf).toHaveAttribute("aria-pressed", "true");
+  expect(k8s).toBeDisabled();
+  expect(k8s).toHaveAttribute("title", "No .yaml files");
+});
+
+it("New manifest enables the Kubernetes side; switching mutes the .tf files", async () => {
+  renderPage();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
+  expect(screen.getByText("untitled-1.yaml")).toBeInTheDocument();
+
+  const k8s = screen.getByRole("button", { name: "Kubernetes" });
+  expect(k8s).toBeEnabled();
+  fireEvent.click(k8s);
+  expect(k8s).toHaveAttribute("aria-pressed", "true");
+  // The .tf example files stay listed, muted as not-in-this-view.
+  expect(screen.getByRole("button", { name: "main.tf" })).toHaveAttribute(
+    "title",
+    "Not in the Kubernetes view",
+  );
+});
+
+it("Visualize sends the active iacType and keeps one snapshot per mode", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(2));
+  renderPage();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  await screen.findByTestId("canvas");
+  expect(parsePlaygroundMock).toHaveBeenCalledWith(
+    expect.any(Array),
+    "terraform",
+  );
+
+  // A fresh manifest file, switch to Kubernetes: that mode has no snapshot yet.
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Kubernetes" }));
+  expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
+
+  // Flipping back shows Terraform's last render again — nothing was lost.
+  fireEvent.click(screen.getByRole("button", { name: "Terraform" }));
+  expect(screen.getByTestId("canvas")).toBeInTheDocument();
+});
+
+it("opening a manifests-only draft lands in Kubernetes mode and parses it as such", async () => {
+  listDraftsMock.mockResolvedValue([
+    { id: "d2", name: "manifests", updatedAt: K8S_DRAFT.updatedAt, fileCount: 1 },
+  ]);
+  getDraftMock.mockResolvedValue(K8S_DRAFT);
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPage();
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /open manifests/i }));
+
+  await waitFor(() =>
+    expect(parsePlaygroundMock).toHaveBeenCalledWith(
+      K8S_DRAFT.files,
+      "kubernetes",
+    ),
+  );
+  expect(screen.getByRole("button", { name: "Kubernetes" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });

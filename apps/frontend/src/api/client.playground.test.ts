@@ -54,7 +54,32 @@ it("parsePlayground POSTs the files to the global (non-org) parse endpoint", asy
   expect(url).toContain("/api/v1/playground/parse");
   expect(url).not.toContain("/orgs/");
   expect(init.method).toBe("POST");
-  expect(JSON.parse(String(init.body))).toEqual({ files: FILES });
+  expect(JSON.parse(String(init.body))).toEqual({
+    files: FILES,
+    iacType: "terraform",
+  });
+});
+
+it("parsePlayground sends the chosen iacType", async () => {
+  fetchMock.mockResolvedValue(
+    jsonResponse(200, {
+      graph: { version: 1, nodes: [], edges: [] },
+      stats: {
+        nodes: 0,
+        edges: 0,
+        changes: { create: 0, update: 0, delete: 0, noop: 0, unchanged: 0 },
+      },
+      summaryMd: "",
+    }),
+  );
+
+  await parsePlayground(FILES, "kubernetes");
+
+  const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(JSON.parse(String(init.body))).toEqual({
+    files: FILES,
+    iacType: "kubernetes",
+  });
 });
 
 it("a 422 surfaces the per-file details on ApiError.fields", async () => {

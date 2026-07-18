@@ -23,12 +23,14 @@ import {
   updatePlaygroundDraft,
 } from "@/api/client";
 import type {
+  IacType,
   PlaygroundDraft,
   PlaygroundFile,
   PlaygroundSnapshot,
 } from "@/api/types";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { HclEditor } from "@/components/hcl-editor";
+import { IacSwitch } from "@/components/iac-switch";
 import {
   DraftsDialog,
   SaveDraftDialog,
@@ -58,12 +60,34 @@ const PANEL_MIN_WIDTH = 260;
 const PANEL_MAX_WIDTH = 640;
 const PANEL_DEFAULT_WIDTH = 400;
 
-/** Extensions the backend accepts (GP-123); uploads are filtered to these. */
-const ALLOWED_EXTENSIONS = [".tf", ".tfvars"];
+/** Extensions the backend accepts (GP-123, widened for Kubernetes). */
+const TF_EXTENSIONS = [".tf", ".tfvars"];
+const K8S_EXTENSIONS = [".yaml", ".yml"];
+const ALLOWED_EXTENSIONS = [...TF_EXTENSIONS, ...K8S_EXTENSIONS];
 
 function isAllowedPath(path: string): boolean {
   return ALLOWED_EXTENSIONS.some((ext) => path.endsWith(ext));
 }
+
+/** Which stack a file belongs to, by extension — the whole detection story. */
+function fileIacType(path: string): IacType {
+  return K8S_EXTENSIONS.some((ext) => path.endsWith(ext))
+    ? "kubernetes"
+    : "terraform";
+}
+
+/** The mode for a file set: the preferred side if it has files, else the other. */
+function modeFor(files: PlaygroundFile[], preferred: IacType): IacType {
+  const has = (t: IacType) => files.some((f) => fileIacType(f.path) === t);
+  if (has(preferred)) return preferred;
+  const other: IacType = preferred === "terraform" ? "kubernetes" : "terraform";
+  return has(other) ? other : preferred;
+}
+
+const NOT_IN_VIEW: Record<IacType, string> = {
+  terraform: "Not in the Terraform view",
+  kubernetes: "Not in the Kubernetes view",
+};
 
 /**
  * A small linked Azure stack so the page is never empty: resource group →
@@ -126,7 +150,12 @@ export function PlaygroundPage() {
   const [activePath, setActivePath] = useState<string>(
     EXAMPLE_FILES[0]?.path ?? "",
   );
-  const [snapshot, setSnapshot] = useState<PlaygroundSnapshot | null>(null);
+  // Which stack Visualize parses, and one snapshot slot per stack — flipping
+  // the switch shows that mode's last render, never a blank canvas.
+  const [iacType, setIacType] = useState<IacType>("terraform");
+  const [snapshots, setSnapshots] = useState<
+    Record<IacType, PlaygroundSnapshot | null>
+  >({ terraform: null, kubernetes: null });
   const [parsing, setParsing] = useState(false);
   const [failure, setFailure] = useState<ParseFailure | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -162,9 +191,21 @@ export function PlaygroundPage() {
   // The parse error naming the open file, if any — its line (when the message
   // carries one) is marked in the editor (GP-127).
   const activeError = active ? failure?.byFile.get(active.path) : undefined;
+  const snapshot = snapshots[iacType];
+  const present: Record<IacType, boolean> = {
+    terraform: files.some((f) => fileIacType(f.path) === "terraform"),
+    kubernetes: files.some((f) => fileIacType(f.path) === "kubernetes"),
+  };
   const dirty = JSON.stringify(files) !== savedSerial;
   // A scratch playground is never "Saved" — it has nowhere to be saved to.
   const unsaved = !draft || dirty;
+
+  // Mode follows the files only when the current side has none: opening a
+  // manifests-only draft lands on Kubernetes; adding a manifest to a Terraform
+  // playground never yanks the mode.
+  useEffect(() => {
+    setIacType((current) => modeFor(files, current));
+  }, [files]);
 
   // Leaving with unsaved changes deserves a warning (GP-126).
   useEffect(() => {
@@ -176,31 +217,49 @@ export function PlaygroundPage() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  const runParse = useCallback(async (input: PlaygroundFile[]) => {
-    setParsing(true);
-    // What this Visualize saw, per file — the baseline the "modified" marker
-    // compares against (GP-128). Recorded whether or not the parse succeeds:
-    // the marker answers "did I change anything since I last looked?".
-    setParsedContent(new Map(input.map((f) => [f.path, f.content])));
-    try {
-      setSnapshot(await parsePlayground(input));
-      setFailure(null);
-    } catch (err) {
-      // The last valid render stays on the canvas — only the error changes.
-      if (err instanceof ApiError) {
-        setFailure({
-          message: err.message,
-          byFile: new Map((err.fields ?? []).map((f) => [f.field, f.message])),
-        });
-      } else {
-        setFailure({ message: "Could not parse the files.", byFile: new Map() });
+  const runParse = useCallback(
+    async (input: PlaygroundFile[], mode: IacType) => {
+      setParsing(true);
+      // What this Visualize saw, per file — the baseline the "modified" marker
+      // compares against (GP-128). Recorded whether or not the parse succeeds:
+      // the marker answers "did I change anything since I last looked?".
+      setParsedContent(new Map(input.map((f) => [f.path, f.content])));
+      try {
+        const parsed = await parsePlayground(input, mode);
+        setSnapshots((prev) => ({ ...prev, [mode]: parsed }));
+        setFailure(null);
+      } catch (err) {
+        // The last valid render stays on the canvas — only the error changes.
+        if (err instanceof ApiError) {
+          setFailure({
+            message: err.message,
+            byFile: new Map(
+              (err.fields ?? []).map((f) => [f.field, f.message]),
+            ),
+          });
+        } else {
+          setFailure({
+            message: "Could not parse the files.",
+            byFile: new Map(),
+          });
+        }
+      } finally {
+        setParsing(false);
       }
-    } finally {
-      setParsing(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
-  const visualize = useCallback(() => runParse(files), [runParse, files]);
+  const visualize = useCallback(
+    () => runParse(files, iacType),
+    [runParse, files, iacType],
+  );
+
+  /** Switching stacks never re-parses; the failure described the last parse, so it clears. */
+  const switchIacType = useCallback((next: IacType) => {
+    setIacType(next);
+    setFailure(null);
+  }, []);
 
   const saveCurrentDraft = useCallback(async () => {
     if (!draft) return;
@@ -278,20 +337,23 @@ export function PlaygroundPage() {
     setSavedSerial(JSON.stringify(saved.files));
   }
 
-  /** Restore a draft's files and redraw — an invalid draft still opens. */
+  /** Restore a draft's files and redraw — an invalid draft still opens. The
+   *  mode is derived from what the draft holds before the auto-parse runs. */
   function openDraft(opened: PlaygroundDraft) {
+    const mode = modeFor(opened.files, iacType);
+    setIacType(mode);
     setFiles(opened.files);
     setActivePath(opened.files[0]?.path ?? "");
     setDraft({ id: opened.id, name: opened.name });
     setSavedSerial(JSON.stringify(opened.files));
     setSaveError(null);
-    void runParse(opened.files);
+    void runParse(opened.files, mode);
   }
 
-  function addFile() {
+  function addFile(ext: "tf" | "yaml") {
     let n = 1;
-    while (files.some((f) => f.path === `untitled-${n}.tf`)) n += 1;
-    const path = `untitled-${n}.tf`;
+    while (files.some((f) => f.path === `untitled-${n}.${ext}`)) n += 1;
+    const path = `untitled-${n}.${ext}`;
     setFiles((prev) => [...prev, { path, content: "" }]);
     setActivePath(path);
   }
@@ -357,7 +419,7 @@ export function PlaygroundPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="bg-card border-b border-border px-8 py-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-x-4 gap-y-2">
           <div className="min-w-0">
             <p className="text-muted-foreground font-mono text-[11px] tracking-[0.14em] uppercase">
               Playground
@@ -394,7 +456,13 @@ export function PlaygroundPage() {
               </h1>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          {/* The centered stack switch: which parser Visualize runs. */}
+          <IacSwitch
+            value={iacType}
+            onChange={switchIacType}
+            present={present}
+          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {/* The save status lives beside the actions it points at, and is
                 itself the shortest path to saving. */}
             <button
@@ -529,9 +597,13 @@ export function PlaygroundPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={addFile}>
+                  <DropdownMenuItem onSelect={() => addFile("tf")}>
                     <FilePlus2 className="size-4" />
-                    New file
+                    New Terraform file
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => addFile("yaml")}>
+                    <FilePlus2 className="size-4" />
+                    New manifest
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => uploadRef.current?.click()}
@@ -571,6 +643,9 @@ export function PlaygroundPage() {
               const modified =
                 parsedContent !== null &&
                 parsedContent.get(file.path) !== file.content;
+              // A file of the other stack stays listed — muted, not hidden:
+              // deleting it because the switch moved would be data loss.
+              const inView = fileIacType(file.path) === iacType;
               if (confirmingDelete === file.path) {
                 return (
                   <li
@@ -630,9 +705,13 @@ export function PlaygroundPage() {
                           file.path === activePath
                             ? "border-primary bg-accent text-foreground font-medium"
                             : "text-muted-foreground hover:bg-accent/60 border-transparent",
+                          !inView && "opacity-60",
                           fileError && "text-destructive",
                         )}
-                        title={fileError}
+                        title={
+                          fileError ??
+                          (inView ? undefined : NOT_IN_VIEW[iacType])
+                        }
                       >
                         <span className="truncate">{file.path}</span>
                       </button>
@@ -690,7 +769,8 @@ export function PlaygroundPage() {
             />
           ) : (
             <p className="text-muted-foreground flex-1 px-4 py-6 text-center text-sm">
-              Add or drop <span className="font-mono">.tf</span> files to begin.
+              Add or drop <span className="font-mono">.tf</span> or{" "}
+              <span className="font-mono">.yaml</span> files to begin.
             </p>
           )}
 
