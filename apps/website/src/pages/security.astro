@@ -1,19 +1,143 @@
 ---
-// Security & trust page. GP-158 ships the empty shell; GP-161 fills it with
-// the §8 claim → proof table and the §4 AI-containment facts.
+// Security & trust page (GP-161) — §8 claim → proof table rendered as-is,
+// plus the §4 AI-containment facts. Second in the nav by design: it is the
+// objection-killer (§12). No compliance badges — none exist (§13).
 import Base from "../layouts/Base.astro";
+
+const ROWS: { claim: string; proof: string }[] = [
+  {
+    claim: "We ingest data, not access",
+    proof:
+      "Only plan JSON / rendered YAML from your CI; no cloud SDK credentials, no state backends, no terraform/helm/kustomize execution anywhere in the codebase",
+  },
+  {
+    claim: "Secrets are write-only",
+    proof:
+      "Repo PATs and kubeconfigs encrypted at rest (AES-256-GCM), masked as *** in every response, never logged — clone URLs are token-redacted in errors",
+  },
+  {
+    claim: "Tokens compared safely",
+    proof:
+      "Webhook & invite tokens use constant-time comparison; invite tokens stored as SHA-256 hashes",
+  },
+  {
+    claim: "Tenants are isolated",
+    proof:
+      "Org-scope guard returns 404 (never 403) across tenants — no existence leaks",
+  },
+  {
+    claim: "The AI is contained",
+    proof:
+      "Key = flag, off by default; model sees deterministic briefs only; output treated as untrusted; failures never cached",
+  },
+  {
+    claim: "Kubernetes reads are minimal",
+    proof: "LIST-only client; Secret values never fetched, stored or diffed",
+  },
+  {
+    claim: "Public sharing is bounded",
+    proof: "Tokenized, revocable, rate-limited (240/min/IP), AI content excluded",
+  },
+  {
+    claim: "The supply chain is checked",
+    proof:
+      "Release images are Trivy-scanned in CI; fixable CRITICAL CVEs block the release",
+  },
+  {
+    claim: "Hard boundaries elsewhere",
+    proof:
+      "Path traversal blocked on file reads; https-only repo URLs; 10 MB ingestion cap; per-target generation locks",
+  },
+];
+
+const AI_FACTS = [
+  "AI_API_KEY is the feature flag: unset ⇒ routes 404 and the frontend renders zero AI surface (GP-62).",
+  "The model never sees raw plan JSON or HCL from your repos — only a deterministic Markdown brief built from Groundplan's own outputs.",
+  "Generations are user-triggered (never on page load), cached (a second ask costs nothing), streamed, and always labelled with the model name.",
+  "Model output is treated as untrusted input: rendered as Markdown (never HTML), hallucinated anchors dropped, non-JSON responses rejected and never cached.",
+];
 ---
 
 <Base
   title="Security — Groundplan"
-  description="We ingest data, not access. How Groundplan works without your cloud credentials."
+  description="We ingest data, not access. Groundplan reads the plan JSON and rendered manifests your own CI produces — it never holds cloud credentials or state access."
 >
-  <section class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-      Sheet 02 — under construction
-    </p>
-    <h1 class="mt-4 font-display text-4xl font-semibold tracking-tight">
-      Your cloud credentials never leave your cloud
-    </h1>
+  <div class="blueprint-grid border-b border-border">
+    <section class="mx-auto max-w-6xl px-4 pt-16 pb-12 sm:px-6 sm:pt-20">
+      <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+        Security &amp; trust
+      </p>
+      <h1 class="mt-4 max-w-3xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
+        Your cloud credentials never leave your cloud
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-relaxed text-muted-foreground">
+        <strong class="text-foreground">We ingest data, not access.</strong> Groundplan reads
+        the plan JSON and rendered manifests your own CI produces. It never holds cloud
+        credentials, never reads your Terraform state, never runs
+        <code class="font-mono text-base">terraform</code>,
+        <code class="font-mono text-base">helm</code> or
+        <code class="font-mono text-base">kustomize</code>. Adoption is one pipeline step.
+      </p>
+    </section>
+  </div>
+
+  <section aria-labelledby="claims" class="border-b border-border">
+    <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+      <h2 id="claims" class="font-display text-2xl font-semibold tracking-tight">
+        Every claim, with its proof
+      </h2>
+      <div class="mt-6 overflow-x-auto">
+        <table class="w-full border border-border-strong text-sm">
+          <thead>
+            <tr class="bg-muted text-left">
+              <th scope="col" class="border-b border-border-strong px-4 py-3 font-display font-semibold">
+                Claim
+              </th>
+              <th scope="col" class="border-b border-border-strong px-4 py-3 font-display font-semibold">
+                Proof
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-border">
+            {
+              ROWS.map((row) => (
+                <tr class="align-top">
+                  <th scope="row" class="w-64 px-4 py-3 text-left font-medium">
+                    {row.claim}
+                  </th>
+                  <td class="px-4 py-3 leading-relaxed text-muted-foreground">{row.proof}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="ai-containment">
+    <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+      <h2 id="ai-containment" class="font-display text-2xl font-semibold tracking-tight">
+        The AI is contained
+      </h2>
+      <p class="mt-3 max-w-prose text-muted-foreground">
+        Groundplan's AI never replaces the deterministic view — it sits beside it. These are
+        the boundaries it lives inside:
+      </p>
+      <ul class="mt-6 space-y-3">
+        {
+          AI_FACTS.map((fact) => (
+            <li class="flex max-w-3xl gap-3 text-sm leading-relaxed">
+              <span aria-hidden="true" class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary"></span>
+              <span>{fact}</span>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="mt-8 border-l-2 border-primary bg-card p-4 text-sm text-muted-foreground">
+        No compliance badges here yet, on purpose: we list only what the codebase proves
+        today. When an audit exists, it will appear on this page with its report.
+      </p>
+    </div>
   </section>
 </Base>
