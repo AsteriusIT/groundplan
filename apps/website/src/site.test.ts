@@ -13,7 +13,7 @@ describe("scaffold (GP-158)", () => {
     for (const page of PAGES) expect(pageHtml(page)).toContain("<!DOCTYPE html>");
   });
 
-  it("renders with the blueprint fonts and palette", () => {
+  it("renders with the groundplan fonts and the carbon palette", () => {
     const assets = join(DIST, "_astro");
     const css = readdirSync(assets)
       .filter((f) => f.endsWith(".css"))
@@ -23,8 +23,8 @@ describe("scaffold (GP-158)", () => {
       "Space Grotesk",
       "Inter Variable",
       "IBM Plex Mono",
-      "--background:#f4f7fb",
-      "--primary:#2e6be6",
+      "--background:#0c0d10",
+      "--primary:#4c8dff",
     ]) {
       expect(css).toContain(token);
     }

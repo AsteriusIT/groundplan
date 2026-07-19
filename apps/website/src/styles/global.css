@@ -6,75 +6,76 @@
 @import "@fontsource/ibm-plex-mono/500.css";
 
 /*
- * Groundplan design tokens — copied VALUES from the app's "blueprint" light
- * theme (apps/frontend/src/index.css, GP-9/GP-28). The website is deliberately
- * single-theme (GP-158): light drafting paper, the identity the product opens
- * on. No shared token package yet — keep the copies in sync by hand.
+ * Groundplan design tokens — copied VALUES from the app's "carbon" dark theme
+ * (apps/frontend/src/index.css: the `.dark` base composed with the
+ * `.dark[data-theme="carbon"]` overrides). The website is deliberately
+ * single-theme: graphite carbon, the identity the product ships in. No shared
+ * token package yet — keep the copies in sync by hand.
  */
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   --radius: 0.1875rem; /* 3px — crisp, technical, not rounded */
 
-  /* — surfaces — */
-  --background: #f4f7fb; /* drafting-paper background */
-  --canvas: #fbfdff; /* the diagram canvas, a shade brighter than the page */
-  --card: #ffffff;
-  --panel: #ffffff;
+  /* — surfaces (near-black → raised graphite; cards stay lightest) — */
+  --background: #0c0d10;
+  --canvas: #111317;
+  --card: #17191f;
+  --panel: #17191f;
 
-  /* — ink — */
-  --foreground: #182a42;
-  --ink: #182a42;
-  --muted-foreground: #5d7391;
-  --faint: #93a6bf;
+  /* — ink (neutral off-white, no blue cast) — */
+  --foreground: #e8eaed;
+  --ink: #e8eaed;
+  --muted-foreground: #9aa0aa;
+  --faint: #6b7079;
 
-  /* — accent (blueprint blue) — */
-  --primary: #2e6be6;
-  --primary-foreground: #ffffff;
-  --accent-soft: #eaf1fe;
-  --secondary: #eaf1fe;
-  --secondary-foreground: #16345c;
-  --muted: #eaf0f8;
-  --accent: #eaf1fe;
-  --accent-foreground: #16345c;
-  --ring: #2e6be6;
+  /* — accent (blueprint blue, brightened for a dark ground) — */
+  --primary: #4c8dff;
+  --primary-foreground: #06122b;
+  --accent-soft: #1b2431;
+  --secondary: #1b2431;
+  --secondary-foreground: #dbe2ec;
+  --muted: #0a0b0e;
+  --accent: #1c1f27;
+  --accent-foreground: #dfe3ea;
+  --ring: #4c8dff;
 
-  /* — lines — */
-  --border: #e3e9f2;
-  --border-strong: #cdd8e8;
-  --grid-line: #e2eaf5; /* fine blueprint grid */
-  --grid-strong: #d3dff0; /* bold blueprint grid (every 5th line) */
-  --edge: #a6b8d0;
-  --edge-inferred: #c3cfe0;
+  /* — lines (neutral gray) — */
+  --border: #23262d;
+  --border-strong: #333842;
+  --grid-line: #191b21; /* very subtle graphite grid */
+  --grid-strong: #24272f; /* bold grid (every 5th line) */
+  --edge: #565c66;
+  --edge-inferred: #3e434b;
 
-  /* — status — */
-  --create: #189a5c;
-  --create-soft: #e8f7ef;
-  --update: #c77e10;
-  --update-soft: #fbf3e4;
-  --delete: #d8503f;
-  --delete-soft: #fdf1ef;
-  --impacted: #7b5bd6;
-  --impacted-soft: #f1edfc;
-  --exposed: #d4531e;
-  --exposed-soft: #fdece3;
-  --warning: #a86a10;
-  --warning-soft: #fbf1de;
+  /* — status — brightened for a dark ground, -soft fills as dark tints — */
+  --create: #2ec77e;
+  --create-soft: #0e3b28;
+  --update: #e0a020;
+  --update-soft: #3a2c0c;
+  --delete: #f0604d;
+  --delete-soft: #3d1a16;
+  --impacted: #a887f5;
+  --impacted-soft: #241a44;
+  --exposed: #f06a30;
+  --exposed-soft: #3a1d0e;
+  --warning: #e8b64a;
+  --warning-soft: #3a2e12;
 
   /* — resource categories (GP-24) — */
-  --cat-compute: #2563c9;
-  --cat-network: #0e8f9e;
-  --cat-network-soft: #e6f4f5;
-  --cat-data: #4f46c7;
-  --cat-security: #c23a63;
-  --cat-identity: #b5760f;
-  --cat-observability: #a032b8;
-  --cat-other: #5d7391;
+  --cat-compute: #4f8bf0;
+  --cat-network: #2bb6c4;
+  --cat-network-soft: #0e2f45;
+  --cat-data: #7a72e8;
+  --cat-security: #e0608a;
+  --cat-identity: #d99a3a;
+  --cat-observability: #c964dd;
+  --cat-other: #93b0d8;
 
-  /* — HCL source syntax (GP-121) — */
-  --code-keyword: #2f5bb8;
-  --code-string: #0f7d6d;
-  --code-comment: #8a9cb5;
-  --code-number: #a8690c;
+  /* — HCL source syntax (GP-121), neutralised for graphite — */
+  --code-keyword: #7aa7e8;
+  --code-string: #55c2a4;
+  --code-comment: #6b7079;
+  --code-number: #d4a04a;
 
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;

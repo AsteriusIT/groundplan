@@ -23,12 +23,12 @@ const ROWS: { claim: string; proof: string }[] = [
   {
     claim: "Tenants are isolated",
     proof:
-      "Org-scope guard returns 404 (never 403) across tenants — no existence leaks",
+      "One organisation can never see — or even probe for — another's data; a cross-tenant request reveals nothing, not even that something exists",
   },
   {
     claim: "The AI is contained",
     proof:
-      "Key = flag, off by default; model sees deterministic briefs only; output treated as untrusted; failures never cached",
+      "Off by default; the model sees only briefs built from Groundplan's own outputs, never your files; its output is treated as untrusted",
   },
   {
     claim: "Kubernetes reads are minimal",
@@ -46,12 +46,12 @@ const ROWS: { claim: string; proof: string }[] = [
   {
     claim: "Hard boundaries elsewhere",
     proof:
-      "Path traversal blocked on file reads; https-only repo URLs; 10 MB ingestion cap; per-target generation locks",
+      "File reads can never escape the repository; only https repository URLs are accepted; uploads are capped at 10 MB",
   },
 ];
 
 const AI_FACTS = [
-  "AI_API_KEY is the feature flag: unset ⇒ routes 404 and the frontend renders zero AI surface (GP-62).",
+  "AI is off by default. Without an AI key configured, the AI layer doesn't exist — no buttons, no background calls, nothing.",
   "The model never sees raw plan JSON or HCL from your repos — only a deterministic Markdown brief built from Groundplan's own outputs.",
   "Generations are user-triggered (never on page load), cached (a second ask costs nothing), streamed, and always labelled with the model name.",
   "Model output is treated as untrusted input: rendered as Markdown (never HTML), hallucinated anchors dropped, non-JSON responses rejected and never cached.",

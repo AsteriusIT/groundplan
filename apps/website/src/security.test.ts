@@ -19,9 +19,9 @@ describe("security page (GP-161)", () => {
       "Tokens compared safely",
       "constant-time comparison; invite tokens stored as SHA-256 hashes",
       "Tenants are isolated",
-      "Org-scope guard returns 404 (never 403) across tenants — no existence leaks",
+      "One organisation can never see — or even probe for — another's data; a cross-tenant request reveals nothing, not even that something exists",
       "The AI is contained",
-      "Key = flag, off by default; model sees deterministic briefs only; output treated as untrusted; failures never cached",
+      "Off by default; the model sees only briefs built from Groundplan's own outputs, never your files; its output is treated as untrusted",
       "Kubernetes reads are minimal",
       "LIST-only client; Secret values never fetched, stored or diffed",
       "Public sharing is bounded",
@@ -29,14 +29,19 @@ describe("security page (GP-161)", () => {
       "The supply chain is checked",
       "Release images are Trivy-scanned in CI; fixable CRITICAL CVEs block the release",
       "Hard boundaries elsewhere",
-      "Path traversal blocked on file reads; https-only repo URLs; 10 MB ingestion cap; per-target generation locks",
+      "File reads can never escape the repository; only https repository URLs are accepted; uploads are capped at 10 MB",
     ]) {
       expectVerbatim(PAGE, cell);
     }
   });
 
-  it("carries the §4 AI-containment facts", () => {
-    expectVerbatim(PAGE, "AI_API_KEY is the feature flag");
+  it("carries the AI-containment facts in customer language", () => {
+    expectVerbatim(
+      PAGE,
+      "AI is off by default. Without an AI key configured, the AI layer doesn't exist — no buttons, no background calls, nothing.",
+    );
+    // Config internals stay out of customer-facing copy.
+    expect(pageText(PAGE)).not.toContain("AI_API_KEY");
     expectVerbatim(
       PAGE,
       "The model never sees raw plan JSON or HCL from your repos — only a deterministic Markdown brief built from Groundplan's own outputs.",
