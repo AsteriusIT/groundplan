@@ -34,11 +34,11 @@ describe("Kubernetes section", () => {
   it("keeps the never-execute and read-only-cluster claims", () => {
     expectVerbatim(
       "index.html",
-      "Helm and Kustomize output is rendered by your CI and pushed to Groundplan — we never execute them.",
+      "Helm and Kustomize rendered by your CI — never executed by us.",
     );
     expectVerbatim(
       "index.html",
-      "Live clusters are read-only: kubeconfigs encrypted at rest, and Secret values are never fetched, stored or drawn.",
+      "Clusters read-only; Secret values never fetched, stored or drawn.",
     );
   });
 
@@ -72,26 +72,40 @@ describe("developer experience", () => {
       "Honest limits: first workspace folder only, and not yet tuned for 500+ resource repos.",
     );
   });
+});
 
-  it("replaces the support matrix with stack chips — key claims intact", () => {
-    const dev = section("developers");
-    expect(dev).not.toContain("<table");
-    const text = pageText("index.html");
-    for (const item of [
+describe("stack belt", () => {
+  function belt(): string {
+    const html = pageHtml("index.html");
+    const start = html.indexOf('aria-label="Works with your stack"');
+    expect(start).toBeGreaterThan(-1);
+    return html.slice(start, html.indexOf("</section>", start));
+  }
+
+  it("shows every stack item as an official mark with its name", () => {
+    const strip = belt();
+    for (const label of [
       "Terraform",
-      "Kubernetes manifests",
-      "Helm & Kustomize (via your CI)",
+      "Kubernetes",
+      "Helm",
       "GitHub",
       "GitLab",
       "Azure DevOps",
       "GitHub Actions",
-      "GitLab CI",
-      "Azure Pipelines",
-      "Any OIDC provider",
-      "Keycloak in the box",
       "VS Code",
+      "Azure",
+      "AWS",
+      "Google Cloud",
+      "OpenID Connect",
     ]) {
-      expect(text).toContain(item);
+      expect(strip).toContain(label);
     }
+    // One inline SVG mark per item, per track (real content + aria-hidden dup).
+    expect((strip.match(/<svg/g) ?? []).length).toBeGreaterThanOrEqual(12);
+    expect(strip).toContain('aria-hidden="true"');
+  });
+
+  it("keeps the old support-matrix table gone", () => {
+    expect(section("developers")).not.toContain("<table");
   });
 });

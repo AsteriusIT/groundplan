@@ -1,47 +1,74 @@
 ---
-// Developer experience: three ways in, each described by what you do with
-// it — plus the stack chips that replace the old support matrix. Honest
-// limits stay on the card that owns them.
-const STACK: { group: string; items: string[] }[] = [
-  { group: "Infrastructure as code", items: ["Terraform", "Kubernetes manifests", "Helm & Kustomize (via your CI)"] },
-  { group: "Git & pull requests", items: ["GitHub", "GitLab", "Azure DevOps"] },
-  { group: "CI auto-detection", items: ["GitHub Actions", "GitLab CI", "Azure Pipelines"] },
-  { group: "Icons & taxonomy", items: ["Azure", "AWS", "GCP", "Kubernetes"] },
-  { group: "Sign-in", items: ["Any OIDC provider", "Keycloak in the box"] },
-  { group: "Editor", items: ["VS Code"] },
-];
+// Developer experience: three ways in, each described by where it lives and
+// what you do with it. The stack itself lives in the belt under the hero.
+import { STACK_ICONS } from "./stack-icons.js";
+
+const vscode = STACK_ICONS.find((icon) => icon.label === "VS Code");
 ---
 
 <section id="developers" class="border-b border-border bg-card">
   <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground" data-reveal>
       Developer experience
     </p>
-    <h2 class="mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+    <h2
+      class="mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl"
+      data-reveal
+    >
       Works where you already work
     </h2>
 
     <div class="mt-10 grid gap-8 lg:grid-cols-3">
-      <article class="border border-border bg-background p-6">
-        <p class="font-mono text-[11px] uppercase tracking-wider text-faint">In your pipeline</p>
-        <h3 class="mt-2 font-display text-xl font-semibold">The CLI</h3>
+      <article
+        class="border border-border bg-background p-6 transition duration-300 hover:-translate-y-1 hover:border-primary/60"
+        data-reveal
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="28"
+          height="28"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          class="text-primary"
+          aria-hidden="true"
+        >
+          <rect x="2" y="4" width="20" height="16" rx="1"></rect>
+          <path d="m6 9 4 3-4 3"></path>
+          <path d="M12 16h6"></path>
+        </svg>
+        <p class="mt-4 font-mono text-[11px] uppercase tracking-wider text-faint">
+          In your pipeline
+        </p>
+        <h3 class="mt-1 font-display text-xl font-semibold">The CLI</h3>
         <p class="mt-3 text-sm leading-relaxed text-muted-foreground">
-          One command sends your plan. It detects your branch, SHA and PR number automatically
-          on GitHub Actions, GitLab CI and Azure DevOps, validates everything locally before
-          any network call — and fails loudly when something's wrong, never silently.
+          One command sends your plan. Branch, SHA and PR detected automatically — and it
+          fails loudly when something's wrong.
         </p>
         <p class="mt-4 font-mono text-[11px] uppercase tracking-wider text-faint">
-          npm · MIT · zero runtime dependencies
+          npm · MIT · zero dependencies
         </p>
       </article>
 
-      <article class="border border-border bg-background p-6">
-        <p class="font-mono text-[11px] uppercase tracking-wider text-faint">In your editor</p>
-        <h3 class="mt-2 font-display text-xl font-semibold">The VS Code extension</h3>
+      <article
+        class="border border-border bg-background p-6 transition duration-300 hover:-translate-y-1 hover:border-primary/60"
+        data-reveal
+        style="--reveal-delay: 110ms"
+      >
+        {
+          vscode && (
+            <svg viewBox="0 0 24 24" width="28" height="28" fill={vscode.fill} aria-hidden="true">
+              <path d={vscode.path} />
+            </svg>
+          )
+        }
+        <p class="mt-4 font-mono text-[11px] uppercase tracking-wider text-faint">
+          In your editor
+        </p>
+        <h3 class="mt-1 font-display text-xl font-semibold">The VS Code extension</h3>
         <p class="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Your Terraform as a live diagram beside your editor, while you type — a new resource
-          appears about a second after you pause. Click a node to jump to its code. Fully
-          offline: no account, no telemetry, nothing ever leaves your machine.
+          A live diagram of your Terraform, redrawn as you type. Click a node to jump to
+          code. Fully offline: no account, no telemetry, nothing ever leaves your machine.
         </p>
         <p class="mt-4 text-xs leading-relaxed text-muted-foreground">
           Honest limits: first workspace folder only, and not yet tuned for 500+ resource
@@ -49,32 +76,34 @@ const STACK: { group: string; items: string[] }[] = [
         </p>
       </article>
 
-      <article class="border border-border bg-background p-6">
-        <p class="font-mono text-[11px] uppercase tracking-wider text-faint">In your browser</p>
-        <h3 class="mt-2 font-display text-xl font-semibold">The Playground</h3>
+      <article
+        class="border border-border bg-background p-6 transition duration-300 hover:-translate-y-1 hover:border-primary/60"
+        data-reveal
+        style="--reveal-delay: 220ms"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="28"
+          height="28"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          class="text-primary"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M2 12h20"></path>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <p class="mt-4 font-mono text-[11px] uppercase tracking-wider text-faint">
+          In your browser
+        </p>
+        <h3 class="mt-1 font-display text-xl font-semibold">The Playground</h3>
         <p class="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Paste HCL or Kubernetes YAML, get a diagram. No signup, no repository, multi-file
-          with drag &amp; drop. The fastest way to see your architecture drawn.
+          Paste HCL or Kubernetes YAML, get a diagram. No signup, no repository. The fastest
+          way to see it.
         </p>
       </article>
     </div>
-
-    <h3 class="mt-16 font-display text-xl font-semibold tracking-tight">Works with your stack</h3>
-    <dl class="mt-6 grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
-      {
-        STACK.map((row) => (
-          <div>
-            <dt class="font-mono text-[11px] uppercase tracking-wider text-faint">{row.group}</dt>
-            <dd class="mt-2 flex flex-wrap gap-2">
-              {row.items.map((item) => (
-                <span class="border border-border-strong bg-card px-2.5 py-1 text-xs">
-                  {item}
-                </span>
-              ))}
-            </dd>
-          </div>
-        ))
-      }
-    </dl>
   </div>
 </section>

@@ -17,12 +17,9 @@ describe("self-host, FAQ, meta & footer", () => {
   it("sells both deployment modes in plain words", () => {
     expectVerbatim(
       "index.html",
-      "The entire platform — reverse proxy with automatic HTTPS, frontend, API, database, identity provider — from one compose file.",
+      "One compose file runs everything — proxy with automatic HTTPS, frontend, API, database, identity. Nothing phones home.",
     );
-    expectVerbatim(
-      "index.html",
-      "SaaS mode is the same build with one flag — same features, same security model.",
-    );
+    expectVerbatim("index.html", "Same build, one flag. Any OIDC provider — or the one in the box.");
     expectVerbatim("index.html", "fail-closed, not fail-open");
   });
 

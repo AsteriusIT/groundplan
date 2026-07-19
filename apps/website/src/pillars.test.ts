@@ -35,7 +35,7 @@ describe("product tour", () => {
   it("keeps the annotation-safety promise", () => {
     expectVerbatim(
       "index.html",
-      "Your annotations survive regeneration — nothing you write is ever silently deleted.",
+      "Annotations survive regeneration — never silently deleted.",
     );
   });
 

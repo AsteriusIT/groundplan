@@ -1,30 +1,38 @@
 ---
-// AI, sold the way we build it: the diagrams are deterministic, the AI is
-// optional prose beside them. "Experimental" and "Azure-focused" stay in the
-// section itself, never a footnote.
+// AI, sold the way we build it: deterministic diagrams, optional prose
+// beside them. "Experimental" and "Azure-focused" stay in the section
+// itself, never a footnote.
 const STUDIO_POINTS = [
-  "Watch the Terraform being written and the diagram grow node by node as you talk.",
-  "Instant best-practice findings on the generated code — open ports, exposed SSH, weak TLS and more.",
+  "Terraform written live, the diagram growing node by node.",
+  "Instant best-practice findings on the generated code.",
   "Download the project as a zip and run the plan yourself. Nothing is deployed, nothing is stored.",
 ];
 ---
 
 <section id="ai" class="border-b border-border bg-card">
   <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">AI, opt-in</p>
-    <h2 class="mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground" data-reveal>
+      AI, opt-in
+    </p>
+    <h2
+      class="mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl"
+      data-reveal
+    >
       AI that explains — and never decides
     </h2>
-    <p class="mt-6 max-w-3xl text-base leading-relaxed text-muted-foreground">
+    <p
+      class="mt-6 max-w-3xl text-base leading-relaxed text-muted-foreground"
+      data-reveal
+      style="--reveal-delay: 100ms"
+    >
       Your diagrams are deterministic: same input, same picture, every time. AI sits beside
-      them, summarising changes in plain language and suggesting how to group your systems —
-      always labelled, always reviewed by a human. And it never reads your raw plan files:
+      them — always labelled, always human-reviewed — and it never reads your raw plan files:
       every generation is grounded in Groundplan's own deterministic outputs. Don't want AI?
       Don't configure it — without an API key, the AI layer simply doesn't exist.
     </p>
 
     <div class="mt-14 grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
-      <div>
+      <div data-reveal>
         <div class="flex flex-wrap items-center gap-2">
           <h3 class="font-display text-2xl font-semibold tracking-tight">
             AI Infrastructure Studio
@@ -37,8 +45,8 @@ const STUDIO_POINTS = [
           </span>
         </div>
         <p class="mt-4 max-w-prose text-base leading-relaxed text-muted-foreground">
-          Describe the infrastructure you want in plain English and watch the architecture
-          appear on the canvas — Terraform included. You stay in control of every line.
+          Describe what you want in plain English and watch the architecture appear —
+          Terraform included. You stay in control of every line.
         </p>
         <ul class="mt-6 space-y-3">
           {
@@ -52,8 +60,10 @@ const STUDIO_POINTS = [
         </ul>
       </div>
 
-      <figure>
-        <div class="overflow-hidden border border-border-strong bg-card shadow-lg shadow-ink/5">
+      <figure data-reveal style="--reveal-delay: 120ms">
+        <div
+          class="overflow-hidden border border-border-strong bg-card shadow-lg shadow-ink/5 transition-transform duration-500 hover:scale-[1.015]"
+        >
           <img
             src="/images/studio.png"
             alt="The AI Infrastructure Studio start screen with its header reading AI Infrastructure Studio, an AZURE label and an Experimental badge, a prompt box asking what should we build, and example prompts for Azure infrastructure."

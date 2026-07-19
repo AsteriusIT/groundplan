@@ -1,23 +1,28 @@
 ---
-// The product tour — See / Understand / Shape, told as benefits. Every
-// screenshot is a real capture from the app on asteriusit/groundplan-example;
-// no mockups, no lorem-ipsum diagrams. No story numbers in public copy —
-// this page sells the product, the changelog stays in the repo.
+// The product tour — See / Understand / Shape as benefits, kept short. Every
+// screenshot is a real capture from the app on asteriusit/groundplan-example.
+// No story numbers in public copy — the changelog stays in the repo.
 import TourSection from "./TourSection.astro";
 ---
 
 <div id="product">
-  <div class="border-b border-border bg-card">
+  <div class="border-b border-border">
     <div class="mx-auto max-w-6xl px-4 pt-16 pb-14 text-center sm:px-6 sm:pt-24">
-      <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+      <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground" data-reveal>
         The product
       </p>
-      <h2 class="mx-auto mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      <h2
+        class="mx-auto mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl"
+        data-reveal
+      >
         Three ways of looking at the same truth
       </h2>
-      <p class="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground">
-        One semantic model of your infrastructure, drawn deterministically — reviewed on every
-        pull request, documented on every merge, annotated with what only your team knows.
+      <p
+        class="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground"
+        data-reveal
+        style="--reveal-delay: 100ms"
+      >
+        One model of your estate — reviewed on every PR, documented on every merge.
       </p>
     </div>
   </div>
@@ -27,10 +32,10 @@ import TourSection from "./TourSection.astro";
     eyebrow="See"
     title="Every pull request becomes a picture"
     points={[
-      "The blast radius is visible before you approve — resources you didn't touch but that depend on your change are flagged automatically.",
-      "Risk is called out on the spot: internet exposure and privileged access get badges, not a buried line in a plan.",
-      "A change summary you can trust — rule-based and identical for identical input, so reviewers rely on it.",
-      "Posted straight to the PR as a comment, with a link to the interactive diagram.",
+      "Blast radius visible before anyone approves.",
+      "Exposed and privileged resources flagged.",
+      "Deterministic summary — same input, same output.",
+      "Posted to the PR, linked to the live diagram.",
     ]}
     image={{
       src: "/images/pillar-see.png",
@@ -52,9 +57,9 @@ import TourSection from "./TourSection.astro";
     flip
     chips={["Network", "IAM", "C4", "History"]}
     points={[
-      "Ask your question through the right lens: the network layout, who can do what, or the C4 big picture.",
-      "Travel back in time — every version is kept, and any two can be compared side by side.",
-      "Share a read-only link with anyone: no login required, revocable whenever you want.",
+      "The lens that matches your question — Network, IAM, C4.",
+      "Every version kept; any two comparable.",
+      "Read-only share links — no login, revocable.",
     ]}
     image={{
       src: "/images/pillar-understand.png",
@@ -63,9 +68,7 @@ import TourSection from "./TourSection.astro";
     }}
   >
     <p>
-      Merge to main and the diagram redraws itself — no plan, no apply, no export button. Your
-      default branch always has an accurate architecture picture, and everyone knows where to
-      find it.
+      Merge to main and the diagram redraws itself — no plan, no apply, no export button.
     </p>
   </TourSection>
 
@@ -74,9 +77,9 @@ import TourSection from "./TourSection.astro";
     eyebrow="Shape"
     title="Add the meaning only your team knows"
     points={[
-      "Your annotations survive regeneration — nothing you write is ever silently deleted.",
-      "When a resource disappears, its notes wait for your decision instead of vanishing with it.",
-      "AI can suggest groupings and names — every suggestion comes with a reason and waits for a human to accept it.",
+      "Annotations survive regeneration — never silently deleted.",
+      "Orphaned notes wait for your decision.",
+      "AI suggestions come with reasons; a human accepts.",
     ]}
     image={{
       src: "/images/pillar-shape.png",
@@ -85,9 +88,8 @@ import TourSection from "./TourSection.astro";
     }}
   >
     <p>
-      A generated diagram knows what exists. Your team knows what it <em>means</em>. Group
-      resources into named systems, rename them in human language, hide the noise and pin
-      notes — without ever touching the generated model.
+      A generated diagram knows what exists. Your team knows what it <em>means</em>. Group,
+      rename, hide the noise, pin notes — without ever touching the generated model.
     </p>
   </TourSection>
 </div>

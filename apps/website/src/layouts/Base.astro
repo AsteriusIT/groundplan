@@ -44,6 +44,10 @@ const currentPath = Astro.url.pathname;
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="471" />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- Gate for the scroll-reveal styles: without JS nothing is ever hidden. -->
+    <script is:inline>
+      document.documentElement.classList.add("js");
+    </script>
   </head>
   <body class="min-h-screen flex flex-col">
     <a
@@ -124,5 +128,21 @@ const currentPath = Astro.url.pathname;
         </p>
       </div>
     </footer>
+
+    <script>
+      // Scroll reveal: flip data-reveal elements visible once, then let go.
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+              io.unobserve(entry.target);
+            }
+          }
+        },
+        { threshold: 0.1, rootMargin: "0px 0px -60px 0px" },
+      );
+      document.querySelectorAll("[data-reveal]").forEach((el) => io.observe(el));
+    </script>
   </body>
 </html>

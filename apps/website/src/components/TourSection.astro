@@ -1,7 +1,6 @@
 ---
-// One stop of the product tour: benefit headline, short promise, a handful
-// of plain-language proof points, one real screenshot. Chess layout — text
-// and image alternate sides via `flip`.
+// One stop of the product tour: benefit headline, a two-sentence promise,
+// a few short proof points, one real screenshot. Chess layout via `flip`.
 interface Props {
   id: string;
   eyebrow: string;
@@ -18,7 +17,7 @@ const { id, eyebrow, title, points, image, flip = false, chips } = Astro.props;
 <section id={id} class="border-b border-border">
   <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
     <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
-      <div class:list={[flip && "lg:order-2"]}>
+      <div class:list={[flip && "lg:order-2"]} data-reveal>
         <p class="font-mono text-xs uppercase tracking-widest text-primary">{eyebrow}</p>
         <h3 class="mt-3 font-display text-2xl font-semibold tracking-tight sm:text-3xl">
           {title}
@@ -30,7 +29,7 @@ const { id, eyebrow, title, points, image, flip = false, chips } = Astro.props;
           chips && (
             <ul class="mt-5 flex flex-wrap gap-2">
               {chips.map((chip) => (
-                <li class="border border-border-strong bg-accent-soft px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-accent-foreground">
+                <li class="border border-border-strong bg-accent-soft px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-accent-foreground transition hover:border-primary">
                   {chip}
                 </li>
               ))}
@@ -49,8 +48,10 @@ const { id, eyebrow, title, points, image, flip = false, chips } = Astro.props;
         </ul>
       </div>
 
-      <figure class:list={[flip && "lg:order-1"]}>
-        <div class="overflow-hidden border border-border-strong bg-card shadow-lg shadow-ink/5">
+      <figure class:list={[flip && "lg:order-1"]} data-reveal style="--reveal-delay: 120ms">
+        <div
+          class="overflow-hidden border border-border-strong bg-card shadow-lg shadow-ink/5 transition-transform duration-500 hover:scale-[1.015]"
+        >
           <img
             src={image.src}
             alt={image.alt}

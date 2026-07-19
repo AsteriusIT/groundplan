@@ -48,4 +48,24 @@ describe("scaffold (GP-158)", () => {
   it("has no axe violations on any page", async () => {
     for (const page of PAGES) await expectNoAxeViolations(pageHtml(page));
   });
+
+  it("never hides revealed content from no-JS or reduced-motion visitors", () => {
+    const assets = join(DIST, "_astro");
+    const css = readdirSync(assets)
+      .filter((f) => f.endsWith(".css"))
+      .map((f) => readFileSync(join(assets, f), "utf8"))
+      .join("\n");
+    // The reveal styles exist, but only behind the .js gate and only when
+    // motion is allowed — so the default render always shows everything.
+    expect(css).toMatch(/prefers-reduced-motion:\s*no-preference[^}]*\{[\s\S]*?\.js \[data-reveal\]/);
+    expect(css).not.toMatch(/(?<!\.js )\[data-reveal\]\s*\{/);
+    const html = pageHtml("index.html");
+    expect(html).toContain('classList.add("js")');
+    // The observer itself may be inlined or bundled — accept either.
+    const js = readdirSync(assets)
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => readFileSync(join(assets, f), "utf8"))
+      .join("\n");
+    expect(html + js).toContain("IntersectionObserver");
+  });
 });

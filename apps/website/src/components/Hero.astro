@@ -74,39 +74,48 @@ const TRUST_CHIPS = [
 <div class="blueprint-grid border-b border-border">
   <section class="mx-auto max-w-6xl px-4 pt-20 pb-16 text-center sm:px-6 sm:pt-28">
     <p
-      class="inline-block border border-border-strong bg-card px-3 py-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground"
+      class="hero-rise inline-block border border-border-strong bg-card px-3 py-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground"
     >
       Built for Terraform &amp; Kubernetes teams
     </p>
     <h1
-      class="mx-auto mt-6 max-w-4xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-6xl lg:text-7xl"
+      class="hero-rise mx-auto mt-6 max-w-4xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-6xl lg:text-7xl"
+      style="--rise-delay: 0.1s"
     >
       <span class="text-primary">See</span> your infrastructure.
       <span class="text-primary">Review</span> it.
       <span class="text-primary">Shape</span> it.
     </h1>
-    <p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
-      Groundplan turns your infrastructure code into living, interactive diagrams. Every pull
-      request becomes a picture of what changes — and your architecture docs redraw themselves
-      on every merge.
+    <p
+      class="hero-rise mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground sm:text-xl"
+      style="--rise-delay: 0.2s"
+    >
+      Every pull request becomes a picture of what changes. Your architecture docs redraw
+      themselves on every merge.
     </p>
 
-    <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
+    <div
+      class="hero-rise mt-9 flex flex-wrap items-center justify-center gap-4"
+      style="--rise-delay: 0.3s"
+    >
       <a
         href="#product"
-        class="bg-primary px-7 py-3 text-base font-medium text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90"
+        class="bg-primary px-7 py-3 text-base font-medium text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90"
       >
         See it in action
       </a>
       <a
         href="/security/"
-        class="border border-border-strong bg-card px-7 py-3 text-base font-medium text-secondary-foreground hover:border-primary hover:text-primary"
+        class="border border-border-strong bg-card px-7 py-3 text-base font-medium text-secondary-foreground transition hover:border-primary hover:text-primary"
       >
         How we keep your cloud safe
       </a>
     </div>
 
-    <ul class="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+    <ul
+      class="hero-rise mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2"
+      style="--rise-delay: 0.4s"
+    >
       {
         TRUST_CHIPS.map((chip) => (
           <li class="flex items-center gap-2 text-sm text-muted-foreground">
@@ -117,7 +126,7 @@ const TRUST_CHIPS = [
       }
     </ul>
 
-    <figure class="mt-14 text-left">
+    <figure class="hero-rise mt-14 text-left" style="--rise-delay: 0.45s">
       <div class="relative overflow-hidden border border-border-strong bg-card shadow-xl shadow-ink/10">
         <img
           src="/images/hero-pr-diagram.svg"

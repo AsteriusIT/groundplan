@@ -1,35 +1,26 @@
 ---
-// The problem, told from the reader's side of the screen: four pains every
-// infrastructure team recognises, each with a plain-language name.
+// The problem — four pains, one line each. Named plainly, no lecture.
 const PAINS = [
-  {
-    name: "Approved blind",
-    text: "Infrastructure review happens in a wall of text. People approve changes nobody can picture.",
-  },
-  {
-    name: "Docs that lie",
-    text: "Architecture diagrams are out of date the day they're drawn — so nobody trusts them.",
-  },
-  {
-    name: "Surprise blast radius",
-    text: "You find out what a change really touched after it ships, not before.",
-  },
-  {
-    name: "Tools that want the keys",
-    text: "Most visualisers ask for read access to your cloud or your state. Your security team says no.",
-  },
+  { name: "Approved blind", text: "Reviews happen in a wall of text nobody can picture." },
+  { name: "Docs that lie", text: "Diagrams are stale the day they're drawn." },
+  { name: "Surprise blast radius", text: "You learn what a change touched after it ships." },
+  { name: "Tools that want the keys", text: "Everything else asks for your cloud keys." },
 ];
 ---
 
-<section aria-label="The problem" class="border-b border-border bg-card">
-  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
-    <h2 class="max-w-2xl font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-      Reviewing infrastructure as text stopped scaling a long time ago.
+<section aria-label="The problem" class="border-b border-border">
+  <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-16">
+    <h2 class="max-w-2xl font-display text-2xl font-semibold tracking-tight sm:text-3xl" data-reveal>
+      Infrastructure review is stuck in text.
     </h2>
-    <ul class="mt-10 grid grid-cols-1 gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
+    <ul class="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
       {
-        PAINS.map((pain) => (
-          <li class="border-t-2 border-delete pt-4">
+        PAINS.map((pain, i) => (
+          <li
+            class="border-t-2 border-delete pt-4 transition-transform duration-300 hover:-translate-y-1"
+            data-reveal
+            style={`--reveal-delay: ${i * 90}ms`}
+          >
             <p class="font-display text-base font-semibold">{pain.name}</p>
             <p class="mt-2 text-sm leading-relaxed text-muted-foreground">{pain.text}</p>
           </li>

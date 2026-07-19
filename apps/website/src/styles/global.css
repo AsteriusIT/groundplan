@@ -162,6 +162,44 @@
   }
 }
 
+/*
+ * Scroll reveal — elements with data-reveal fade-rise once as they enter the
+ * viewport (observer in Base.astro). Gated on the .js class (set inline in
+ * <head>) so no-JS visitors always see content, and disabled entirely under
+ * prefers-reduced-motion. Stagger via --reveal-delay set inline per item.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .js [data-reveal] {
+    opacity: 0;
+    transform: translateY(18px);
+    transition:
+      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--reveal-delay, 0s);
+  }
+  .js [data-reveal].is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Hero load-in: headline block rises as the page opens (pure CSS, no JS). */
+  .hero-rise {
+    opacity: 0;
+    animation: hero-rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: var(--rise-delay, 0s);
+  }
+  @keyframes hero-rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
 /* The drafting-paper grid, same recipe as the app's diagram canvas. */
 .blueprint-grid {
   background-image:

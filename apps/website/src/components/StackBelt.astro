@@ -1,0 +1,95 @@
+---
+// The stack belt — official brand marks scrolling in a slow marquee, the
+// commercial "works with" strip. The first track is the real content; the
+// second is an aria-hidden duplicate that makes the loop seamless. Reduced
+// motion gets a static, wrapped row and no duplicate.
+import { STACK_ICONS } from "./stack-icons.js";
+---
+
+<section aria-label="Works with your stack" class="border-b border-border bg-card">
+  <div class="pt-8 pb-2">
+    <p class="text-center font-mono text-[11px] uppercase tracking-widest text-faint">
+      Works with your stack
+    </p>
+  </div>
+  <div class="belt pb-8 pt-4">
+    {
+      [0, 1].map((copy) => (
+        <ul class="belt-track" aria-hidden={copy === 1 ? "true" : undefined}>
+          {STACK_ICONS.map((icon) => (
+            <li class="belt-item">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill={icon.fill} aria-hidden="true">
+                <path d={icon.path} />
+              </svg>
+              <span class="whitespace-nowrap text-sm text-muted-foreground">{icon.label}</span>
+            </li>
+          ))}
+        </ul>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .belt {
+    display: flex;
+    overflow: hidden;
+    user-select: none;
+    mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  }
+  .belt-track {
+    display: flex;
+    flex: none;
+    min-width: max-content;
+    align-items: center;
+    gap: 3.5rem;
+    padding-right: 3.5rem;
+  }
+  .belt-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    opacity: 0.72;
+    transition:
+      opacity 0.3s ease,
+      transform 0.3s ease;
+  }
+  .belt-item:hover {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .belt-track {
+      animation: belt-scroll 40s linear infinite;
+    }
+    .belt:hover .belt-track {
+      animation-play-state: paused;
+    }
+  }
+  @keyframes belt-scroll {
+    to {
+      transform: translateX(-100%);
+    }
+  }
+
+  /* Reduced motion: a static, wrapped row — no marquee, no duplicate. */
+  @media (prefers-reduced-motion: reduce) {
+    .belt {
+      mask-image: none;
+      -webkit-mask-image: none;
+    }
+    .belt-track {
+      min-width: 0;
+      flex: 1;
+      flex-wrap: wrap;
+      justify-content: center;
+      row-gap: 1rem;
+      padding: 0 1.5rem;
+    }
+    .belt-track[aria-hidden] {
+      display: none;
+    }
+  }
+</style>

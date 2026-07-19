@@ -11,7 +11,7 @@ describe("hero + problem strip", () => {
     expectVerbatim("index.html", "See your infrastructure. Review it. Shape it.");
     expectVerbatim(
       "index.html",
-      "Groundplan turns your infrastructure code into living, interactive diagrams. Every pull request becomes a picture of what changes — and your architecture docs redraw themselves on every merge.",
+      "Every pull request becomes a picture of what changes. Your architecture docs redraw themselves on every merge.",
     );
   });
 
