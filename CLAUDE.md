@@ -37,13 +37,15 @@ groundplan/
 │   │       ├── db/             # schema.ts, index/drizzle, migrate.ts + migrate.cli.ts
 │   │       ├── plugins/        # Fastify plugins (e.g. db.ts decorates app.pool / app.db)
 │   │       └── routes/         # route plugins; *.test.ts live next to their route
-│   └── frontend/       # React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
+│   ├── frontend/       # React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui
 │       └── src/
 │           ├── main.tsx        # React root
 │           ├── App.tsx         # placeholder landing (pings backend health)
 │           ├── index.css       # Tailwind v4 entry + shadcn theme tokens
 │           ├── components/ui/  # shadcn/ui components (generated; edit freely)
 │           └── lib/utils.ts    # cn() class-merge helper
+│   └── vscode/         # groundplan-vscode — VS Code extension (GP-147..150): live
+│                       #   Terraform preview; host bundled by esbuild, webview by Vite
 ├── packages/
 │   ├── cli/            # @asteriusit/cli — `groundplan push-plan` for CI
 │   ├── canvas/         # @groundplan/canvas — the diagram canvas as a reusable React
@@ -365,6 +367,17 @@ Local dev needs Postgres up first: `docker compose up -d`.
   - Frontend: a Kubernetes snapshot gets the **diagram and nothing else** —
     `viewsFor()` (view-switcher) is the one place that decides; annotate, AI, tours
     and share links are absent, and the deterministic summary carries the review.
+- **VS Code extension (GP-144 epic, GP-145..GP-150):** `apps/vscode` renders a
+  live architecture preview of the workspace's Terraform — parse via
+  `@groundplan/graph-parser` in the extension host, draw via `@groundplan/canvas`
+  in a strict-CSP webview (Vite-built: Tailwind + `import.meta.glob` icons need
+  it; the host bundles with esbuild). Live loop: debounced re-parse of dirty
+  buffers, last-good graph on parse errors (out-of-sync chip), Problems-panel
+  diagnostics. Node↔code navigation works off `node.source` ranges only. It is
+  fully offline and bundles everything — never add a network call or telemetry
+  to it. Packaging/publishing: `.github/workflows/vscode-extension.yml` +
+  `docs/vscode-publishing.md` (tag `vscode-v<version>`, version from the
+  manifest).
 - **Never introduce cloud SDK credentials or Terraform state access.** The trust
   model is "ingest plan JSON from the user's CI." Keep it that way.
 - Prefer deterministic rendering: use AI to build/annotate the semantic model,
