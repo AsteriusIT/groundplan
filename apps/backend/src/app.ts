@@ -12,7 +12,12 @@ import {
   realAzureDevOpsClient,
   type AzureDevOpsClient,
 } from "./services/azure-devops.js";
-import { realAiProvider, type AiProvider } from "./services/ai.js";
+import {
+  realAiProvider,
+  realStudioModel,
+  type AiProvider,
+} from "./services/ai.js";
+import type { LanguageModel } from "ai";
 import { realK8sReader, type K8sReader } from "./services/k8s-reader.js";
 import { realK8sVerify, type K8sVerify } from "./services/k8s-verify.js";
 import { authPlugin } from "./plugins/auth.js";
@@ -28,6 +33,7 @@ import {
 import { orgScopePlugin } from "./plugins/org-scope.js";
 // Global (not org-scoped) route plugins.
 import { aiStatusRoutes } from "./routes/ai.js";
+import { aiStudioRoutes } from "./routes/ai-studio.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
@@ -58,6 +64,8 @@ declare module "fastify" {
     publicBaseUrl: string;
     /** The AI layer's model access (GP-62). `model === null` = layer disabled. */
     ai: AiProvider;
+    /** The AI studio's chat model (GP-137). `null` = studio disabled (no key). */
+    studioModel: LanguageModel | null;
     /** Checks a Kubernetes cluster is reachable (GP-95); injectable in tests. */
     k8sVerify: K8sVerify;
     /** Lists namespaces and reads one (GP-97); injectable in tests. */
@@ -82,6 +90,8 @@ export type BuildAppOptions = {
   azureDevOps?: AzureDevOpsClient;
   /** Inject an AI provider (tests). Defaults to the real one (off without a key). */
   ai?: AiProvider;
+  /** Inject the studio chat model (tests). Defaults to real (null without a key). */
+  studioModel?: LanguageModel | null;
   /** Inject a cluster verifier (tests). Defaults to the real `/version` check. */
   k8sVerify?: K8sVerify;
   /** Inject a cluster reader (tests). Defaults to the real Kubernetes client. */
@@ -133,6 +143,10 @@ export async function buildApp(
   // AI layer (GP-62). Without AI_API_KEY the real provider reports model: null,
   // so /ai/status says disabled and no generation route can reach a model.
   app.decorate("ai", opts.ai ?? realAiProvider(env));
+  app.decorate<LanguageModel | null>(
+    "studioModel",
+    opts.studioModel ?? realStudioModel(env),
+  );
   // Cluster reachability (GP-95). Injected in tests, so the Kubernetes epic is
   // exercised end-to-end without a cluster — and CI never reaches one.
   app.decorate("k8sVerify", opts.k8sVerify ?? realK8sVerify);
@@ -166,6 +180,9 @@ export async function buildApp(
   // Playground (GP-123): user-scoped, org-free — parse is ephemeral, drafts
   // belong to their author alone, so none of it sits under /orgs/:orgId.
   await app.register(playgroundRoutes, { prefix: "/api/v1" });
+  // AI studio (GP-137): stateless chat + parse — nothing an org owns, so it
+  // sits beside the playground, behind the same global auth hook.
+  await app.register(aiStudioRoutes, { prefix: "/api/v1" });
 
   // Everything a tenant owns — projects, repos, snapshots, PRs, clusters, docs,
   // annotations, AI generation, exports, tours, dashboard — lives under

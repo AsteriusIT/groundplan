@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { streamText } from "ai";
+import { streamText, type LanguageModel } from "ai";
 import { and, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
@@ -110,22 +110,45 @@ export type Prompt = {
   version: string;
 };
 
-const promptCache = new Map<AiKind, Prompt>();
+const promptCache = new Map<string, Prompt>();
 
-/** Read (and memoise) a prompt file, versioned by the hash of its contents. */
-export function loadPrompt(kind: AiKind): Prompt {
-  const cached = promptCache.get(kind);
+/** Read (and memoise) a prompt file by name, versioned by its content hash. */
+function loadPromptFile(file: string): Prompt {
+  const cached = promptCache.get(file);
   if (cached) return cached;
 
-  const path = fileURLToPath(
-    new URL(`../../prompts/${PROMPT_FILES[kind]}`, import.meta.url),
-  );
+  const path = fileURLToPath(new URL(`../../prompts/${file}`, import.meta.url));
   const system = readFileSync(path, "utf8");
   const version = createHash("sha256").update(system).digest("hex").slice(0, 12);
 
   const prompt = { system, version };
-  promptCache.set(kind, prompt);
+  promptCache.set(file, prompt);
   return prompt;
+}
+
+/** Read (and memoise) a prompt file, versioned by the hash of its contents. */
+export function loadPrompt(kind: AiKind): Prompt {
+  return loadPromptFile(PROMPT_FILES[kind]);
+}
+
+/**
+ * The AI studio's system prompt (GP-137). Not an `AiKind`: studio chats are
+ * stateless and never cached, so the kind never reaches `ai_generations` — but
+ * the prompt still lives in a versioned file, like every other prompt.
+ */
+export function loadStudioPrompt(): Prompt {
+  return loadPromptFile("studio-chat.md");
+}
+
+/**
+ * The AI studio's chat model (GP-137). The studio talks to the model through
+ * the AI SDK's `streamText` + tools directly (it streams the UI-message
+ * protocol, not prose), so its seam is the `LanguageModel` itself rather than
+ * `AiProvider` — same flag, though: no API key ⇒ null ⇒ the studio routes 404.
+ */
+export function realStudioModel(env: AppEnv): LanguageModel | null {
+  if (!env.aiApiKey) return null;
+  return createAnthropic({ apiKey: env.aiApiKey })(env.aiModel);
 }
 
 /** The real provider, backed by the Vercel AI SDK. Disabled without an API key. */
