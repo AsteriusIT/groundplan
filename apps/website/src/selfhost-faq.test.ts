@@ -38,12 +38,17 @@ describe("self-host, FAQ, meta & footer", () => {
     }
   });
 
-  it("closes with an honest preview CTA", () => {
-    expect(pageText("index.html")).toContain("Groundplan is in private preview.");
+  it("closes with the app as the primary CTA, security as the secondary", () => {
+    expect(pageText("index.html")).toContain(
+      "Groundplan is in private preview — the app is open to try.",
+    );
     const html = pageHtml("index.html");
     const cta = html.lastIndexOf('aria-label="Get started"');
     expect(cta).toBeGreaterThan(-1);
-    expect(html.slice(cta)).toMatch(/href="\/security\/"/);
+    const block = html.slice(cta);
+    expect(block).toMatch(/href="https:\/\/app\.groundplan\.qcs\.ovh\/"/);
+    expect(block).toMatch(/href="\/security\/"/);
+    expect(block.indexOf("app.groundplan")).toBeLessThan(block.indexOf("/security/"));
   });
 
   it("uses the §14 paragraph as the meta description", () => {

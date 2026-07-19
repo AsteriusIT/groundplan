@@ -45,6 +45,15 @@ describe("scaffold (GP-158)", () => {
     }
   });
 
+  it("offers the app from the header on every page", () => {
+    for (const page of PAGES) {
+      const html = pageHtml(page);
+      const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+      expect(header).toContain('href="https://app.groundplan.qcs.ovh/"');
+      expect(header).toContain("Open the app");
+    }
+  });
+
   it("has no axe violations on any page", async () => {
     for (const page of PAGES) await expectNoAxeViolations(pageHtml(page));
   });

@@ -3,6 +3,7 @@
 // Security sits in nav position 2 by design — it is the objection-killer
 // (GP-161, §12 of docs/website-presentation.md).
 import "../styles/global.css";
+import { APP_URL } from "../urls.js";
 
 interface Props {
   title: string;
@@ -85,10 +86,10 @@ const currentPath = Astro.url.pathname;
             }
           </ul>
           <a
-            href="/#product"
-            class="hidden bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 sm:inline-block"
+            href={APP_URL}
+            class="hidden bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 sm:inline-block"
           >
-            See it in action
+            Open the app <span aria-hidden="true">↗</span>
           </a>
         </nav>
       </div>

@@ -2,6 +2,8 @@
 // Run-it-your-way, the FAQ security teams ask first, and the closing CTA.
 // FAQ answers are kept verbatim from the presentation doc — they are already
 // the commercial pitch, honestly worded. Plain <details>, no JS accordion.
+import { APP_URL } from "../urls.js";
+
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Do you need access to our cloud account?",
@@ -98,8 +100,7 @@ const FAQ: { q: string; a: string }[] = [
       data-reveal
       style="--reveal-delay: 100ms"
     >
-      Groundplan is in private preview. Start with the part your security team will ask about
-      anyway.
+      Groundplan is in private preview — the app is open to try.
     </p>
     <div
       class="mt-8 flex flex-wrap items-center justify-center gap-4"
@@ -107,16 +108,16 @@ const FAQ: { q: string; a: string }[] = [
       style="--reveal-delay: 200ms"
     >
       <a
-        href="/security/"
+        href={APP_URL}
         class="bg-primary px-7 py-3 text-base font-medium text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90"
       >
-        Read the security model
+        Open the app <span aria-hidden="true">↗</span>
       </a>
       <a
-        href="#product"
+        href="/security/"
         class="border border-border-strong bg-card px-7 py-3 text-base font-medium text-secondary-foreground transition hover:border-primary hover:text-primary"
       >
-        Back to the tour
+        Read the security model
       </a>
     </div>
   </div>
