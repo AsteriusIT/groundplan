@@ -84,6 +84,7 @@ import { searchNodes } from "../lib/graph-search";
 import { detectHubs } from "../lib/hub";
 import {
   CATEGORY_META,
+  isDataSource,
   shortType,
   type Category,
 } from "../lib/resource-category";
@@ -255,7 +256,14 @@ function CheckRow({
  * expression-inferred reference vs an explicit `depends_on` (GP-20) — but nothing
  * on screen said so, which turns a deterministic encoding into a guess.
  */
-function EdgeLegend({ variant }: Readonly<{ variant: "plan" | "docs" }>) {
+function EdgeLegend({
+  variant,
+  showDataSource = false,
+}: Readonly<{
+  variant: "plan" | "docs";
+  /** True when the graph holds a data source — no entry for an absent thing. */
+  showDataSource?: boolean;
+}>) {
   return (
     <div className="bg-card/90 text-muted-foreground absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-1.5 shadow-sm backdrop-blur">
       {variant === "plan" &&
@@ -268,6 +276,12 @@ function EdgeLegend({ variant }: Readonly<{ variant: "plan" | "docs" }>) {
             {FILTER_LABELS[key]}
           </span>
         ))}
+      {showDataSource && (
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
+          <span className="bg-muted border-border size-2 rounded-full border" />
+          data source
+        </span>
+      )}
       <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
         <svg width="18" height="6" aria-hidden="true">
           <line x1="0" y1="3" x2="18" y2="3" strokeWidth="1.5" className="stroke-edge" />
@@ -479,6 +493,13 @@ export function GraphCanvas({
     [graph, anchorOf],
   );
   const hubs = useMemo(() => detectHubs(hubGraph), [hubGraph]);
+
+  // Data sources are read from the provider, not defined in the repo — the
+  // legend explains their muted card, but only when one is actually on screen.
+  const hasDataSource = useMemo(
+    () => graph.nodes.some((n) => isDataSource(n.id)),
+    [graph],
+  );
   const [showHubEdges, setShowHubEdges] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1295,7 +1316,7 @@ export function GraphCanvas({
 
       {/* What the lines mean. An undocumented encoding is a guess the reader has
           to make — and this diagram is supposed to be trustworthy. */}
-      <EdgeLegend variant={variant} />
+      <EdgeLegend variant={variant} showDataSource={hasDataSource} />
 
       {detailsPanel && selected && (
         <NodeDetailsPanel

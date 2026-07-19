@@ -214,6 +214,48 @@ it("shows no count badge without the attribute", () => {
   expect(screen.queryByText(/^×/)).not.toBeInTheDocument();
 });
 
+it("marks a data source with a chip, a muted surface and a type-line prefix", () => {
+  const { container } = render(
+    <NodeCard
+      graphNode={{
+        ...rg,
+        id: "data.azurerm_subnet.existing",
+        name: "existing",
+        type: "azurerm_subnet",
+      }}
+    />,
+  );
+  expect(screen.getByTitle(/read from the provider/i)).toHaveTextContent("data");
+  expect(screen.getByText(/data ·/)).toBeInTheDocument();
+  const card = container.firstElementChild as HTMLElement;
+  expect(card.className).toContain("bg-muted/50");
+});
+
+it("keeps the change treatment on a data source that changed (diff mode)", () => {
+  const { container } = render(
+    <NodeCard
+      graphNode={{
+        ...rg,
+        id: "data.azurerm_subnet.existing",
+        name: "existing",
+        type: "azurerm_subnet",
+        change: "delete",
+      }}
+    />,
+  );
+  const card = container.firstElementChild as HTMLElement;
+  expect(card.className).toContain("bg-delete-soft");
+  expect(card.className).not.toContain("bg-muted/50");
+  // The chip still says what it is.
+  expect(screen.getByTitle(/read from the provider/i)).toBeInTheDocument();
+});
+
+it("renders no data trait on a managed resource", () => {
+  render(<NodeCard graphNode={rg} />);
+  expect(screen.queryByTitle(/read from the provider/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/data ·/)).not.toBeInTheDocument();
+});
+
 it("a ghost node recedes and desaturates; context dims slightly (GP-155)", () => {
   const { container, rerender } = render(
     <NodeCard graphNode={{ ...rg, change: "noop" }} emphasis="ghost" />,

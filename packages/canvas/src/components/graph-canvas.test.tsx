@@ -856,3 +856,31 @@ it("the legend names the impacted state on the plan view (GP-155)", async () => 
   // Filter panel rests collapsed, so the only "Impacted" on screen is the legend's.
   expect(screen.getByText("Impacted")).toBeInTheDocument();
 });
+
+it("the legend names data sources when the graph holds one", async () => {
+  const withData: Graph = {
+    ...calmGraph,
+    nodes: [
+      ...calmGraph.nodes,
+      {
+        id: "data.aws_vpc.shared",
+        name: "shared",
+        type: "aws_vpc",
+        provider: "aws",
+        module_path: [],
+        change: null,
+      },
+    ],
+  };
+  render(<GraphCanvas graph={withData} variant="docs" />);
+  await screen.findByText("node:shared");
+  expect(screen.getByText("data source")).toBeInTheDocument();
+});
+
+it("no data-source legend entry for a graph without one", async () => {
+  // calmGraph has none; graph's `aws_s3_bucket.data` is a resource *named*
+  // data, which must not count.
+  render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  expect(screen.queryByText("data source")).not.toBeInTheDocument();
+});

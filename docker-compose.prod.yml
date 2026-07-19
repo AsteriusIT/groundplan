@@ -30,6 +30,9 @@ x-backend-env: &backend-env
   # AI layer (GP-62) — optional. Unset AI_API_KEY = the AI layer stays off.
   AI_API_KEY: ${AI_API_KEY:-}
   AI_MODEL: ${AI_MODEL:-claude-opus-4-8}
+  # Orgs (GP-112): single-org unless explicitly opted out (SINGLE_ORG=false
+  # enables SaaS multi-org mode — org switcher, invites, onboarding).
+  SINGLE_ORG: ${SINGLE_ORG:-true}
 
 services:
   # --- Edge: TLS termination + routing ------------------------------------

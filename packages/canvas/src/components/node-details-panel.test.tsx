@@ -289,3 +289,64 @@ it("arrow keys nudge the width by 16px, clamped, persisting", () => {
   expect(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)).toBe("704");
   expect(screen.getByRole("complementary").style.width).toBe("704px");
 });
+
+const existingSubnet: GraphNode = {
+  id: "data.azurerm_subnet.existing",
+  name: "existing",
+  type: "azurerm_subnet",
+  provider: "azurerm",
+  module_path: [],
+  change: null,
+};
+
+const dataGraph: Graph = {
+  version: 8,
+  nodes: [existingSubnet, { ...vnet, change: null }],
+  edges: [
+    {
+      from: "azurerm_virtual_network.main",
+      to: "data.azurerm_subnet.existing",
+      kind: "depends_on",
+    },
+  ],
+};
+
+it("says a data source is one: eyebrow + explainer (not 'Resource')", () => {
+  render(
+    <NodeDetailsPanel
+      graph={dataGraph}
+      node={existingSubnet}
+      onClose={() => {}}
+      onSelect={() => {}}
+    />,
+  );
+  expect(screen.getByText("Data source")).toBeInTheDocument();
+  expect(screen.queryByText("Resource")).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/read from the provider at plan time/i),
+  ).toBeInTheDocument();
+});
+
+it("prefixes a data source in the connections list", () => {
+  render(
+    <NodeDetailsPanel
+      graph={dataGraph}
+      node={{ ...vnet, change: null }}
+      onClose={() => {}}
+      onSelect={() => {}}
+    />,
+  );
+  expect(
+    screen.getByRole("button", { name: "data.subnet.existing" }),
+  ).toBeInTheDocument();
+});
+
+it("keeps the plain 'Resource' eyebrow on a managed resource", () => {
+  render(
+    <NodeDetailsPanel graph={graph} node={vnet} onClose={() => {}} onSelect={() => {}} />,
+  );
+  expect(screen.getByText("Resource")).toBeInTheDocument();
+  expect(
+    screen.queryByText(/read from the provider at plan time/i),
+  ).not.toBeInTheDocument();
+});

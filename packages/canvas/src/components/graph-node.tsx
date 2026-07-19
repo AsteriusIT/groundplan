@@ -24,7 +24,12 @@ import type { GraphNode, LintSeverity } from "../types";
 import type { Emphasis } from "../lib/emphasis";
 import { changeClasses, STACK_MAX_ROWS } from "../lib/graph-layout";
 import { STATUS_META, statusOf } from "../lib/status";
-import { categorize, CATEGORY_META, shortType } from "../lib/resource-category";
+import {
+  categorize,
+  CATEGORY_META,
+  isDataSource,
+  shortType,
+} from "../lib/resource-category";
 import type { GraphNodeData } from "../lib/graph-layout";
 import { cn } from "../lib/utils";
 import { AttachmentChip } from "../components/attachment-chip";
@@ -200,6 +205,7 @@ export function NodeCard({
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
   const isDelete = graphNode.change === "delete";
+  const isData = isDataSource(graphNode.id);
   const iconClass = CATEGORY_META[categorize(graphNode.type)].className;
   // The projection has the last word: a node it renames shows that name here too.
   const displayName = graphNode.display_label ?? renameLabel ?? graphNode.name;
@@ -221,6 +227,10 @@ export function NodeCard({
         // top-right corner and must not be clipped (GP-30).
         "relative flex h-full w-full flex-col rounded-[7px] border-[1.5px] shadow-sm transition-shadow hover:shadow-md",
         changeClasses(graphNode.change),
+        // A data source is read from the provider, not defined here — its
+        // surface recedes. Only while unstatused: in diff mode a changed data
+        // source keeps the full change treatment (the chip still says data).
+        isData && !status && "bg-muted/50",
         // A picked node (annotate mode) gets the strongest, filled treatment so
         // link endpoints / group members read at a glance (GP-58).
         picked && "ring-primary ring-offset-background bg-primary/10 ring-[3px] ring-offset-1",
@@ -281,6 +291,7 @@ export function NodeCard({
             isDelete && "line-through",
           )}
         >
+          {isData && <span className="text-faint font-normal">data · </span>}
           {shortType(graphNode.type)}
         </p>
         <p
@@ -301,6 +312,17 @@ export function NodeCard({
           className="bg-muted text-muted-foreground inline-grid size-4 shrink-0 place-items-center rounded-full"
         >
           <EyeOff className="size-2.5" />
+        </span>
+      )}
+
+      {/* Read from the provider at plan time — this card describes something
+          the configuration references, not something it manages. */}
+      {isData && (
+        <span
+          className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[10px]"
+          title="Data source — read from the provider, not defined in this configuration"
+        >
+          data
         </span>
       )}
 

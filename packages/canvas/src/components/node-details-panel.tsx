@@ -16,7 +16,12 @@ import {
   usePanelPrefs,
 } from "../panel/panel-prefs";
 import { changeLabel, STATUS_META, statusOf } from "../lib/status";
-import { categorize, CATEGORY_META, shortType } from "../lib/resource-category";
+import {
+  categorize,
+  CATEGORY_META,
+  isDataSource,
+  shortType,
+} from "../lib/resource-category";
 import {
   connectionsOf,
   nearestChangedAncestor,
@@ -111,7 +116,7 @@ export function NodeDetailsPanel({
       )}
       <SidePanelHeader onClose={onClose}>
         <p className="text-muted-foreground font-mono text-[10px] tracking-[0.08em] uppercase">
-          Resource
+          {isDataSource(node.id) ? "Data source" : "Resource"}
         </p>
         <p className="font-display text-sm font-semibold break-all">
           {node.display_label ?? node.name}
@@ -143,6 +148,12 @@ export function NodeDetailsPanel({
             {node.provider ? ` · ${node.provider}` : ""}
           </span>
         </div>
+        {isDataSource(node.id) && (
+          <p className="text-faint mt-1 text-[11px]">
+            Read from the provider at plan time — defined outside this
+            configuration.
+          </p>
+        )}
       </SidePanelHeader>
 
       <SidePanelBody>
@@ -637,6 +648,7 @@ function ConnectionRow({
       <span className={cn("size-1.5 shrink-0 rounded-full", dot)} />
       <ResourceIcon type={node.type} className={cn("size-3.5 shrink-0", catClass)} />
       <span className="text-ink min-w-0 flex-1 truncate font-mono text-[11px]">
+        {isDataSource(node.id) && "data."}
         {shortType(node.type)}.{node.name}
       </span>
     </button>

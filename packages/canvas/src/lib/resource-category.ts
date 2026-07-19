@@ -224,3 +224,18 @@ export function shortType(type: string): string {
   const underscore = type.indexOf("_");
   return underscore === -1 ? type : type.slice(underscore + 1);
 }
+
+/**
+ * Is this node id a Terraform data source — read from the provider at plan
+ * time, not defined in the configuration? The address encodes it losslessly
+ * (`(module.<name>.)* data.<type>.<name>`), so no graph field is needed and
+ * every stored snapshot gets the trait retroactively. Walking `module.<name>`
+ * pairs (rather than substring-matching `.data.`) keeps a module literally
+ * named `data` from reading as one.
+ */
+export function isDataSource(id: string): boolean {
+  const parts = id.split(".");
+  let i = 0;
+  while (parts[i] === "module" && i + 1 < parts.length) i += 2;
+  return parts[i] === "data";
+}
