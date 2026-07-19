@@ -38,9 +38,20 @@
     "commands": [
       {
         "command": "groundplan.openPreview",
-        "title": "Groundplan: Open Preview"
+        "title": "Groundplan: Open Preview",
+        "shortTitle": "Open Preview",
+        "icon": "$(open-preview)"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "groundplan.openPreview",
+          "when": "resourceExtname == .tf || editorLangId == terraform",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs && vite build",

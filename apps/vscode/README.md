@@ -18,7 +18,8 @@ uploaded anywhere. That is the whole trust model, and it is non-negotiable.
 
 ## What you get
 
-- **Live preview** — `Groundplan: Open Preview` renders the current workspace
+- **Live preview** — the preview button in any `.tf` editor's title bar (or
+  `Groundplan: Open Preview` from the palette) renders the current workspace
   folder's Terraform as an interactive diagram (pan, zoom, search, filters),
   with real vendor icons for Azure, AWS, GCP and Kubernetes resources.
 - **Live while you type** — unsaved edits count. A syntax error never blanks
