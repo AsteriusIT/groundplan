@@ -3,6 +3,69 @@
 // docs/website-presentation.md (§1, §2, §12). The visual is a real GP-37
 // export of PR #42 in asteriusit/groundplan-example — rendered by the
 // server exporter, not drawn for the website (see assets-src/render-hero.ts).
+//
+// GP-165: the §12 hero moment. A wall of `terraform plan` diff (the PR-42
+// change, matching the plan fixture) sits over the export and is wiped away
+// by a drafting-edge sweep — pure CSS, no extra requests, and
+// prefers-reduced-motion never shows the wall at all (static hero, no CLS:
+// the wall is absolutely positioned over the reserved image box).
+const PLAN_WALL = `Terraform will perform the following actions:
+
+  # azurerm_redis_cache.sessions will be created
+  + resource "azurerm_redis_cache" "sessions" {
+      + capacity                      = 1
+      + family                        = "C"
+      + hostname                      = (known after apply)
+      + minimum_tls_version           = "1.2"
+      + name                          = "redis-sessions"
+      + public_network_access_enabled = false
+      + sku_name                      = "Standard"
+    }
+
+  # azurerm_private_endpoint.redis will be created
+  + resource "azurerm_private_endpoint" "redis" {
+      + name      = "pe-redis-sessions"
+      + subnet_id = (known after apply)
+      + private_service_connection {
+          + name                           = "psc-redis"
+          + private_connection_resource_id = (known after apply)
+          + subresource_names              = ["redisCache"]
+        }
+    }
+
+  # azurerm_key_vault_secret.redis_connection will be created
+  + resource "azurerm_key_vault_secret" "redis_connection" {
+      + key_vault_id = (known after apply)
+      + name         = "redis-connection-string"
+      + value        = (sensitive value)
+    }
+
+  # azurerm_linux_web_app.api will be updated in-place
+  ~ resource "azurerm_linux_web_app" "api" {
+      ~ app_settings = {
+          + "REDIS_HOST"    = "redis-sessions.privatelink.redis.cache.windows.net"
+          + "SESSION_STORE" = "redis"
+        }
+    }
+
+  # azurerm_storage_account.legacy_sessions will be destroyed
+  - resource "azurerm_storage_account" "legacy_sessions" {
+      - account_tier = "Standard" -> null
+      - name         = "stexamplesessions" -> null
+    }
+
+Plan: 3 to add, 1 to change, 1 to destroy.`;
+
+const WALL_LINES = PLAN_WALL.split("\n");
+
+function wallClass(line: string): string | undefined {
+  const first = line.trim()[0];
+  if (first === "+") return "wall-add";
+  if (first === "-") return "wall-del";
+  if (first === "~") return "wall-mod";
+  if (first === "#") return "wall-comment";
+  return undefined;
+}
 ---
 
 <div class="blueprint-grid border-b border-border">
@@ -40,7 +103,7 @@
     </p>
 
     <figure class="mt-12">
-      <div class="border border-border-strong bg-card shadow-sm">
+      <div class="relative overflow-hidden border border-border-strong bg-card shadow-sm">
         <img
           src="/images/hero-pr-diagram.svg"
           alt="A Groundplan pull-request diagram of PR #42 in asteriusit/groundplan-example: a created Redis cache, private endpoint and Key Vault secret in green, an updated web app in amber, a deleted storage account in dashed red, and an impacted diagnostic setting in violet, with the unchanged estate ghosted."
@@ -49,6 +112,17 @@
           class="block h-auto w-full"
           fetchpriority="high"
         />
+        <div class="hcl-wall" aria-hidden="true">
+          {
+            [0, 1].map((column) => (
+              <pre class:list={["hcl-wall-text", column === 1 && "hidden lg:block"]}>
+                {WALL_LINES.map((line) => (
+                  <span class={wallClass(line)}>{line + "\n"}</span>
+                ))}
+              </pre>
+            ))
+          }
+        </div>
       </div>
       <figcaption class="mt-2 font-mono text-[11px] text-faint">
         PR #42 · asteriusit/groundplan-example · exported by the Groundplan renderer
@@ -101,3 +175,85 @@
     </ul>
   </div>
 </section>
+
+<style>
+  /* GP-165 — the HCL wall. Absolutely positioned over the image box the
+     <img width/height> already reserves, so showing or skipping it never
+     shifts layout (CLS unchanged). */
+  .hcl-wall {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    gap: 2.5rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--canvas);
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+  }
+  /* The drafting edge that "parses" the wall away, riding the clip boundary. */
+  .hcl-wall::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: var(--primary);
+    box-shadow: 0 0 14px 2px color-mix(in oklab, var(--primary) 45%, transparent);
+    opacity: 0;
+  }
+  .hcl-wall-text {
+    flex: 1;
+    margin: 0;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--muted-foreground);
+    white-space: pre;
+  }
+  .wall-add {
+    color: var(--create);
+  }
+  .wall-del {
+    color: var(--delete);
+  }
+  .wall-mod {
+    color: var(--update);
+  }
+  .wall-comment {
+    color: var(--faint);
+  }
+
+  /* Reduced motion: the wall never appears — the static export IS the hero. */
+  @media (prefers-reduced-motion: reduce) {
+    .hcl-wall {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .hcl-wall {
+      clip-path: inset(0 0 0 0);
+      animation: hcl-sweep 2200ms cubic-bezier(0.65, 0, 0.35, 1) 1100ms forwards;
+    }
+    .hcl-wall::after {
+      opacity: 1;
+      animation: hcl-edge 2200ms cubic-bezier(0.65, 0, 0.35, 1) 1100ms forwards;
+    }
+  }
+  @keyframes hcl-sweep {
+    to {
+      clip-path: inset(0 0 0 100%);
+    }
+  }
+  @keyframes hcl-edge {
+    95% {
+      opacity: 1;
+    }
+    to {
+      left: 100%;
+      opacity: 0;
+    }
+  }
+</style>
