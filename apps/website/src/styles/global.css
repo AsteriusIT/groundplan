@@ -1,0 +1,177 @@
+@import "tailwindcss";
+
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+/*
+ * Groundplan design tokens — copied VALUES from the app's "blueprint" light
+ * theme (apps/frontend/src/index.css, GP-9/GP-28). The website is deliberately
+ * single-theme (GP-158): light drafting paper, the identity the product opens
+ * on. No shared token package yet — keep the copies in sync by hand.
+ */
+:root {
+  color-scheme: light;
+  --radius: 0.1875rem; /* 3px — crisp, technical, not rounded */
+
+  /* — surfaces — */
+  --background: #f4f7fb; /* drafting-paper background */
+  --canvas: #fbfdff; /* the diagram canvas, a shade brighter than the page */
+  --card: #ffffff;
+  --panel: #ffffff;
+
+  /* — ink — */
+  --foreground: #182a42;
+  --ink: #182a42;
+  --muted-foreground: #5d7391;
+  --faint: #93a6bf;
+
+  /* — accent (blueprint blue) — */
+  --primary: #2e6be6;
+  --primary-foreground: #ffffff;
+  --accent-soft: #eaf1fe;
+  --secondary: #eaf1fe;
+  --secondary-foreground: #16345c;
+  --muted: #eaf0f8;
+  --accent: #eaf1fe;
+  --accent-foreground: #16345c;
+  --ring: #2e6be6;
+
+  /* — lines — */
+  --border: #e3e9f2;
+  --border-strong: #cdd8e8;
+  --grid-line: #e2eaf5; /* fine blueprint grid */
+  --grid-strong: #d3dff0; /* bold blueprint grid (every 5th line) */
+  --edge: #a6b8d0;
+  --edge-inferred: #c3cfe0;
+
+  /* — status — */
+  --create: #189a5c;
+  --create-soft: #e8f7ef;
+  --update: #c77e10;
+  --update-soft: #fbf3e4;
+  --delete: #d8503f;
+  --delete-soft: #fdf1ef;
+  --impacted: #7b5bd6;
+  --impacted-soft: #f1edfc;
+  --exposed: #d4531e;
+  --exposed-soft: #fdece3;
+  --warning: #a86a10;
+  --warning-soft: #fbf1de;
+
+  /* — resource categories (GP-24) — */
+  --cat-compute: #2563c9;
+  --cat-network: #0e8f9e;
+  --cat-network-soft: #e6f4f5;
+  --cat-data: #4f46c7;
+  --cat-security: #c23a63;
+  --cat-identity: #b5760f;
+  --cat-observability: #a032b8;
+  --cat-other: #5d7391;
+
+  /* — HCL source syntax (GP-121) — */
+  --code-keyword: #2f5bb8;
+  --code-string: #0f7d6d;
+  --code-comment: #8a9cb5;
+  --code-number: #a8690c;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", monospace;
+}
+
+@theme inline {
+  --radius: var(--radius);
+
+  --color-background: var(--background);
+  --color-canvas: var(--canvas);
+  --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
+  --color-card: var(--card);
+  --color-panel: var(--panel);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --color-grid-line: var(--grid-line);
+  --color-grid-strong: var(--grid-strong);
+  --color-edge: var(--edge);
+  --color-edge-inferred: var(--edge-inferred);
+
+  --color-create: var(--create);
+  --color-create-soft: var(--create-soft);
+  --color-update: var(--update);
+  --color-update-soft: var(--update-soft);
+  --color-delete: var(--delete);
+  --color-delete-soft: var(--delete-soft);
+  --color-impacted: var(--impacted);
+  --color-impacted-soft: var(--impacted-soft);
+  --color-exposed: var(--exposed);
+  --color-exposed-soft: var(--exposed-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+
+  --color-cat-compute: var(--cat-compute);
+  --color-cat-network: var(--cat-network);
+  --color-cat-network-soft: var(--cat-network-soft);
+  --color-cat-data: var(--cat-data);
+  --color-cat-security: var(--cat-security);
+  --color-cat-identity: var(--cat-identity);
+  --color-cat-observability: var(--cat-observability);
+  --color-cat-other: var(--cat-other);
+
+  --color-code-keyword: var(--code-keyword);
+  --color-code-string: var(--code-string);
+  --color-code-comment: var(--code-comment);
+  --color-code-number: var(--code-number);
+
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* The drafting-paper grid, same recipe as the app's diagram canvas. */
+.blueprint-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-strong) 1px, transparent 1px);
+  background-size:
+    24px 24px,
+    24px 24px,
+    120px 120px,
+    120px 120px;
+  background-position: -1px -1px;
+}

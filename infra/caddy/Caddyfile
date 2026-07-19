@@ -30,6 +30,12 @@
 	}
 }
 
+# --- Website: static marketing site (GP-158) -------------------------------
+{$WWW_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy website:80
+}
+
 # --- Auth: Keycloak --------------------------------------------------------
 {$AUTH_DOMAIN} {
 	encode zstd gzip

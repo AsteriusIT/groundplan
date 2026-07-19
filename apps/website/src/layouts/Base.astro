@@ -1,0 +1,111 @@
+---
+// The one layout (GP-158): header nav, footer title block, meta.
+// Security sits in nav position 2 by design — it is the objection-killer
+// (GP-161, §12 of docs/website-presentation.md).
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+
+const NAV = [
+  { href: "/", label: "Product" },
+  { href: "/security/", label: "Security" },
+  { href: "/#ai", label: "AI" },
+  { href: "/#kubernetes", label: "Kubernetes" },
+  { href: "/#faq", label: "FAQ" },
+];
+
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Staging stays out of the index until the trademark gate (GP-166) clears. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+  </head>
+  <body class="min-h-screen flex flex-col">
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:border focus:border-border-strong"
+    >
+      Skip to content
+    </a>
+
+    <header class="border-b border-border bg-card">
+      <div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-4 py-3 sm:px-6">
+        <a href="/" class="flex items-baseline gap-2">
+          <span class="font-display text-lg font-semibold tracking-tight">groundplan</span>
+          <span class="hidden font-mono text-[11px] text-faint sm:inline">rev&nbsp;A</span>
+        </a>
+        <nav aria-label="Main">
+          <ul class="flex items-center gap-1 sm:gap-2">
+            {
+              NAV.map((item) => (
+                <li>
+                  <a
+                    href={item.href}
+                    aria-current={currentPath === item.href ? "page" : undefined}
+                    class:list={[
+                      "px-2 py-1.5 text-sm sm:px-3",
+                      currentPath === item.href
+                        ? "text-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground",
+                    ]}
+                  >
+                    {item.label}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="flex-1">
+      <slot />
+    </main>
+
+    <!-- Footer as an engineering-drawing title block: the site is a drawing
+         sheet, so it ends the way a drawing does. -->
+    <footer class="border-t border-border-strong bg-card">
+      <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+        <div
+          class="grid grid-cols-2 divide-x divide-border border border-border-strong font-mono text-[11px] sm:grid-cols-4"
+        >
+          <div class="p-3">
+            <div class="text-faint uppercase tracking-wider">Project</div>
+            <div class="mt-1 text-foreground">Groundplan</div>
+          </div>
+          <div class="p-3">
+            <div class="text-faint uppercase tracking-wider">Drawn by</div>
+            <div class="mt-1 text-foreground">AsteriusIT</div>
+          </div>
+          <div class="p-3">
+            <div class="text-faint uppercase tracking-wider">Scale</div>
+            <div class="mt-1 text-foreground">1:1 — always in sync</div>
+          </div>
+          <div class="p-3">
+            <div class="text-faint uppercase tracking-wider">Status</div>
+            <div class="mt-1 text-foreground">Preview — not indexed</div>
+          </div>
+        </div>
+        <slot name="footer-extra" />
+        <p class="mt-4 text-xs text-muted-foreground">
+          © {new Date().getFullYear()} AsteriusIT. Legal notice and privacy policy to follow.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

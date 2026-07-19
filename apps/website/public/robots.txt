@@ -1,0 +1,5 @@
+# Staging: keep the whole site out of the index until the "Groundplan"
+# trademark gate clears (GP-166). Pages also carry <meta name="robots"
+# content="noindex, nofollow">.
+User-agent: *
+Disallow: /

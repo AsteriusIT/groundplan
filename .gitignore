@@ -33,3 +33,6 @@ coverage/
 
 # superpowers brainstorming companion
 .superpowers/
+
+# Astro build cache (apps/website)
+.astro/
