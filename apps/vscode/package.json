@@ -62,6 +62,7 @@
   },
   "devDependencies": {
     "@groundplan/canvas": "workspace:*",
+    "@groundplan/graph-differ": "workspace:*",
     "@groundplan/graph-parser": "workspace:*",
     "@tailwindcss/vite": "^4.0.6",
     "@types/node": "^22.13.1",

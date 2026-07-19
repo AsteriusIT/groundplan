@@ -17,11 +17,14 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync, statSync, watch } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { parse, type Graph, type HclFile } from "@groundplan/graph-parser";
 
+import type { BaselineMode } from "./messages";
 import { toPosixRelative } from "./paths";
+
+export type { BaselineMode } from "./messages";
 
 /** Run git with `args` in `cwd`; resolves raw stdout, rejects on any failure. */
 export type GitRunner = (args: string[], cwd: string) => Promise<string>;
@@ -41,8 +44,6 @@ export const runGit: GitRunner = (args, cwd) =>
       },
     );
   });
-
-export type BaselineMode = "head" | "merge-base";
 
 export type Baseline = {
   /** The resolved commit the baseline was read from. */
@@ -179,6 +180,25 @@ export class BaselineProvider {
     // parse cleanly, the partial snapshot is still the honest "before".
     const { snapshot } = parse(files);
     return { files, snapshot };
+  }
+}
+
+/**
+ * The directory holding `.git`, walking up from `start` — where the git
+ * watcher must sit when the workspace folder is a subdirectory of the repo.
+ * Null outside any repository (or when `.git` is a worktree file).
+ */
+export function findGitRoot(start: string): string | null {
+  let dir = start;
+  for (;;) {
+    try {
+      if (statSync(join(dir, ".git")).isDirectory()) return dir;
+    } catch {
+      // No .git here — keep walking up.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 

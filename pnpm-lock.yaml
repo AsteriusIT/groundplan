@@ -211,6 +211,9 @@ importers:
       '@groundplan/canvas':
         specifier: workspace:*
         version: link:../../packages/canvas
+      '@groundplan/graph-differ':
+        specifier: workspace:*
+        version: link:../../packages/graph-differ
       '@groundplan/graph-parser':
         specifier: workspace:*
         version: link:../../packages/graph-parser

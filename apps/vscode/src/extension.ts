@@ -7,11 +7,21 @@
  * GP-147: one-shot render. GP-148: the preview is live — edits re-parse
  * (debounced, dirty buffers included), a failed parse keeps the last good
  * graph and marks the panel out of sync, parse errors land in the Problems
- * panel and clear when the parse heals.
+ * panel and clear when the parse heals. GP-152/154: diff mode — the live
+ * graph annotated against a git baseline (HEAD or merge-base main) by
+ * @groundplan/graph-differ; only the "after" side re-parses per keystroke,
+ * the baseline is cached per sha and moves only when git says so.
  */
+import { diff, isAllNoop } from "@groundplan/graph-differ";
 import { parse, type Graph } from "@groundplan/graph-parser";
 import * as vscode from "vscode";
 
+import {
+  BaselineProvider,
+  findGitRoot,
+  watchGitChanges,
+  type GitWatcher,
+} from "./git-baseline";
 import {
   createDebouncer,
   hasParseErrors,
@@ -19,7 +29,12 @@ import {
   type Debouncer,
 } from "./live-core";
 import { nodeAtPosition, sourceOf } from "./locate";
-import type { HostMessage, WebviewMessage } from "./messages";
+import type {
+  BaselineMode,
+  DiffState,
+  HostMessage,
+  WebviewMessage,
+} from "./messages";
 import { toPosixRelative } from "./paths";
 import { gatherTfFiles } from "./workspace-files";
 import { buildWebviewHtml, makeNonce } from "./webview-html";
@@ -30,6 +45,11 @@ const REPARSE_DEBOUNCE_MS = 500;
 const SELECTION_DEBOUNCE_MS = 200;
 /** How long the jumped-to block stays lit in the editor (GP-149). */
 const HIGHLIGHT_FADE_MS = 1000;
+
+/** workspaceState keys for the persisted diff choices (GP-154). */
+const PREF_ENABLED = "groundplan.diff.enabled";
+const PREF_MODE = "groundplan.diff.mode";
+const PREF_CHANGED_ONLY = "groundplan.diff.changedOnly";
 
 let preview: LivePreview | null = null;
 
@@ -67,8 +87,17 @@ class LivePreview {
   private readonly disposables: vscode.Disposable[] = [];
   /** The last snapshot from a clean parse — what the panel falls back to. */
   private lastGood: Graph | null = null;
+  /** The last graph actually posted (annotated in diff mode) — ghost lookups. */
+  private lastPosted: Graph | null = null;
   /** The last address either side selected — the loop guard (GP-149). */
   private lastSelected: string | null = null;
+
+  /** Diff mode (GP-152/154): the baseline provider + the git-change signal. */
+  private readonly baseline: BaselineProvider;
+  private readonly gitWatcher: GitWatcher | null;
+  /** Every git invocation is logged here — "no git while typing" is checkable. */
+  private readonly gitLog: vscode.OutputChannel;
+  private readonly workspaceState: vscode.Memento;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -80,6 +109,7 @@ class LivePreview {
       "dist",
       "webview",
     );
+    this.workspaceState = context.workspaceState;
     this.panel = vscode.window.createWebviewPanel(
       "groundplan.preview",
       "Groundplan Preview",
@@ -95,6 +125,21 @@ class LivePreview {
 
     this.diagnostics = vscode.languages.createDiagnosticCollection("groundplan");
     this.reparse = createDebouncer(() => void this.refresh(), REPARSE_DEBOUNCE_MS);
+
+    this.gitLog = vscode.window.createOutputChannel("Groundplan Git");
+    this.baseline = new BaselineProvider(
+      this.folder.uri.fsPath,
+      undefined,
+      (line) => this.gitLog.appendLine(line),
+    );
+    // A commit/checkout/fetch moves the baseline; a keystroke never does.
+    const gitRoot = findGitRoot(this.folder.uri.fsPath);
+    this.gitWatcher = gitRoot
+      ? watchGitChanges(gitRoot, () => {
+          this.baseline.invalidate();
+          this.reparse.schedule();
+        })
+      : null;
 
     // Live while you type: in-memory edits count (dirty buffers are read by
     // gatherTfFiles), so the trigger is the text change, not the save.
@@ -131,13 +176,22 @@ class LivePreview {
       // Node → code (GP-149): a click in the diagram opens the block.
       if (message.type === "nodeSelected") {
         this.lastSelected = message.address;
-        if (message.address) void this.revealInEditor(message.address);
+        if (message.address) void this.revealOrExplain(message.address);
+      }
+      // Diff prefs (GP-154): persist, then re-render under the new lens.
+      if (message.type === "setDiffPrefs") {
+        void this.workspaceState.update(PREF_ENABLED, message.enabled);
+        void this.workspaceState.update(PREF_MODE, message.mode);
+        void this.workspaceState.update(PREF_CHANGED_ONLY, message.changedOnly);
+        void this.refresh();
       }
     });
 
     this.panel.onDidDispose(() => {
       this.reparse.dispose();
       this.diagnostics.dispose();
+      this.gitWatcher?.dispose();
+      this.gitLog.dispose();
       for (const d of this.disposables) d.dispose();
       this.onDispose();
     });
@@ -158,6 +212,15 @@ class LivePreview {
     this.panel.dispose();
   }
 
+  /** The user's persisted diff choices (GP-154), with quiet defaults. */
+  private prefs(): { enabled: boolean; mode: BaselineMode; changedOnly: boolean } {
+    return {
+      enabled: this.workspaceState.get<boolean>(PREF_ENABLED, false),
+      mode: this.workspaceState.get<BaselineMode>(PREF_MODE, "head"),
+      changedOnly: this.workspaceState.get<boolean>(PREF_CHANGED_ONLY, false),
+    };
+  }
+
   /** Re-parse the folder and reconcile panel + Problems with the result. */
   private async refresh(): Promise<void> {
     const files = await gatherTfFiles(this.folder);
@@ -172,18 +235,65 @@ class LivePreview {
     }
     if (!hasParseErrors(diagnostics)) this.lastGood = snapshot;
     // First-ever parse may be broken — a partial diagram beats a blank panel.
+    const current = this.lastGood ?? snapshot;
+
+    // Diff mode (GP-154): annotate against the cached baseline. Only the
+    // "after" side was re-parsed above; the baseline never re-reads on edits.
+    const prefs = this.prefs();
+    let posted = current;
+    let state: DiffState = {
+      ...prefs,
+      available: false,
+      ref: null,
+      reason: null,
+      clean: false,
+    };
+    if (prefs.enabled) {
+      const result = await this.baseline.get(prefs.mode);
+      if (result.ok) {
+        posted = diff(result.baseline.snapshot, current);
+        state = {
+          ...state,
+          available: true,
+          ref: result.baseline.ref,
+          clean: isAllNoop(posted),
+        };
+      } else {
+        // No baseline: the normal live view keeps working, and says why.
+        state = { ...state, reason: result.reason };
+      }
+    }
+
+    this.lastPosted = posted;
     await this.post({
       type: "snapshot",
-      snapshot: this.lastGood ?? snapshot,
+      snapshot: posted,
       folder: this.folder.name,
       multiRoot: (vscode.workspace.workspaceFolders?.length ?? 0) > 1,
     });
+    await this.post({ type: "diffState", state });
     await this.post({ type: "outOfSync", value: hasParseErrors(diagnostics) });
   }
 
   /** The snapshot of the last clean parse (GP-149 navigation works off it). */
   get lastGoodSnapshot(): Graph | null {
     return this.lastGood;
+  }
+
+  /**
+   * Node → code, diff-aware (GP-154): a ghost has no block in the working
+   * tree to open — say where it lived instead of navigating nowhere.
+   */
+  private async revealOrExplain(address: string): Promise<void> {
+    const node = this.lastPosted?.nodes.find((n) => n.id === address);
+    if (node?.change === "delete") {
+      const where = node.source ? ` It existed in ${node.source.file}.` : "";
+      void vscode.window.showInformationMessage(
+        `Groundplan: “${address}” is deleted in this diff.${where}`,
+      );
+      return;
+    }
+    await this.revealInEditor(address);
   }
 
   /** Node → code: open the block a diagram click named, briefly highlighted. */

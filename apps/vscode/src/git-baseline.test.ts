@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import {
   BaselineProvider,
+  findGitRoot,
   runGit,
   watchGitChanges,
   type GitRunner,
@@ -207,6 +208,14 @@ test("watchGitChanges fires on a commit and stays quiet for worktree edits", asy
 
 test("watchGitChanges on a non-git folder is null, not an error", () => {
   assert.equal(watchGitChanges(makeDir(), () => {}, 50), null);
+});
+
+test("findGitRoot walks up from a subfolder; null outside any repo", () => {
+  const dir = makeRepo();
+  mkdirSync(join(dir, "envs", "prod"), { recursive: true });
+  assert.equal(findGitRoot(join(dir, "envs", "prod")), dir);
+  assert.equal(findGitRoot(dir), dir);
+  assert.equal(findGitRoot(makeDir()), null);
 });
 
 test("a workspace folder below the repo root gets folder-relative paths", async () => {

@@ -6,6 +6,7 @@
  * attribute-diff logic that moved here.
  */
 export * from "./diff.js";
+export * from "./changed-only.js";
 export * from "./canonicalize.js";
 export * from "./impact.js";
 export * from "./attribute-diff.js";

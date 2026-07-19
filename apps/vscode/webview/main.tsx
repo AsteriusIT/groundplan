@@ -7,10 +7,17 @@
  * Network (the networkProjection fold — containers, stacks, chips) and IAM
  * (the table). Pure client-side folds of the same snapshot; switching never
  * re-parses.
+ *
+ * Diff mode (GP-154): the host posts a differ-annotated snapshot instead of
+ * the raw one; this side reuses the PR view's visual language (variant="plan":
+ * change colours, ghost deletes, impacted rings), adds the baseline toolbar,
+ * a "changed only" fold, and the honest-framing caption — a code diff is not
+ * a plan and never pretends to be.
  */
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import { changedOnly as changedOnlyFold } from "@groundplan/graph-differ";
 import {
   cn,
   GraphCanvas,
@@ -20,7 +27,12 @@ import {
 } from "@groundplan/canvas";
 import "@groundplan/canvas/styles.css";
 
-import type { HostMessage, WebviewMessage } from "../src/messages";
+import type {
+  BaselineMode,
+  DiffState,
+  HostMessage,
+  WebviewMessage,
+} from "../src/messages";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: WebviewMessage): void;
@@ -36,6 +48,41 @@ const VIEWS: readonly { key: View; label: string }[] = [
   { key: "iam", label: "IAM" },
 ];
 
+const MODES: readonly { key: BaselineMode; label: string; title: string }[] = [
+  { key: "head", label: "HEAD", title: "Diff against HEAD" },
+  { key: "merge-base", label: "main", title: "Diff against the merge-base with main" },
+];
+
+/** One toolbar pill; the shared look of every control up top. */
+function Pill({
+  active,
+  onClick,
+  title,
+  children,
+}: Readonly<{
+  active: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}>): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={title}
+      className={cn(
+        "px-2.5 py-1 font-mono text-xs uppercase tracking-wide",
+        active
+          ? "bg-accent-soft text-primary"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function App(): React.JSX.Element {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [folder, setFolder] = useState("");
@@ -43,6 +90,7 @@ function App(): React.JSX.Element {
   const [outOfSync, setOutOfSync] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [view, setView] = useState<View>("infra");
+  const [diff, setDiff] = useState<DiffState | null>(null);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostMessage>): void => {
@@ -55,6 +103,8 @@ function App(): React.JSX.Element {
         setOutOfSync(message.value);
       } else if (message.type === "select") {
         setSelectedAddress(message.address);
+      } else if (message.type === "diffState") {
+        setDiff(message.state);
       }
     };
     window.addEventListener("message", onMessage);
@@ -62,19 +112,59 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  /** Optimistic prefs update; the host persists and echoes the new state. */
+  const setPrefs = (next: {
+    enabled: boolean;
+    mode: BaselineMode;
+    changedOnly: boolean;
+  }): void => {
+    setDiff((prev) => ({
+      enabled: next.enabled,
+      mode: next.mode,
+      changedOnly: next.changedOnly,
+      available: prev?.available ?? false,
+      ref: prev?.ref ?? null,
+      reason: prev?.reason ?? null,
+      clean: prev?.clean ?? false,
+    }));
+    vscode.postMessage({ type: "setDiffPrefs", ...next });
+  };
+
+  const diffActive = (diff?.enabled ?? false) && (diff?.available ?? false);
+
+  // "Changed only" (GP-154): changed nodes + one hop of context. A clean diff
+  // shows the full all-noop graph with its banner, never an empty canvas.
+  const displayed = useMemo(() => {
+    if (!graph) return null;
+    if (view === "infra" && diffActive && diff?.changedOnly && !diff.clean) {
+      return changedOnlyFold(graph) as Graph;
+    }
+    return graph;
+  }, [graph, view, diffActive, diff?.changedOnly, diff?.clean]);
+
   // The network fold is cheap but not free — only computed while looked at.
   const network = useMemo(
-    () => (graph && view === "network" ? networkProjection(graph) : null),
-    [graph, view],
+    () => (displayed && view === "network" ? networkProjection(displayed) : null),
+    [displayed, view],
   );
 
-  if (!graph) {
+  if (!graph || !displayed) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <p className="text-muted-foreground text-sm">Reading Terraform…</p>
       </div>
     );
   }
+
+  const prefs = diff ?? {
+    enabled: false,
+    mode: "head" as BaselineMode,
+    changedOnly: false,
+    available: false,
+    ref: null,
+    reason: null,
+    clean: false,
+  };
 
   return (
     <div
@@ -94,24 +184,63 @@ function App(): React.JSX.Element {
         </div>
       )}
 
-      <div className="border-border-strong bg-panel absolute left-1/2 top-3 z-20 flex -translate-x-1/2 overflow-hidden rounded-sm border">
-        {VIEWS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setView(key)}
-            aria-pressed={view === key}
-            className={cn(
-              "px-2.5 py-1 font-mono text-xs uppercase tracking-wide",
-              view === key
-                ? "bg-accent-soft text-primary"
-                : "text-muted-foreground hover:text-foreground",
+      <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-start gap-2">
+        <div className="border-border-strong bg-panel flex overflow-hidden rounded-sm border">
+          {VIEWS.map(({ key, label }) => (
+            <Pill key={key} active={view === key} onClick={() => setView(key)}>
+              {label}
+            </Pill>
+          ))}
+        </div>
+
+        {view !== "iam" && (
+          <div className="border-border-strong bg-panel flex overflow-hidden rounded-sm border">
+            <Pill
+              active={prefs.enabled}
+              onClick={() => setPrefs({ ...prefs, enabled: !prefs.enabled })}
+              title="Colour the diagram as changes against a git baseline"
+            >
+              Diff
+            </Pill>
+            {prefs.enabled && (
+              <>
+                {MODES.map(({ key, label, title }) => (
+                  <Pill
+                    key={key}
+                    active={prefs.mode === key}
+                    onClick={() => setPrefs({ ...prefs, mode: key })}
+                    title={title}
+                  >
+                    {label}
+                  </Pill>
+                ))}
+                {view === "infra" && (
+                  <Pill
+                    active={prefs.changedOnly}
+                    onClick={() =>
+                      setPrefs({ ...prefs, changedOnly: !prefs.changedOnly })
+                    }
+                    title="Show changed nodes and one hop of context"
+                  >
+                    Changed only
+                  </Pill>
+                )}
+              </>
             )}
-          >
-            {label}
-          </button>
-        ))}
+          </div>
+        )}
       </div>
+
+      {view !== "iam" && prefs.enabled && !prefs.available && (
+        <div className="bg-warning-soft text-warning absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-sm px-3 py-1 font-mono text-xs">
+          Diff unavailable — {prefs.reason ?? "no baseline"}. Showing the live view.
+        </div>
+      )}
+      {view !== "iam" && diffActive && prefs.clean && (
+        <div className="border-border-strong bg-panel text-muted-foreground absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-sm border px-3 py-1 font-mono text-xs">
+          No changes vs {prefs.ref}
+        </div>
+      )}
 
       {view === "iam" ? (
         <IamTable
@@ -125,8 +254,8 @@ function App(): React.JSX.Element {
         />
       ) : (
         <GraphCanvas
-          graph={network ? network.graph : graph}
-          variant="docs"
+          graph={network ? network.graph : displayed}
+          variant={diffActive ? "plan" : "docs"}
           containerIds={network?.containerIds}
           stacks={network?.stacks}
           chips={network?.chips}
@@ -140,6 +269,16 @@ function App(): React.JSX.Element {
             vscode.postMessage({ type: "nodeSelected", address: node?.id ?? null });
           }}
         />
+      )}
+
+      {view !== "iam" && diffActive && (
+        <div
+          className="border-border-strong bg-panel text-muted-foreground absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-sm border px-3 py-1 font-mono text-xs"
+          role="note"
+        >
+          Code diff vs {prefs.ref} — not a plan: no state, no count/for_each
+          expansion.
+        </div>
       )}
     </div>
   );
