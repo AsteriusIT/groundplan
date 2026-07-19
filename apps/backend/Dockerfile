@@ -18,13 +18,16 @@ WORKDIR /repo
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .npmrc ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY packages/graph-parser/package.json packages/graph-parser/package.json
+COPY packages/graph-differ/package.json packages/graph-differ/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @groundplan/backend...
 
 # Compile TypeScript -> dist/ (the `...` filter builds workspace deps first,
-# i.e. @groundplan/graph-parser), then produce a self-contained, prod-only
-# package tree in /prod (flattened node_modules + dist + drizzle migrations).
+# i.e. @groundplan/graph-parser and @groundplan/graph-differ), then produce a
+# self-contained, prod-only package tree in /prod (flattened node_modules +
+# dist + drizzle migrations).
 COPY packages/graph-parser/ packages/graph-parser/
+COPY packages/graph-differ/ packages/graph-differ/
 COPY apps/backend/ apps/backend/
 RUN pnpm --filter @groundplan/backend... build \
  && pnpm --filter=@groundplan/backend deploy --prod --legacy /prod

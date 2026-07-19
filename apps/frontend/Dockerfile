@@ -18,9 +18,13 @@ WORKDIR /repo
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .npmrc ./
 COPY apps/frontend/package.json apps/frontend/package.json
+COPY packages/canvas/package.json packages/canvas/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @groundplan/frontend...
 
+# @groundplan/canvas is consumed from source (its exports point at src/), so
+# copying it is all the "build" it needs.
+COPY packages/canvas/ packages/canvas/
 COPY apps/frontend/ apps/frontend/
 
 # No build-time config: nothing environment-specific is inlined. The bundled
