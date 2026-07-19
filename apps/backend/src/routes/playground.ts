@@ -6,9 +6,10 @@ import type {
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import { playgroundDrafts } from "../db/schema.js";
+import { parseHclRepo, type HclFile } from "@groundplan/graph-parser";
+
 import { assertValidGraph, computeGraphStats } from "../graph/graph.js";
 import type { UnresolvedReference } from "../graph/graph.js";
-import { parseHclRepo, type HclFile } from "../graph/hcl-parser.js";
 import { mapK8sObjects } from "../graph/k8s-mapper.js";
 import { parseManifests } from "../graph/manifest-parser.js";
 import { summarize } from "../graph/summarize.js";

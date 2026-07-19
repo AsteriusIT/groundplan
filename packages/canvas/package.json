@@ -1,0 +1,59 @@
+{
+  "name": "@groundplan/canvas",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Groundplan diagram canvas as a reusable React component package (GP-146): React Flow + ELK layout + design-v3 nodes/edges + blueprint theme + vendor icons.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "sandbox": "vite",
+    "sandbox:build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/space-grotesk": "^5.2.10",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@xyflow/react": "^12.11.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "elkjs": "^0.11.1",
+    "lucide-react": "^0.474.0",
+    "radix-ui": "^1.6.2",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.0.1",
+    "tw-animate-css": "^1.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.6",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^29.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.6",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^4.1.10",
+    "vitest-axe": "^0.1.0"
+  }
+}

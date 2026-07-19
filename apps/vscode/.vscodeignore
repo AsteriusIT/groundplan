@@ -1,0 +1,9 @@
+# Ship the bundles and the listing assets — nothing else. The .vsix must stay
+# lean (< 5 MB): sources, configs and maps are build-time concerns.
+**
+!dist/extension.cjs
+!dist/webview/**
+!media/**
+!README.md
+!LICENSE
+dist/**/*.map

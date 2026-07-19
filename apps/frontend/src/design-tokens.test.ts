@@ -20,20 +20,23 @@ const HEX = /#[0-9a-fA-F]{3,8}\b/;
 const PALETTE =
   /\b(?:bg|text|border|outline|ring|fill|stroke|from|to|via|decoration|accent|caret|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
 
+// The canvas surface moved to packages/canvas (GP-146); the guard follows the
+// sources — a shim can't smuggle a colour in, the moved component could.
+const CANVAS = "../../../packages/canvas/src";
 const GOVERNED = [
-  "components/ui/chip.tsx",
-  "components/ui/status-badge.tsx",
-  "components/ui/side-panel.tsx",
+  `${CANVAS}/components/ui/chip.tsx`,
+  `${CANVAS}/components/ui/status-badge.tsx`,
+  `${CANVAS}/components/ui/side-panel.tsx`,
   "components/change-chips.tsx",
-  "components/node-details-panel.tsx",
-  "components/graph-canvas.tsx",
-  "components/graph-node.tsx",
-  "components/graph-edge.tsx",
-  "components/resource-icon.tsx",
+  `${CANVAS}/components/node-details-panel.tsx`,
+  `${CANVAS}/components/graph-canvas.tsx`,
+  `${CANVAS}/components/graph-node.tsx`,
+  `${CANVAS}/components/graph-edge.tsx`,
+  `${CANVAS}/components/resource-icon.tsx`,
   "components/iam-table.tsx",
-  "lib/status.ts",
-  "lib/graph-layout.ts",
-  "lib/resource-category.ts",
+  `${CANVAS}/lib/status.ts`,
+  `${CANVAS}/lib/graph-layout.ts`,
+  `${CANVAS}/lib/resource-category.ts`,
 ];
 
 // Vitest runs from the frontend package dir; sources live under ./src.
@@ -55,20 +58,24 @@ describe("design tokens (GP-28)", () => {
   });
 
   it("index.css declares the mockup status + surface tokens", () => {
-    const css = read("index.css");
-    for (const token of [
-      "--create",
-      "--create-soft",
-      "--update",
-      "--delete",
-      "--impacted",
-      "--impacted-soft",
-      "--canvas",
-      "--faint",
-      "--edge",
-      "--grid-strong",
-    ]) {
-      expect(css, `index.css must declare ${token}`).toContain(`${token}:`);
+    // The canvas package ships its own copy (a bare webview imports only it) —
+    // both must declare the full set, or the two surfaces drift apart.
+    for (const file of ["index.css", `${CANVAS}/styles.css`]) {
+      const css = read(file);
+      for (const token of [
+        "--create",
+        "--create-soft",
+        "--update",
+        "--delete",
+        "--impacted",
+        "--impacted-soft",
+        "--canvas",
+        "--faint",
+        "--edge",
+        "--grid-strong",
+      ]) {
+        expect(css, `${file} must declare ${token}`).toContain(`${token}:`);
+      }
     }
   });
 });

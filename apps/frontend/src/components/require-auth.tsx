@@ -40,18 +40,6 @@ export function RequireAuth({ children }: Readonly<{ children: ReactNode }>) {
     );
   }
 
-  // Wait for auth to settle before rendering the protected subtree. During
-  // session restore `isAuthenticated` flips true while GET /me is still in
-  // flight, so `user` (and its org memberships) is briefly null — rendering
-  // children then lets <RequireOrg> bounce a real user to /onboarding.
-  if (isLoading) {
-    return (
-      <div className="text-muted-foreground flex min-h-svh items-center justify-center text-sm">
-        Loading…
-      </div>
-    );
-  }
-
   if (isAuthenticated) {
     return <>{children}</>;
   }
