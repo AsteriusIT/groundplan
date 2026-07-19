@@ -47,10 +47,12 @@ describe("security page (GP-161)", () => {
     );
   });
 
-  it("sits in nav position 2", () => {
-    const nav = pageHtml("index.html").match(/<nav aria-label="Main">[\s\S]*?<\/nav>/)?.[0] ?? "";
-    const links = [...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-    expect(links[1]).toBe("/security/");
+  it("stays the objection-killer: in the nav, the hero CTA and the closing CTA", () => {
+    const html = pageHtml("index.html");
+    const nav = html.match(/<nav aria-label="Main"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(nav).toContain('href="/security/"');
+    // The hero's secondary CTA and the closing CTA both open the security story.
+    expect((html.match(/href="\/security\/"/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   it("claims nothing from the §13 forbidden list", () => {

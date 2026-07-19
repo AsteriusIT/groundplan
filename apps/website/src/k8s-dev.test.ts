@@ -1,4 +1,6 @@
-// Kubernetes + developer experience + integration matrix (GP-163).
+// Kubernetes, how-it-works, developer experience & stack chips — commercial
+// pass. The security-critical claims survive rewording; the CLI snippet and
+// its copy button move to the adoption path (how-it-works).
 import { describe, it, expect } from "vitest";
 import { pageHtml, pageText, expectVerbatim } from "./test-helpers.js";
 
@@ -9,74 +11,87 @@ function section(id: string): string {
   return html.slice(start, html.indexOf("</section>", start));
 }
 
-describe("Kubernetes + DX sections (GP-163)", () => {
-  it("carries the §5 Kubernetes copy verbatim", () => {
-    expectVerbatim(
-      "index.html",
-      "The same review-and-document loop, for Kubernetes. Point Groundplan at a manifests repo and it documents main and reviews PRs by structural diff — no plan file needed. Attach a live cluster (read-only) and draw any namespace on demand.",
-    );
-  });
-
-  it("states read-only clusters and never-fetched Secret values", () => {
-    expectVerbatim(
-      "index.html",
-      "Live clusters are read-only: kubeconfig encrypted at rest (same rules as PATs), LIST-only API usage, Secret values are never fetched, stored or drawn — even when a manifest hands them over in the clear.",
-    );
-  });
-
-  it("does not promise annotations/AI/tours/share links on K8s repos", () => {
-    expectVerbatim(
-      "index.html",
-      "deliberately no annotations, AI, tours or share links on Kubernetes repos today",
-    );
+describe("how it works", () => {
+  it("walks three verb-led steps", () => {
+    const text = pageText("index.html");
+    for (const step of [
+      "Add one line to your CI",
+      "Open a pull request",
+      "Merge — the docs update themselves",
+    ]) {
+      expect(text).toContain(step);
+    }
   });
 
   it("shows the one-line CLI snippet with a copy button", () => {
+    const how = section("how");
+    expect(how).toContain("npx @asteriusit/cli push-plan --file plan.json");
+    expect(how).toContain('id="copy-cli"');
+  });
+});
+
+describe("Kubernetes section", () => {
+  it("keeps the never-execute and read-only-cluster claims", () => {
+    expectVerbatim(
+      "index.html",
+      "Helm and Kustomize output is rendered by your CI and pushed to Groundplan — we never execute them.",
+    );
+    expectVerbatim(
+      "index.html",
+      "Live clusters are read-only: kubeconfigs encrypted at rest, and Secret values are never fetched, stored or drawn.",
+    );
+  });
+
+  it("states the honest scope in the section itself", () => {
+    expectVerbatim(
+      "index.html",
+      "Kubernetes snapshots get the diagram and its deterministic summary today",
+    );
+  });
+});
+
+describe("developer experience", () => {
+  it("describes the three ways in by where they live", () => {
     const dev = section("developers");
-    expect(dev).toContain("npx @asteriusit/cli push-plan --file plan.json");
-    expect(dev).toContain('id="copy-cli"');
-  });
-
-  it("carries the §6 CLI and VS Code copy verbatim", () => {
-    expectVerbatim(
-      "index.html",
-      "It detects your branch, SHA and PR number on GitHub Actions, GitLab CI and Azure DevOps, validates the plan locally before any network call, retries transient failures, and fails your CI step loudly when something's wrong.",
-    );
-    expectVerbatim(
-      "index.html",
-      "See your Terraform as a live architecture diagram beside your editor, while you type. A new resource block appears in the diagram about a second after you pause — before you even save. Click a node to jump to its HCL; put your cursor in a block to light up its node. Toggle diff mode to see your working tree against git HEAD or your branch's merge-base. Fully offline: no account, no cloud calls, no telemetry — nothing is ever uploaded anywhere.",
-    );
-  });
-
-  it("states the VS Code limits verbatim per §13", () => {
-    expectVerbatim(
-      "index.html",
-      "first workspace folder only, not tuned for 500+ resource repos, no Helm/plan rendering in-editor",
-    );
-  });
-
-  it("renders the §11 matrix exactly — all eight rows, no additions", () => {
-    const dev = section("developers");
-    const tbody = dev.slice(dev.indexOf("<tbody"), dev.indexOf("</tbody>"));
-    const rows = tbody.match(/<tr/g) ?? [];
-    expect(rows.length).toBe(8);
-    const text = pageText("index.html");
-    for (const dimension of [
-      "IaC",
-      "Git hosting",
-      "PR comments",
-      "CI context auto-detection (CLI)",
-      "Icons / visual taxonomy",
-      "Identity",
-      "IDE",
-      "Live infrastructure",
-    ]) {
-      expect(text).toContain(dimension);
+    for (const label of ["In your pipeline", "In your editor", "In your browser"]) {
+      expect(dev).toContain(label);
     }
+    const text = pageText("index.html");
+    for (const name of ["The CLI", "The VS Code extension", "The Playground"]) {
+      expect(text).toContain(name);
+    }
+  });
+
+  it("keeps the VS Code honesty: offline, and stated limits", () => {
     expectVerbatim(
       "index.html",
-      "Terraform (any provider parses; deepest semantics on Azure), Kubernetes manifests (raw YAML; Helm/Kustomize via CI-rendered output)",
+      "Fully offline: no account, no telemetry, nothing ever leaves your machine.",
     );
-    expectVerbatim("index.html", "Any OIDC provider (Keycloak bundled & themed)");
+    expectVerbatim(
+      "index.html",
+      "Honest limits: first workspace folder only, and not yet tuned for 500+ resource repos.",
+    );
+  });
+
+  it("replaces the support matrix with stack chips — key claims intact", () => {
+    const dev = section("developers");
+    expect(dev).not.toContain("<table");
+    const text = pageText("index.html");
+    for (const item of [
+      "Terraform",
+      "Kubernetes manifests",
+      "Helm & Kustomize (via your CI)",
+      "GitHub",
+      "GitLab",
+      "Azure DevOps",
+      "GitHub Actions",
+      "GitLab CI",
+      "Azure Pipelines",
+      "Any OIDC provider",
+      "Keycloak in the box",
+      "VS Code",
+    ]) {
+      expect(text).toContain(item);
+    }
   });
 });

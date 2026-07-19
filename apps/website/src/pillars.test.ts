@@ -1,54 +1,66 @@
-// Three pillars (GP-160): copy verbatim, every shown fact traces to a GP
-// story number, screenshots are the real checked-in captures.
+// Product tour (commercial pass): See / Understand / Shape told as benefits.
+// Real screenshots only; and the guard that makes the commercial register
+// stick — no internal story numbers anywhere in public copy.
 import { describe, it, expect } from "vitest";
 import { pageHtml, pageText, expectVerbatim } from "./test-helpers.js";
 
-describe("three pillars (GP-160)", () => {
-  it("carries the See copy verbatim", () => {
+describe("product tour", () => {
+  it("keeps the internal changelog out of public copy — no GP story numbers", () => {
+    expect(pageText("index.html")).not.toMatch(/GP-\d+/);
+  });
+
+  it("sells each stop of the tour with a benefit headline", () => {
+    const text = pageText("index.html");
+    for (const headline of [
+      "Every pull request becomes a picture",
+      "Documentation that keeps itself up to date",
+      "Add the meaning only your team knows",
+    ]) {
+      expect(text).toContain(headline);
+    }
+  });
+
+  it("explains the diff colours in the reader's terms", () => {
     expectVerbatim(
       "index.html",
-      "Open a PR, get a diagram. Groundplan parses the terraform plan JSON your CI already produces and draws the change: green for created, amber for updated, red (dashed, struck through) for destroyed — and violet for the resources you didn't touch but that depend on what you did. The unchanged estate is ghosted so the change dominates the canvas.",
+      "Green for created, amber for changed, red for removed — and violet for the things you didn't touch that depend on what you did.",
     );
   });
 
-  it("carries the Understand copy verbatim", () => {
+  it("names the lenses as chips on the Understand stop", () => {
+    const text = pageText("index.html");
+    for (const lens of ["Network", "IAM", "C4", "History"]) expect(text).toContain(lens);
+  });
+
+  it("keeps the annotation-safety promise", () => {
     expectVerbatim(
       "index.html",
-      "Merge to main and the documentation redraws itself. Groundplan statically parses your HCL — no plan, no apply needed — and keeps a versioned diagram of your default branch. Then look at the same estate through the lens that matches your question: the network, the permissions, the C4 big picture.",
+      "Your annotations survive regeneration — nothing you write is ever silently deleted.",
     );
   });
 
-  it("carries the Shape copy verbatim", () => {
-    expectVerbatim(
-      "index.html",
-      "A generated diagram knows what exists; only your team knows what it means. Groundplan lets you group resources into systems, rename them in human language, hide the noise, draw the logical connections and pin notes — without ever editing the generated model. Your annotations survive regeneration: when a resource disappears, its annotations are flagged for review, never silently deleted.",
-    );
-  });
-
-  it("shows one real screenshot per pillar", () => {
+  it("shows one real screenshot per stop", () => {
     const html = pageHtml("index.html");
     for (const img of ["pillar-see.png", "pillar-understand.png", "pillar-shape.png"]) {
       expect(html).toContain(`/images/${img}`);
     }
   });
 
-  it("traces every fact to a GP story number", () => {
+  it("walks the visitor in: how-it-works precedes the tour, security band follows it", () => {
+    const html = pageHtml("index.html");
+    const how = html.indexOf('<section id="how"');
+    const product = html.indexOf('id="product"');
+    const security = html.indexOf('<section id="security"');
+    expect(how).toBeGreaterThan(-1);
+    expect(product).toBeGreaterThan(how);
+    expect(security).toBeGreaterThan(product);
+  });
+
+  it("carries the trust model as its own full-width moment", () => {
+    expectVerbatim("index.html", "We ingest data, not access.");
     const text = pageText("index.html");
-    // Spot-check the load-bearing claims and their stories.
-    for (const [claim, story] of [
-      ["framing the true blast radius", "GP-22"],
-      ["Deterministic change summary", "GP-36"],
-      ["one idempotent comment per plan snapshot", "GP-38"],
-      ["auto-regenerated on merge", "GP-15"],
-      ["vnet ⊃ subnet ⊃ resource containment", "GP-42"],
-      ["principal → role → scope table", "GP-47"],
-      ["Server-rendered SVG/PNG export", "GP-37"],
-      ["Five annotation types", "GP-56"],
-      ["Orphan reconciliation", "GP-57"],
-      ["review inbox, never on the canvas", "GP-75"],
-    ] as const) {
-      expect(text).toContain(claim);
-      expect(text).toContain(story);
+    for (const proof of ["No cloud credentials", "No state access", "Nothing executed"]) {
+      expect(text).toContain(proof);
     }
   });
 });

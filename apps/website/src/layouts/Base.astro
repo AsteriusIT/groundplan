@@ -16,10 +16,9 @@ const ogImageUrl = new URL(ogImage, Astro.site);
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 
 const NAV = [
-  { href: "/", label: "Product" },
+  { href: "/#product", label: "Product" },
+  { href: "/#how", label: "How it works" },
   { href: "/security/", label: "Security" },
-  { href: "/#ai", label: "AI" },
-  { href: "/#kubernetes", label: "Kubernetes" },
   { href: "/#faq", label: "FAQ" },
 ];
 
@@ -60,16 +59,16 @@ const currentPath = Astro.url.pathname;
           <span class="font-display text-lg font-semibold tracking-tight">groundplan</span>
           <span class="hidden font-mono text-[11px] text-faint sm:inline">rev&nbsp;A</span>
         </a>
-        <nav aria-label="Main">
+        <nav aria-label="Main" class="flex items-center gap-2 sm:gap-4">
           <ul class="flex items-center gap-1 sm:gap-2">
             {
               NAV.map((item) => (
-                <li>
+                <li class:list={[item.label === "How it works" && "hidden sm:block"]}>
                   <a
                     href={item.href}
                     aria-current={currentPath === item.href ? "page" : undefined}
                     class:list={[
-                      "px-2 py-1.5 text-sm sm:px-3",
+                      "whitespace-nowrap px-2 py-1.5 text-sm sm:px-3",
                       currentPath === item.href
                         ? "text-foreground font-medium"
                         : "text-muted-foreground hover:text-foreground",
@@ -81,6 +80,12 @@ const currentPath = Astro.url.pathname;
               ))
             }
           </ul>
+          <a
+            href="/#product"
+            class="hidden bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 sm:inline-block"
+          >
+            See it in action
+          </a>
         </nav>
       </div>
     </header>

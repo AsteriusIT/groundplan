@@ -1,8 +1,10 @@
-// Self-host/SaaS, FAQ, meta & footer (GP-164).
+// Self-host/SaaS, FAQ, closing CTA, meta & footer — commercial pass. The six
+// FAQ answers stay verbatim (they are the pitch, honestly worded); meta, OG
+// and robots guards are unchanged from GP-164/166.
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { DIST, pageHtml, expectVerbatim } from "./test-helpers.js";
+import { DIST, pageHtml, pageText, expectVerbatim } from "./test-helpers.js";
 
 const META =
   "Groundplan turns Terraform and Kubernetes into living, interactive architecture diagrams. It renders every pull request as a visual change — with blast radius, security exposure and permission risks — and regenerates your documentation on every merge. It reads only the plan JSON and manifests your own CI produces: no cloud credentials, no state access, ever. With network, IAM and C4 lenses, a human annotation layer, an honest opt-in AI, a CLI, a live VS Code preview and one-file self-hosting, it's infrastructure review the way it should have always worked: visible.";
@@ -11,24 +13,22 @@ function decodeAttr(value: string): string {
   return value.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 }
 
-describe("self-host, FAQ, meta & footer (GP-164)", () => {
-  it("carries the §9 deployment copy verbatim", () => {
+describe("self-host, FAQ, meta & footer", () => {
+  it("sells both deployment modes in plain words", () => {
     expectVerbatim(
       "index.html",
-      "Run the entire platform from one compose file: reverse proxy with automatic HTTPS, frontend, API, database, identity provider. No managed services, no external dependencies. Or let us run it for you (SaaS mode is the same build with one flag).",
+      "The entire platform — reverse proxy with automatic HTTPS, frontend, API, database, identity provider — from one compose file.",
     );
-  });
-
-  it("carries the §7 single-org/multi-org line", () => {
     expectVerbatim(
       "index.html",
-      "SINGLE_ORG=true for self-hosting (first user becomes owner, everyone else auto-joins) or multi-org SaaS mode with onboarding and invitations",
+      "SaaS mode is the same build with one flag — same features, same security model.",
     );
+    expectVerbatim("index.html", "fail-closed, not fail-open");
   });
 
   it("answers all six FAQ seeds verbatim, as plain <details>", () => {
     const html = pageHtml("index.html");
-    expect((html.match(/<details/g) ?? []).length).toBe(6);
+    expect(html.match(/<details/g) ?? []).toHaveLength(6);
     for (const answer of [
       "No. Groundplan never holds cloud credentials or state. Your CI sends us the plan JSON it already produces.",
       "Never. Rendering happens in your CI; we ingest the output.",
@@ -39,6 +39,14 @@ describe("self-host, FAQ, meta & footer (GP-164)", () => {
     ]) {
       expectVerbatim("index.html", answer);
     }
+  });
+
+  it("closes with an honest preview CTA", () => {
+    expect(pageText("index.html")).toContain("Groundplan is in private preview.");
+    const html = pageHtml("index.html");
+    const cta = html.lastIndexOf('aria-label="Get started"');
+    expect(cta).toBeGreaterThan(-1);
+    expect(html.slice(cta)).toMatch(/href="\/security\/"/);
   });
 
   it("uses the §14 paragraph as the meta description", () => {

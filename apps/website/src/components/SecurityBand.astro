@@ -1,0 +1,54 @@
+---
+// The objection-killer, given the visual weight it earns: the one dark band
+// on the drafting paper — ink, like a drawing's title block. Three proofs,
+// each phrased as what the reader keeps, then the door to the full story.
+const PROOFS = [
+  {
+    title: "No cloud credentials",
+    text: "Groundplan couldn't touch your infrastructure if it tried. There is nothing to leak, because we never hold access.",
+  },
+  {
+    title: "No state access",
+    text: "Your Terraform state never leaves your pipeline. We read the plan JSON your CI already produces — data, not access.",
+  },
+  {
+    title: "Nothing executed",
+    text: "We never run terraform, helm or kustomize. Rendering happens in your CI; Groundplan ingests the output.",
+  },
+];
+---
+
+<section id="security" aria-label="Security" class="border-b border-border bg-ink text-primary-foreground">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+    <p class="font-mono text-xs uppercase tracking-widest text-primary-foreground/60">
+      Security
+    </p>
+    <h2 class="mt-3 max-w-3xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      We ingest data, not access.
+    </h2>
+    <p class="mt-5 max-w-2xl text-base leading-relaxed text-primary-foreground/75">
+      That's the whole trust model — and it's designed so your security team can say yes
+      without a leap of faith.
+    </p>
+
+    <div class="mt-12 grid gap-8 sm:grid-cols-3">
+      {
+        PROOFS.map((proof) => (
+          <div class="border-t border-primary-foreground/25 pt-5">
+            <h3 class="font-display text-lg font-semibold">{proof.title}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-primary-foreground/75">{proof.text}</p>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="mt-12">
+      <a
+        href="/security/"
+        class="inline-block bg-primary-foreground px-6 py-3 text-sm font-medium text-ink hover:opacity-90"
+      >
+        Read the full security model
+      </a>
+    </div>
+  </div>
+</section>

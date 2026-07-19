@@ -1,6 +1,7 @@
 ---
-// Self-host / SaaS (§9 + §7), FAQ seeds (§12) and the closing CTA — GP-164.
-// FAQ answers are verbatim; plain <details>, no JS accordion.
+// Run-it-your-way, the FAQ security teams ask first, and the closing CTA.
+// FAQ answers are kept verbatim from the presentation doc — they are already
+// the commercial pitch, honestly worded. Plain <details>, no JS accordion.
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Do you need access to our cloud account?",
@@ -30,38 +31,29 @@ const FAQ: { q: string; a: string }[] = [
 ---
 
 <section id="selfhost" class="border-b border-border">
-  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
     <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
       Self-host or SaaS
     </p>
-    <h2 class="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-      One compose file, or one flag
+    <h2 class="mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      Run it your way
     </h2>
-    <div class="mt-8 grid gap-8 lg:grid-cols-2">
+    <div class="mt-10 grid gap-8 lg:grid-cols-2">
       <div class="border border-border bg-card p-6">
-        <h3 class="font-display text-xl font-semibold">Run it yourself</h3>
+        <h3 class="font-display text-xl font-semibold">Self-host in an afternoon</h3>
         <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
-          Run the entire platform from one compose file: reverse proxy with automatic HTTPS,
-          frontend, API, database, identity provider. No managed services, no external
-          dependencies. Or let us run it for you (SaaS mode is the same build with one flag).
-        </p>
-        <p class="mt-4 font-mono text-xs leading-relaxed text-faint">
-          docker-compose.prod.yml = Caddy (auto-TLS, HTTP/3) + frontend + backend + migrate +
-          Postgres + branded Keycloak + Keycloak DB; only Caddy publishes ports; pull-based
-          deploys from a registry; semver+SHA image tags.
+          The entire platform — reverse proxy with automatic HTTPS, frontend, API, database,
+          identity provider — from one compose file. No managed services, no external
+          dependencies, nothing that phones home.
         </p>
       </div>
       <div class="border border-border bg-card p-6">
-        <h3 class="font-display text-xl font-semibold">Two modes from one flag</h3>
+        <h3 class="font-display text-xl font-semibold">Or let us run it</h3>
         <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
-          <code class="font-mono">SINGLE_ORG=true</code> for self-hosting (first user becomes
-          owner, everyone else auto-joins) or multi-org SaaS mode with onboarding and
-          invitations.
-        </p>
-        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
-          OIDC / SSO with any identity provider — a fully branded Keycloak ships in the box —
-          and the backend refuses to boot in production without OIDC config and an encryption
-          key. Fail-closed, not fail-open.
+          SaaS mode is the same build with one flag — same features, same security model.
+          Sign in with any OIDC identity provider, or use the branded one that ships in the
+          box. And in production it refuses to start misconfigured: fail-closed, not
+          fail-open.
         </p>
       </div>
     </div>
@@ -69,9 +61,9 @@ const FAQ: { q: string; a: string }[] = [
 </section>
 
 <section id="faq" class="border-b border-border bg-card">
-  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
     <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">FAQ</p>
-    <h2 class="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+    <h2 class="mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
       The questions security teams ask first
     </h2>
     <div class="mt-8 max-w-3xl divide-y divide-border border border-border bg-background">
@@ -93,16 +85,26 @@ const FAQ: { q: string; a: string }[] = [
 </section>
 
 <section aria-label="Get started" class="blueprint-grid border-b border-border">
-  <div class="mx-auto max-w-6xl px-4 py-20 text-center sm:px-6">
-    <h2 class="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+  <div class="mx-auto max-w-6xl px-4 py-24 text-center sm:px-6">
+    <h2 class="mx-auto max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
       One pipeline step away from seeing your infrastructure.
     </h2>
-    <div class="mt-6 flex justify-center">
+    <p class="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted-foreground">
+      Groundplan is in private preview. Start with the part your security team will ask about
+      anyway.
+    </p>
+    <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
       <a
         href="/security/"
-        class="bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+        class="bg-primary px-7 py-3 text-base font-medium text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-90"
       >
-        Start with the security model
+        Read the security model
+      </a>
+      <a
+        href="#product"
+        class="border border-border-strong bg-card px-7 py-3 text-base font-medium text-secondary-foreground hover:border-primary hover:text-primary"
+      >
+        Back to the tour
       </a>
     </div>
   </div>

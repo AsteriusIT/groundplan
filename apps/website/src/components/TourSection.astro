@@ -1,0 +1,67 @@
+---
+// One stop of the product tour: benefit headline, short promise, a handful
+// of plain-language proof points, one real screenshot. Chess layout — text
+// and image alternate sides via `flip`.
+interface Props {
+  id: string;
+  eyebrow: string;
+  title: string;
+  points: string[];
+  image: { src: string; alt: string; caption: string };
+  flip?: boolean;
+  chips?: string[];
+}
+
+const { id, eyebrow, title, points, image, flip = false, chips } = Astro.props;
+---
+
+<section id={id} class="border-b border-border">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+    <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
+      <div class:list={[flip && "lg:order-2"]}>
+        <p class="font-mono text-xs uppercase tracking-widest text-primary">{eyebrow}</p>
+        <h3 class="mt-3 font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+          {title}
+        </h3>
+        <div class="mt-5 max-w-prose text-base leading-relaxed text-muted-foreground">
+          <slot />
+        </div>
+        {
+          chips && (
+            <ul class="mt-5 flex flex-wrap gap-2">
+              {chips.map((chip) => (
+                <li class="border border-border-strong bg-accent-soft px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-accent-foreground">
+                  {chip}
+                </li>
+              ))}
+            </ul>
+          )
+        }
+        <ul class="mt-6 space-y-3">
+          {
+            points.map((point) => (
+              <li class="flex gap-3 text-sm leading-relaxed">
+                <span aria-hidden="true" class="mt-0.5 font-mono text-create">✓</span>
+                <span>{point}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <figure class:list={[flip && "lg:order-1"]}>
+        <div class="overflow-hidden border border-border-strong bg-card shadow-lg shadow-ink/5">
+          <img
+            src={image.src}
+            alt={image.alt}
+            width="2880"
+            height="1800"
+            loading="lazy"
+            class="block h-auto w-full"
+          />
+        </div>
+        <figcaption class="mt-2 font-mono text-[11px] text-faint">{image.caption}</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>

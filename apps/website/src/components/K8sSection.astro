@@ -1,0 +1,36 @@
+---
+// Kubernetes — the same promise, honestly scoped. Limits are stated in the
+// section itself, because trust is the product.
+const POINTS = [
+  "Manifests repos are reviewed by structural diff — no plan file needed, PRs get coloured against the docs of main.",
+  "Helm and Kustomize output is rendered by your CI and pushed to Groundplan — we never execute them.",
+  "Live clusters are read-only: kubeconfigs encrypted at rest, and Secret values are never fetched, stored or drawn.",
+];
+---
+
+<section id="kubernetes" class="border-b border-border">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">Kubernetes</p>
+    <h2 class="mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      Kubernetes gets the same loop
+    </h2>
+    <p class="mt-6 max-w-3xl text-base leading-relaxed text-muted-foreground">
+      Point Groundplan at a manifests repo: main gets documented, pull requests get reviewed —
+      as pictures. Attach a live cluster and draw any namespace on demand, read-only.
+    </p>
+    <ul class="mt-8 max-w-3xl space-y-3">
+      {
+        POINTS.map((point) => (
+          <li class="flex gap-3 text-sm leading-relaxed">
+            <span aria-hidden="true" class="mt-0.5 font-mono text-cat-network">✓</span>
+            <span>{point}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="mt-8 max-w-3xl border-l-2 border-warning bg-warning-soft p-4 text-sm leading-relaxed">
+      Honest scope: Kubernetes snapshots get the diagram and its deterministic summary today —
+      annotations, AI and share links are Terraform-first for now.
+    </p>
+  </div>
+</section>

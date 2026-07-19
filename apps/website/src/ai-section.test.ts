@@ -1,4 +1,6 @@
-// AI + Infrastructure Studio section (GP-162).
+// AI section — commercial pass. Honesty stays structural: Experimental and
+// Azure-focused live in the section itself, the no-key-no-AI rule is stated
+// in the body, and the screenshot shows the badge in-product.
 import { describe, it, expect } from "vitest";
 import { pageHtml, expectVerbatim } from "./test-helpers.js";
 
@@ -9,18 +11,22 @@ function aiSection(): string {
   return html.slice(start, html.indexOf("</section>", start));
 }
 
-describe("AI section (GP-162)", () => {
-  it("carries the honest-AI positioning verbatim", () => {
+describe("AI section", () => {
+  it("positions AI as optional prose beside a deterministic product", () => {
     expectVerbatim(
       "index.html",
-      "Groundplan's AI never replaces the deterministic view — it sits beside it. And it never reads your plan files: every generation is grounded in a brief rendered from Groundplan's own deterministic outputs. No API key configured? The AI layer doesn't exist — no surfaces, no calls, no surprises.",
+      "Your diagrams are deterministic: same input, same picture, every time.",
+    );
+    expectVerbatim(
+      "index.html",
+      "Don't want AI? Don't configure it — without an API key, the AI layer simply doesn't exist.",
     );
   });
 
-  it("carries the Studio copy verbatim", () => {
+  it("never lets the AI read raw plan files — stated in the body", () => {
     expectVerbatim(
       "index.html",
-      "Describe the infrastructure you want in plain English; watch the Terraform being written and the architecture appear, node by node, on the canvas. Inspect any resource's generated HCL, get instant best-practice findings, and download the project as a zip — then run terraform plan yourself, because you stay in control.",
+      "it never reads your raw plan files: every generation is grounded in Groundplan's own deterministic outputs",
     );
   });
 
@@ -30,10 +36,11 @@ describe("AI section (GP-162)", () => {
     expect(section).toContain("Azure-focused");
   });
 
-  it("states the AI_API_KEY-unset rule explicitly", () => {
-    const section = aiSection();
-    expect(section).toContain("AI_API_KEY");
-    expect(section).toContain("the AI layer doesn't exist");
+  it("keeps the Studio promise in the user's hands", () => {
+    expectVerbatim(
+      "index.html",
+      "Download the project as a zip and run the plan yourself. Nothing is deployed, nothing is stored.",
+    );
   });
 
   it("shows the Studio screenshot with the Experimental badge in-shot", () => {

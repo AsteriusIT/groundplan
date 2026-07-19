@@ -1,0 +1,93 @@
+---
+// The product tour — See / Understand / Shape, told as benefits. Every
+// screenshot is a real capture from the app on asteriusit/groundplan-example;
+// no mockups, no lorem-ipsum diagrams. No story numbers in public copy —
+// this page sells the product, the changelog stays in the repo.
+import TourSection from "./TourSection.astro";
+---
+
+<div id="product">
+  <div class="border-b border-border bg-card">
+    <div class="mx-auto max-w-6xl px-4 pt-16 pb-14 text-center sm:px-6 sm:pt-24">
+      <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+        The product
+      </p>
+      <h2 class="mx-auto mt-3 max-w-2xl font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+        Three ways of looking at the same truth
+      </h2>
+      <p class="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground">
+        One semantic model of your infrastructure, drawn deterministically — reviewed on every
+        pull request, documented on every merge, annotated with what only your team knows.
+      </p>
+    </div>
+  </div>
+
+  <TourSection
+    id="see"
+    eyebrow="See"
+    title="Every pull request becomes a picture"
+    points={[
+      "The blast radius is visible before you approve — resources you didn't touch but that depend on your change are flagged automatically.",
+      "Risk is called out on the spot: internet exposure and privileged access get badges, not a buried line in a plan.",
+      "A change summary you can trust — rule-based and identical for identical input, so reviewers rely on it.",
+      "Posted straight to the PR as a comment, with a link to the interactive diagram.",
+    ]}
+    image={{
+      src: "/images/pillar-see.png",
+      alt: "The Groundplan PR view for pull request 42: the plan-impact diagram with created, updated, deleted and impacted resources coloured, and the deterministic change summary panel beside the canvas.",
+      caption: "A real PR under review — plan impact, risk-aware summary, Network and IAM tabs.",
+    }}
+  >
+    <p>
+      Green for created, amber for changed, red for removed — and violet for the things you
+      didn't touch that depend on what you did. The rest of your estate fades back, so the
+      change is all you see.
+    </p>
+  </TourSection>
+
+  <TourSection
+    id="understand"
+    eyebrow="Understand"
+    title="Documentation that keeps itself up to date"
+    flip
+    chips={["Network", "IAM", "C4", "History"]}
+    points={[
+      "Ask your question through the right lens: the network layout, who can do what, or the C4 big picture.",
+      "Travel back in time — every version is kept, and any two can be compared side by side.",
+      "Share a read-only link with anyone: no login required, revocable whenever you want.",
+    ]}
+    image={{
+      src: "/images/pillar-understand.png",
+      alt: "The Groundplan documentation page on the Network lens: the vnet contains the data and web subnets, the web subnet is highlighted as internet-exposed with its NSG chip, and the Global, Adapted, C4, Network and IAM lens tabs sit above the canvas.",
+      caption: "Docs of main through the Network lens — internet exposure highlighted.",
+    }}
+  >
+    <p>
+      Merge to main and the diagram redraws itself — no plan, no apply, no export button. Your
+      default branch always has an accurate architecture picture, and everyone knows where to
+      find it.
+    </p>
+  </TourSection>
+
+  <TourSection
+    id="shape"
+    eyebrow="Shape"
+    title="Add the meaning only your team knows"
+    points={[
+      "Your annotations survive regeneration — nothing you write is ever silently deleted.",
+      "When a resource disappears, its notes wait for your decision instead of vanishing with it.",
+      "AI can suggest groupings and names — every suggestion comes with a reason and waits for a human to accept it.",
+    ]}
+    image={{
+      src: "/images/pillar-shape.png",
+      alt: "The Groundplan annotation review tray: a note that lost its anchor after the legacy storage account was removed, its address struck through, with Keep, Re-anchor and delete actions — above a canvas showing the Session store and API platform annotation groups.",
+      caption: "The review tray — an orphaned note kept for a human decision, never dropped.",
+    }}
+  >
+    <p>
+      A generated diagram knows what exists. Your team knows what it <em>means</em>. Group
+      resources into named systems, rename them in human language, hide the noise and pin
+      notes — without ever touching the generated model.
+    </p>
+  </TourSection>
+</div>

@@ -1,11 +1,16 @@
 ---
-// Landing page. Sections land story by story (GP-159 hero, GP-160 pillars,
-// GP-162 AI, GP-163 K8s/DX, GP-164 FAQ).
+// Landing page — commercial pass. Order follows the conversion journey:
+// promise → pain → how → product tour → trust → AI → K8s → DX → deployment
+// → FAQ → closing CTA.
 import Base from "../layouts/Base.astro";
 import Hero from "../components/Hero.astro";
-import Pillars from "../components/Pillars.astro";
+import Problem from "../components/Problem.astro";
+import HowItWorks from "../components/HowItWorks.astro";
+import ProductTour from "../components/ProductTour.astro";
+import SecurityBand from "../components/SecurityBand.astro";
 import AiSection from "../components/AiSection.astro";
-import K8sDevSection from "../components/K8sDevSection.astro";
+import K8sSection from "../components/K8sSection.astro";
+import DevExperience from "../components/DevExperience.astro";
 import SelfHostFaq from "../components/SelfHostFaq.astro";
 
 // §14 one-paragraph summary — the meta description, verbatim (GP-164).
@@ -18,8 +23,12 @@ const META_DESCRIPTION =
   description={META_DESCRIPTION}
 >
   <Hero />
-  <Pillars />
+  <Problem />
+  <HowItWorks />
+  <ProductTour />
+  <SecurityBand />
   <AiSection />
-  <K8sDevSection />
+  <K8sSection />
+  <DevExperience />
   <SelfHostFaq />
 </Base>
