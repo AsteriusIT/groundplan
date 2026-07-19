@@ -20,7 +20,11 @@ import {
   type ReactNode,
 } from "react";
 
-export type TourStyle = "spotlight" | "guide";
+// The type lives with the canvas package (GP-146) — TourSpotlight consumes it
+// there; the provider/preference stays here, an app concern.
+import type { TourStyle } from "@groundplan/canvas";
+
+export type { TourStyle };
 
 export const TOUR_STYLES: readonly TourStyle[] = ["spotlight", "guide"];
 

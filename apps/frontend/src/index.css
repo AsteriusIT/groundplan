@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* The canvas package's sources live outside this app — tell Tailwind to scan
+   them so the utilities its components use are generated (GP-146). */
+@source "../../../packages/canvas/src";
+
 @custom-variant dark (&:is(.dark *));
 
 /*

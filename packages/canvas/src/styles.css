@@ -1,0 +1,343 @@
+/*
+ * @groundplan/canvas — self-contained stylesheet (GP-146): the design tokens
+ * (copied from the app's single source, apps/frontend/src/index.css), the
+ * fonts, and Tailwind utilities generated from THIS package's sources only.
+ * One import gives a bare webview or sandbox a correctly styled canvas.
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+/* Generate utilities from this package's sources only (self-hosted fonts above — GP-28). */
+@source "./";
+
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Groundplan design tokens — "blueprint" light theme (GP-9, extended to the
+ * full mockup palette in GP-28). Drafting paper + blueprint ink. One accent
+ * (blueprint blue); status colours (create/update/delete/impacted) are the only
+ * other saturated hues, and everything else stays quiet.
+ *
+ * This file is the SINGLE source of colour truth. Components never hardcode a
+ * colour (no `#hex`, no raw `bg-emerald-500`); they use the semantic tokens
+ * below via Tailwind utilities (`bg-create-soft`, `text-impacted`, …). The
+ * `design-tokens.test.ts` guard enforces this for the design-v3 surface.
+ */
+:root {
+  color-scheme: light;
+  --radius: 0.1875rem; /* 3px — crisp, technical, not rounded */
+
+  /* — surfaces — */
+  --background: #f4f7fb; /* drafting-paper background */
+  --canvas: #fbfdff; /* the diagram canvas, a shade brighter than the app */
+  --card: #ffffff; /* panels / cards / title-block */
+  --panel: #ffffff;
+  --popover: #ffffff;
+
+  /* — ink — */
+  --foreground: #182a42; /* primary text */
+  --ink: #182a42;
+  --card-foreground: #182a42;
+  --popover-foreground: #182a42;
+  --muted-foreground: #5d7391; /* secondary text */
+  --faint: #93a6bf; /* tertiary text — names, hints */
+
+  /* — accent (blueprint blue) — */
+  --primary: #2e6be6;
+  --primary-foreground: #ffffff;
+  --accent-soft: #eaf1fe; /* pale blue fill for accent chips / addresses */
+  --secondary: #eaf1fe;
+  --secondary-foreground: #16345c;
+  --muted: #eaf0f8;
+  --accent: #eaf1fe;
+  --accent-foreground: #16345c;
+  --ring: #2e6be6;
+
+  /* — lines — */
+  --border: #e3e9f2;
+  --border-strong: #cdd8e8;
+  --input: #cdd8e8;
+  --grid-line: #e2eaf5; /* fine blueprint grid */
+  --grid-strong: #d3dff0; /* bold blueprint grid (every 5th line) */
+  --edge: #a6b8d0; /* neutral diagram edge: an explicit depends_on */
+  --edge-inferred: #c3cfe0; /* an expression-inferred reference (GP-20) — same family, quieter */
+
+  /* — status — */
+  --create: #189a5c;
+  --create-soft: #e8f7ef;
+  --update: #c77e10;
+  --update-soft: #fbf3e4;
+  --delete: #d8503f;
+  --delete-soft: #fdf1ef;
+  --destructive: #d8503f;
+  --impacted: #7b5bd6;
+  --impacted-soft: #f1edfc;
+  --exposed: #d4531e; /* internet-exposed warning (GP-45) */
+  --exposed-soft: #fdece3;
+  /* Something about the *snapshot* needs attention (files skipped, a terraform
+     path that matched nothing) — not a diff colour, and not a risk finding. */
+  --warning: #a86a10;
+  --warning-soft: #fbf1de;
+
+  /* — resource categories (GP-24) — tokenised so nothing picks a raw hue — */
+  --cat-compute: #2563c9;
+  --cat-network: #0e8f9e;
+  --cat-network-soft: #e6f4f5; /* solid light-teal fill for vnet containers (GP-44) */
+  --cat-data: #4f46c7;
+  --cat-security: #c23a63;
+  --cat-identity: #b5760f;
+  --cat-observability: #a032b8;
+  --cat-other: #5d7391;
+
+  /* — HCL source syntax (GP-121) — four roles, no more. A code block in a 320px
+       panel is read for orientation, not studied; more hues than this is noise. */
+  --code-keyword: #2f5bb8;
+  --code-string: #0f7d6d;
+  --code-comment: #8a9cb5;
+  --code-number: #a8690c;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", monospace;
+}
+
+/*
+ * Dark theme — "cyanotype blueprint". Where the light theme is drafting paper,
+ * dark is the developed blueprint: deep Prussian-blue paper, cyan hairline grid,
+ * near-white ink. Only the token VALUES change; the `@theme inline` mapping means
+ * every `bg-*`/`text-*` utility follows automatically (app, panels, diagram,
+ * grid, edges). The elevation ladder inverts correctly — recessed regions are
+ * darkest (muted → background → canvas), raised resource cards lightest (panel).
+ * Applied by toggling the `.dark` class on <html> (see src/theme/).
+ */
+.dark {
+  color-scheme: dark;
+
+  /* — surfaces (dark → light: paper is deepest, cards raised) — */
+  --background: #0a1e42; /* app "paper" */
+  --canvas: #0c2350; /* diagram surface, a shade brighter than the app */
+  --card: #102a58; /* panels / cards / raised surfaces (lightest) */
+  --panel: #102a58;
+  --popover: #102a58;
+
+  /* — ink — */
+  --foreground: #eaf1fb;
+  --ink: #eaf1fb;
+  --card-foreground: #eaf1fb;
+  --popover-foreground: #eaf1fb;
+  --muted-foreground: #93b0d8; /* secondary text */
+  --faint: #6b86b3; /* tertiary text — names, hints */
+
+  /* — accent (blueprint blue, brightened for a dark ground) — */
+  --primary: #4c8dff;
+  --primary-foreground: #06122b; /* ink label on the bright-blue fill (AA) */
+  --accent-soft: #14315f; /* dark-blue fill for accent chips / addresses */
+  --secondary: #14315f;
+  --secondary-foreground: #cfe0ff;
+  --muted: #081a3a; /* most-recessed region fill (vnet) */
+  --accent: #16305c; /* hover surface */
+  --accent-foreground: #cfe0ff;
+  --ring: #4c8dff;
+
+  /* — lines — */
+  --border: #1c3a63;
+  --border-strong: #2b5487;
+  --input: #2b5487;
+  --grid-line: #123a63; /* fine cyan hairline grid */
+  --grid-strong: #1c5288; /* bold cyan grid (every 5th line) */
+  --edge: #5d7db0; /* neutral diagram edge: an explicit depends_on */
+  --edge-inferred: #46618c; /* an expression-inferred reference (GP-20) */
+
+  /* — status — brightened, and the -soft fills flip to dark tints so diff
+     cards read as coloured on a dark ground (not blown-out pastels) — */
+  --create: #2ec77e;
+  --create-soft: #0e3b28;
+  --update: #e0a020;
+  --update-soft: #3a2c0c;
+  --delete: #f0604d;
+  --delete-soft: #3d1a16;
+  --destructive: #f0604d;
+  --impacted: #a887f5;
+  --impacted-soft: #241a44;
+  --exposed: #f06a30;
+  --exposed-soft: #3a1d0e;
+  --warning: #e8b64a;
+  --warning-soft: #3a2e12;
+
+  /* — resource categories (icons render neutral now; kept for the styleguide) — */
+  --cat-compute: #4f8bf0;
+  --cat-network: #2bb6c4;
+  --cat-network-soft: #0e2f45;
+  --cat-data: #7a72e8;
+  --cat-security: #e0608a;
+  --cat-identity: #d99a3a;
+  --cat-observability: #c964dd;
+  --cat-other: #93b0d8;
+
+  /* — HCL source syntax (GP-121) — */
+  --code-keyword: #6ba4f5;
+  --code-string: #3fc4a8;
+  --code-comment: #6b86b3;
+  --code-number: #e0a94e;
+}
+
+/*
+ * Second dark theme — "carbon": a near-neutral very-dark gray/black. It extends
+ * `.dark` (so Tailwind's `dark:` variant and every status/diff colour carry over)
+ * and only re-points the neutral surface / line / ink family — swapping the
+ * blueprint's Prussian blue for graphite. Selected via data-theme="carbon" on
+ * <html>; the higher-specificity selector wins over the plain `.dark` values.
+ */
+.dark[data-theme="carbon"] {
+  /* — surfaces (near-black → raised graphite; cards stay lightest) — */
+  --background: #0c0d10;
+  --canvas: #111317;
+  --card: #17191f;
+  --panel: #17191f;
+  --popover: #17191f;
+
+  /* — ink (neutral off-white, no blue cast) — */
+  --foreground: #e8eaed;
+  --ink: #e8eaed;
+  --card-foreground: #e8eaed;
+  --popover-foreground: #e8eaed;
+  --muted-foreground: #9aa0aa;
+  --faint: #6b7079;
+
+  /* — accent surfaces neutralised to graphite (the blue accent itself stays) — */
+  --accent-soft: #1b2431;
+  --secondary: #1b2431;
+  --secondary-foreground: #dbe2ec;
+  --muted: #0a0b0e; /* most-recessed region fill (vnet) */
+  --accent: #1c1f27; /* hover surface */
+  --accent-foreground: #dfe3ea;
+
+  /* — lines (neutral gray) — */
+  --border: #23262d;
+  --border-strong: #333842;
+  --input: #333842;
+  --grid-line: #191b21; /* very subtle graphite grid */
+  --grid-strong: #24272f;
+  --edge: #565c66;
+  --edge-inferred: #3e434b;
+
+  /* — HCL source syntax, neutralised to match the graphite surface (GP-121) — */
+  --code-keyword: #7aa7e8;
+  --code-string: #55c2a4;
+  --code-comment: #6b7079;
+  --code-number: #d4a04a;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 1px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-canvas: var(--canvas);
+  --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-panel: var(--panel);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-grid-line: var(--grid-line);
+  --color-grid-strong: var(--grid-strong);
+  --color-edge: var(--edge);
+  --color-edge-inferred: var(--edge-inferred);
+
+  --color-create: var(--create);
+  --color-create-soft: var(--create-soft);
+  --color-update: var(--update);
+  --color-update-soft: var(--update-soft);
+  --color-delete: var(--delete);
+  --color-delete-soft: var(--delete-soft);
+  --color-impacted: var(--impacted);
+  --color-impacted-soft: var(--impacted-soft);
+  --color-exposed: var(--exposed);
+  --color-exposed-soft: var(--exposed-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+
+  --color-cat-compute: var(--cat-compute);
+  --color-cat-network: var(--cat-network);
+  --color-cat-network-soft: var(--cat-network-soft);
+  --color-cat-data: var(--cat-data);
+  --color-cat-security: var(--cat-security);
+  --color-cat-identity: var(--cat-identity);
+  --color-cat-observability: var(--cat-observability);
+  --color-cat-other: var(--cat-other);
+
+  --color-code-keyword: var(--code-keyword);
+  --color-code-string: var(--code-string);
+  --color-code-comment: var(--code-comment);
+  --color-code-number: var(--code-number);
+
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Quality floor: honour reduced-motion for everyone. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/*
+ * Signature: the blueprint grid — gridded drafting paper. A fine 24px hairline
+ * grid with a bolder line every 120px (every 5th), both from tokens. Kept subtle
+ * so content stays legible.
+ */
+.blueprint-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-strong) 1px, transparent 1px);
+  background-size:
+    24px 24px,
+    24px 24px,
+    120px 120px,
+    120px 120px;
+  background-position: -1px -1px;
+}

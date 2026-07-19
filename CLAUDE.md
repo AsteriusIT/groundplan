@@ -46,6 +46,9 @@ groundplan/
 │           └── lib/utils.ts    # cn() class-merge helper
 ├── packages/
 │   ├── cli/            # @asteriusit/cli — `groundplan push-plan` for CI
+│   ├── canvas/         # @groundplan/canvas — the diagram canvas as a reusable React
+│   │                   #   package (GP-146); app + VS Code webview consume it; the old
+│   │                   #   frontend paths are one-line re-export shims
 │   └── graph-parser/   # @groundplan/graph-parser — Producer B (HCL → GraphSnapshot)
 │                       #   as a pure shared package + the graph types/validator (GP-145)
 ├── keycloak/           # Keycloakify carbon theme (login/account/email) — see keycloak/README.md
