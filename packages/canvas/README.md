@@ -34,13 +34,15 @@ import "@groundplan/canvas/styles.css"; // tokens + fonts + utilities — all of
 
 ## Sandbox (webview-readiness proof)
 
-`pnpm --filter @groundplan/canvas dev` serves a page that renders a fixture
-snapshot with only the package import + its CSS; `sandbox:build` builds it.
+`pnpm --filter @groundplan/canvas sandbox` serves a page (on **:5273**) that
+renders a fixture snapshot with only the package import + its CSS;
+`sandbox:build` builds it. Deliberately not named `dev` — the root `pnpm dev`
+must start the app on :5173, not this.
 
 ## Commands
 
 ```sh
 pnpm --filter @groundplan/canvas test        # vitest + jsdom
 pnpm --filter @groundplan/canvas typecheck
-pnpm --filter @groundplan/canvas dev         # sandbox
+pnpm --filter @groundplan/canvas sandbox     # fixture page on :5273
 ```

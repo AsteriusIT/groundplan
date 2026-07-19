@@ -12,7 +12,7 @@
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
-    "dev": "vite",
+    "sandbox": "vite",
     "sandbox:build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
