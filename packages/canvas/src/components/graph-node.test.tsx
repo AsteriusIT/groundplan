@@ -213,3 +213,29 @@ it("shows no count badge without the attribute", () => {
   render(<NodeCard graphNode={rg} />);
   expect(screen.queryByText(/^×/)).not.toBeInTheDocument();
 });
+
+it("a ghost node recedes and desaturates; context dims slightly (GP-155)", () => {
+  const { container, rerender } = render(
+    <NodeCard graphNode={{ ...rg, change: "noop" }} emphasis="ghost" />,
+  );
+  const card = () => container.firstElementChild as HTMLElement;
+  expect(card().className).toContain("opacity-40");
+  expect(card().className).toContain("saturate-");
+
+  rerender(<NodeCard graphNode={{ ...rg, change: "noop" }} emphasis="context" />);
+  expect(card().className).toContain("opacity-75");
+  expect(card().className).not.toContain("opacity-40");
+
+  // Changed/impacted tiers keep the full-contrast v3 styles.
+  rerender(<NodeCard graphNode={{ ...rg, change: "update" }} emphasis="changed" />);
+  expect(card().className).not.toContain("opacity-40");
+  expect(card().className).not.toContain("opacity-75");
+});
+
+it("selection restores a ghosted node's full contrast (GP-155)", () => {
+  const { container } = render(
+    <NodeCard graphNode={{ ...rg, change: "noop" }} emphasis="ghost" selected />,
+  );
+  const card = container.firstElementChild as HTMLElement;
+  expect(card.className).not.toContain("opacity-40");
+});

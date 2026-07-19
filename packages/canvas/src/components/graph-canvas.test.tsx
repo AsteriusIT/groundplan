@@ -767,3 +767,35 @@ it("detailsPanel={false} keeps selection working but never opens the side panel"
   // …but no details panel appears over the diagram.
   expect(screen.queryByText("Terraform address")).not.toBeInTheDocument();
 });
+
+it("diff mode swaps the counter for the change-set headline (GP-155)", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" diffEmphasis />);
+  await screen.findByText("node:main");
+  expect(screen.getByText("3 resources · 2 changed · 1 impacted")).toBeInTheDocument();
+  expect(screen.queryByText(/of 3 shown/)).not.toBeInTheDocument();
+});
+
+it("without diff mode the counter keeps its of-N-shown form", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  expect(screen.getByText(/of 3 shown/)).toBeInTheDocument();
+});
+
+it("an all-noop diff keeps the plain counter — nothing to headline", async () => {
+  const calm: Graph = {
+    ...graph,
+    nodes: graph.nodes.map((n) =>
+      n.change === null ? n : { ...n, change: "noop" as const, impacted: undefined },
+    ),
+  };
+  render(<GraphCanvas graph={calm} variant="plan" diffEmphasis />);
+  await screen.findByText("node:main");
+  expect(screen.getByText(/of 3 shown/)).toBeInTheDocument();
+});
+
+it("the legend names the impacted state on the plan view (GP-155)", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  // Filter panel rests collapsed, so the only "Impacted" on screen is the legend's.
+  expect(screen.getByText("Impacted")).toBeInTheDocument();
+});

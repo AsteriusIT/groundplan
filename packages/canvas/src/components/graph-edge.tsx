@@ -46,6 +46,8 @@ const RESTING_OPACITY: Record<EdgeRel, number> = {
 };
 
 const DIMMED_OPACITY = 0.06;
+/** GP-155: an edge between two unchanged bystanders, in diff mode. */
+const GHOSTED_OPACITY = 0.18;
 
 type EdgeData = {
   rel?: EdgeRel;
@@ -64,11 +66,15 @@ type EdgeData = {
   label?: string;
   /** GP-58: a human annotation link — dashed, accent-toned, no arrowhead. */
   annotation?: boolean;
+  /** GP-155: neither endpoint is changed/impacted — recede in diff mode. */
+  ghosted?: boolean;
 };
 
-function edgeOpacity(d: EdgeData, rel: EdgeRel): number {
+/** Exported for tests: the one place an edge's opacity is decided. */
+export function edgeOpacity(d: EdgeData, rel: EdgeRel): number {
   if (d.dimmed) return DIMMED_OPACITY;
   if (d.active) return 1;
+  if (d.ghosted) return GHOSTED_OPACITY;
   return RESTING_OPACITY[rel];
 }
 

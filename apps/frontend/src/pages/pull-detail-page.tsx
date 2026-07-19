@@ -196,6 +196,9 @@ export function PullDetailPage() {
         <GraphCanvas
           graph={network ? network.graph : graph.snapshot.graph}
           variant="plan"
+          // The PR view is the DIFF ref: the change set dominates, the
+          // unchanged estate recedes (GP-155).
+          diffEmphasis
           containerIds={network?.containerIds}
           stacks={network?.stacks}
           chips={network?.chips}

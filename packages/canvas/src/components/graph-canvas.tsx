@@ -314,6 +314,7 @@ function attachAnchors(
 export function GraphCanvas({
   graph,
   variant = "plan",
+  diffEmphasis = false,
   focusNodeId,
   selectedAddress,
   onNodeSelect,
@@ -332,6 +333,13 @@ export function GraphCanvas({
 }: Readonly<{
   graph: Graph;
   variant?: "plan" | "docs";
+  /**
+   * GP-155: diff-mode visual hierarchy — recede the unchanged estate so the
+   * changed + impacted set dominates. On for the diff views only (the PR
+   * view's DIFF ref, the VS Code extension's diff mode); off leaves every
+   * node at equal weight, exactly as before.
+   */
+  diffEmphasis?: boolean;
   /** When set/changed, select that node and fly to it (GP-40 compare lists). */
   focusNodeId?: string | null;
   /**
@@ -543,13 +551,23 @@ export function GraphCanvas({
             stacks,
             chips,
             tourAnchors,
+            diffEmphasis,
           })
         : { nodes: [], edges: [] },
-    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, stacks, chips, tourAnchors],
+    [layout, graph, activeFilters, activeCategories, activeModules, selected, hoveredId, hubs, showHubEdges, containerIds, stacks, chips, tourAnchors, diffEmphasis],
   );
 
   const resourceNodes = elements.nodes.filter((n) => n.type === "resource");
   const shown = resourceNodes.filter((n) => !n.data.dimmed).length;
+
+  // GP-155: in diff mode the headline is the change set, not the filter count.
+  // Falls back to the plain counter when the diff carries no signal at all.
+  const changedTotal =
+    (changeCount.get("create") ?? 0) +
+    (changeCount.get("update") ?? 0) +
+    (changeCount.get("delete") ?? 0);
+  const impactedTotal = changeCount.get("impacted") ?? 0;
+  const diffHeadline = diffEmphasis && changedTotal + impactedTotal > 0;
 
   // --- Annotation overlay (GP-58) -------------------------------------------
   const [tool, dispatchTool] = useReducer(reduceTool, INITIAL_TOOL);
@@ -1106,7 +1124,9 @@ export function GraphCanvas({
               />
             </button>
             <span className="text-muted-foreground font-mono text-[10px]">
-              {shown} of {resourceNodes.length} shown
+              {diffHeadline
+                ? `${resourceNodes.length} resources · ${changedTotal} changed · ${impactedTotal} impacted`
+                : `${shown} of ${resourceNodes.length} shown`}
             </span>
           </div>
 

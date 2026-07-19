@@ -21,6 +21,7 @@ import {
 import { EyeOff, ShieldAlert, Waypoints } from "lucide-react";
 
 import type { GraphNode } from "../types";
+import type { Emphasis } from "../lib/emphasis";
 import { changeClasses, STACK_MAX_ROWS } from "../lib/graph-layout";
 import { STATUS_META, statusOf } from "../lib/status";
 import { categorize, CATEGORY_META, shortType } from "../lib/resource-category";
@@ -139,6 +140,7 @@ export function NodeCard({
   selected = false,
   picked = false,
   dimmed = false,
+  emphasis,
   isHub = false,
   hubHiddenCount = 0,
   exposed = false,
@@ -157,6 +159,12 @@ export function NodeCard({
   /** GP-58: picked as a link endpoint / group member in annotate mode. */
   picked?: boolean;
   dimmed?: boolean;
+  /**
+   * GP-155: diff-mode tier. `ghost` recedes (unchanged estate), `context`
+   * dims slightly (one hop from the change set); `changed`/`impacted` keep
+   * the full-contrast v3 treatment. Selection always restores full contrast.
+   */
+  emphasis?: Emphasis;
   /** GP-35: this node is a hub; a subtle indicator / counter chip is shown. */
   isHub?: boolean;
   /** GP-35: number of this hub's edges hidden right now (0 = all revealed). */
@@ -225,6 +233,10 @@ export function NodeCard({
         // Marked for hiding: still drawn (this is the raw view — it shows what
         // the code says), but visibly on its way out.
         hiddenByAnnotation && !picked && "border-dashed opacity-50",
+        // GP-155: the unchanged estate recedes so the change set pops. A
+        // selected/picked node is being pointed at — never ghosted.
+        emphasis === "ghost" && !selected && !picked && "opacity-40 saturate-[.35]",
+        emphasis === "context" && !selected && !picked && "opacity-75",
         dimmed && "opacity-20",
       )}
     >
@@ -377,6 +389,7 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         selected={data.selected === true}
         picked={data.picked === true}
         dimmed={data.dimmed}
+        emphasis={data.emphasis}
         isHub={data.isHub === true}
         hubHiddenCount={data.hubHiddenCount ?? 0}
         exposed={data.exposed === true}

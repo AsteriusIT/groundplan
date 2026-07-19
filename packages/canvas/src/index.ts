@@ -30,6 +30,7 @@ export * from "./components/ui/dialog";
 export * from "./components/ui/ai-badge";
 
 export * from "./lib/graph-layout";
+export * from "./lib/emphasis";
 export * from "./lib/edge-path";
 export * from "./lib/hub";
 export * from "./lib/hub-config";

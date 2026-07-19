@@ -256,6 +256,8 @@ function App(): React.JSX.Element {
         <GraphCanvas
           graph={network ? network.graph : displayed}
           variant={diffActive ? "plan" : "docs"}
+          // Diff mode wears the PR view's hierarchy: unchanged recedes (GP-155).
+          diffEmphasis={diffActive}
           containerIds={network?.containerIds}
           stacks={network?.stacks}
           chips={network?.chips}

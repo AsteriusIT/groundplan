@@ -1204,3 +1204,72 @@ it("orders a vnet's subnets by CIDR, not by id", () => {
     vnet?.layoutOptions?.["elk.layered.crossingMinimization.forceNodeModelOrder"],
   ).toBeUndefined();
 });
+
+describe("diff emphasis (GP-155)", () => {
+  // changed <- hit(impacted) <- near(context) <- far(ghost)
+  const diffGraph: Graph = {
+    version: 3,
+    nodes: [
+      { id: "changed", name: "changed", type: "t", provider: "p", module_path: [], change: "update" },
+      { id: "hit", name: "hit", type: "t", provider: "p", module_path: [], change: "noop", impacted: true, impact_distance: 1 },
+      { id: "near", name: "near", type: "t", provider: "p", module_path: [], change: "noop" },
+      { id: "far", name: "far", type: "t", provider: "p", module_path: [], change: "noop" },
+    ],
+    edges: [
+      { from: "hit", to: "changed", kind: "depends_on" },
+      { from: "near", to: "hit", kind: "depends_on" },
+      { from: "far", to: "near", kind: "depends_on" },
+    ],
+  };
+  const diffLayout: ElkGraphNode = {
+    id: "root",
+    children: diffGraph.nodes.map((n, i) => ({
+      id: n.id,
+      x: i * 300,
+      y: 0,
+      width: 220,
+      height: 56,
+    })),
+  };
+
+  it("hands each node its emphasis tier when diffEmphasis is on", () => {
+    const { nodes, edges } = elkToFlow(diffLayout, diffGraph, {
+      activeFilters: allFilters,
+      selectedId: null,
+      diffEmphasis: true,
+    });
+    const emphasisOf = (id: string) =>
+      nodes.find((n) => n.id === id)?.data.emphasis;
+    expect(emphasisOf("changed")).toBe("changed");
+    expect(emphasisOf("hit")).toBe("impacted");
+    expect(emphasisOf("near")).toBe("context");
+    expect(emphasisOf("far")).toBe("ghost");
+
+    // Edges: full contrast only while an endpoint carries the signal.
+    const ghostedOf = (id: string) =>
+      edges.find((e) => e.id === id)?.data?.ghosted;
+    expect(ghostedOf(depEdgeId({ from: "hit", to: "changed", kind: "depends_on" }))).toBeUndefined();
+    expect(ghostedOf(depEdgeId({ from: "far", to: "near", kind: "depends_on" }))).toBe(true);
+  });
+
+  it("carries no emphasis when off — HEAD/MAIN render exactly as before", () => {
+    const { nodes } = elkToFlow(diffLayout, diffGraph, {
+      activeFilters: allFilters,
+      selectedId: null,
+    });
+    expect(nodes.every((n) => n.data.emphasis === undefined)).toBe(true);
+  });
+
+  it("selection overrides ghosting: the lit neighbourhood renders full", () => {
+    const { nodes } = elkToFlow(diffLayout, diffGraph, {
+      activeFilters: allFilters,
+      selectedId: "far", // a ghosted node the user clicked
+      diffEmphasis: true,
+    });
+    const far = nodes.find((n) => n.id === "far");
+    const near = nodes.find((n) => n.id === "near"); // its neighbour
+    expect(far?.data.emphasis).toBeUndefined();
+    expect(far?.data.dimmed).toBe(false);
+    expect(near?.data.emphasis).toBeUndefined();
+  });
+});

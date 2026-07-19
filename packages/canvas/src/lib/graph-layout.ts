@@ -12,6 +12,7 @@ import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
 import type { ChangeKind, Graph, GraphEdge, GraphNode } from "../types";
 import type { Point } from "../lib/edge-path";
+import { edgeGhosted, emphasisMap, type Emphasis } from "../lib/emphasis";
 import { categorize, type Category } from "../lib/resource-category";
 import { hubEdgeRevealed, isHubEdge } from "../lib/hub";
 
@@ -128,6 +129,12 @@ export type GraphNodeData = {
   graphNode: GraphNode;
   /** True when filters / the selection highlight should visually mute this node. */
   dimmed: boolean;
+  /**
+   * GP-155: this node's diff-mode tier (`changed`/`impacted` keep full
+   * contrast, `context` dims slightly, `ghost` recedes). Absent outside diff
+   * mode — and absent inside the lit neighbourhood, where focus overrides it.
+   */
+  emphasis?: Emphasis;
   /** True for the currently selected node (drives the accent ring; GP-30). */
   selected?: boolean;
   /** True when this node is a hub (high-degree / fan-out type; GP-35). */
@@ -209,6 +216,12 @@ export type ViewState = {
    * stop (the opener and the closer), where nothing should dim at all.
    */
   tourAnchors?: ReadonlySet<string> | null;
+  /**
+   * GP-155: recede the unchanged estate so the change set pops. On for the
+   * diff views only (the PR view's DIFF ref, the extension's diff mode);
+   * HEAD/MAIN/docs render exactly as before.
+   */
+  diffEmphasis?: boolean;
 };
 
 const isModule = (node: GraphNode) => node.type === "module";
@@ -947,6 +960,13 @@ export function elkToFlow(
     : null;
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
+  // Diff-mode visual hierarchy (GP-155): null outside diff mode or when the
+  // snapshot carries no change signal. The lit neighbourhood overrides it —
+  // selecting (or hovering) a ghosted node restores its full contrast.
+  const emphasis = emphasisMap(graph, view.diffEmphasis === true);
+  const emphasisOf = (id: string): Emphasis | undefined =>
+    neighbors?.has(id) ? undefined : emphasis?.get(id);
+
   // Absent for hub edges (deliberately left out of the layout, GP-35) — those
   // fall back to a curve, drawn over the layout as they always were.
   const routes = elkRoutes(layout);
@@ -1011,6 +1031,7 @@ export function elkToFlow(
         data: {
           graphNode,
           dimmed: dimmedOf(graphNode),
+          ...(emphasisOf(graphNode.id) ? { emphasis: emphasisOf(graphNode.id) } : {}),
           selected: selectedId === graphNode.id,
           isHub: hubs.has(graphNode.id),
           hubHiddenCount: hubHiddenCount.get(graphNode.id) ?? 0,
@@ -1076,6 +1097,9 @@ export function elkToFlow(
           // relationship can be traced through a crossing.
           active: touring ? inTour : touchesFocus,
           inferred: edge.inferred === true,
+          // GP-155: an edge between two bystanders recedes in diff mode; an
+          // edge the focus lights never does.
+          ...(edgeGhosted(edge, emphasis) && !touchesFocus ? { ghosted: true } : {}),
           route: routes.get(id),
           // A logical edge wears the annotation treatment — dashed, accent-toned,
           // no arrowhead — because it is exactly that: a human relationship drawn
