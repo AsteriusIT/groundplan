@@ -21,6 +21,7 @@ function App(): React.JSX.Element {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [folder, setFolder] = useState("");
   const [multiRoot, setMultiRoot] = useState(false);
+  const [outOfSync, setOutOfSync] = useState(false);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostMessage>): void => {
@@ -29,6 +30,8 @@ function App(): React.JSX.Element {
         setGraph(message.snapshot);
         setFolder(message.folder);
         setMultiRoot(message.multiRoot);
+      } else if (message.type === "outOfSync") {
+        setOutOfSync(message.value);
       }
     };
     window.addEventListener("message", onMessage);
@@ -49,6 +52,11 @@ function App(): React.JSX.Element {
       {multiRoot && (
         <div className="bg-warning-soft text-warning absolute inset-x-0 top-0 z-20 px-3 py-1 text-center font-mono text-xs">
           Previewing “{folder}” — the first of several workspace folders.
+        </div>
+      )}
+      {outOfSync && (
+        <div className="bg-warning-soft text-warning border-warning absolute right-3 top-3 z-20 rounded-sm border px-2 py-1 font-mono text-xs">
+          Out of sync — showing the last good parse
         </div>
       )}
       <GraphCanvas graph={graph} variant="docs" />
