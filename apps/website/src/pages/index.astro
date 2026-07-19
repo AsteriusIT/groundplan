@@ -1,19 +1,13 @@
 ---
-// Landing page. GP-158 ships the empty shell; sections land story by story
-// (GP-159 hero, GP-160 pillars, GP-162 AI, GP-163 K8s/DX, GP-164 FAQ).
+// Landing page. Sections land story by story (GP-159 hero, GP-160 pillars,
+// GP-162 AI, GP-163 K8s/DX, GP-164 FAQ).
 import Base from "../layouts/Base.astro";
+import Hero from "../components/Hero.astro";
 ---
 
 <Base
   title="Groundplan — See your infrastructure. Review it. Shape it."
   description="Groundplan turns Terraform and Kubernetes into living, interactive architecture diagrams."
 >
-  <div class="blueprint-grid">
-    <section class="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-      <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-        Sheet 01 — under construction
-      </p>
-      <h1 class="mt-4 font-display text-4xl font-semibold tracking-tight">groundplan</h1>
-    </section>
-  </div>
+  <Hero />
 </Base>

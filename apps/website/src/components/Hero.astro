@@ -1,0 +1,103 @@
+---
+// Hero + problem strip (GP-159). All copy verbatim from
+// docs/website-presentation.md (§1, §2, §12). The visual is a real GP-37
+// export of PR #42 in asteriusit/groundplan-example — rendered by the
+// server exporter, not drawn for the website (see assets-src/render-hero.ts).
+---
+
+<div class="blueprint-grid border-b border-border">
+  <section class="mx-auto max-w-6xl px-4 pt-16 pb-12 sm:px-6 sm:pt-24">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+      Terraform &amp; Kubernetes · living architecture diagrams
+    </p>
+    <h1
+      class="mt-5 max-w-3xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-6xl"
+    >
+      <span class="text-primary">See</span> your infrastructure.
+      <span class="text-primary">Review</span> it.
+      <span class="text-primary">Shape</span> it.
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-relaxed text-muted-foreground">
+      Groundplan turns Terraform and Kubernetes into living, interactive architecture
+      diagrams — so teams review infrastructure changes visually, keep documentation
+      permanently in sync with code, and see their cloud the way they think about it:
+      as networks, permissions and systems, not thousands of lines of HCL.
+    </p>
+
+    <div class="mt-8 flex flex-wrap items-center gap-4">
+      <a
+        href="/security/"
+        class="bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+      >
+        We ingest data, not access — see how
+      </a>
+      <a href="#pillars" class="px-2 py-2.5 text-sm text-secondary-foreground hover:text-foreground">
+        Explore the three pillars ↓
+      </a>
+    </div>
+    <p class="mt-3 font-mono text-xs text-muted-foreground">
+      One pipeline step away from seeing your infrastructure.
+    </p>
+
+    <figure class="mt-12">
+      <div class="border border-border-strong bg-card shadow-sm">
+        <img
+          src="/images/hero-pr-diagram.svg"
+          alt="A Groundplan pull-request diagram of PR #42 in asteriusit/groundplan-example: a created Redis cache, private endpoint and Key Vault secret in green, an updated web app in amber, a deleted storage account in dashed red, and an impacted diagnostic setting in violet, with the unchanged estate ghosted."
+          width="1912"
+          height="751"
+          class="block h-auto w-full"
+          fetchpriority="high"
+        />
+      </div>
+      <figcaption class="mt-2 font-mono text-[11px] text-faint">
+        PR #42 · asteriusit/groundplan-example · exported by the Groundplan renderer
+        (same pipeline as PR comments and share links)
+      </figcaption>
+    </figure>
+
+    <aside class="mt-10 max-w-3xl border-l-2 border-primary bg-card p-5">
+      <p class="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+        Trust model
+      </p>
+      <p class="mt-2 leading-relaxed">
+        <strong>We ingest data, not access.</strong> Groundplan reads the plan JSON and
+        rendered manifests your own CI produces. It never holds cloud credentials, never
+        reads your Terraform state, never runs <code class="font-mono text-sm">terraform</code>,
+        <code class="font-mono text-sm">helm</code> or
+        <code class="font-mono text-sm">kustomize</code>. Adoption is one pipeline step.
+      </p>
+    </aside>
+  </section>
+</div>
+
+<section aria-label="The problem" class="border-b border-border bg-card">
+  <div class="mx-auto max-w-6xl px-4 sm:px-6">
+    <ul class="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+      <li class="py-6 sm:px-5 sm:py-8 lg:first:pl-0">
+        <p class="font-mono text-[11px] uppercase tracking-widest text-delete">review</p>
+        <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+          Infra review is text review — reviewers approve plans nobody can picture.
+        </p>
+      </li>
+      <li class="py-6 sm:px-5 sm:py-8">
+        <p class="font-mono text-[11px] uppercase tracking-widest text-delete">documentation</p>
+        <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+          Architecture documentation is dead the day it's drawn.
+        </p>
+      </li>
+      <li class="py-6 sm:px-5 sm:py-8">
+        <p class="font-mono text-[11px] uppercase tracking-widest text-delete">blast radius</p>
+        <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+          The blast radius of a change is invisible until it detonates.
+        </p>
+      </li>
+      <li class="py-6 sm:px-5 sm:py-8 lg:last:pr-0">
+        <p class="font-mono text-[11px] uppercase tracking-widest text-delete">access</p>
+        <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+          Existing visualisers demand read access to your cloud or your state.
+        </p>
+      </li>
+    </ul>
+  </div>
+</section>

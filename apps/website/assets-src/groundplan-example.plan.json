@@ -1,0 +1,354 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_resource_group.main",
+      "mode": "managed",
+      "type": "azurerm_resource_group",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_virtual_network.main",
+      "mode": "managed",
+      "type": "azurerm_virtual_network",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_subnet.web",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_subnet.data",
+      "mode": "managed",
+      "type": "azurerm_subnet",
+      "name": "data",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_network_security_group.web",
+      "mode": "managed",
+      "type": "azurerm_network_security_group",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_subnet_network_security_group_association.web",
+      "mode": "managed",
+      "type": "azurerm_subnet_network_security_group_association",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_service_plan.main",
+      "mode": "managed",
+      "type": "azurerm_service_plan",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_linux_web_app.api",
+      "mode": "managed",
+      "type": "azurerm_linux_web_app",
+      "name": "api",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "name": "groundplan-example-api",
+          "https_only": true,
+          "app_settings": { "DATABASE_HOST": "psql-example.postgres.database.azure.com" }
+        },
+        "after": {
+          "name": "groundplan-example-api",
+          "https_only": true,
+          "app_settings": {
+            "DATABASE_HOST": "psql-example.postgres.database.azure.com",
+            "REDIS_HOST": "redis-sessions.privatelink.redis.cache.windows.net",
+            "SESSION_STORE": "redis"
+          }
+        }
+      }
+    },
+    {
+      "address": "azurerm_redis_cache.sessions",
+      "mode": "managed",
+      "type": "azurerm_redis_cache",
+      "name": "sessions",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "redis-sessions",
+          "sku_name": "Standard",
+          "capacity": 1,
+          "minimum_tls_version": "1.2",
+          "public_network_access_enabled": false
+        }
+      }
+    },
+    {
+      "address": "azurerm_private_endpoint.redis",
+      "mode": "managed",
+      "type": "azurerm_private_endpoint",
+      "name": "redis",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": { "name": "pe-redis-sessions" }
+      }
+    },
+    {
+      "address": "azurerm_key_vault_secret.redis_connection",
+      "mode": "managed",
+      "type": "azurerm_key_vault_secret",
+      "name": "redis_connection",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after_sensitive": { "value": true }
+      }
+    },
+    {
+      "address": "azurerm_storage_account.legacy_sessions",
+      "mode": "managed",
+      "type": "azurerm_storage_account",
+      "name": "legacy_sessions",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["delete"],
+        "before": { "name": "stexamplesessions", "account_tier": "Standard" }
+      }
+    },
+    {
+      "address": "azurerm_postgresql_flexible_server.main",
+      "mode": "managed",
+      "type": "azurerm_postgresql_flexible_server",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_key_vault.main",
+      "mode": "managed",
+      "type": "azurerm_key_vault",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_log_analytics_workspace.main",
+      "mode": "managed",
+      "type": "azurerm_log_analytics_workspace",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    },
+    {
+      "address": "azurerm_monitor_diagnostic_setting.api",
+      "mode": "managed",
+      "type": "azurerm_monitor_diagnostic_setting",
+      "name": "api",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": { "actions": ["no-op"] }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "azurerm_virtual_network.main",
+          "mode": "managed",
+          "type": "azurerm_virtual_network",
+          "name": "main",
+          "expressions": {
+            "resource_group_name": {
+              "references": ["azurerm_resource_group.main.name", "azurerm_resource_group.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_subnet.web",
+          "mode": "managed",
+          "type": "azurerm_subnet",
+          "name": "web",
+          "expressions": {
+            "virtual_network_name": {
+              "references": ["azurerm_virtual_network.main.name", "azurerm_virtual_network.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_subnet.data",
+          "mode": "managed",
+          "type": "azurerm_subnet",
+          "name": "data",
+          "expressions": {
+            "virtual_network_name": {
+              "references": ["azurerm_virtual_network.main.name", "azurerm_virtual_network.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_network_security_group.web",
+          "mode": "managed",
+          "type": "azurerm_network_security_group",
+          "name": "web",
+          "expressions": {
+            "resource_group_name": {
+              "references": ["azurerm_resource_group.main.name", "azurerm_resource_group.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_subnet_network_security_group_association.web",
+          "mode": "managed",
+          "type": "azurerm_subnet_network_security_group_association",
+          "name": "web",
+          "expressions": {
+            "subnet_id": { "references": ["azurerm_subnet.web.id", "azurerm_subnet.web"] },
+            "network_security_group_id": {
+              "references": [
+                "azurerm_network_security_group.web.id",
+                "azurerm_network_security_group.web"
+              ]
+            }
+          }
+        },
+        {
+          "address": "azurerm_service_plan.main",
+          "mode": "managed",
+          "type": "azurerm_service_plan",
+          "name": "main",
+          "expressions": {
+            "resource_group_name": {
+              "references": ["azurerm_resource_group.main.name", "azurerm_resource_group.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_linux_web_app.api",
+          "mode": "managed",
+          "type": "azurerm_linux_web_app",
+          "name": "api",
+          "expressions": {
+            "service_plan_id": {
+              "references": ["azurerm_service_plan.main.id", "azurerm_service_plan.main"]
+            },
+            "virtual_network_subnet_id": {
+              "references": ["azurerm_subnet.web.id", "azurerm_subnet.web"]
+            },
+            "app_settings": {
+              "references": [
+                "azurerm_redis_cache.sessions.hostname",
+                "azurerm_redis_cache.sessions",
+                "azurerm_postgresql_flexible_server.main.fqdn",
+                "azurerm_postgresql_flexible_server.main"
+              ]
+            }
+          }
+        },
+        {
+          "address": "azurerm_redis_cache.sessions",
+          "mode": "managed",
+          "type": "azurerm_redis_cache",
+          "name": "sessions",
+          "expressions": {
+            "resource_group_name": {
+              "references": ["azurerm_resource_group.main.name", "azurerm_resource_group.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_private_endpoint.redis",
+          "mode": "managed",
+          "type": "azurerm_private_endpoint",
+          "name": "redis",
+          "expressions": {
+            "subnet_id": { "references": ["azurerm_subnet.data.id", "azurerm_subnet.data"] },
+            "private_service_connection": {
+              "references": ["azurerm_redis_cache.sessions.id", "azurerm_redis_cache.sessions"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_key_vault_secret.redis_connection",
+          "mode": "managed",
+          "type": "azurerm_key_vault_secret",
+          "name": "redis_connection",
+          "expressions": {
+            "key_vault_id": { "references": ["azurerm_key_vault.main.id", "azurerm_key_vault.main"] },
+            "value": {
+              "references": [
+                "azurerm_redis_cache.sessions.primary_connection_string",
+                "azurerm_redis_cache.sessions"
+              ]
+            }
+          }
+        },
+        {
+          "address": "azurerm_postgresql_flexible_server.main",
+          "mode": "managed",
+          "type": "azurerm_postgresql_flexible_server",
+          "name": "main",
+          "expressions": {
+            "delegated_subnet_id": {
+              "references": ["azurerm_subnet.data.id", "azurerm_subnet.data"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_key_vault.main",
+          "mode": "managed",
+          "type": "azurerm_key_vault",
+          "name": "main",
+          "expressions": {
+            "resource_group_name": {
+              "references": ["azurerm_resource_group.main.name", "azurerm_resource_group.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_log_analytics_workspace.main",
+          "mode": "managed",
+          "type": "azurerm_log_analytics_workspace",
+          "name": "main",
+          "expressions": {
+            "resource_group_name": {
+              "references": ["azurerm_resource_group.main.name", "azurerm_resource_group.main"]
+            }
+          }
+        },
+        {
+          "address": "azurerm_monitor_diagnostic_setting.api",
+          "mode": "managed",
+          "type": "azurerm_monitor_diagnostic_setting",
+          "name": "api",
+          "expressions": {
+            "target_resource_id": {
+              "references": ["azurerm_linux_web_app.api.id", "azurerm_linux_web_app.api"]
+            },
+            "log_analytics_workspace_id": {
+              "references": [
+                "azurerm_log_analytics_workspace.main.id",
+                "azurerm_log_analytics_workspace.main"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

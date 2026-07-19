@@ -1,30 +1,10 @@
 // @vitest-environment jsdom
 //
-// Site-level guards (GP-158). Tests run against the built site — the package
-// test script is `astro build && vitest run` — because what ships is dist/,
-// not the .astro sources.
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+// Site-level guards (GP-158): fonts + palette, noindex, language/title, axe.
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import * as axe from "axe-core";
-
-const DIST = join(import.meta.dirname, "..", "dist");
-
-export function pageHtml(page: string): string {
-  const path = join(DIST, page);
-  if (!existsSync(path)) throw new Error(`missing built page: ${page} — run astro build`);
-  return readFileSync(path, "utf8");
-}
-
-export async function expectNoAxeViolations(html: string): Promise<void> {
-  document.documentElement.innerHTML = html;
-  const results = await axe.run(document.body, {
-    // The full document (html lang, title) is asserted via string checks —
-    // jsdom only mounts what we hand it, so page-level rules misfire here.
-    rules: { region: { enabled: false } },
-  });
-  expect(results.violations).toEqual([]);
-}
+import { DIST, pageHtml, expectNoAxeViolations } from "./test-helpers.js";
 
 const PAGES = ["index.html", "security/index.html"];
 
