@@ -26,13 +26,20 @@ The extension lives in `apps/vscode` (`groundplan-vscode`), fully bundled — th
 1. Bump `version` in `apps/vscode/package.json` (the manifest is the single
    source of the version).
 2. Tag and push: `git tag vscode-v<version> && git push origin vscode-v<version>`.
-3. The `vscode-extension` workflow builds, tests, packages, uploads the
-   `.vsix` artifact, and — when the secrets exist — publishes to the
-   Marketplace and Open VSX. A tag whose version does not match the manifest
-   fails the run before anything publishes.
+3. The `vscode-extension` workflow builds, tests, packages, then:
+   - **creates a GitHub release** for the tag with the `.vsix` attached and
+     generated notes (always — no store account needed; users can install it
+     with `code --install-extension groundplan.vsix`);
+   - publishes to the **Marketplace** and **Open VSX** when `VSCE_PAT` /
+     `OVSX_PAT` exist — each store is skipped with a run notice until its
+     secret is configured, so early releases don't fail.
 
-`workflow_dispatch` runs the same job without publishing (artifact only) — use
-it to smoke-test the package.
+   A tag whose version does not match the manifest fails the run before
+   anything publishes. Re-running a tag's workflow re-attaches the `.vsix` to
+   the existing release rather than failing.
+
+`workflow_dispatch` runs the same job without releasing or publishing
+(artifact only) — use it to smoke-test the package.
 
 ## Smoke test (per release)
 
