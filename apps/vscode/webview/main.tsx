@@ -16,6 +16,7 @@
  */
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { GitCompareArrows } from "lucide-react";
 
 import { changedOnly as changedOnlyFold } from "@groundplan/graph-differ";
 import {
@@ -48,10 +49,6 @@ const VIEWS: readonly { key: View; label: string }[] = [
   { key: "iam", label: "IAM" },
 ];
 
-const MODES: readonly { key: BaselineMode; label: string; title: string }[] = [
-  { key: "head", label: "HEAD", title: "Diff against HEAD" },
-  { key: "merge-base", label: "main", title: "Diff against the merge-base with main" },
-];
 
 /** One toolbar pill; the shared look of every control up top. */
 function Pill({
@@ -193,37 +190,55 @@ function App(): React.JSX.Element {
           ))}
         </div>
 
+        {/* Diff controls — deliberately NOT the view-pill chrome: switching a
+            view and turning a tool on are different ideas, and dressing them
+            alike makes the toolbar read as one long view switcher. A labelled
+            icon toggle, a "vs <ref>" select and a checkbox say "tool". */}
         {view !== "iam" && (
-          <div className="border-border-strong bg-panel flex overflow-hidden rounded-sm border">
-            <Pill
-              active={prefs.enabled}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
               onClick={() => setPrefs({ ...prefs, enabled: !prefs.enabled })}
+              aria-pressed={prefs.enabled}
               title="Colour the diagram as changes against a git baseline"
+              className={cn(
+                "flex items-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-xs shadow-sm",
+                prefs.enabled
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border-strong bg-panel text-muted-foreground hover:text-foreground",
+              )}
             >
+              <GitCompareArrows className="size-3.5" />
               Diff
-            </Pill>
+            </button>
             {prefs.enabled && (
               <>
-                {MODES.map(({ key, label, title }) => (
-                  <Pill
-                    key={key}
-                    active={prefs.mode === key}
-                    onClick={() => setPrefs({ ...prefs, mode: key })}
-                    title={title}
-                  >
-                    {label}
-                  </Pill>
-                ))}
+                <select
+                  aria-label="Diff baseline"
+                  value={prefs.mode}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, mode: e.target.value as BaselineMode })
+                  }
+                  className="border-border-strong bg-panel text-foreground rounded-sm border px-1.5 py-1 font-mono text-xs shadow-sm"
+                >
+                  <option value="head">vs HEAD</option>
+                  <option value="merge-base">vs main</option>
+                </select>
                 {view === "infra" && (
-                  <Pill
-                    active={prefs.changedOnly}
-                    onClick={() =>
-                      setPrefs({ ...prefs, changedOnly: !prefs.changedOnly })
-                    }
+                  <label
                     title="Show changed nodes and one hop of context"
+                    className="border-border-strong bg-panel text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-xs shadow-sm"
                   >
+                    <input
+                      type="checkbox"
+                      checked={prefs.changedOnly}
+                      onChange={() =>
+                        setPrefs({ ...prefs, changedOnly: !prefs.changedOnly })
+                      }
+                      className="accent-primary size-3"
+                    />
                     Changed only
-                  </Pill>
+                  </label>
                 )}
               </>
             )}
@@ -276,9 +291,12 @@ function App(): React.JSX.Element {
         />
       )}
 
+      {/* Honest framing, bottom-right above the zoom chip — the bottom-left
+          corner belongs to the legend, and a caption sitting on top of it hid
+          the very states the legend exists to explain. */}
       {view !== "iam" && diffActive && (
         <div
-          className="border-border-strong bg-panel text-muted-foreground absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-sm border px-3 py-1 font-mono text-xs"
+          className="border-border-strong bg-panel text-muted-foreground absolute right-3 bottom-12 z-20 max-w-xs rounded-sm border px-2.5 py-1 text-right font-mono text-[10px]"
           role="note"
         >
           Code diff vs {prefs.ref} — not a plan: no state, no count/for_each
