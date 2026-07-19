@@ -18,12 +18,18 @@ import {
   toFileDiagnostics,
   type Debouncer,
 } from "./live-core";
+import { nodeAtPosition, sourceOf } from "./locate";
 import type { HostMessage, WebviewMessage } from "./messages";
+import { toPosixRelative } from "./paths";
 import { gatherTfFiles } from "./workspace-files";
 import { buildWebviewHtml, makeNonce } from "./webview-html";
 
 /** How long typing may pause before the diagram catches up (GP-148). */
 const REPARSE_DEBOUNCE_MS = 500;
+/** Cursor movement settles before the diagram highlight follows (GP-149). */
+const SELECTION_DEBOUNCE_MS = 200;
+/** How long the jumped-to block stays lit in the editor (GP-149). */
+const HIGHLIGHT_FADE_MS = 1000;
 
 let preview: LivePreview | null = null;
 
@@ -57,9 +63,12 @@ class LivePreview {
   private readonly panel: vscode.WebviewPanel;
   private readonly diagnostics: vscode.DiagnosticCollection;
   private readonly reparse: Debouncer;
+  private readonly followCursor: Debouncer;
   private readonly disposables: vscode.Disposable[] = [];
   /** The last snapshot from a clean parse — what the panel falls back to. */
   private lastGood: Graph | null = null;
+  /** The last address either side selected — the loop guard (GP-149). */
+  private lastSelected: string | null = null;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -103,8 +112,27 @@ class LivePreview {
     watcher.onDidChange(() => this.reparse.schedule());
     this.disposables.push(watcher);
 
+    // Code → node (GP-149): the cursor resolves against the last good
+    // snapshot's ranges; unparsed files and non-resource lines say null.
+    this.followCursor = createDebouncer(
+      () => void this.postCursorSelection(),
+      SELECTION_DEBOUNCE_MS,
+    );
+    this.disposables.push(
+      vscode.window.onDidChangeTextEditorSelection((e) => {
+        if (e.textEditor.document.fileName.endsWith(".tf")) {
+          this.followCursor.schedule();
+        }
+      }),
+    );
+
     this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
       if (message.type === "ready") void this.refresh();
+      // Node → code (GP-149): a click in the diagram opens the block.
+      if (message.type === "nodeSelected") {
+        this.lastSelected = message.address;
+        if (message.address) void this.revealInEditor(message.address);
+      }
     });
 
     this.panel.onDidDispose(() => {
@@ -156,6 +184,59 @@ class LivePreview {
   /** The snapshot of the last clean parse (GP-149 navigation works off it). */
   get lastGoodSnapshot(): Graph | null {
     return this.lastGood;
+  }
+
+  /** Node → code: open the block a diagram click named, briefly highlighted. */
+  private async revealInEditor(address: string): Promise<void> {
+    if (!this.lastGood) return;
+    const source = sourceOf(this.lastGood, address);
+    if (!source) return;
+    this.lastSelected = address;
+
+    const uri = vscode.Uri.joinPath(this.folder.uri, source.file);
+    const range = new vscode.Range(
+      source.start_line - 1,
+      0,
+      source.end_line - 1,
+      Number.MAX_SAFE_INTEGER,
+    );
+    const editor = await vscode.window.showTextDocument(uri, {
+      viewColumn: vscode.ViewColumn.One,
+      selection: new vscode.Selection(range.start, range.start),
+    });
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+
+    // A brief lit block says "this is what you clicked", then gets out of the
+    // way — a permanent decoration would fight the editor's own selection.
+    const highlight = vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor("editor.findMatchHighlightBackground"),
+      isWholeLine: true,
+    });
+    editor.setDecorations(highlight, [range]);
+    setTimeout(() => highlight.dispose(), HIGHLIGHT_FADE_MS);
+  }
+
+  /** Code → node: tell the webview which resource block the cursor is in. */
+  private async postCursorSelection(): Promise<void> {
+    if (!this.lastGood) return;
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !editor.document.fileName.endsWith(".tf")) return;
+
+    const relPath = toPosixRelative(
+      this.folder.uri.fsPath,
+      editor.document.uri.fsPath,
+    );
+    const node = nodeAtPosition(
+      this.lastGood,
+      relPath,
+      editor.selection.active.line + 1,
+    );
+    const address = node?.id ?? null;
+    // Same address as last time (usually the echo of our own reveal): stay
+    // quiet — re-posting is how selection loops start.
+    if (address === this.lastSelected) return;
+    this.lastSelected = address;
+    await this.post({ type: "select", address });
   }
 
   private publishProblems(

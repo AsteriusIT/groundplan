@@ -22,6 +22,7 @@ function App(): React.JSX.Element {
   const [folder, setFolder] = useState("");
   const [multiRoot, setMultiRoot] = useState(false);
   const [outOfSync, setOutOfSync] = useState(false);
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostMessage>): void => {
@@ -32,6 +33,8 @@ function App(): React.JSX.Element {
         setMultiRoot(message.multiRoot);
       } else if (message.type === "outOfSync") {
         setOutOfSync(message.value);
+      } else if (message.type === "select") {
+        setSelectedAddress(message.address);
       }
     };
     window.addEventListener("message", onMessage);
@@ -59,7 +62,16 @@ function App(): React.JSX.Element {
           Out of sync — showing the last good parse
         </div>
       )}
-      <GraphCanvas graph={graph} variant="docs" />
+      <GraphCanvas
+        graph={graph}
+        variant="docs"
+        selectedAddress={selectedAddress}
+        onNodeSelect={(node) => {
+          // A user selection replaces whatever the cursor had lit.
+          setSelectedAddress(node?.id ?? null);
+          vscode.postMessage({ type: "nodeSelected", address: node?.id ?? null });
+        }}
+      />
     </div>
   );
 }
