@@ -317,6 +317,7 @@ export function GraphCanvas({
   focusNodeId,
   selectedAddress,
   onNodeSelect,
+  detailsPanel = true,
   containerIds,
   stacks,
   chips,
@@ -346,6 +347,13 @@ export function GraphCanvas({
    * selection `selectedAddress` drove in (no feedback loops, GP-149).
    */
   onNodeSelect?: (node: GraphNode | null) => void;
+  /**
+   * Render the details side panel for the selected node (default). The VS
+   * Code webview turns it off: clicking a node there opens the HCL block in
+   * the editor beside the diagram, and a panel repeating that code would just
+   * cover the canvas. Selection, highlight and `onNodeSelect` still work.
+   */
+  detailsPanel?: boolean;
   /** vnet/subnet ids to render as containers even when empty (GP-44 network view). */
   containerIds?: ReadonlySet<string>;
   /** GP-87: host id → its stacked satellite children (network view only). Their
@@ -1191,7 +1199,7 @@ export function GraphCanvas({
           to make — and this diagram is supposed to be trustworthy. */}
       <EdgeLegend variant={variant} />
 
-      {selected && (
+      {detailsPanel && selected && (
         <NodeDetailsPanel
           graph={graph}
           node={selected}

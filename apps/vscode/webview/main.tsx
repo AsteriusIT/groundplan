@@ -130,6 +130,9 @@ function App(): React.JSX.Element {
           containerIds={network?.containerIds}
           stacks={network?.stacks}
           chips={network?.chips}
+          // No details panel here: clicking a node opens the real HCL in the
+          // editor beside the diagram — the panel would only repeat it.
+          detailsPanel={false}
           selectedAddress={selectedAddress}
           onNodeSelect={(node) => {
             // A user selection replaces whatever the cursor had lit.

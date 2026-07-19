@@ -753,3 +753,17 @@ it("an externally driven selection does not echo through onNodeSelect (GP-149)",
   fireEvent.click(screen.getByTestId("pane"));
   expect(onNodeSelect).toHaveBeenLastCalledWith(null);
 });
+
+it("detailsPanel={false} keeps selection working but never opens the side panel", async () => {
+  const onNodeSelect = vi.fn();
+  render(
+    <GraphCanvas graph={graph} variant="docs" detailsPanel={false} onNodeSelect={onNodeSelect} />,
+  );
+  fireEvent.click(await screen.findByText("node:main"));
+  // Selection is reported (the host shows the code instead)…
+  expect(onNodeSelect).toHaveBeenLastCalledWith(
+    expect.objectContaining({ id: "azurerm_virtual_network.main" }),
+  );
+  // …but no details panel appears over the diagram.
+  expect(screen.queryByText("Terraform address")).not.toBeInTheDocument();
+});
