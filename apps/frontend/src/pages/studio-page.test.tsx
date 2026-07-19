@@ -9,9 +9,35 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { StudioPage } from "./studio-page";
 import { useAiStatus } from "@/lib/use-ai-status";
+import { ApiError, parseStudioFiles } from "@/api/client";
 
 vi.mock("@/lib/use-ai-status", () => ({ useAiStatus: vi.fn() }));
 const aiStatusMock = vi.mocked(useAiStatus);
+
+// GP-142: the parse endpoint is a client call; the canvas (ELK + React Flow)
+// is exercised in the canvas package — here a stub that names what it got.
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, parseStudioFiles: vi.fn() };
+});
+const parseMock = vi.mocked(parseStudioFiles);
+
+vi.mock("@/components/graph-canvas", () => ({
+  GraphCanvas: ({
+    graph,
+    highlightIds,
+    lint,
+  }: {
+    graph: { nodes: unknown[] };
+    highlightIds?: ReadonlySet<string>;
+    lint?: ReadonlyMap<string, unknown[]>;
+  }) => (
+    <div data-testid="canvas">
+      {graph.nodes.length} nodes · {highlightIds?.size ?? 0} fresh ·{" "}
+      {lint?.size ?? 0} linted
+    </div>
+  ),
+}));
 
 /** The chat endpoint's wire format, verbatim (captured from the backend). */
 const SSE_BODY = [
@@ -117,6 +143,80 @@ it("without a session, Esc exits straight away", async () => {
   renderStudio();
   fireEvent.keyDown(window, { key: "Escape" });
   expect(await screen.findByText("dashboard page")).toBeInTheDocument();
+});
+
+it("a completed turn parses and renders on the canvas with lint (GP-142)", async () => {
+  aiStatusMock.mockReturnValue({ enabled: true, model: "claude-opus-4-8" });
+  vi.stubGlobal("fetch", sseFetch());
+  parseMock.mockResolvedValue({
+    snapshot: {
+      version: 8,
+      nodes: [
+        {
+          id: "azurerm_resource_group.rg",
+          name: "rg",
+          type: "azurerm_resource_group",
+          provider: "azurerm",
+          module_path: [],
+          change: null,
+        },
+      ],
+      edges: [],
+    } as never,
+    diagnostics: {
+      parse: [],
+      lint: [
+        {
+          ruleId: "missing-tags",
+          severity: "info",
+          terraformAddress: "azurerm_resource_group.rg",
+          message: "This resource carries no tags.",
+          fixHint: "Tag it.",
+        },
+      ],
+    },
+  });
+
+  renderStudio();
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Create a resource group with a vnet and two subnets",
+    }),
+  );
+
+  // The turn's write_files set goes to the parse endpoint…
+  await waitFor(() =>
+    expect(parseMock).toHaveBeenCalledWith([
+      { path: "main.tf", content: 'resource "azurerm_resource_group" "rg" {}\n' },
+    ]),
+  );
+  // …and the snapshot lands on the canvas, lint riding along.
+  expect((await screen.findByTestId("canvas")).textContent).toContain(
+    "1 nodes · 0 fresh · 1 linted",
+  );
+});
+
+it("a turn that fails to parse keeps the canvas and says why in the chat", async () => {
+  aiStatusMock.mockReturnValue({ enabled: true, model: "claude-opus-4-8" });
+  vi.stubGlobal("fetch", sseFetch());
+  parseMock.mockRejectedValue(
+    new ApiError(422, "HCL parse failed", [
+      { field: "main.tf", message: "unbalanced braces" },
+    ]),
+  );
+
+  renderStudio();
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Create a resource group with a vnet and two subnets",
+    }),
+  );
+
+  // The failure renders as a chat card naming the file; no canvas appears
+  // (nothing was ever committed).
+  expect(await screen.findByText("HCL parse failed")).toBeInTheDocument();
+  expect(screen.getByText(/unbalanced braces/)).toBeInTheDocument();
+  expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
 });
 
 it("renders no studio when the AI layer is off", () => {

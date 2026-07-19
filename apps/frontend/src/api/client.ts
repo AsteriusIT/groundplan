@@ -50,6 +50,8 @@ import type {
   SnapshotSource,
   SnapshotDiff,
   SnapshotSummary,
+  StudioFile,
+  StudioParseResult,
   TourResponse,
   UpdateAnnotationInput,
   UpdateProjectInput,
@@ -766,6 +768,16 @@ export function parsePlayground(
   return request<PlaygroundSnapshot>("/playground/parse", {
     method: "POST",
     body: { files, iacType },
+  });
+}
+
+/** GP-142: parse the studio's generated files into a snapshot + lint. */
+export function parseStudioFiles(
+  files: StudioFile[],
+): Promise<StudioParseResult> {
+  return request<StudioParseResult>("/ai-studio/parse", {
+    method: "POST",
+    body: { files },
   });
 }
 

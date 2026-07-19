@@ -226,7 +226,12 @@ export interface User {
 // one frontend definition, shared with the VS Code webview. Re-exported here
 // so the rest of the app keeps importing them from @/api/types.
 
-import type { Annotation, Graph, TourStep } from "@groundplan/canvas";
+import type {
+  Annotation,
+  Graph,
+  LintFinding,
+  TourStep,
+} from "@groundplan/canvas";
 
 export type {
   ChangeKind,
@@ -246,7 +251,34 @@ export type {
   CreateAnnotationInput,
   UpdateAnnotationInput,
   TourStep,
+  LintSeverity,
+  LintFinding,
 } from "@groundplan/canvas";
+
+// ---- AI studio (GP-137/138/139) --------------------------------------------
+
+/** One in-memory `.tf` file of a studio session. */
+export interface StudioFile {
+  path: string;
+  content: string;
+}
+
+/** One parser diagnostic of the studio parse (GP-138). */
+export interface StudioParseDiagnostic {
+  severity: "error" | "warning";
+  message: string;
+  file?: string;
+  range?: { start_line: number; end_line: number };
+}
+
+/** `POST /ai-studio/parse` — snapshot + what the parser and linter had to say. */
+export interface StudioParseResult {
+  snapshot: Graph;
+  diagnostics: {
+    parse: StudioParseDiagnostic[];
+    lint: LintFinding[];
+  };
+}
 /** `k8s_namespace` is a live read of one namespace of a cluster (GP-97). */
 /**
  * Which producer made a graph. The Kubernetes trio mirrors the Terraform pair

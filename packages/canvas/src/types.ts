@@ -120,6 +120,22 @@ export interface GraphNode {
   source?: NodeSource;
 }
 
+/**
+ * GP-139/GP-142: one deterministic best-practices finding, anchored to a
+ * Terraform address (a node id). Produced server-side by the studio's lint
+ * pass; the canvas only renders them — a badge on the node, a section in the
+ * detail panel — and never derives one.
+ */
+export type LintSeverity = "info" | "warn" | "high";
+
+export interface LintFinding {
+  ruleId: string;
+  severity: LintSeverity;
+  terraformAddress: string;
+  message: string;
+  fixHint: string;
+}
+
 export interface GraphEdge {
   from: string;
   to: string;

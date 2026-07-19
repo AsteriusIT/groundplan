@@ -208,6 +208,11 @@ export const aiStudioRoutes: FastifyPluginAsync = async (app) => {
             file: f.path,
             message: "only .tf and .tfvars files are parsed",
           })),
+          // The app-wide 422 shape too, so ApiError carries the per-file list.
+          fields: wrongType.map((f) => ({
+            field: f.path,
+            message: "only .tf and .tfvars files are parsed",
+          })),
         });
       }
       if (!files.some((f) => f.path.endsWith(".tf"))) {
@@ -230,6 +235,9 @@ export const aiStudioRoutes: FastifyPluginAsync = async (app) => {
           error: "Unprocessable Entity",
           message: "HCL parse failed",
           diagnostics,
+          fields: errors
+            .filter((d) => d.file)
+            .map((d) => ({ field: d.file, message: d.message })),
         });
       }
 

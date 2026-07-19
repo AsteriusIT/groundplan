@@ -39,6 +39,7 @@ import type {
   CreateAnnotationInput,
   Graph,
   GraphNode,
+  LintFinding,
   UpdateAnnotationInput,
 } from "../types";
 import {
@@ -291,6 +292,16 @@ function EdgeLegend({ variant }: Readonly<{ variant: "plan" | "docs" }>) {
   );
 }
 
+/** The badge shows one colour: the node's worst finding wins. */
+function worstLintSeverity(
+  findings: LintFinding[] | undefined,
+): LintFinding["severity"] | undefined {
+  if (!findings || findings.length === 0) return undefined;
+  if (findings.some((f) => f.severity === "high")) return "high";
+  if (findings.some((f) => f.severity === "warn")) return "warn";
+  return "info";
+}
+
 function toggle<T>(set: Set<T>, key: T): Set<T> {
   const next = new Set(set);
   if (next.has(key)) next.delete(key);
@@ -334,6 +345,7 @@ export function GraphCanvas({
   onDeleteAnnotation,
   onExpandGroup,
   highlightIds,
+  lint,
   tour,
 }: Readonly<{
   graph: Graph;
@@ -396,6 +408,12 @@ export function GraphCanvas({
    * question. Transient, and never anything the user has committed to.
    */
   highlightIds?: ReadonlySet<string>;
+  /**
+   * GP-142: best-practices findings by node id (the studio's lint pass). A
+   * node with findings wears a severity badge; its detail panel grows a
+   * "Best practices" section. Absent = the canvas behaves exactly as before.
+   */
+  lint?: ReadonlyMap<string, LintFinding[]>;
   /**
    * GP-79: the tour stop currently being narrated, if one is. The canvas is what a
    * tour *does* — it flies the camera to the stop's anchors and pushes everything
@@ -788,6 +806,8 @@ export function GraphCanvas({
             highlightedChip && chipToAnchor.get(highlightedChip) === node.id
               ? highlightedChip
               : undefined,
+          // GP-142: the badge wears the node's worst finding.
+          lintSeverity: worstLintSeverity(lint?.get(node.id)),
         },
       };
     });
@@ -807,6 +827,7 @@ export function GraphCanvas({
     highlightedChip,
     chipToAnchor,
     selectChip,
+    lint,
   ]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
@@ -1283,6 +1304,7 @@ export function GraphCanvas({
           onClose={() => setSelected(null)}
           onSelect={flyTo}
           showChange={variant === "plan"}
+          lintFindings={lint?.get(selected.id)}
           footer={
             annotations !== undefined && (annotate || selectedNotes.length > 0) ? (
               <NotePanel

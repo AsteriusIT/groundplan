@@ -18,9 +18,9 @@ import {
   type Node as FlowNode,
   type NodeProps,
 } from "@xyflow/react";
-import { EyeOff, ShieldAlert, Waypoints } from "lucide-react";
+import { EyeOff, ShieldAlert, TriangleAlert, Waypoints } from "lucide-react";
 
-import type { GraphNode } from "../types";
+import type { GraphNode, LintSeverity } from "../types";
 import type { Emphasis } from "../lib/emphasis";
 import { changeClasses, STACK_MAX_ROWS } from "../lib/graph-layout";
 import { STATUS_META, statusOf } from "../lib/status";
@@ -153,6 +153,7 @@ export function NodeCard({
   chips,
   highlightedChipId,
   onSelectChip,
+  lintSeverity,
 }: Readonly<{
   graphNode: GraphNode;
   selected?: boolean;
@@ -193,6 +194,8 @@ export function NodeCard({
   highlightedChipId?: string;
   /** Select a chip's node (opens its detail panel). */
   onSelectChip?: (node: GraphNode) => void;
+  /** GP-142: worst best-practices finding on this node (studio lint badge). */
+  lintSeverity?: LintSeverity;
 }>) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
@@ -373,9 +376,34 @@ export function NodeCard({
           <ShieldAlert className="size-2.5" />
         </span>
       )}
+
+      {/* GP-142: best-practices badge (bottom-left — the top corners belong to
+          status and exposure). Severity colour only; the findings themselves
+          live in the detail panel. */}
+      {lintSeverity && (
+        <span
+          role="img"
+          aria-label={`Best-practices finding (${lintSeverity})`}
+          title={`Best-practices finding (${lintSeverity})`}
+          className={cn(
+            "absolute -bottom-2 -left-2 inline-grid size-4 place-items-center rounded-full text-white ring-2 ring-white",
+            LINT_BADGE_CLASS[lintSeverity],
+          )}
+        >
+          <TriangleAlert className="size-2.5" />
+        </span>
+      )}
     </div>
   );
 }
+
+/** Severity → status hue: broken = delete red, weakened = update amber,
+ * convention = impacted violet. No new colours — the tokens already say this. */
+const LINT_BADGE_CLASS: Record<LintSeverity, string> = {
+  high: "bg-delete",
+  warn: "bg-update",
+  info: "bg-impacted",
+};
 
 /** React Flow node: the card plus (invisible) left/right connection handles. */
 export const ResourceFlowNode = memo(function ResourceFlowNode({
@@ -404,6 +432,7 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         chips={data.chips}
         highlightedChipId={data.highlightedChipId as string | undefined}
         onSelectChip={data.onSelectChip as ((node: GraphNode) => void) | undefined}
+        lintSeverity={data.lintSeverity}
       />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>

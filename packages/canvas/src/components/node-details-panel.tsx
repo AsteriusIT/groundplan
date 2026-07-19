@@ -1,7 +1,14 @@
 import { useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Maximize2 } from "lucide-react";
 
-import type { AttributeDiffRow, Graph, GraphNode, NodeSource } from "../types";
+import type {
+  AttributeDiffRow,
+  Graph,
+  GraphNode,
+  LintFinding,
+  LintSeverity,
+  NodeSource,
+} from "../types";
 import { tokenizeHcl, type CodeTokenKind } from "../lib/hcl-highlight";
 import {
   PANEL_MAX_WIDTH,
@@ -18,7 +25,7 @@ import {
   type FlaggedRule,
 } from "../lib/node-details";
 import { cn } from "../lib/utils";
-import { Chip } from "../components/ui/chip";
+import { Chip, type ChipVariant } from "../components/ui/chip";
 import { StatusBadge } from "../components/ui/status-badge";
 import {
   SidePanel,
@@ -44,12 +51,20 @@ import { ResourceIcon } from "../components/resource-icon";
  * is off for the docs view (no plan change data); old (v1/v2) snapshots simply
  * render fewer sections (no attribute_diff → the Changes section is hidden).
  */
+/** Same hue mapping as the node badge (graph-node): red / amber / violet. */
+const LINT_CHIP_VARIANT: Record<LintSeverity, ChipVariant> = {
+  high: "delete",
+  warn: "update",
+  info: "impacted",
+};
+
 export function NodeDetailsPanel({
   graph,
   node,
   onClose,
   onSelect,
   showChange = true,
+  lintFindings,
   footer,
 }: Readonly<{
   graph: Graph;
@@ -58,6 +73,8 @@ export function NodeDetailsPanel({
   /** Select + fly to another node (from the why-impacted / connections links). */
   onSelect: (node: GraphNode) => void;
   showChange?: boolean;
+  /** GP-142: the studio lint findings anchored to this node, if any. */
+  lintFindings?: LintFinding[];
   /** Optional action bar pinned below the scrolling body (e.g. cross-view jump). */
   footer?: ReactNode;
 }>) {
@@ -227,6 +244,32 @@ export function NodeDetailsPanel({
         {rules.length > 0 && (
           <SidePanelSection label="Security rules">
             <SecurityRules rules={rules} />
+          </SidePanelSection>
+        )}
+
+        {/* GP-142: what the deterministic lint pass found here — the node
+            badge's long form, with the fix in hand. */}
+        {lintFindings && lintFindings.length > 0 && (
+          <SidePanelSection label="Best practices">
+            <ul className="space-y-2">
+              {lintFindings.map((finding) => (
+                <li
+                  key={finding.ruleId + finding.message}
+                  className="border-border rounded-md border px-2.5 py-2 text-xs"
+                >
+                  <p className="flex items-center gap-1.5">
+                    <Chip variant={LINT_CHIP_VARIANT[finding.severity]}>
+                      {finding.severity}
+                    </Chip>
+                    <code className="text-faint font-mono text-[10px]">
+                      {finding.ruleId}
+                    </code>
+                  </p>
+                  <p className="mt-1.5">{finding.message}</p>
+                  <p className="text-muted-foreground mt-1">{finding.fixHint}</p>
+                </li>
+              ))}
+            </ul>
           </SidePanelSection>
         )}
 

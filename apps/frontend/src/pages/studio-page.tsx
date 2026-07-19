@@ -27,7 +27,10 @@ import {
   studioChatTransport,
   textOfMessage,
 } from "@/studio/chat";
-import { useStudioSession } from "@/studio/use-studio-session";
+import {
+  useStudioSession,
+  type StudioParseFailure,
+} from "@/studio/use-studio-session";
 import { StudioWorkspace } from "@/studio/studio-workspace";
 
 /** The empty state's example prompts (GP-141) — clicking one submits it. */
@@ -60,9 +63,11 @@ export function StudioPage() {
 
   const { messages, sendMessage, stop, status, error, clearError } = useChat({
     transport,
+    // GP-142: a completed turn's file set is parsed and committed (or, on a
+    // parse failure, kept out — the canvas holds the last good snapshot).
     onFinish: ({ message }) => {
       const files = filesOfMessage(message);
-      if (files) session.commitTurn(files);
+      if (files) void session.commitTurn(files);
     },
   });
 
@@ -182,6 +187,7 @@ export function StudioPage() {
                 streaming={streaming}
                 waiting={status === "submitted"}
                 error={error}
+                parseFailure={session.parseFailure}
                 onSubmit={submit}
                 onStop={stop}
               />
@@ -193,7 +199,7 @@ export function StudioPage() {
                 mobilePane !== "graph" && "hidden md:block",
               )}
             >
-              <StudioWorkspace session={session} messages={messages} />
+              <StudioWorkspace session={session} />
             </section>
           </div>
         ) : (
@@ -256,6 +262,7 @@ function ChatColumn({
   streaming,
   waiting,
   error,
+  parseFailure,
   onSubmit,
   onStop,
 }: Readonly<{
@@ -264,6 +271,8 @@ function ChatColumn({
   /** Submitted but nothing streamed yet — the shimmer's moment. */
   waiting: boolean;
   error: Error | undefined;
+  /** GP-142: the last turn's parse failure, told where the turn happened. */
+  parseFailure: StudioParseFailure | null;
   onSubmit: (text: string) => void;
   onStop: () => void;
 }>) {
@@ -302,6 +311,27 @@ function ChatColumn({
               className="bg-delete-soft text-delete rounded-lg border border-delete/30 px-3.5 py-2.5 text-sm"
             >
               {error.message || "The generation failed. Try again."}
+            </div>
+          )}
+          {/* GP-142: a generation that did not parse — the canvas keeps the
+              last good snapshot; this card says why nothing changed. */}
+          {parseFailure && (
+            <div
+              role="alert"
+              className="bg-delete-soft rounded-lg border border-delete/30 px-3.5 py-2.5 text-sm"
+            >
+              <p className="text-delete font-medium">{parseFailure.message}</p>
+              {parseFailure.diagnostics.length > 0 && (
+                <ul className="text-ink mt-1.5 space-y-0.5 text-xs">
+                  {parseFailure.diagnostics.map((d) => (
+                    <li key={`${d.file}-${d.message}`}>
+                      {d.file && <code className="font-mono">{d.file}</code>}
+                      {d.file ? " — " : ""}
+                      {d.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </ConversationContent>

@@ -10,7 +10,13 @@
  */
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
-import type { ChangeKind, Graph, GraphEdge, GraphNode } from "../types";
+import type {
+  ChangeKind,
+  Graph,
+  GraphEdge,
+  GraphNode,
+  LintSeverity,
+} from "../types";
 import type { Point } from "../lib/edge-path";
 import { edgeGhosted, emphasisMap, type Emphasis } from "../lib/emphasis";
 import { categorize, type Category } from "../lib/resource-category";
@@ -149,6 +155,8 @@ export type GraphNodeData = {
   stackChanged?: boolean;
   /** GP-89: NSG / route-table chips attached to this subnet container's header. */
   chips?: GraphNode[];
+  /** GP-142: worst lint severity on this node — drives the badge. */
+  lintSeverity?: LintSeverity;
   [key: string]: unknown;
 };
 
