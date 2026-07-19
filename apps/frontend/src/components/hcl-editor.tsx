@@ -88,7 +88,9 @@ const editorTheme = EditorView.theme({
   },
   ".cm-content": { padding: "8px 0" },
   ".cm-gutters": {
-    backgroundColor: "transparent",
+    // Opaque on purpose: the gutter is position:sticky and long lines scroll
+    // horizontally beneath it — transparent would let code bleed through.
+    backgroundColor: "var(--card)",
     borderRight: "1px solid var(--border)",
     color: "var(--muted-foreground)",
     fontSize: "10px",
