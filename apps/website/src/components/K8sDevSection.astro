@@ -1,0 +1,188 @@
+---
+// Kubernetes (§5) + developer experience (§6) + integration matrix (§11) —
+// GP-163. The K8s section states its limits instead of promising Terraform
+// features; the VS Code card carries the README limits verbatim (§13).
+const K8S_FACTS = [
+  "Repositories declare terraform or kubernetes; every producer branches on it.",
+  "Raw YAML repos parsed from the clone; Helm/Kustomize rendered by your CI and pushed — Groundplan never executes them.",
+  "PR review works without any plan: the head graph is coloured by comparison against the latest docs of main.",
+  "Live clusters are read-only: kubeconfig encrypted at rest (same rules as PATs), LIST-only API usage, Secret values are never fetched, stored or drawn — even when a manifest hands them over in the clear.",
+  "Namespace reads are on-demand only; RBAC-limited reads degrade honestly (skipped kinds are named in a warning, not hidden).",
+];
+
+const MATRIX: { dimension: string; supported: string }[] = [
+  {
+    dimension: "IaC",
+    supported:
+      "Terraform (any provider parses; deepest semantics on Azure), Kubernetes manifests (raw YAML; Helm/Kustomize via CI-rendered output)",
+  },
+  { dimension: "Git hosting", supported: "GitHub, GitLab, Azure DevOps, generic https git" },
+  { dimension: "PR comments", supported: "GitHub, GitLab, Azure DevOps" },
+  {
+    dimension: "CI context auto-detection (CLI)",
+    supported: "GitHub Actions, GitLab CI, Azure DevOps Pipelines",
+  },
+  { dimension: "Icons / visual taxonomy", supported: "Azure, AWS, GCP, Kubernetes" },
+  { dimension: "Identity", supported: "Any OIDC provider (Keycloak bundled & themed)" },
+  {
+    dimension: "IDE",
+    supported: "VS Code (Marketplace + Open VSX planned; offline .vsix releases)",
+  },
+  { dimension: "Live infrastructure", supported: "Kubernetes clusters (read-only)" },
+];
+
+const CLI_SNIPPET = "npx @asteriusit/cli push-plan --file plan.json";
+---
+
+<section id="kubernetes" class="border-b border-border">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">Kubernetes</p>
+    <h2 class="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      The same loop, for Kubernetes
+    </h2>
+    <p class="mt-6 max-w-3xl text-base leading-relaxed text-muted-foreground">
+      The same review-and-document loop, for Kubernetes. Point Groundplan at a manifests repo
+      and it documents main and reviews PRs by structural diff — no plan file needed. Attach a
+      live cluster (read-only) and draw any namespace on demand.
+    </p>
+    <ul class="mt-6 max-w-3xl space-y-3 border-t border-border pt-6">
+      {
+        K8S_FACTS.map((fact) => (
+          <li class="flex gap-3 text-sm leading-relaxed">
+            <span aria-hidden="true" class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-cat-network"></span>
+            <span>{fact}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="mt-6 max-w-3xl border-l-2 border-warning bg-warning-soft p-4 text-sm leading-relaxed">
+      Honest scope: a Kubernetes snapshot gets the diagram and its deterministic summary —
+      deliberately no annotations, AI, tours or share links on Kubernetes repos today.
+    </p>
+  </div>
+</section>
+
+<section id="developers" class="border-b border-border bg-card">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+      Developer experience
+    </p>
+    <h2 class="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      Works where you work
+    </h2>
+
+    <div class="mt-10 grid gap-8 lg:grid-cols-3">
+      <article class="border border-border bg-background p-6">
+        <h3 class="font-display text-xl font-semibold">
+          The CLI — <span class="font-mono text-lg">@asteriusit/cli</span>
+        </h3>
+        <p class="mt-1 font-mono text-[11px] uppercase tracking-wider text-faint">
+          published · MIT
+        </p>
+        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+          One line in your pipeline:
+          <code class="font-mono">npx @asteriusit/cli push-plan --file plan.json</code>. It
+          detects your branch, SHA and PR number on GitHub Actions, GitLab CI and Azure
+          DevOps, validates the plan locally before any network call, retries transient
+          failures, and fails your CI step loudly when something's wrong.
+        </p>
+        <div class="mt-4 flex items-stretch border border-border-strong bg-card">
+          <pre
+            class="flex-1 overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed"><code id="cli-snippet">{CLI_SNIPPET}</code></pre>
+          <button
+            type="button"
+            id="copy-cli"
+            class="border-l border-border-strong px-3 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            data-snippet={CLI_SNIPPET}
+          >
+            Copy
+          </button>
+        </div>
+        <p class="mt-4 text-xs leading-relaxed text-muted-foreground">
+          Zero runtime dependencies by design; 4xx errors mapped to actionable messages;
+          per-repo and app-wide webhook tokens, both rotatable; an “ingestion status” readout
+          in the UI answers “did my CI reach Groundplan?”
+          <span class="font-mono text-[11px] text-faint">GP-110 · GP-111</span>
+        </p>
+      </article>
+
+      <article class="border border-border bg-background p-6">
+        <h3 class="font-display text-xl font-semibold">The VS Code extension</h3>
+        <p class="mt-1 font-mono text-[11px] uppercase tracking-wider text-faint">
+          Groundplan — Terraform Architecture Preview
+        </p>
+        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+          See your Terraform as a live architecture diagram beside your editor, while you
+          type. A new <code class="font-mono">resource</code> block appears in the diagram
+          about a second after you pause — before you even save. Click a node to jump to its
+          HCL; put your cursor in a block to light up its node. Toggle diff mode to see your
+          working tree against git HEAD or your branch's merge-base. Fully offline: no
+          account, no cloud calls, no telemetry — nothing is ever uploaded anywhere.
+        </p>
+        <p class="mt-4 text-xs leading-relaxed text-muted-foreground">
+          Same parser, differ and canvas packages as the web product — identical diagrams by
+          construction. <span class="font-mono text-[11px] text-faint">GP-145..156</span>
+        </p>
+        <p class="mt-4 border-l-2 border-warning bg-warning-soft p-3 text-xs leading-relaxed">
+          Known limits, stated as the README states them: first workspace folder only, not
+          tuned for 500+ resource repos, no Helm/plan rendering in-editor.
+        </p>
+      </article>
+
+      <article class="border border-border bg-background p-6">
+        <h3 class="font-display text-xl font-semibold">The Playground</h3>
+        <p class="mt-1 font-mono text-[11px] uppercase tracking-wider text-faint">
+          no signup · no repository
+        </p>
+        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+          Paste HCL or Kubernetes YAML, get a diagram. Multi-file, drag &amp; drop, savable
+          drafts — nothing touches a repository. The fastest way to try Groundplan.
+        </p>
+      </article>
+    </div>
+
+    <h3 class="mt-14 font-display text-2xl font-semibold tracking-tight">
+      Supported today
+    </h3>
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full border border-border-strong text-sm">
+        <thead>
+          <tr class="bg-muted text-left">
+            <th scope="col" class="border-b border-border-strong px-4 py-3 font-display font-semibold">
+              Dimension
+            </th>
+            <th scope="col" class="border-b border-border-strong px-4 py-3 font-display font-semibold">
+              Supported today
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border">
+          {
+            MATRIX.map((row) => (
+              <tr class="align-top">
+                <th scope="row" class="w-72 px-4 py-3 text-left font-medium">
+                  {row.dimension}
+                </th>
+                <td class="px-4 py-3 leading-relaxed text-muted-foreground">{row.supported}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+  const button = document.getElementById("copy-cli");
+  button?.addEventListener("click", async () => {
+    const snippet = button.dataset.snippet ?? "";
+    try {
+      await navigator.clipboard.writeText(snippet);
+      button.textContent = "Copied";
+      setTimeout(() => (button.textContent = "Copy"), 1500);
+    } catch {
+      button.textContent = "Select & copy";
+    }
+  });
+</script>
