@@ -26,6 +26,7 @@ import {
 import { parse, type Diagnostic, type HclFile } from "@groundplan/graph-parser";
 
 import { assertValidGraph } from "../graph/graph.js";
+import { lintGraph, type LintFinding } from "../graph/hcl-lint.js";
 import { loadStudioPrompt } from "../services/ai.js";
 
 /** One in-memory `.tf` file of the studio session. */
@@ -165,8 +166,7 @@ const parseBodySchema = {
  */
 export type StudioDiagnostics = {
   parse: Diagnostic[];
-  /** GP-139 fills this with the deterministic best-practices findings. */
-  lint: never[];
+  lint: LintFinding[];
 };
 
 export const aiStudioRoutes: FastifyPluginAsync = async (app) => {
@@ -234,7 +234,12 @@ export const aiStudioRoutes: FastifyPluginAsync = async (app) => {
       }
 
       assertValidGraph(snapshot);
-      const result: StudioDiagnostics = { parse: diagnostics, lint: [] };
+      const result: StudioDiagnostics = {
+        parse: diagnostics,
+        // GP-139: the best-practices pass rides the same response — one round
+        // trip, and the findings anchor to node ids the canvas can badge.
+        lint: lintGraph(snapshot),
+      };
       return { snapshot, diagnostics: result };
     },
   );

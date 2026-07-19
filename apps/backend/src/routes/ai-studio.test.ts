@@ -319,6 +319,15 @@ test("POST /ai-studio/parse: valid HCL → docs-shaped snapshot, nothing stored"
       body.snapshot.nodes.every((n: { change: unknown }) => n.change === null),
     );
     assert.deepEqual(body.diagnostics.parse, []);
+    // GP-139 rides along: these resources carry no tags, and the finding is
+    // anchored to a node id the canvas can badge.
+    assert.ok(
+      body.diagnostics.lint.some(
+        (f: { ruleId: string; terraformAddress: string }) =>
+          f.ruleId === "missing-tags" &&
+          f.terraformAddress === "azurerm_resource_group.rg",
+      ),
+    );
   } finally {
     await app.close();
   }
