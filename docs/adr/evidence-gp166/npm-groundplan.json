@@ -1,0 +1,22 @@
+{
+  "name": "groundplan",
+  "description": "Groundplan CLI: prepare a repository \u2014 pick an architecture, assemble it from templates, and wire it for every AI coding tool.",
+  "dist-tags": {
+    "latest": "0.2.0"
+  },
+  "time": {
+    "created": "2026-07-19T11:51:20.332Z",
+    "modified": "2026-07-19T17:17:46.711Z"
+  },
+  "maintainers": [
+    {
+      "name": "noureddin666",
+      "email": "noordeenyalloo@gmail.com"
+    }
+  ],
+  "versions": [
+    "0.1.0",
+    "0.1.1",
+    "0.2.0"
+  ]
+}
