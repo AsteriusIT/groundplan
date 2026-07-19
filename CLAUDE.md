@@ -44,7 +44,10 @@ groundplan/
 │           ├── index.css       # Tailwind v4 entry + shadcn theme tokens
 │           ├── components/ui/  # shadcn/ui components (generated; edit freely)
 │           └── lib/utils.ts    # cn() class-merge helper
-├── packages/           # (empty) shared libraries live here, e.g. @groundplan/*
+├── packages/
+│   ├── cli/            # @asteriusit/cli — `groundplan push-plan` for CI
+│   └── graph-parser/   # @groundplan/graph-parser — Producer B (HCL → GraphSnapshot)
+│                       #   as a pure shared package + the graph types/validator (GP-145)
 ├── keycloak/           # Keycloakify carbon theme (login/account/email) — see keycloak/README.md
 ├── docker-compose.yml  # local Postgres + (auth profile) Keycloak, which mounts the theme jar
 ├── pnpm-workspace.yaml
