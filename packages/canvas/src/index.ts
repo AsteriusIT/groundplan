@@ -13,6 +13,7 @@ export * from "./components/network-container-node";
 export * from "./components/group-container-node";
 export * from "./components/attachment-chip";
 export * from "./components/node-details-panel";
+export * from "./components/iam-table";
 export * from "./components/note-editor";
 export * from "./components/change-summary";
 export * from "./components/tour-spotlight";

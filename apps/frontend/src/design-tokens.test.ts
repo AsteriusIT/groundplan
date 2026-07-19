@@ -33,7 +33,7 @@ const GOVERNED = [
   `${CANVAS}/components/graph-node.tsx`,
   `${CANVAS}/components/graph-edge.tsx`,
   `${CANVAS}/components/resource-icon.tsx`,
-  "components/iam-table.tsx",
+  `${CANVAS}/components/iam-table.tsx`,
   `${CANVAS}/lib/status.ts`,
   `${CANVAS}/lib/graph-layout.ts`,
   `${CANVAS}/lib/resource-category.ts`,

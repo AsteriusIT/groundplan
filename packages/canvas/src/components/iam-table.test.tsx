@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, describe, vi } from "vitest";
 
-import type { Graph, GraphNode } from "@/api/types";
+import type { Graph, GraphNode } from "../types";
 import { IamTable } from "./iam-table";
 
 function assignment(
