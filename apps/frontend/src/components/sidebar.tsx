@@ -1,7 +1,14 @@
 import type { ComponentType } from "react";
 import { NavLink } from "react-router-dom";
-import { Boxes, FlaskConical, LayoutDashboard, Settings } from "lucide-react";
+import {
+  Boxes,
+  FlaskConical,
+  LayoutDashboard,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 
+import { useAiStatus } from "@/lib/use-ai-status";
 import { cn } from "@/lib/utils";
 import { KubernetesMark } from "./kubernetes-mark";
 import { Logo } from "./logo";
@@ -28,7 +35,17 @@ const NAV: NavEntry[] = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
+/** The AI-mode switch (GP-141): present only when the AI layer is on — with
+ * it off the frontend renders no AI surface at all (GP-62's rule). */
+const STUDIO_ENTRY: NavEntry = {
+  to: "/studio",
+  label: "AI Studio",
+  icon: Sparkles,
+};
+
 export function Sidebar() {
+  const ai = useAiStatus();
+  const entries = ai?.enabled ? [...NAV, STUDIO_ENTRY] : NAV;
   return (
     <aside className="bg-card flex h-svh w-[236px] shrink-0 flex-col border-r border-border">
       <div className="flex items-center gap-2.5 px-4 py-4">
@@ -43,7 +60,7 @@ export function Sidebar() {
           Navigation
         </p>
         <ul className="space-y-0.5">
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {entries.map(({ to, label, icon: Icon }) => (
             <li key={to}>
               <NavLink
                 to={to}

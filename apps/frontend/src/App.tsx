@@ -19,6 +19,7 @@ import { PullDetailPage } from "@/pages/pull-detail-page";
 import { PullsPage } from "@/pages/pulls-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { SharePage } from "@/pages/share-page";
+import { StudioPage } from "@/pages/studio-page";
 
 // Dev-only design-system reference (GP-28). Lazy + DEV-gated so the styleguide
 // chunk never ships in the production bundle.
@@ -64,6 +65,19 @@ function App() {
         element={
           <RequireAuth>
             <OrgLandingPage />
+          </RequireAuth>
+        }
+      />
+
+      {/* AI mode (GP-141): a route so back/refresh behave, but rendered as a
+          full-screen surface of its own — deliberately outside AppLayout. */}
+      <Route
+        path="/studio"
+        element={
+          <RequireAuth>
+            <RequireOrg>
+              <StudioPage />
+            </RequireOrg>
           </RequireAuth>
         }
       />
