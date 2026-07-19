@@ -7,9 +7,13 @@ import "../styles/global.css";
 interface Props {
   title: string;
   description?: string;
+  /** OG image path; defaults to the hero export rasterized (GP-164). */
+  ogImage?: string;
 }
 
-const { title, description } = Astro.props;
+const { title, description, ogImage = "/images/og-image.png" } = Astro.props;
+const ogImageUrl = new URL(ogImage, Astro.site);
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 
 const NAV = [
   { href: "/", label: "Product" },
@@ -33,6 +37,14 @@ const currentPath = Astro.url.pathname;
     {description && <meta name="description" content={description} />}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    {description && <meta property="og:description" content={description} />}
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="471" />
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body class="min-h-screen flex flex-col">
     <a

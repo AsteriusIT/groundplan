@@ -6,14 +6,20 @@ import Hero from "../components/Hero.astro";
 import Pillars from "../components/Pillars.astro";
 import AiSection from "../components/AiSection.astro";
 import K8sDevSection from "../components/K8sDevSection.astro";
+import SelfHostFaq from "../components/SelfHostFaq.astro";
+
+// §14 one-paragraph summary — the meta description, verbatim (GP-164).
+const META_DESCRIPTION =
+  "Groundplan turns Terraform and Kubernetes into living, interactive architecture diagrams. It renders every pull request as a visual change — with blast radius, security exposure and permission risks — and regenerates your documentation on every merge. It reads only the plan JSON and manifests your own CI produces: no cloud credentials, no state access, ever. With network, IAM and C4 lenses, a human annotation layer, an honest opt-in AI, a CLI, a live VS Code preview and one-file self-hosting, it's infrastructure review the way it should have always worked: visible.";
 ---
 
 <Base
   title="Groundplan — See your infrastructure. Review it. Shape it."
-  description="Groundplan turns Terraform and Kubernetes into living, interactive architecture diagrams."
+  description={META_DESCRIPTION}
 >
   <Hero />
   <Pillars />
   <AiSection />
   <K8sDevSection />
+  <SelfHostFaq />
 </Base>

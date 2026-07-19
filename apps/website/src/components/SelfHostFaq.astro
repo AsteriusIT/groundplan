@@ -1,0 +1,109 @@
+---
+// Self-host / SaaS (§9 + §7), FAQ seeds (§12) and the closing CTA — GP-164.
+// FAQ answers are verbatim; plain <details>, no JS accordion.
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: "Do you need access to our cloud account?",
+    a: "No. Groundplan never holds cloud credentials or state. Your CI sends us the plan JSON it already produces.",
+  },
+  {
+    q: "Do you run Terraform, Helm or Kustomize?",
+    a: "Never. Rendering happens in your CI; we ingest the output.",
+  },
+  {
+    q: "What does the AI see?",
+    a: "A Markdown brief rendered from Groundplan's own deterministic outputs — never your raw plan files. And with no API key configured, the AI layer is entirely absent.",
+  },
+  {
+    q: "Can we self-host?",
+    a: "Yes — the whole platform, including the identity provider, from one compose file with automatic HTTPS.",
+  },
+  {
+    q: "What if a diagram can't be fully built?",
+    a: "It says so. Partial diagrams carry explicit warnings; we never silently store an empty or misleading graph.",
+  },
+  {
+    q: "Does the VS Code extension send our code anywhere?",
+    a: "No. It parses locally, works fully offline and contains no telemetry.",
+  },
+];
+---
+
+<section id="selfhost" class="border-b border-border">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+      Self-host or SaaS
+    </p>
+    <h2 class="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      One compose file, or one flag
+    </h2>
+    <div class="mt-8 grid gap-8 lg:grid-cols-2">
+      <div class="border border-border bg-card p-6">
+        <h3 class="font-display text-xl font-semibold">Run it yourself</h3>
+        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+          Run the entire platform from one compose file: reverse proxy with automatic HTTPS,
+          frontend, API, database, identity provider. No managed services, no external
+          dependencies. Or let us run it for you (SaaS mode is the same build with one flag).
+        </p>
+        <p class="mt-4 font-mono text-xs leading-relaxed text-faint">
+          docker-compose.prod.yml = Caddy (auto-TLS, HTTP/3) + frontend + backend + migrate +
+          Postgres + branded Keycloak + Keycloak DB; only Caddy publishes ports; pull-based
+          deploys from a registry; semver+SHA image tags.
+        </p>
+      </div>
+      <div class="border border-border bg-card p-6">
+        <h3 class="font-display text-xl font-semibold">Two modes from one flag</h3>
+        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+          <code class="font-mono">SINGLE_ORG=true</code> for self-hosting (first user becomes
+          owner, everyone else auto-joins) or multi-org SaaS mode with onboarding and
+          invitations.
+        </p>
+        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+          OIDC / SSO with any identity provider — a fully branded Keycloak ships in the box —
+          and the backend refuses to boot in production without OIDC config and an encryption
+          key. Fail-closed, not fail-open.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="border-b border-border bg-card">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+    <p class="font-mono text-xs uppercase tracking-widest text-muted-foreground">FAQ</p>
+    <h2 class="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      The questions security teams ask first
+    </h2>
+    <div class="mt-8 max-w-3xl divide-y divide-border border border-border bg-background">
+      {
+        FAQ.map((item) => (
+          <details class="group px-5 py-4">
+            <summary class="cursor-pointer list-none font-medium marker:content-none">
+              <span class="mr-2 inline-block font-mono text-xs text-primary group-open:rotate-90 motion-reduce:transition-none">
+                ▸
+              </span>
+              {item.q}
+            </summary>
+            <p class="mt-3 pl-5 text-sm leading-relaxed text-muted-foreground">{item.a}</p>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<section aria-label="Get started" class="blueprint-grid border-b border-border">
+  <div class="mx-auto max-w-6xl px-4 py-20 text-center sm:px-6">
+    <h2 class="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+      One pipeline step away from seeing your infrastructure.
+    </h2>
+    <div class="mt-6 flex justify-center">
+      <a
+        href="/security/"
+        class="bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+      >
+        Start with the security model
+      </a>
+    </div>
+  </div>
+</section>

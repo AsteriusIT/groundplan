@@ -47,3 +47,17 @@ const changes = renderSvg(await layoutGraph(changesSubgraph(graph)), {
 });
 writeFileSync(join(outDir, "hero-pr-diagram-changes.svg"), changes);
 console.log(`wrote hero-pr-diagram-changes.svg (${(changes.length / 1024).toFixed(1)} KB)`);
+
+// OG image (GP-164): the same hero export, rasterized — scrapers don't read
+// SVG. Resolved from the backend package, which owns the resvg dependency.
+const { createRequire } = await import("node:module");
+const backendRequire = createRequire(join(here, "..", "..", "backend", "package.json"));
+const { Resvg } = backendRequire("@resvg/resvg-js") as {
+  Resvg: new (
+    svg: string,
+    opts?: { fitTo?: { mode: "width"; value: number } },
+  ) => { render(): { asPng(): Uint8Array } };
+};
+const png = new Resvg(full, { fitTo: { mode: "width", value: 1200 } }).render().asPng();
+writeFileSync(join(outDir, "og-image.png"), png);
+console.log(`wrote og-image.png (${(png.length / 1024).toFixed(1)} KB)`);
