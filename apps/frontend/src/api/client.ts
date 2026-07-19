@@ -196,6 +196,22 @@ async function apiErrorFrom(response: Response): Promise<ApiError> {
 
 const encode = encodeURIComponent;
 
+/**
+ * Absolute URL + auth header for the one caller that streams outside
+ * `request` (the AI studio chat, GP-140 — the AI SDK's transport owns that
+ * fetch). Everything else keeps going through `request`.
+ */
+export function streamingEndpoint(path: string): {
+  url: string;
+  headers: Record<string, string>;
+} {
+  const token = tokenProvider();
+  return {
+    url: `${apiBase()}${path}`,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  };
+}
+
 export type ExportFormat = "svg" | "png";
 export type ExportScope = "full" | "changes";
 
