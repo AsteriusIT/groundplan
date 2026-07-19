@@ -23,6 +23,9 @@ import {
   type ModelMessage,
 } from "ai";
 
+import { parse, type Diagnostic, type HclFile } from "@groundplan/graph-parser";
+
+import { assertValidGraph } from "../graph/graph.js";
 import { loadStudioPrompt } from "../services/ai.js";
 
 /** One in-memory `.tf` file of the studio session. */
@@ -134,7 +137,108 @@ export function toModelMessages(
   return turns;
 }
 
+const parseBodySchema = {
+  type: "object",
+  required: ["files"],
+  additionalProperties: false,
+  properties: {
+    files: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        required: ["path", "content"],
+        additionalProperties: false,
+        properties: {
+          path: { type: "string", minLength: 1, maxLength: 500 },
+          content: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+/**
+ * What the studio's parse answers with beside the snapshot (GP-138/GP-139):
+ * `parse` is what the parser could not read or resolve; `lint` is what the
+ * deterministic best-practices rules found in what it could.
+ */
+export type StudioDiagnostics = {
+  parse: Diagnostic[];
+  /** GP-139 fills this with the deterministic best-practices findings. */
+  lint: never[];
+};
+
 export const aiStudioRoutes: FastifyPluginAsync = async (app) => {
+  // GP-138: ephemeral in-memory `.tf` files → GraphSnapshot, through the same
+  // Producer B the docs flow uses (`parse`, GP-145) — so an AI-generated
+  // project renders exactly as it would once committed to a repository.
+  // Synchronous, stateless, nothing stored.
+  app.post(
+    "/ai-studio/parse",
+    { schema: { body: parseBodySchema } },
+    async (request, reply) => {
+      const { files } = request.body as { files: HclFile[] };
+
+      if (files.length > MAX_STUDIO_FILES) {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message: `too many files (max ${MAX_STUDIO_FILES})`,
+        });
+      }
+      const totalBytes = files.reduce(
+        (sum, f) => sum + Buffer.byteLength(f.content, "utf8"),
+        0,
+      );
+      if (totalBytes > MAX_STUDIO_HCL_BYTES) {
+        return reply.code(413).send({
+          error: "Payload Too Large",
+          message: `the project exceeds ${MAX_STUDIO_HCL_BYTES / 1024} KB of HCL`,
+        });
+      }
+      const wrongType = files.filter(
+        (f) => !f.path.endsWith(".tf") && !f.path.endsWith(".tfvars"),
+      );
+      if (wrongType.length > 0) {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message: "Validation failed",
+          diagnostics: wrongType.map((f) => ({
+            severity: "error",
+            file: f.path,
+            message: "only .tf and .tfvars files are parsed",
+          })),
+        });
+      }
+      if (!files.some((f) => f.path.endsWith(".tf"))) {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message: "no .tf files to parse",
+          diagnostics: [],
+        });
+      }
+
+      const { snapshot, diagnostics } = parse(files);
+
+      // Nothing drawable at all is a failed generation, and the diagnostics
+      // are the reason. A *partially* valid set instead answers 200: the valid
+      // files' graph plus error diagnostics naming the rest — the UI shows
+      // what it can and says why the rest is missing.
+      const errors = diagnostics.filter((d) => d.severity === "error");
+      if (snapshot.nodes.length === 0 && errors.length > 0) {
+        return reply.code(422).send({
+          error: "Unprocessable Entity",
+          message: "HCL parse failed",
+          diagnostics,
+        });
+      }
+
+      assertValidGraph(snapshot);
+      const result: StudioDiagnostics = { parse: diagnostics, lint: [] };
+      return { snapshot, diagnostics: result };
+    },
+  );
+
   app.post(
     "/ai-studio/chat",
     { schema: { body: chatBodySchema } },

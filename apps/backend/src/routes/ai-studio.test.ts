@@ -259,3 +259,145 @@ test("toModelMessages: no files means the history passes through untouched", () 
   const turns = toModelMessages([{ role: "user", text: "hi" }], []);
   assert.deepEqual(turns, [{ role: "user", content: "hi" }]);
 });
+
+// ---- GP-138: ephemeral parse ------------------------------------------------
+
+/** A small linked Azure project across two files (implicit dependencies). */
+const PARSABLE_FILES = [
+  {
+    path: "main.tf",
+    content: [
+      `resource "azurerm_resource_group" "rg" {`,
+      `  name     = "rg-studio"`,
+      `  location = "westeurope"`,
+      `}`,
+      ``,
+      `resource "azurerm_virtual_network" "vnet" {`,
+      `  name                = "vnet-studio"`,
+      `  location            = azurerm_resource_group.rg.location`,
+      `  resource_group_name = azurerm_resource_group.rg.name`,
+      `}`,
+    ].join("\n"),
+  },
+  {
+    path: "network.tf",
+    content: [
+      `resource "azurerm_subnet" "app" {`,
+      `  name                 = "snet-app"`,
+      `  resource_group_name  = azurerm_resource_group.rg.name`,
+      `  virtual_network_name = azurerm_virtual_network.vnet.name`,
+      `}`,
+    ].join("\n"),
+  },
+];
+
+test("POST /ai-studio/parse: valid HCL → docs-shaped snapshot, nothing stored", async () => {
+  const app = await buildApp(env, { pool: poisonedPool(), studioModel: null });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai-studio/parse",
+      payload: { files: PARSABLE_FILES },
+    });
+    assert.equal(res.statusCode, 200);
+
+    const body = res.json();
+    const ids = body.snapshot.nodes.map((n: { id: string }) => n.id);
+    assert.ok(ids.includes("azurerm_resource_group.rg"));
+    assert.ok(ids.includes("azurerm_virtual_network.vnet"));
+    assert.ok(ids.includes("azurerm_subnet.app"));
+    // Implicit (expression-inferred) dependencies, across files (GP-21 logic).
+    assert.ok(
+      body.snapshot.edges.some(
+        (e: { from: string; to: string }) =>
+          e.from === "azurerm_subnet.app" &&
+          e.to === "azurerm_virtual_network.vnet",
+      ),
+    );
+    // Docs-flow semantics: no plan, so no change data.
+    assert.ok(
+      body.snapshot.nodes.every((n: { change: unknown }) => n.change === null),
+    );
+    assert.deepEqual(body.diagnostics.parse, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /ai-studio/parse: invalid HCL → 422 with per-file diagnostics", async () => {
+  const app = await buildApp(env, { pool: poisonedPool(), studioModel: null });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai-studio/parse",
+      payload: {
+        files: [
+          { path: "broken.tf", content: `resource "azurerm_thing" "x" {` },
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 422);
+    const body = res.json();
+    assert.ok(
+      body.diagnostics.some(
+        (d: { file?: string; severity: string }) =>
+          d.file === "broken.tf" && d.severity === "error",
+      ),
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /ai-studio/parse: partially valid set parses what it can and reports the rest", async () => {
+  const app = await buildApp(env, { pool: poisonedPool(), studioModel: null });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai-studio/parse",
+      payload: {
+        files: [
+          ...PARSABLE_FILES,
+          { path: "broken.tf", content: `resource "azurerm_thing" "x" {` },
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.ok(body.snapshot.nodes.length >= 3);
+    assert.ok(
+      body.diagnostics.parse.some(
+        (d: { file?: string; severity: string }) =>
+          d.file === "broken.tf" && d.severity === "error",
+      ),
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /ai-studio/parse: no .tf files / wrong extension → 422", async () => {
+  const app = await buildApp(env, { pool: poisonedPool(), studioModel: null });
+  try {
+    const noTf = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai-studio/parse",
+      payload: { files: [{ path: "vars.tfvars", content: "" }] },
+    });
+    assert.equal(noTf.statusCode, 422);
+
+    const wrongExt = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai-studio/parse",
+      payload: { files: [{ path: "deploy.yaml", content: "kind: Pod" }] },
+    });
+    assert.equal(wrongExt.statusCode, 422);
+    assert.ok(
+      wrongExt
+        .json()
+        .diagnostics.some((d: { file?: string }) => d.file === "deploy.yaml"),
+    );
+  } finally {
+    await app.close();
+  }
+});
