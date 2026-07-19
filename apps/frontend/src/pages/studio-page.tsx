@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChat } from "@ai-sdk/react";
-import { MessageSquareText, Sparkles, Waypoints, X } from "lucide-react";
+import {
+  Code2,
+  Loader2,
+  MessageSquareText,
+  Sparkles,
+  Waypoints,
+  X,
+} from "lucide-react";
 
 import {
   Conversation,
@@ -24,6 +31,7 @@ import { useAiStatus } from "@/lib/use-ai-status";
 import { cn } from "@/lib/utils";
 import {
   filesOfMessage,
+  isWritingFiles,
   studioChatTransport,
   textOfMessage,
 } from "@/studio/chat";
@@ -54,6 +62,9 @@ export function StudioPage() {
   const [confirmExit, setConfirmExit] = useState(false);
   // Mobile shows one pane at a time: the chat, or the graph (GP-141).
   const [mobilePane, setMobilePane] = useState<"chat" | "graph">("chat");
+  // The code split (GP-143). Owned here because its toggle lives in the
+  // header — floating it over the canvas collided with the zoom controls.
+  const [codeOpen, setCodeOpen] = useState(false);
 
   // The transport reads the *current* files at send time (never a stale copy).
   const transport = useMemo(
@@ -138,6 +149,20 @@ export function StudioPage() {
             </span>
           </p>
           <div className="flex items-center gap-1.5">
+            {/* The code split's toggle (GP-143) lives up here, out of the
+                canvas — floated over it, it covered the zoom controls. */}
+            {docked && (
+              <Button
+                variant={codeOpen ? "secondary" : "ghost"}
+                size="sm"
+                aria-pressed={codeOpen}
+                onClick={() => setCodeOpen((open) => !open)}
+                className="hidden md:inline-flex"
+              >
+                <Code2 className="size-4" />
+                Code
+              </Button>
+            )}
             {/* Mobile: one pane at a time once a session exists. */}
             {docked && (
               <div className="flex md:hidden">
@@ -186,6 +211,7 @@ export function StudioPage() {
                 messages={messages}
                 streaming={streaming}
                 waiting={status === "submitted"}
+                parsing={session.parsing}
                 error={error}
                 parseFailure={session.parseFailure}
                 onSubmit={submit}
@@ -199,7 +225,7 @@ export function StudioPage() {
                 mobilePane !== "graph" && "hidden md:block",
               )}
             >
-              <StudioWorkspace session={session} />
+              <StudioWorkspace session={session} codeOpen={codeOpen} />
             </section>
           </div>
         ) : (
@@ -261,6 +287,7 @@ function ChatColumn({
   messages,
   streaming,
   waiting,
+  parsing,
   error,
   parseFailure,
   onSubmit,
@@ -270,12 +297,19 @@ function ChatColumn({
   streaming: boolean;
   /** Submitted but nothing streamed yet — the shimmer's moment. */
   waiting: boolean;
+  /** A completed turn's files are being parsed/laid out (GP-142). */
+  parsing: boolean;
   error: Error | undefined;
   /** GP-142: the last turn's parse failure, told where the turn happened. */
   parseFailure: StudioParseFailure | null;
   onSubmit: (text: string) => void;
   onStop: () => void;
 }>) {
+  // The prose finishes well before the turn does: the file set streams as
+  // tool input after it, then parse + layout run. Say so, or the studio
+  // looks stalled exactly when it is working hardest.
+  const writing = streaming && isWritingFiles(messages.at(-1));
+  const working = writing || parsing;
   return (
     <>
       <Conversation>
@@ -304,6 +338,12 @@ function ChatColumn({
                 <Shimmer className="w-40" />
               </MessageContent>
             </Message>
+          )}
+          {working && (
+            <output className="text-muted-foreground flex items-center gap-2 px-1 text-xs">
+              <Loader2 className="size-3.5 animate-spin" />
+              {writing ? "Writing Terraform files…" : "Drawing the diagram…"}
+            </output>
           )}
           {error && (
             <div

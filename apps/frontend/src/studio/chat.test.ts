@@ -7,6 +7,7 @@ import type { UIMessage } from "ai";
 
 import {
   filesOfMessage,
+  isWritingFiles,
   prepareStudioBody,
   textOfMessage,
   toStudioHistory,
@@ -47,6 +48,21 @@ it("filesOfMessage ignores a still-streaming or malformed tool call", () => {
   expect(
     filesOfMessage({ id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] }),
   ).toBeNull();
+});
+
+it("isWritingFiles is true only while the tool input is still streaming", () => {
+  expect(isWritingFiles(assistantTurn("input-streaming", undefined))).toBe(true);
+  expect(isWritingFiles(assistantTurn("input-available", { files: FILES }))).toBe(
+    false,
+  );
+  expect(
+    isWritingFiles({
+      id: "u1",
+      role: "user",
+      parts: [{ type: "text", text: "hi" }],
+    }),
+  ).toBe(false);
+  expect(isWritingFiles(undefined)).toBe(false);
 });
 
 it("toStudioHistory flattens messages to prose turns and drops empty ones", () => {

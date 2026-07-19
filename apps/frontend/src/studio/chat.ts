@@ -55,6 +55,21 @@ export function filesOfMessage(message: UIMessage): StudioFile[] | null {
   return null;
 }
 
+/**
+ * True while the assistant is still streaming the `write_files` tool input —
+ * the (long) gap between the prose saying "done" and the files actually
+ * having arrived. The UI owes the user a progress line for exactly this span.
+ */
+export function isWritingFiles(message: UIMessage | undefined): boolean {
+  if (message?.role !== "assistant") return false;
+  return message.parts.some(
+    (part) =>
+      isToolUIPart(part) &&
+      getToolName(part) === "write_files" &&
+      part.state === "input-streaming",
+  );
+}
+
 /** UI messages → the prose-only history the chat endpoint expects. */
 export function toStudioHistory(messages: UIMessage[]): StudioChatMessage[] {
   return messages

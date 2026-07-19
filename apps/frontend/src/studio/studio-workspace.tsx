@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Code2, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { GraphCanvas } from "@/components/graph-canvas";
-import { Button } from "@/components/ui/button";
 import type { GraphNode } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { StudioCodePanel, type CodeTarget } from "./studio-code-panel";
@@ -21,10 +20,12 @@ import type { StudioSession } from "./use-studio-session";
  */
 export function StudioWorkspace({
   session,
+  codeOpen,
 }: Readonly<{
   session: StudioSession;
+  /** The code split, toggled from the studio header (GP-143). */
+  codeOpen: boolean;
 }>) {
-  const [codeOpen, setCodeOpen] = useState(false);
   // GP-143's node→code contract: a clicked node aims the code panel at its
   // source block (Producer B kept file + line range on every docs-flow node).
   const [codeTarget, setCodeTarget] = useState<CodeTarget | null>(null);
@@ -67,16 +68,6 @@ export function StudioWorkspace({
           lint={session.lint}
           onNodeSelect={onNodeSelect}
         />
-        <Button
-          variant={codeOpen ? "secondary" : "outline"}
-          size="sm"
-          onClick={() => setCodeOpen((open) => !open)}
-          className="absolute top-3 right-3 z-10 shadow-sm"
-          aria-pressed={codeOpen}
-        >
-          <Code2 className="size-3.5" />
-          Code
-        </Button>
         {session.parsing && (
           <p className="bg-card/90 text-muted-foreground absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs shadow-sm backdrop-blur">
             <Loader2 className="size-3.5 animate-spin" />

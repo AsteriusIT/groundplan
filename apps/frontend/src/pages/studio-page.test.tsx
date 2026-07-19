@@ -196,6 +196,62 @@ it("a completed turn parses and renders on the canvas with lint (GP-142)", async
   );
 });
 
+it("says it is drawing while the parse is still in flight", async () => {
+  aiStatusMock.mockReturnValue({ enabled: true, model: "claude-opus-4-8" });
+  vi.stubGlobal("fetch", sseFetch());
+  // A parse that never settles: the studio must say it is working, not stall.
+  parseMock.mockReturnValue(new Promise(() => {}));
+
+  renderStudio();
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Create a resource group with a vnet and two subnets",
+    }),
+  );
+
+  // Twice by design: the chat's progress line and the canvas empty state.
+  expect(await screen.findAllByText("Drawing the diagram…")).not.toHaveLength(0);
+});
+
+it("the Code toggle lives in the header and opens the code panel", async () => {
+  aiStatusMock.mockReturnValue({ enabled: true, model: "claude-opus-4-8" });
+  vi.stubGlobal("fetch", sseFetch());
+  parseMock.mockResolvedValue({
+    snapshot: {
+      version: 8,
+      nodes: [
+        {
+          id: "azurerm_resource_group.rg",
+          name: "rg",
+          type: "azurerm_resource_group",
+          provider: "azurerm",
+          module_path: [],
+          change: null,
+        },
+      ],
+      edges: [],
+    } as never,
+    diagnostics: { parse: [], lint: [] },
+  });
+
+  renderStudio();
+  // No session yet — no Code toggle to show.
+  expect(screen.queryByRole("button", { name: "Code" })).not.toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Create a resource group with a vnet and two subnets",
+    }),
+  );
+  await screen.findByTestId("canvas");
+
+  fireEvent.click(screen.getByRole("button", { name: "Code" }));
+  expect(
+    await screen.findByRole("button", { name: /main\.tf/ }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Download zip" })).toBeInTheDocument();
+});
+
 it("a turn that fails to parse keeps the canvas and says why in the chat", async () => {
   aiStatusMock.mockReturnValue({ enabled: true, model: "claude-opus-4-8" });
   vi.stubGlobal("fetch", sseFetch());
