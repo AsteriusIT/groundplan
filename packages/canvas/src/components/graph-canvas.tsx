@@ -64,6 +64,7 @@ import { NotePanel } from "../components/note-editor";
 import { COACH_MARK_GUTTER, TourSpotlight } from "../components/tour-spotlight";
 import type { TourChrome } from "../components/tour-chrome";
 import type { TourStyle } from "../types";
+import { changedFocusIds, planCamera } from "../lib/camera";
 import {
   ALL_FILTERS,
   categoryCounts,
@@ -197,6 +198,10 @@ const EDGE_TYPES = { relationship: RelationshipEdge };
 const DEFAULT_VIEWPORT = { x: 220, y: 72, zoom: 1 } as const;
 
 const FIT_VIEW_PADDING = 0.1;
+/** GP-156: framing the blast radius leaves it room and never over-zooms —
+ * a single changed node must not fill the screen. */
+const BLAST_FIT_PADDING = 0.2;
+const BLAST_FIT_MAX_ZOOM = 1.5;
 
 const FILTER_LABELS: Record<FilterKey, string> = {
   create: "Create",
@@ -467,10 +472,22 @@ export function GraphCanvas({
   const [rfReady, setRfReady] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // Camera memory (GP-156): whether this view instance has framed itself yet,
+  // the previous snapshot's change set (a refresh only re-frames when it
+  // *introduces* changes), and the selection alive when a refresh started.
+  const firstFitRef = useRef(true);
+  const prevFocusIdsRef = useRef<readonly string[] | null>(null);
+  const prevSelectedIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     setLaying(true);
-    setSelected(null);
+    // Remember what was selected when this refresh started (GP-156): if the
+    // node survives, the camera corrects onto it after the new layout lands.
+    setSelected((prev) => {
+      prevSelectedIdRef.current = prev?.id ?? null;
+      return null;
+    });
     setHoveredId(null);
     setQuery("");
     setShowHubEdges(false);
@@ -496,18 +513,54 @@ export function GraphCanvas({
     };
   }, [graph, containerIds, stacks, chips, hubs]);
 
-  // Frame the graph once its positions exist (GP-130): on the first layout and
-  // on every relayout — a relayout only ever follows a graph change, so a
-  // manual pan/zoom over an unchanged snapshot is never overwritten. Runs after
-  // the commit that handed ReactFlow the laid-out nodes, so fitView measures
-  // real geometry.
+  // The camera, once positions exist (GP-130/GP-156). The whole-graph fit
+  // happens exactly once per view instance; a refresh either frames the blast
+  // radius (when it introduces changes), re-centers a surviving selection, or
+  // — most often — leaves the viewport exactly where the user put it. Runs
+  // after the commit that handed ReactFlow the laid-out nodes, so fitView
+  // measures real geometry. Deps are {layout, rfReady} on purpose: `graph` is
+  // read from the same render that delivered its layout — running on a graph
+  // change alone would plan the camera against stale positions.
   useEffect(() => {
     if (!layout || !rfReady) return;
     const rf = rfRef.current;
     if (!rf) return;
-    void rf.fitView({ padding: FIT_VIEW_PADDING }).then(() => {
-      setZoom(rf.getZoom());
+    const plan = planCamera({
+      first: firstFitRef.current,
+      graph,
+      prevFocusIds: prevFocusIdsRef.current,
+      prevSelectedId: prevSelectedIdRef.current,
     });
+    firstFitRef.current = false;
+    prevFocusIdsRef.current = changedFocusIds(graph);
+
+    if (plan.kind === "fit-all") {
+      void rf.fitView({ padding: FIT_VIEW_PADDING }).then(() => {
+        setZoom(rf.getZoom());
+      });
+    } else if (plan.kind === "fit-changed") {
+      void rf
+        .fitView({
+          nodes: plan.ids.map((id) => ({ id })),
+          padding: BLAST_FIT_PADDING,
+          maxZoom: BLAST_FIT_MAX_ZOOM,
+          duration: 500,
+        })
+        .then(() => {
+          setZoom(rf.getZoom());
+        });
+    } else if (plan.kind === "recenter") {
+      // Deterministic layout means the node usually hasn't moved — this is a
+      // correction for layout shifts, at the zoom the user chose.
+      const box = boxesRef.current.get(plan.id);
+      if (box) {
+        void rf.setCenter(box.x + box.width / 2, box.y + box.height / 2, {
+          zoom: rf.getZoom(),
+          duration: 300,
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout, rfReady]);
 
   // `/` focuses the search box (unless already typing in a field).
@@ -592,6 +645,10 @@ export function GraphCanvas({
   // Overlay geometry is derived from the *laid-out* nodes and never fed back to
   // ELK — so the generated layout is identical with and without annotations.
   const boxes = useMemo(() => absoluteNodeBoxes(elements.nodes), [elements.nodes]);
+  // Read by the camera effect (GP-156) without being one of its deps: it runs
+  // on layout changes only, and render-order guarantees this ref is current.
+  const boxesRef = useRef(boxes);
+  boxesRef.current = boxes;
   const frames = useMemo(
     () => groupFrames(renderableAnns, boxes),
     [renderableAnns, boxes],

@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 const rfInstance = vi.hoisted(() => ({
   fitView: vi.fn(() => Promise.resolve(true)),
   setViewport: vi.fn(),
+  setCenter: vi.fn(() => Promise.resolve(true)),
   getZoom: vi.fn(() => 1),
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
@@ -138,25 +139,81 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-it("fits the view after layout; refits on a new graph, never on a re-render (GP-130)", async () => {
-  const { rerender } = render(<GraphCanvas graph={graph} variant="plan" />);
-  await screen.findByText("node:main");
+/** A calm docs graph — no change data, nothing for a refresh to frame. */
+const calmGraph: Graph = {
+  version: 1,
+  nodes: [
+    { id: "aws_vpc.net", name: "net", type: "aws_vpc", provider: "aws", module_path: [], change: null },
+    { id: "aws_s3_bucket.logs", name: "logs", type: "aws_s3_bucket", provider: "aws", module_path: [], change: null },
+  ],
+  edges: [{ from: "aws_s3_bucket.logs", to: "aws_vpc.net", kind: "depends_on" }],
+};
+
+it("fits the whole graph on first layout only; a re-render never refits (GP-130)", async () => {
+  const { rerender } = render(<GraphCanvas graph={calmGraph} variant="docs" />);
+  await screen.findByText("node:net");
   await waitFor(() =>
     expect(rfInstance.fitView).toHaveBeenCalledWith({ padding: 0.1 }),
   );
   const fits = rfInstance.fitView.mock.calls.length;
 
   // Same graph re-rendered: no relayout, and the user's pan/zoom survives.
-  rerender(<GraphCanvas graph={graph} variant="plan" />);
-  await screen.findByText("node:main");
+  rerender(<GraphCanvas graph={calmGraph} variant="docs" />);
+  await screen.findByText("node:net");
   expect(rfInstance.fitView.mock.calls.length).toBe(fits);
+});
 
-  // A changed graph lays out again — and frames itself again.
-  const next: Graph = { ...graph, nodes: graph.nodes.slice(0, 2), edges: [] };
-  rerender(<GraphCanvas graph={next} variant="plan" />);
+it("a no-change refresh keeps the camera where the user put it (GP-156)", async () => {
+  const { rerender } = render(<GraphCanvas graph={calmGraph} variant="docs" />);
+  await screen.findByText("node:net");
+  await waitFor(() => expect(rfInstance.fitView).toHaveBeenCalled());
+  const fits = rfInstance.fitView.mock.calls.length;
+
+  // A regenerated snapshot with no changes: new object, same calm content.
+  rerender(<GraphCanvas graph={{ ...calmGraph }} variant="docs" />);
+  await screen.findByText("node:net");
+  // The camera does not move: no whole-graph fit, no recenter.
+  await waitFor(() => expect(screen.queryByText(/Laying out/)).not.toBeInTheDocument());
+  expect(rfInstance.fitView.mock.calls.length).toBe(fits);
+  expect(rfInstance.setCenter).not.toHaveBeenCalled();
+});
+
+it("a refresh that introduces changes frames the blast radius, capped (GP-156)", async () => {
+  const { rerender } = render(<GraphCanvas graph={calmGraph} variant="docs" />);
+  await screen.findByText("node:net");
+  await waitFor(() => expect(rfInstance.fitView).toHaveBeenCalled());
+
+  // The next snapshot carries a change set: frame changed ∪ impacted only.
+  rerender(<GraphCanvas graph={graph} variant="plan" />);
   await waitFor(() =>
-    expect(rfInstance.fitView.mock.calls.length).toBeGreaterThan(fits),
+    expect(rfInstance.fitView).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nodes: [
+          { id: "azurerm_virtual_network.main" },
+          { id: "aws_s3_bucket.data" },
+          { id: "module.net.aws_instance.web" },
+        ],
+        maxZoom: expect.any(Number),
+      }),
+    ),
   );
+});
+
+it("a surviving selection is re-centered at the current zoom (GP-156)", async () => {
+  const { rerender } = render(<GraphCanvas graph={calmGraph} variant="docs" />);
+  fireEvent.click(await screen.findByText("node:net"));
+  await waitFor(() => expect(rfInstance.fitView).toHaveBeenCalled());
+  const fits = rfInstance.fitView.mock.calls.length;
+
+  rerender(<GraphCanvas graph={{ ...calmGraph }} variant="docs" />);
+  await waitFor(() =>
+    expect(rfInstance.setCenter).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.any(Number),
+      expect.objectContaining({ zoom: 1 }),
+    ),
+  );
+  expect(rfInstance.fitView.mock.calls.length).toBe(fits);
 });
 
 /** The filter panel rests collapsed — open it before asserting on its contents. */

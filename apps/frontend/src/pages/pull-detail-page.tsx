@@ -194,6 +194,9 @@ export function PullDetailPage() {
         />
       ) : (
         <GraphCanvas
+          // Each view keeps its own camera (GP-156): a fresh instance per
+          // lens fits itself once, then refreshes preserve the viewport.
+          key={view}
           graph={network ? network.graph : graph.snapshot.graph}
           variant="plan"
           // The PR view is the DIFF ref: the change set dominates, the

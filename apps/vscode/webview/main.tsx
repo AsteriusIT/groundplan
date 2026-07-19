@@ -254,6 +254,9 @@ function App(): React.JSX.Element {
         />
       ) : (
         <GraphCanvas
+          // Each view keeps its own camera (GP-156): a fresh instance per
+          // lens fits itself once; live re-parses preserve the viewport.
+          key={view}
           graph={network ? network.graph : displayed}
           variant={diffActive ? "plan" : "docs"}
           // Diff mode wears the PR view's hierarchy: unchanged recedes (GP-155).

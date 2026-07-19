@@ -849,6 +849,8 @@ export function PlaygroundPage() {
               }
               return (
                 <GraphCanvas
+                  // Each view keeps its own camera (GP-156).
+                  key={view}
                   graph={network ? network.graph : snapshot.graph}
                   variant="docs"
                   containerIds={network?.containerIds}

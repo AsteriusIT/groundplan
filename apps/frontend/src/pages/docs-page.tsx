@@ -759,6 +759,9 @@ export function DocsPage() {
 
               {view !== "iam" && shown && !(view === "c4" && !hasGroups(shown.graph)) && (
                 <GraphCanvas
+                  // Each view keeps its own camera (GP-156): a fresh instance
+                  // per lens fits once; refreshes preserve the viewport.
+                  key={view}
                   // The adapted projection comes back as an ordinary snapshot, so
                   // the canvas draws it with no idea annotations exist (ADR #2).
                   graph={network ? network.graph : shown.graph}
