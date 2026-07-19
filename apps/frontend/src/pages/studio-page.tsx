@@ -19,6 +19,7 @@ import { PromptInput } from "@/components/ai-elements/prompt-input";
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
 import {
   Dialog,
   DialogContent,
@@ -147,6 +148,9 @@ export function StudioPage() {
             <span className="text-muted-foreground font-mono text-[10px] tracking-[0.12em] uppercase">
               Azure
             </span>
+            <Chip variant="accent" className="text-[9px]">
+              Experimental
+            </Chip>
           </p>
           <div className="flex items-center gap-1.5">
             {/* The code split's toggle (GP-143) lives up here, out of the

@@ -10,6 +10,7 @@ import {
 
 import { useAiStatus } from "@/lib/use-ai-status";
 import { cn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
 import { KubernetesMark } from "./kubernetes-mark";
 import { Logo } from "./logo";
 import { OrgSwitcher } from "./org-switcher";
@@ -19,6 +20,8 @@ type NavEntry = {
   to: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  /** Small trailing tag (e.g. "Experimental") — accent, never a status hue. */
+  tag?: string;
 };
 
 /**
@@ -41,6 +44,7 @@ const STUDIO_ENTRY: NavEntry = {
   to: "/studio",
   label: "AI Studio",
   icon: Sparkles,
+  tag: "Experimental",
 };
 
 export function Sidebar() {
@@ -60,7 +64,7 @@ export function Sidebar() {
           Navigation
         </p>
         <ul className="space-y-0.5">
-          {entries.map(({ to, label, icon: Icon }) => (
+          {entries.map(({ to, label, icon: Icon, tag }) => (
             <li key={to}>
               <NavLink
                 to={to}
@@ -74,7 +78,12 @@ export function Sidebar() {
                 }
               >
                 <Icon className="size-4 shrink-0" />
-                {label}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {tag && (
+                  <Chip variant="accent" className="shrink-0 text-[9px]">
+                    {tag}
+                  </Chip>
+                )}
               </NavLink>
             </li>
           ))}

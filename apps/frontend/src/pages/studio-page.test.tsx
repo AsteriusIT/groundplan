@@ -91,6 +91,9 @@ it("streams a turn: suggestion chip → docked chat + canvas region", async () =
 
   renderStudio();
 
+  // The studio announces itself as experimental, right in the header.
+  expect(screen.getByText("Experimental")).toBeInTheDocument();
+
   // Empty state: centered chat with the example prompts.
   const chip = screen.getByRole("button", {
     name: "Create a resource group with a vnet and two subnets",
