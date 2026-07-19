@@ -1,0 +1,33 @@
+{
+  "name": "@groundplan/graph-differ",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Groundplan static-diff producer as a pure shared package: two GraphSnapshots in, an annotated (change + impact + attribute diff) GraphSnapshot out. No I/O.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "[ -f tsconfig.build.json ] && tsc -p tsconfig.build.json || true",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@groundplan/graph-parser": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

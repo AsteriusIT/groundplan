@@ -6,7 +6,8 @@ import {
   type Graph,
   type GraphEdge,
   type GraphNode,
-} from "./graph.js";
+} from "@groundplan/graph-parser";
+
 import { propagateImpact } from "./impact.js";
 
 function node(id: string, change: GraphNode["change"]): GraphNode {
