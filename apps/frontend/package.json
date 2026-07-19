@@ -21,6 +21,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/space-grotesk": "^5.2.10",
     "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@groundplan/canvas": "workspace:*",
     "@radix-ui/react-slot": "^1.1.2",
     "@xyflow/react": "^12.11.2",
     "ai": "^7.0.22",

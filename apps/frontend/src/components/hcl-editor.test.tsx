@@ -38,6 +38,22 @@ it("does not wrap long lines (horizontal scroll instead)", () => {
   expect(container.querySelector(".cm-lineWrapping")).toBeNull();
 });
 
+it("keeps the sticky line-number gutter opaque so scrolled code cannot show through it", () => {
+  const { container } = render(
+    <HclEditor value={DOC} onChange={() => {}} ariaLabel="File content" />,
+  );
+
+  const gutters = container.querySelector(".cm-gutters");
+  expect(gutters).not.toBeNull();
+  // CodeMirror keeps the gutter position:sticky while long lines scroll
+  // horizontally beneath it — a transparent background lets that text bleed
+  // through the line numbers.
+  expect((gutters as HTMLElement).style.position).toBe("sticky");
+  expect(getComputedStyle(gutters as HTMLElement).backgroundColor).toBe(
+    "var(--card)",
+  );
+});
+
 it("reports edits through onChange", () => {
   const onChange = vi.fn();
   const { container } = render(

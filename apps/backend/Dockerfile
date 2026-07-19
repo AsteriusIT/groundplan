@@ -17,13 +17,16 @@ WORKDIR /repo
 # Install deps first (cached until a manifest or the lockfile changes).
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .npmrc ./
 COPY apps/backend/package.json apps/backend/package.json
+COPY packages/graph-parser/package.json packages/graph-parser/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @groundplan/backend...
 
-# Compile TypeScript -> dist/, then produce a self-contained, prod-only
+# Compile TypeScript -> dist/ (the `...` filter builds workspace deps first,
+# i.e. @groundplan/graph-parser), then produce a self-contained, prod-only
 # package tree in /prod (flattened node_modules + dist + drizzle migrations).
+COPY packages/graph-parser/ packages/graph-parser/
 COPY apps/backend/ apps/backend/
-RUN pnpm --filter @groundplan/backend build \
+RUN pnpm --filter @groundplan/backend... build \
  && pnpm --filter=@groundplan/backend deploy --prod --legacy /prod
 
 # ---- runtime --------------------------------------------------------------

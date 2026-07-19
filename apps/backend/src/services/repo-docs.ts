@@ -7,8 +7,9 @@ import {
   type GraphSnapshotRow,
   type RepositoryRow,
 } from "../db/schema.js";
+import { parseHclRepo } from "@groundplan/graph-parser";
+
 import type { Graph, UnresolvedReference } from "../graph/graph.js";
-import { parseHclRepo } from "../graph/hcl-parser.js";
 import { mapK8sObjects } from "../graph/k8s-mapper.js";
 import { isManifestPath, parseManifests } from "../graph/manifest-parser.js";
 import { reconcileRepositoryAnnotations } from "./annotation-reconcile.js";

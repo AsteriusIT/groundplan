@@ -12,14 +12,13 @@
  * Keys are sorted ascending and rows are capped so the output is deterministic
  * and bounded — the graph is serialized byte-stably for golden comparison.
  */
+import type { AttributeDiffRow } from "@groundplan/graph-parser";
+
 import type { ChangeKind } from "./graph.js";
 
-/** One masked before/after row for a single attribute. */
-export type AttributeDiffRow = {
-  key: string;
-  before: string | null;
-  after: string | null;
-};
+// The row type moved to the shared package with the rest of the graph types
+// (GP-145); re-exported here so existing importers keep working.
+export type { AttributeDiffRow } from "@groundplan/graph-parser";
 
 /** The `change` object of a Terraform plan `resource_change` (fields optional). */
 export type PlanResourceChange = {

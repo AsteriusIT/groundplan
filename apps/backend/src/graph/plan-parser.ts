@@ -16,24 +16,29 @@
  *    unresolved (vars, locals) is silently skipped. The resolution itself lives
  *    in the shared `dependency-edges` builder (reused by Producer B).
  */
-import { computeAttributeDiff, type PlanResourceChange } from "./attribute-diff.js";
 import {
+  attachAssociations,
+  attachIam,
+  attachNsg,
+  buildDependencyEdges,
+  buildInstancesByBase,
   classifyJoins,
+  deriveContainment,
   inlineScaleSetLinks,
   inlineVmAttachLinks,
   joinEdgeAdditions,
   joinEffects,
-  type JoinLink,
-} from "./azurerm-joins.js";
-import { deriveContainment } from "./containment.js";
-import {
-  buildDependencyEdges,
-  buildInstancesByBase,
+  normalizePorts,
   resolveReference,
   type DependencySource,
   type EdgeContext,
+  type ExtractedIam,
+  type ExtractedNsg,
+  type JoinLink,
   type RawRef,
-} from "./dependency-edges.js";
+} from "@groundplan/graph-parser";
+
+import { computeAttributeDiff, type PlanResourceChange } from "./attribute-diff.js";
 import type {
   ChangeKind,
   Graph,
@@ -44,9 +49,7 @@ import type {
   RoleAssignment,
   UnresolvedReference,
 } from "./graph.js";
-import { attachIam, type ExtractedIam } from "./iam.js";
 import { propagateImpact } from "./impact.js";
-import { attachAssociations, attachNsg, normalizePorts, type ExtractedNsg } from "./nsg.js";
 
 type PlanChange = PlanResourceChange & { actions?: unknown };
 type ResourceChange = {

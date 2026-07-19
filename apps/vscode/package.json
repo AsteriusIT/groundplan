@@ -1,0 +1,71 @@
+{
+  "name": "groundplan-vscode",
+  "displayName": "Groundplan — Terraform Architecture Preview",
+  "description": "Live, interactive architecture diagram of your Terraform, beside your editor. Runs locally; your code never leaves your machine.",
+  "version": "0.0.1",
+  "publisher": "asteriusit",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AsteriusIT/groundplan.git",
+    "directory": "apps/vscode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "terraform",
+    "infrastructure",
+    "diagram",
+    "iac",
+    "azure"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0a1e42",
+    "theme": "dark"
+  },
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onLanguage:terraform"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "groundplan.openPreview",
+        "title": "Groundplan: Open Preview"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs && vite build",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "package": "pnpm build && vsce package --no-dependencies -o groundplan.vsix",
+    "clean": "rm -rf dist *.tsbuildinfo groundplan.vsix"
+  },
+  "devDependencies": {
+    "@groundplan/canvas": "workspace:*",
+    "@groundplan/graph-parser": "workspace:*",
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@types/vscode": "^1.90.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.25.0",
+    "ovsx": "^0.10.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}

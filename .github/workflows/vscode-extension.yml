@@ -1,0 +1,109 @@
+# Package (and on a version tag, publish) the VS Code extension (GP-150).
+#
+# workflow_dispatch  -> build + test + package, upload the .vsix artifact.
+# push tag vscode-v* -> the same, then create a GitHub release carrying the
+#                       .vsix, and publish to the VS Code Marketplace (secret
+#                       VSCE_PAT) and Open VSX (secret OVSX_PAT) — each store
+#                       is skipped with a notice until its secret exists, so
+#                       GitHub releases work before the accounts do. The
+#                       version comes from apps/vscode/package.json and must
+#                       match the tag, or the run fails before publishing.
+#
+# Setup for the secrets/publisher accounts: docs/vscode-publishing.md.
+name: vscode-extension
+
+on:
+  push:
+    tags: ["vscode-v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: vscode-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # create the GitHub release; the job never pushes code
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (extension + workspace deps)
+        run: pnpm install --frozen-lockfile --filter groundplan-vscode...
+
+      - name: Test
+        run: pnpm --filter groundplan-vscode test
+
+      - name: Tag matches the manifest version
+        if: startsWith(github.ref, 'refs/tags/vscode-v')
+        run: |
+          MANIFEST=$(node -p "require('./apps/vscode/package.json').version")
+          TAG="${GITHUB_REF_NAME#vscode-v}"
+          if [ "$MANIFEST" != "$TAG" ]; then
+            echo "tag vscode-v$TAG != manifest $MANIFEST" >&2
+            exit 1
+          fi
+
+      - name: Package .vsix (bundles host + webview first)
+        run: pnpm --filter groundplan-vscode package
+
+      - name: Bundle discipline — the .vsix stays lean
+        run: |
+          SIZE=$(stat -c%s apps/vscode/groundplan.vsix)
+          echo ".vsix size: $SIZE bytes"
+          if [ "$SIZE" -gt 5242880 ]; then
+            echo ".vsix exceeds 5 MB" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: groundplan-vsix
+          path: apps/vscode/groundplan.vsix
+          if-no-files-found: error
+
+      # The tag's GitHub release carries the .vsix — installable offline via
+      # `code --install-extension`, and the only channel with no store account.
+      # Re-runs of the same tag re-attach the file instead of failing.
+      - name: Publish GitHub release with the .vsix
+        if: startsWith(github.ref, 'refs/tags/vscode-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#vscode-v}"
+          gh release create "$GITHUB_REF_NAME" apps/vscode/groundplan.vsix \
+            --title "Groundplan for VS Code v$VERSION" \
+            --generate-notes \
+            --verify-tag \
+          || gh release upload "$GITHUB_REF_NAME" apps/vscode/groundplan.vsix --clobber
+
+      - name: Publish to VS Code Marketplace
+        if: startsWith(github.ref, 'refs/tags/vscode-v') && env.VSCE_PAT != ''
+        run: |
+          pnpm --filter groundplan-vscode exec vsce publish \
+            --no-dependencies --packagePath groundplan.vsix
+
+      - name: Publish to Open VSX (VSCodium / Cursor users)
+        if: startsWith(github.ref, 'refs/tags/vscode-v') && env.OVSX_PAT != ''
+        run: |
+          pnpm --filter groundplan-vscode exec ovsx publish \
+            groundplan.vsix -p "$OVSX_PAT"
+
+      - name: Store publishes skipped?
+        if: startsWith(github.ref, 'refs/tags/vscode-v') && (env.VSCE_PAT == '' || env.OVSX_PAT == '')
+        run: |
+          [ -z "$VSCE_PAT" ] && echo "::notice::VSCE_PAT not set — Marketplace publish skipped (see docs/vscode-publishing.md)"
+          [ -z "$OVSX_PAT" ] && echo "::notice::OVSX_PAT not set — Open VSX publish skipped (see docs/vscode-publishing.md)"
+          true
