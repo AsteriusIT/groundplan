@@ -39,6 +39,9 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
+        # The image's `node` user — numeric so kubelet can verify non-root.
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:

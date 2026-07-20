@@ -372,6 +372,18 @@ Local dev needs Postgres up first: `docker compose up -d`.
   - Frontend: a Kubernetes snapshot gets the **diagram and nothing else** —
     `viewsFor()` (view-switcher) is the one place that decides; annotate, AI, tours
     and share links are absent, and the deterministic summary carries the review.
+- **Kubernetes install (GP-167 epic, GP-168..GP-172):** `deploy/chart/groundplan`
+  deploys api + frontend + ingress. Database and IdP are **external by default**
+  (`externalDatabase.*`, `oidc.*`); `postgresql.enabled` / `keycloak.enabled` are
+  eval-only embedded alternatives, each mutually exclusive with its external
+  counterpart — impossible combinations `fail` template rendering with a
+  sentence. Migrations run as a hook Job (always pre-upgrade; pre-install only
+  when DB + secret pre-exist the release) sharing the api's one templated
+  `DATABASE_URL`. After any chart edit run `deploy/chart/tests/run.sh --update`
+  (golden files are committed); `helm-chart.yml` lints, goldens and kind-smokes
+  chart changes (`tests/smoke.sh` = install eval mode, login via the imported
+  realm, POST a fixture plan, assert the snapshot). Images go to GHCR (public,
+  chart default) + Scaleway on `v*` tags. See `docs/install-kubernetes.md`.
 - **VS Code extension (GP-144 epic, GP-145..GP-150):** `apps/vscode` renders a
   live architecture preview of the workspace's Terraform — parse via
   `@groundplan/graph-parser` in the extension host, draw via `@groundplan/canvas`

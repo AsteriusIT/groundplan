@@ -1,5 +1,8 @@
 # Production deployment
 
+> Deploying on **Kubernetes**? Use the Helm chart instead —
+> see [install-kubernetes.md](install-kubernetes.md).
+
 A single, self-contained `docker-compose.prod.yml` runs the whole platform —
 frontend, API, both databases, and the Keycloak identity provider — behind a
 Caddy edge that terminates TLS with automatic Let's Encrypt certificates. No
