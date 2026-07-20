@@ -51,6 +51,24 @@
           "group": "navigation"
         }
       ]
+    },
+    "configuration": {
+      "title": "Groundplan",
+      "properties": {
+        "groundplan.theme": {
+          "type": "string",
+          "enum": [
+            "carbon",
+            "light"
+          ],
+          "enumDescriptions": [
+            "Near-neutral dark theme.",
+            "Light drafting-paper theme."
+          ],
+          "default": "carbon",
+          "description": "Colour theme of the Groundplan preview panel."
+        }
+      }
     }
   },
   "scripts": {

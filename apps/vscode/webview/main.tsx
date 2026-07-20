@@ -32,6 +32,7 @@ import type {
   BaselineMode,
   DiffState,
   HostMessage,
+  PreviewTheme,
   WebviewMessage,
 } from "../src/messages";
 
@@ -40,6 +41,17 @@ declare function acquireVsCodeApi(): {
 };
 
 const vscode = acquireVsCodeApi();
+
+/**
+ * Theme (the `groundplan.theme` setting — no in-panel switch): the host bakes
+ * the initial value into <html>; this applies a settings change live.
+ */
+function applyTheme(theme: PreviewTheme): void {
+  const root = document.documentElement;
+  root.classList.toggle("dark", theme === "carbon");
+  if (theme === "carbon") root.dataset.theme = "carbon";
+  else delete root.dataset.theme;
+}
 
 type View = "infra" | "network" | "iam";
 
@@ -102,6 +114,8 @@ function App(): React.JSX.Element {
         setSelectedAddress(message.address);
       } else if (message.type === "diffState") {
         setDiff(message.state);
+      } else if (message.type === "theme") {
+        applyTheme(message.theme);
       }
     };
     window.addEventListener("message", onMessage);

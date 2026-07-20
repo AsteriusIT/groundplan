@@ -7,6 +7,7 @@ const html = buildWebviewHtml({
   cspSource: "vscode-resource://test",
   nonce: "NONCE123",
   baseHref: "vscode-resource://test/dist/webview",
+  theme: "carbon",
 });
 
 test("the webview loads only bundled assets — CSP allows no remote origin", () => {
@@ -26,6 +27,24 @@ test("relative bundle assets resolve through a <base> tag", () => {
   assert.match(html, /<base href="vscode-resource:\/\/test\/dist\/webview\/"\/>/);
   assert.match(html, /<script type="module" nonce="NONCE123" src="webview\.js">/);
   assert.match(html, /<link rel="stylesheet" href="webview\.css"\/>/);
+});
+
+test("carbon theme bakes the dark + carbon tokens into <html>", () => {
+  // Baked at build time (not applied by script) so the panel never flashes
+  // the wrong theme before React mounts.
+  assert.match(html, /<html lang="en" class="dark" data-theme="carbon">/);
+});
+
+test("light theme leaves <html> bare — light is the :root default", () => {
+  const light = buildWebviewHtml({
+    cspSource: "vscode-resource://test",
+    nonce: "NONCE123",
+    baseHref: "vscode-resource://test/dist/webview",
+    theme: "light",
+  });
+  assert.match(light, /<html lang="en">/);
+  assert.ok(!light.includes("data-theme"), "no data-theme attribute");
+  assert.ok(!/class="dark"/.test(light), "no dark class");
 });
 
 test("nonces are fresh and URL-safe", () => {

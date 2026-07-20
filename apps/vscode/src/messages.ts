@@ -8,6 +8,15 @@ import type { Graph } from "@groundplan/graph-parser";
 export type BaselineMode = "head" | "merge-base";
 
 /**
+ * The preview's colour theme: the near-neutral dark "carbon" (default) or the
+ * light "drafting paper" — the same token sets the web app ships. Chosen via
+ * the `groundplan.theme` setting, never in-panel chrome. The initial value is
+ * baked into the webview HTML; a settings change reaches an open panel as a
+ * host message.
+ */
+export type PreviewTheme = "carbon" | "light";
+
+/**
  * GP-154: everything the webview needs to render diff mode honestly: the
  * user's persisted choices (echoed back so a reopened panel restores them),
  * whether a baseline actually resolved, the ref name for the caption, and
@@ -50,6 +59,11 @@ export type HostMessage =
       /** GP-154: diff-mode status; accompanies every snapshot. */
       type: "diffState";
       state: DiffState;
+    }
+  | {
+      /** The `groundplan.theme` setting changed while the panel was open. */
+      type: "theme";
+      theme: PreviewTheme;
     };
 
 /** Webview → host. */

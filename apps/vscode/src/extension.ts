@@ -33,6 +33,7 @@ import type {
   BaselineMode,
   DiffState,
   HostMessage,
+  PreviewTheme,
   WebviewMessage,
 } from "./messages";
 import { toPosixRelative } from "./paths";
@@ -50,6 +51,16 @@ const HIGHLIGHT_FADE_MS = 1000;
 const PREF_ENABLED = "groundplan.diff.enabled";
 const PREF_MODE = "groundplan.diff.mode";
 const PREF_CHANGED_ONLY = "groundplan.diff.changedOnly";
+/** The theme is a contributed VS Code setting — no in-panel switch (chrome
+ * stays quiet); VS Code owns the persistence and the settings UI. */
+const THEME_SETTING = "groundplan.theme";
+
+/** The current value of the `groundplan.theme` setting. */
+function previewTheme(): PreviewTheme {
+  return vscode.workspace
+    .getConfiguration()
+    .get<PreviewTheme>(THEME_SETTING, "carbon");
+}
 
 let preview: LivePreview | null = null;
 
@@ -187,6 +198,16 @@ class LivePreview {
       }
     });
 
+    // A settings change repaints the open panel — no reload, the webview just
+    // flips the token classes on <html>.
+    this.disposables.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration(THEME_SETTING)) {
+          void this.post({ type: "theme", theme: previewTheme() });
+        }
+      }),
+    );
+
     this.panel.onDidDispose(() => {
       this.reparse.dispose();
       this.diagnostics.dispose();
@@ -200,6 +221,7 @@ class LivePreview {
       cspSource: this.panel.webview.cspSource,
       nonce: makeNonce(),
       baseHref: this.panel.webview.asWebviewUri(distRoot).toString(),
+      theme: previewTheme(),
     });
   }
 

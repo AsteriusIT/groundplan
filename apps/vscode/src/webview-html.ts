@@ -9,6 +9,8 @@
  */
 import { randomBytes } from "node:crypto";
 
+import type { PreviewTheme } from "./messages";
+
 export type WebviewHtmlInput = {
   /** `webview.cspSource` — the only origin assets may come from. */
   cspSource: string;
@@ -16,6 +18,8 @@ export type WebviewHtmlInput = {
   nonce: string;
   /** `asWebviewUri(dist/webview)` — the <base> the bundle resolves against. */
   baseHref: string;
+  /** Baked into <html> so the panel opens in the right theme, no flash. */
+  theme: PreviewTheme;
 };
 
 /** A fresh URL-safe nonce for one webview lifetime. */
@@ -27,6 +31,7 @@ export function buildWebviewHtml({
   cspSource,
   nonce,
   baseHref,
+  theme,
 }: WebviewHtmlInput): string {
   const csp = [
     "default-src 'none'",
@@ -38,8 +43,11 @@ export function buildWebviewHtml({
     `script-src 'nonce-${nonce}'`,
   ].join("; ");
 
+  // Light is the canvas package's :root default — a bare <html> selects it.
+  const themeAttrs = theme === "carbon" ? ' class="dark" data-theme="carbon"' : "";
+
   return `<!doctype html>
-<html lang="en" class="dark" data-theme="carbon">
+<html lang="en"${themeAttrs}>
 <head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Content-Security-Policy" content="${csp}"/>
