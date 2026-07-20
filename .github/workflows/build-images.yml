@@ -1,10 +1,12 @@
-# Build & push the production images to the Scaleway container registry.
+# Build & push the production images to the Scaleway container registry + GHCR.
 #
 # Automates the manual flow in docs/deployment.md ("Building & pushing images").
 # Publishes on version tags (v1.2.3 -> 1.2.3, 1.2, latest); workflow_dispatch
 # produces a sha-tagged build for testing without touching `latest`.
 #
-# Requires one repository secret:
+# GHCR (ghcr.io/asteriusit/groundplan-*) is the public home the Helm chart
+# defaults to (GP-168); Scaleway keeps serving the compose deployment. GHCR
+# auth is the workflow's own GITHUB_TOKEN; Scaleway needs one repository secret:
 #   SCW_SECRET_KEY  A Scaleway API secret key with Container Registry write.
 #                   (Registry login user is the literal "nologin".)
 name: build-images
@@ -20,7 +22,8 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read # pushing to Scaleway, not GHCR — no `packages` scope needed
+  contents: read
+  packages: write # publish to GHCR
 
 env:
   REGISTRY: rg.fr-par.scw.cloud/eidos
@@ -51,11 +54,21 @@ jobs:
           username: nologin
           password: ${{ secrets.SCW_SECRET_KEY }}
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same tag set pushed to both registries.
       - name: Derive tags & labels
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/groundplan-${{ matrix.image }}
+          images: |
+            ${{ env.REGISTRY }}/groundplan-${{ matrix.image }}
+            ghcr.io/asteriusit/groundplan-${{ matrix.image }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

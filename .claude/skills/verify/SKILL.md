@@ -18,7 +18,7 @@ pnpm dev                              # backend :3000, frontend :5173
 
 `pnpm dev` fails with `EADDRINUSE` when a dev server is already running — that is
 fine, it means the stack is up and `tsx watch` / Vite HMR already picked up your
-changes. Check with `curl -s localhost:3000/healthz`.
+changes. Check with `curl -s localhost:3000/readyz` (200 = API + DB up).
 
 Dev defaults (`config/env.ts`, `src/config.ts`) already point at the dockerized
 Keycloak, so no env setup is needed.

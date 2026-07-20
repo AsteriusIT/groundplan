@@ -25,7 +25,7 @@ export type AuthPluginOptions = {
 /** Routes that never require a bearer token. */
 function isExempt(routeUrl: string | undefined): boolean {
   if (!routeUrl) return true; // unmatched -> let the 404 handler respond
-  if (routeUrl === "/healthz") return true;
+  if (routeUrl === "/healthz" || routeUrl === "/readyz") return true;
   if (routeUrl === "/api/v1/health") return true;
   if (routeUrl.startsWith("/api/v1/webhooks/")) return true;
   // Public share links (GP-39): tokenized, no bearer token.

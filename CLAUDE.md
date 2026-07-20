@@ -93,8 +93,10 @@ Local dev needs Postgres up first: `docker compose up -d`.
 ### Ports & dev wiring
 
 - Backend listens on **:3000**. API routes are under **`/api/v1`** (e.g.
-  `GET /api/v1/health`); the readiness probe **`GET /healthz`** is at the root and
-  returns `{"status":"ok","db":"ok"}` (200) or 503 if Postgres is unreachable.
+  `GET /api/v1/health`); at the root live the probe pair (GP-168): liveness
+  **`GET /healthz`** (200 whenever the process is up, no DB) and readiness
+  **`GET /readyz`**, which returns `{"status":"ok","db":"ok"}` (200) or 503 if
+  Postgres is unreachable.
 - Postgres runs on **:5432** via `docker compose up -d` (`DATABASE_URL` defaults
   to `postgres://groundplan:groundplan@localhost:5432/groundplan`).
 - Frontend dev server runs on **:5173** and **proxies `/api` → `http://localhost:3000`**
@@ -241,7 +243,7 @@ Local dev needs Postgres up first: `docker compose up -d`.
 - **Auth (GP-6):** OIDC resource server. `plugins/auth.ts` is an `fp` global
   `onRequest` hook that validates bearer JWTs with `jose` (sig/iss/aud/exp),
   JIT-upserts a `users` row (by `oidc_subject`), and sets `request.authUser`.
-  Exempt: `/healthz`, `/api/v1/health`, `/api/v1/webhooks/*`. `GET /api/v1/me`
+  Exempt: `/healthz`, `/readyz`, `/api/v1/health`, `/api/v1/webhooks/*`. `GET /api/v1/me`
   returns `{id, email, display_name}`.
   - Enforced only when `OIDC_ISSUER_URL` + `OIDC_AUDIENCE` are set; **production
     refuses to boot without them** (fail-closed); unconfigured dev/test runs open

@@ -33,10 +33,12 @@ COPY apps/frontend/ apps/frontend/
 RUN pnpm --filter @groundplan/frontend build
 
 # ---- runtime --------------------------------------------------------------
-FROM nginx:1.31.2-alpine3.23-slim AS runtime
+# Unprivileged variant (GP-168): the whole server runs as the non-root nginx
+# user and listens on 8080, so Kubernetes can enforce runAsNonRoot.
+FROM nginxinc/nginx-unprivileged:1.31-alpine-slim AS runtime
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /repo/apps/frontend/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1/ || exit 1
+  CMD wget -q --spider http://127.0.0.1:8080/ || exit 1

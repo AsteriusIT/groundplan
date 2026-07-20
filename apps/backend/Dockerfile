@@ -49,9 +49,10 @@ COPY --from=build --chown=node:node /prod ./
 USER node
 EXPOSE 3000
 
-# Liveness/readiness uses the app's own /healthz (DB-checked). Node 22 has a
-# global fetch, so no extra tools are needed in the image.
+# Container health = readiness (/readyz, DB-checked), so compose dependents
+# wait for a servable API. Kubernetes points its own probes at /healthz
+# (liveness) + /readyz instead. Node 22 has a global fetch — no extra tools.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]

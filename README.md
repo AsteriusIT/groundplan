@@ -38,8 +38,9 @@ pnpm dev                                      # backend :3000 + frontend :5173
 ```
 
 Open <http://localhost:5173> (the landing page shows a green dot when the API is
-reachable). Verify the API + DB at <http://localhost:3000/healthz> — it returns
-`{"status":"ok","db":"ok"}`. In dev, migrations also auto-apply on backend startup.
+reachable). Verify the API + DB at <http://localhost:3000/readyz> — it returns
+`{"status":"ok","db":"ok"}` (`/healthz` is the DB-free liveness probe). In dev,
+migrations also auto-apply on backend startup.
 
 ### Useful commands
 
@@ -74,8 +75,9 @@ always calls relative `/api/...` paths.
 
 The backend is an OIDC **resource server**: it validates bearer tokens from an
 external IdP (no passwords handled here). Auth activates when `OIDC_ISSUER_URL`
-and `OIDC_AUDIENCE` are set; every route is protected except `/healthz` and
-`/api/v1/webhooks/*`. In production the app refuses to boot without them.
+and `OIDC_AUDIENCE` are set; every route is protected except `/healthz`,
+`/readyz` and `/api/v1/webhooks/*`. In production the app refuses to boot
+without them.
 
 A dockerized Keycloak (realm `groundplan`, user `dev`/`dev`) is provided:
 

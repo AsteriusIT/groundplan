@@ -48,8 +48,9 @@ checkout. `docker-compose.prod.yml` never builds; building lives in
 
 ### In CI (recommended)
 
-The `.github/workflows/build-images.yml` workflow builds and pushes both images
-to `rg.fr-par.scw.cloud/eidos` automatically. Push a version tag to publish:
+The `.github/workflows/build-images.yml` workflow builds and pushes the images
+to `rg.fr-par.scw.cloud/eidos` **and** `ghcr.io/asteriusit` (the public registry
+the Helm chart defaults to) automatically. Push a version tag to publish:
 
 ```bash
 git tag v1.2.3 && git push origin v1.2.3
