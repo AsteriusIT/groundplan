@@ -162,37 +162,42 @@ test("export.drawio always exports the full snapshot — a scope parameter is ig
   }
 });
 
-test("export.drawio?view= serves the network and IAM projections, cached per view", async () => {
+test("export.drawio?views= renders the chosen lenses as pages of one file", async () => {
   const app = await buildApp(env);
   try {
     const orgId = await seedOrg(app);
     const { projectId, snapshotId } = await seedSnapshot(app, orgId);
     const base = `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/export.drawio`;
 
-    const network = await app.inject({ method: "GET", url: `${base}?view=network` });
+    const network = await app.inject({ method: "GET", url: `${base}?views=network` });
     assert.equal(network.statusCode, 200);
     assert.equal(network.headers["x-groundplan-cache"], "miss");
+    assert.equal((network.payload.match(/<diagram /g) ?? []).length, 1);
     // Network view keeps the vnet/subnet, drops the bucket and the assignment.
     assert.ok(network.payload.includes("azurerm_subnet.a"));
     assert.ok(!network.payload.includes("aws_s3_bucket.untouched"));
 
-    const iam = await app.inject({ method: "GET", url: `${base}?view=iam` });
-    assert.equal(iam.statusCode, 200);
-    assert.equal(iam.headers["x-groundplan-cache"], "miss"); // its own cache entry
-    // IAM view is the grant graph: principal, scope and the role edge.
-    assert.ok(iam.payload.includes("aws_s3_bucket.untouched"));
-    assert.ok(iam.payload.includes('value="Reader"'));
-    assert.ok(!iam.payload.includes("azurerm_subnet.a"));
+    const all = await app.inject({ method: "GET", url: `${base}?views=infra,network,iam` });
+    assert.equal(all.statusCode, 200);
+    // One page per view, in canonical order.
+    assert.equal((all.payload.match(/<diagram /g) ?? []).length, 3);
+    assert.ok(all.payload.includes('name="Infrastructure"'));
+    assert.ok(all.payload.includes('name="Network"'));
+    assert.ok(all.payload.includes('name="IAM"'));
+    // The IAM page carries the grant edge.
+    assert.ok(all.payload.includes('value="Reader"'));
 
-    const again = await app.inject({ method: "GET", url: `${base}?view=network` });
-    assert.equal(again.headers["x-groundplan-cache"], "hit");
-    assert.equal(again.payload, network.payload);
+    // View order does not matter: same canonical cache entry.
+    const reordered = await app.inject({ method: "GET", url: `${base}?views=iam,infra,network` });
+    assert.equal(reordered.headers["x-groundplan-cache"], "hit");
+    assert.equal(reordered.payload, all.payload);
 
-    // The default view is untouched by the new parameter.
+    // The default (infra only) is its own entry, untouched by the new parameter.
     const infra = await app.inject({ method: "GET", url: base });
+    assert.equal((infra.payload.match(/<diagram /g) ?? []).length, 1);
     assert.notEqual(infra.payload, network.payload);
 
-    const bogus = await app.inject({ method: "GET", url: `${base}?view=bogus` });
+    const bogus = await app.inject({ method: "GET", url: `${base}?views=bogus` });
     assert.equal(bogus.statusCode, 422); // schema violations are 422 app-wide
 
     await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });

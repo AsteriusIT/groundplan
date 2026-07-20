@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import type { Graph } from "./graph.js";
 import { layoutGraph } from "./layout.js";
-import { drawioNodeWidth, renderDrawio } from "./drawio.js";
+import { drawioNodeWidth, renderDrawio, renderDrawioFile } from "./drawio.js";
 
 // The production layout call for draw.io exports: nodes sized to their label.
 const layoutForDrawio = (g: Graph) => layoutGraph(g, { nodeWidth: drawioNodeWidth });
@@ -157,6 +157,23 @@ test("edge labels are carried onto the edge cells (GP-175)", async () => {
   };
   const xml = renderDrawio(labelled, await layoutGraph(labelled), META);
   assert.ok(xml.includes('value="reads objects"'));
+});
+
+test("renderDrawioFile renders one page per view inside a single mxfile", async () => {
+  const laidOut = await layoutForDrawio(GRAPH);
+  const xml = renderDrawioFile([
+    { id: "infra", name: "Infrastructure", graph: GRAPH, laidOut },
+    { id: "network", name: "Network", graph: GRAPH, laidOut },
+  ]);
+
+  assert.ok(xml.startsWith("<mxfile"));
+  assert.equal((xml.match(/<mxfile /g) ?? []).length, 1);
+  assert.equal((xml.match(/<diagram /g) ?? []).length, 2);
+  assert.ok(xml.includes('<diagram id="infra" name="Infrastructure">'));
+  assert.ok(xml.includes('<diagram id="network" name="Network">'));
+  // Each page carries its own model and root cells.
+  assert.equal((xml.match(/<mxGraphModel /g) ?? []).length, 2);
+  assert.equal((xml.match(/<mxCell id="0"\/>/g) ?? []).length, 2);
 });
 
 test("nodes grow to fit long labels instead of overflowing the box", async () => {

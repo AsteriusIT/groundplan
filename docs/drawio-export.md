@@ -9,15 +9,18 @@ in its hover tooltip. Open the file in [diagrams.net](https://app.diagrams.net)
 (web or desktop): moving, deleting and re-connecting nodes behaves like any
 hand-drawn diagram, and module containers collapse.
 
-Use **Export → draw.io** on a PR or docs view, or fetch it directly:
+Use the **Export** dialog on a PR or docs view — pick draw.io and tick which
+views to include — or fetch it directly:
 
 ```text
-GET /api/v1/orgs/:orgId/snapshots/:id/export.drawio?view=infra|network|iam
+GET /api/v1/orgs/:orgId/snapshots/:id/export.drawio?views=infra,network,iam
 ```
 
 The export always covers the full snapshot (never the current filter state)
-and is cached per snapshot id + view like the SVG/PNG exports. `view` picks
-the lens, mirroring the app's view switcher:
+and is cached per snapshot id + view set like the SVG/PNG exports. `views` is
+a comma list of lenses mirroring the app's view switcher; **each becomes one
+page** of the downloaded file (view order never matters — pages always land
+in the order below):
 
 - **infra** (default) — the raw graph with module containers.
 - **network** — vnet ⊃ subnet containment as real nested containers, join

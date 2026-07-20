@@ -228,14 +228,14 @@ export async function getSnapshotExport(
   id: string,
   format: ExportFormat,
   scope: ExportScope = "full",
-  view: ExportView = "infra",
+  views: ExportView[] = ["infra"],
 ): Promise<Blob> {
   const headers: Record<string, string> = {};
   const token = tokenProvider();
   if (token) headers.Authorization = `Bearer ${token}`;
   const params = new URLSearchParams();
   if (scope === "changes") params.set("scope", "changes");
-  if (view !== "infra") params.set("view", view);
+  if (format === "drawio" && views.join() !== "infra") params.set("views", views.join(","));
   const query = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetch(
     `${apiBase()}/orgs/${encode(activeOrg())}/snapshots/${encode(id)}/export.${format}${query}`,

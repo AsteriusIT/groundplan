@@ -18,43 +18,71 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn();
 });
 
-it("offers SVG and PNG downloads and fetches the chosen format", async () => {
-  render(<ExportMenu snapshotId="s1" filenameBase="infra-2c9f8061" />);
+function openDialog(includeChangesScope = false) {
+  render(
+    <ExportMenu
+      snapshotId="s1"
+      filenameBase="infra-2c9f8061"
+      includeChangesScope={includeChangesScope}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /export/i }));
+}
 
-  fireEvent.click(screen.getByRole("menuitem", { name: /SVG/i }));
+it("opens the export dialog and downloads the chosen format", async () => {
+  openDialog();
 
-  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "svg", "full", "infra"));
+  fireEvent.click(screen.getByRole("radio", { name: /svg/i }));
+  fireEvent.click(screen.getByRole("button", { name: /download/i }));
+
+  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "svg", "full", ["infra"]));
   expect(URL.createObjectURL).toHaveBeenCalled();
 });
 
-it("offers network and IAM view draw.io exports", async () => {
-  render(<ExportMenu snapshotId="s1" filenameBase="infra-2c9f8061" />);
+it("offers the changes-only PNG variant when requested", () => {
+  openDialog(true);
+  expect(screen.getByRole("radio", { name: /changes only/i })).toBeInTheDocument();
+});
 
-  fireEvent.click(screen.getByRole("menuitem", { name: /network view/i }));
+it("hides the changes-only variant by default", () => {
+  openDialog();
+  expect(screen.queryByRole("radio", { name: /changes only/i })).not.toBeInTheDocument();
+});
+
+it("draw.io view checkboxes pick which views become pages of one file", async () => {
+  openDialog();
+
+  fireEvent.click(screen.getByRole("radio", { name: /draw\.io/i }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /network/i }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /iam/i }));
+  fireEvent.click(screen.getByRole("button", { name: /download/i }));
+
   await waitFor(() =>
-    expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full", "network"),
+    expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full", [
+      "infra",
+      "network",
+      "iam",
+    ]),
   );
-
-  fireEvent.click(screen.getByRole("menuitem", { name: /IAM view/i }));
-  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full", "iam"));
 });
 
-it("adds a changes-only PNG variant when requested", () => {
-  render(<ExportMenu snapshotId="s1" filenameBase="infra" includeChangesScope />);
-  expect(screen.getByRole("menuitem", { name: /changes only/i })).toBeInTheDocument();
-});
+it("view checkboxes only apply to draw.io and require at least one page", () => {
+  openDialog();
 
-it("offers a draw.io export and downloads it with the .drawio extension", async () => {
-  render(<ExportMenu snapshotId="s1" filenameBase="infra-2c9f8061" />);
+  // Not a draw.io export → no page checkboxes.
+  expect(screen.queryByRole("checkbox", { name: /network/i })).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("menuitem", { name: /draw\.io diagram/i }));
+  fireEvent.click(screen.getByRole("radio", { name: /draw\.io/i }));
+  const infra = screen.getByRole("checkbox", { name: /infrastructure/i });
+  expect(infra).toBeChecked();
 
-  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full", "infra"));
+  fireEvent.click(infra); // uncheck the only selected page
+  expect(screen.getByRole("button", { name: /download/i })).toBeDisabled();
 });
 
 it("links the downloadable draw.io shape library", () => {
-  render(<ExportMenu snapshotId="s1" filenameBase="infra" />);
-  const link = screen.getByRole("menuitem", { name: /shape library/i });
+  openDialog();
+  const link = screen.getByRole("link", { name: /shape library/i });
   expect(link).toHaveAttribute("href", "/groundplan-shapes.xml");
   expect(link).toHaveAttribute("download");
 });
@@ -62,9 +90,10 @@ it("links the downloadable draw.io shape library", () => {
 it("surfaces an export error", async () => {
   const { ApiError } = await import("@/api/client");
   getExportMock.mockRejectedValue(new ApiError(500, "boom"));
-  render(<ExportMenu snapshotId="s1" filenameBase="infra" />);
+  openDialog();
 
-  fireEvent.click(screen.getByRole("menuitem", { name: /PNG/i }));
+  fireEvent.click(screen.getByRole("radio", { name: /png/i }));
+  fireEvent.click(screen.getByRole("button", { name: /download/i }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent("boom");
 });

@@ -71,12 +71,16 @@ function vertex(p: PlacedNode, parent: PlacedNode | undefined): string {
   );
 }
 
-/**
- * Render a laid-out graph as an uncompressed .drawio (mxfile) document. The
- * graph supplies structure (containment, edges, labels); the layout supplies
- * geometry.
- */
-export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta): string {
+/** One page of a .drawio file: a projected graph and its layout, named. */
+export interface DrawioPage {
+  id: string;
+  name: string;
+  graph: Graph;
+  laidOut: LaidOutGraph;
+}
+
+/** The `<mxGraphModel>` body of one page. */
+function pageModel(graph: Graph, laidOut: LaidOutGraph): string {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const parentOf = new Map<string, string>();
   for (const edge of graph.edges) {
@@ -126,10 +130,7 @@ export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta)
       );
     });
 
-  const name = [meta.repoName, meta.sha.slice(0, 8)].filter(Boolean).join(" · ") || "groundplan";
   return [
-    `<mxfile host="groundplan">`,
-    `<diagram id="groundplan" name="${esc(name)}">`,
     `<mxGraphModel dx="0" dy="0" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" math="0" shadow="0">`,
     `<root>`,
     `<mxCell id="0"/>`,
@@ -138,7 +139,23 @@ export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta)
     ...edges,
     `</root>`,
     `</mxGraphModel>`,
-    `</diagram>`,
-    `</mxfile>`,
   ].join("");
+}
+
+/**
+ * Render one or more pages as an uncompressed .drawio (mxfile) document. Each
+ * page's graph supplies structure (containment, edges, labels); its layout
+ * supplies geometry.
+ */
+export function renderDrawioFile(pages: DrawioPage[]): string {
+  const diagrams = pages.map(
+    (p) => `<diagram id="${esc(p.id)}" name="${esc(p.name)}">${pageModel(p.graph, p.laidOut)}</diagram>`,
+  );
+  return `<mxfile host="groundplan">${diagrams.join("")}</mxfile>`;
+}
+
+/** A single-page document named after the snapshot (repo · short sha). */
+export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta): string {
+  const name = [meta.repoName, meta.sha.slice(0, 8)].filter(Boolean).join(" · ") || "groundplan";
+  return renderDrawioFile([{ id: "groundplan", name, graph, laidOut }]);
 }

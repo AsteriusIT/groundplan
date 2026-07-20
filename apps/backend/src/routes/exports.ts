@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { graphSnapshots, repositories } from "../db/schema.js";
 import {
   cachedSnapshotExport,
+  canonicalViews,
   repoLabel,
   type ExportFormat,
   type ExportScope,
@@ -27,12 +28,15 @@ const scopeQuerySchema = {
 };
 
 // draw.io always exports the full snapshot (GP-177); unknown query params are
-// stripped by validation, so a stray ?scope= cannot change the output. `view`
-// picks the lens (mirrors the app's view switcher).
+// stripped by validation, so a stray ?scope= cannot change the output. `views`
+// is a comma list of lenses (mirroring the app's view switcher) — each becomes
+// one page of the file.
 const drawioQuerySchema = {
   type: "object",
   additionalProperties: false,
-  properties: { view: { type: "string", enum: ["infra", "network", "iam"] } },
+  properties: {
+    views: { type: "string", pattern: "^(infra|network|iam)(,(infra|network|iam)){0,2}$" },
+  },
 };
 
 export const exportRoutes: FastifyPluginAsync = async (app) => {
@@ -63,22 +67,22 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
             .where(eq(repositories.id, snapshot.repositoryId))
         : [];
 
-      const view: ExportView =
-        format === "drawio"
-          ? ((request.query as { view?: ExportView }).view ?? "infra")
-          : "infra";
+      const rawViews =
+        format === "drawio" ? (request.query as { views?: string }).views : undefined;
+      const views = canonicalViews(rawViews?.split(",") as ExportView[] | undefined);
 
       const { body, contentType, cached } = await cachedSnapshotExport(
         app.exportCacheDir,
-        { snapshot, repoUrl: repo?.url ?? "", format, scope, view },
+        { snapshot, repoUrl: repo?.url ?? "", format, scope, views },
       );
 
       if (format === "drawio") {
+        const viewPart = views.length === 1 && views[0] === "infra" ? "" : views.join("-");
         const base =
           [
             repoLabel(repo?.url ?? "").replaceAll("/", "-"),
             snapshot.commitSha.slice(0, 8),
-            view === "infra" ? "" : view,
+            viewPart,
           ]
             .filter(Boolean)
             .join("-") || "snapshot";

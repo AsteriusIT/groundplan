@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 
 import type { GraphSnapshotRow } from "../db/schema.js";
-import { drawioNodeWidth, renderDrawio } from "../graph/drawio.js";
+import { drawioNodeWidth, renderDrawioFile, type DrawioPage } from "../graph/drawio.js";
 import { iamViewGraph } from "../graph/iam-view.js";
 import { layoutGraph } from "../graph/layout.js";
 import { networkViewGraph } from "../graph/network-view.js";
@@ -21,8 +21,22 @@ import { changesSubgraph } from "../graph/subgraph.js";
 
 export type ExportFormat = "svg" | "png" | "drawio";
 export type ExportScope = "full" | "changes";
-/** The lens a draw.io export renders (mirrors the app's view switcher). */
+/** A lens a draw.io export can render (mirrors the app's view switcher). */
 export type ExportView = "infra" | "network" | "iam";
+
+const VIEW_ORDER: ExportView[] = ["infra", "network", "iam"];
+const PAGE_NAME: Record<ExportView, string> = {
+  infra: "Infrastructure",
+  network: "Network",
+  iam: "IAM",
+};
+
+/** Dedupe + fix the page order, so `iam,infra` and `infra,iam` are one export. */
+export function canonicalViews(views: ExportView[] | undefined): ExportView[] {
+  const requested = new Set(views ?? []);
+  const ordered = VIEW_ORDER.filter((v) => requested.has(v));
+  return ordered.length > 0 ? ordered : ["infra"];
+}
 
 /** Default raster width, per GP-37. */
 const PNG_WIDTH = 1200;
@@ -39,8 +53,8 @@ export interface ExportRequest {
   repoUrl: string;
   format: ExportFormat;
   scope: ExportScope;
-  /** draw.io only; SVG/PNG always render the infra view. Default "infra". */
-  view?: ExportView;
+  /** draw.io only: one page per view. SVG/PNG always render the infra view. */
+  views?: ExportView[];
 }
 
 /** `owner/repo` from a git URL, for the title block. */
@@ -88,14 +102,18 @@ export async function renderSnapshotExport(
 ): Promise<{ body: Buffer; contentType: string }> {
   if (req.format === "drawio") {
     // draw.io exports are always the full snapshot (GP-177): deterministic and
-    // cache-friendly, never the current filter state. `view` picks the lens.
-    const view = req.view ?? "infra";
-    const graph = projectView(req.snapshot.graph, view);
-    const laidOut = await layoutGraph(graph, {
-      nodeWidth: drawioNodeWidth,
-      nestAllContains: view === "network",
-    });
-    const xml = renderDrawio(graph, laidOut, exportMeta(req));
+    // cache-friendly, never the current filter state. Each requested view
+    // becomes one page of the file.
+    const pages: DrawioPage[] = [];
+    for (const view of canonicalViews(req.views)) {
+      const graph = projectView(req.snapshot.graph, view);
+      const laidOut = await layoutGraph(graph, {
+        nodeWidth: drawioNodeWidth,
+        nestAllContains: view === "network",
+      });
+      pages.push({ id: view, name: PAGE_NAME[view], graph, laidOut });
+    }
+    const xml = renderDrawioFile(pages);
     return { body: Buffer.from(xml, "utf8"), contentType: CONTENT_TYPE.drawio };
   }
   const svg = await renderSnapshotSvg(req);
@@ -103,10 +121,11 @@ export async function renderSnapshotExport(
   return { body, contentType: CONTENT_TYPE[req.format] };
 }
 
-/** The cache filename: `{id}-{scope}[-{view}]-v{style}.{format}`. */
+/** The cache filename: `{id}-{scope}[-{views…}]-v{style}.{format}`. */
 export function cacheKey(req: ExportRequest): string {
-  const view = req.view && req.view !== "infra" ? `-${req.view}` : "";
-  return `${req.snapshot.id}-${req.scope}${view}-v${STYLE_VERSION}.${req.format}`;
+  const views = canonicalViews(req.views);
+  const viewPart = views.length === 1 && views[0] === "infra" ? "" : `-${views.join("-")}`;
+  return `${req.snapshot.id}-${req.scope}${viewPart}-v${STYLE_VERSION}.${req.format}`;
 }
 
 /**
