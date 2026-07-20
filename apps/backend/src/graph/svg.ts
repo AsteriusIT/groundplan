@@ -12,7 +12,7 @@ import { categorize, shortType, type Category } from "./categories.js";
 import type { ChangeKind, GraphNode } from "./graph.js";
 
 /** Cache-busting version tag — bump on any visual change. */
-export const STYLE_VERSION = "5";
+export const STYLE_VERSION = "6";
 
 // Blueprint tokens (see apps/frontend/src/index.css). Restated as hex here and
 // shared with the draw.io exporter (GP-175) — the backend's single colour table.

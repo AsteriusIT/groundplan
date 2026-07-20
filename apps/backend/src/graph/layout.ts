@@ -57,6 +57,8 @@ interface ElkEdge {
   sources: string[];
   targets: string[];
   sections?: ElkEdgeSection[];
+  /** Output only: the node whose coordinate system the sections are in. */
+  container?: string;
 }
 
 // elkjs ships a CJS bundle whose default export IS the ELK constructor, but the
@@ -204,16 +206,27 @@ export async function layoutGraph(graph: Graph, opts: LayoutOptions = {}): Promi
 
   const placedById = new Map(nodes.map((p) => [p.id, p]));
   const depEdges = graph.edges.filter((e) => e.kind === "depends_on");
-  const sectionById = new Map(
-    (result.edges ?? []).map((e) => [e.id, e.sections?.[0]]),
+  const routeById = new Map(
+    (result.edges ?? []).map((e) => [e.id, { section: e.sections?.[0], container: e.container }]),
   );
+
+  // ELK expresses a route relative to the edge's containing node; shift it by
+  // that container's absolute position so every point is in one space.
+  const offsetOf = (containerId: string | undefined): ElkPoint => {
+    const container = containerId ? placedById.get(containerId) : undefined;
+    return container ? { x: container.x, y: container.y } : { x: 0, y: 0 };
+  };
 
   const edges: PlacedEdge[] = depEdges.map((edge, i) => {
     const rel = edgeRel(byId.get(edge.from), byId.get(edge.to));
     const inferred = edge.inferred === true;
-    const section = sectionById.get(`dep-${i}`);
-    if (section) {
-      const points = [section.startPoint, ...(section.bendPoints ?? []), section.endPoint];
+    const route = routeById.get(`dep-${i}`);
+    if (route?.section) {
+      const { section } = route;
+      const offset = offsetOf(route.container);
+      const points = [section.startPoint, ...(section.bendPoints ?? []), section.endPoint].map(
+        (p) => ({ x: p.x + offset.x, y: p.y + offset.y }),
+      );
       return { id: `dep-${i}`, rel, inferred, points };
     }
     // Fallback: a straight line from the dependency's right edge to the
