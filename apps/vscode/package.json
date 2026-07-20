@@ -3,7 +3,7 @@
   "displayName": "Groundplan — Terraform Architecture Preview",
   "description": "Live, interactive architecture diagram of your Terraform, beside your editor. Runs locally; your code never leaves your machine.",
   "version": "0.0.5",
-  "publisher": "asteriusit",
+  "publisher": "asterius-it",
   "private": true,
   "license": "MIT",
   "repository": {
