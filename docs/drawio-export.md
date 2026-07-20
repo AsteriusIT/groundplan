@@ -10,7 +10,7 @@ hand-drawn diagram, and module containers collapse.
 
 Use **Export → draw.io** on a PR or docs view, or fetch it directly:
 
-```
+```text
 GET /api/v1/orgs/:orgId/snapshots/:id/export.drawio
 ```
 
@@ -32,6 +32,13 @@ To load it in diagrams.net:
    (on draw.io desktop: **File → Open Library…**).
 2. A **groundplan** palette appears in the left sidebar.
 3. Drag templates next to exported nodes; they carry the same styles.
+
+> **Load from Device, not from URL.** "Open Library from → URL…" makes the
+> app.diagrams.net web app fetch through draw.io's own proxy, which cannot
+> reach a private or localhost groundplan instance — you get its HTML error
+> page back and draw.io reports it as
+> `Unexpected token 'T', "This page "… is not valid JSON`. Download the file
+> first, then open it from your device.
 
 ## Keeping the library in sync (contributors)
 
