@@ -18,6 +18,8 @@ test("a known category gets its built-in Azure shape", () => {
   const style = nodeStyleString(node({}));
   assert.ok(style.includes("shape=label;"));
   assert.ok(style.includes("image=img/lib/azure2/compute/Virtual_Machine.svg;"));
+  // The label must clear the 22px icon or the two overlap.
+  assert.ok(style.includes("spacingLeft=34;"));
 });
 
 test("every category maps to a distinct built-in shape; unknown types fall back to a plain rectangle", () => {
@@ -82,4 +84,6 @@ test("edges carry the relationship colour and the inferred dash", () => {
   assert.ok(neutral.includes("strokeColor=#a6b8d0;"));
   assert.ok(neutral.includes("dashed=1;"));
   assert.ok(!edgeStyleString("neutral", false).includes("dashed=1;"));
+  // Edges carry explicit ELK waypoints — no draw.io auto-router on top.
+  assert.ok(!neutral.includes("edgeStyle="));
 });

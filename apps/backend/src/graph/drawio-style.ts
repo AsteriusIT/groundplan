@@ -32,9 +32,10 @@ function resourceStyle(
   dashed: boolean,
 ): string {
   return (
-    (icon ? `shape=label;image=${icon};imageWidth=22;imageHeight=22;spacing=6;spacingLeft=4;` : "") +
+    (icon ? `shape=label;image=${icon};imageWidth=22;imageHeight=22;` : "") +
     `rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;` +
-    (icon ? "" : "spacingLeft=12;") +
+    // The label must clear the icon on the left, or the two overlap.
+    (icon ? "spacingLeft=34;spacing=6;" : "spacingLeft=12;") +
     `fillColor=${fill};strokeColor=${strokeColor};fontColor=${COLOR.ink};` +
     (dashed ? "dashed=1;" : "")
   );
@@ -66,10 +67,14 @@ export function moduleStyleString(): string {
   );
 }
 
-/** Edge style: relationship colour, dashed when the dependency was inferred. */
+/**
+ * Edge style: relationship colour, dashed when the dependency was inferred.
+ * No edgeStyle router — edges carry the ELK route as explicit waypoints, so
+ * draw.io draws the same polyline the canvas does.
+ */
 export function edgeStyleString(rel: EdgeRel, inferred: boolean): string {
   return (
-    `edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=${EDGE_COLOR[rel]};` +
+    `rounded=1;html=1;strokeColor=${EDGE_COLOR[rel]};` +
     `fontColor=${COLOR.muted};` +
     (inferred ? "dashed=1;dashPattern=4 3;" : "")
   );

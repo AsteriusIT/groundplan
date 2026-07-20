@@ -47,9 +47,46 @@ test("every graph node is a real vertex cell and every dependency a real edge ce
 
   assert.equal((xml.match(/vertex="1"/g) ?? []).length, GRAPH.nodes.length);
   assert.equal((xml.match(/edge="1"/g) ?? []).length, 2);
-  // Edges reference their endpoint cells by id (real cells, not an image).
-  assert.ok(xml.includes('source="aws_s3_bucket.logs"'));
-  assert.ok(xml.includes('target="module.net.azurerm_subnet.a"'));
+  // Edges reference their endpoint cells by id (real cells, not an image), and
+  // depends_on arrows flow dependency → dependent like the canvas (GP-31).
+  assert.ok(xml.includes('source="module.net.azurerm_subnet.a" target="aws_s3_bucket.logs"'));
+  assert.ok(
+    xml.includes(
+      'source="module.net.azurerm_virtual_network.this" target="module.net.azurerm_subnet.a"',
+    ),
+  );
+});
+
+test("depends_on edges follow the ELK route through explicit waypoints", async () => {
+  // A diamond: two middle nodes share a layer, so the joining edges must bend.
+  const resource = (name: string) => ({
+    id: `aws_s3_bucket.${name}`,
+    name,
+    type: "aws_s3_bucket",
+    provider: "aws",
+    module_path: [],
+    change: null,
+  });
+  const dep = (from: string, to: string) => ({
+    from: `aws_s3_bucket.${from}`,
+    to: `aws_s3_bucket.${to}`,
+    kind: "depends_on" as const,
+  });
+  const diamond: Graph = {
+    version: 2,
+    nodes: [resource("root"), resource("left"), resource("right"), resource("top")],
+    edges: [dep("left", "root"), dep("right", "root"), dep("top", "left"), dep("top", "right")],
+  };
+
+  const laidOut = await layoutGraph(diamond);
+  const xml = renderDrawio(diamond, laidOut, META);
+  // Every laid-out bend point is carried into the edge geometry, so draw.io
+  // draws the same route as the canvas instead of re-routing.
+  const bends = laidOut.edges.flatMap((e) => e.points.slice(1, -1));
+  assert.ok(bends.length > 0, "fixture should produce at least one bend point");
+  for (const p of bends) {
+    assert.ok(xml.includes(`<mxPoint x="${p.x}" y="${p.y}"/>`));
+  }
 });
 
 test("positions match the server-side canvas layout", async () => {

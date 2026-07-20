@@ -56,6 +56,13 @@ export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta)
     return vertex(p, parent?.isModule ? parent : undefined);
   });
 
+  // Laid-out routes by edge id (`dep-<index over the depends_on list>`).
+  const placedEdgeById = new Map(laidOut.edges.map((pe) => [pe.id, pe]));
+  const depIds = new Map<unknown, string>();
+  graph.edges
+    .filter((e) => e.kind === "depends_on")
+    .forEach((e, i) => depIds.set(e, `dep-${i}`));
+
   const edges = graph.edges
     .filter((e) => e.kind !== "contains" && placedById.has(e.from) && placedById.has(e.to))
     .map((e, i) => {
@@ -64,9 +71,22 @@ export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta)
         .filter(Boolean)
         .join(" ");
       const valueAttr = label ? ` value="${esc(label)}"` : "";
+      // depends_on arrows flow dependency → dependent, like the canvas (GP-31),
+      // and carry the ELK bend points so draw.io draws the same route.
+      const isDep = e.kind === "depends_on";
+      const [source, target] = isDep ? [e.to, e.from] : [e.from, e.to];
+      const bends = (isDep ? (placedEdgeById.get(depIds.get(e) ?? "")?.points ?? []) : []).slice(
+        1,
+        -1,
+      );
+      const geometry = bends.length
+        ? `<mxGeometry relative="1" as="geometry"><Array as="points">${bends
+            .map((p) => `<mxPoint x="${p.x}" y="${p.y}"/>`)
+            .join("")}</Array></mxGeometry>`
+        : `<mxGeometry relative="1" as="geometry"/>`;
       return (
-        `<mxCell id="e${i}"${valueAttr} style="${edgeStyleString(rel, e.inferred === true)}" edge="1" parent="1" source="${esc(e.from)}" target="${esc(e.to)}">` +
-        `<mxGeometry relative="1" as="geometry"/>` +
+        `<mxCell id="e${i}"${valueAttr} style="${edgeStyleString(rel, e.inferred === true)}" edge="1" parent="1" source="${esc(source)}" target="${esc(target)}">` +
+        geometry +
         `</mxCell>`
       );
     });
