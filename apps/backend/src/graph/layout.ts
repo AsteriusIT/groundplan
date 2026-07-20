@@ -109,6 +109,12 @@ export interface LaidOutGraph {
 /** Optional per-consumer sizing (the draw.io export widens nodes to fit labels). */
 export interface LayoutOptions {
   nodeWidth?: (node: GraphNode) => number;
+  /**
+   * Nest every `contains` parent as an ELK container, not only modules — the
+   * network view (vnet ⊃ subnet ⊃ resource) needs it; the default keeps
+   * module-only nesting so existing SVG/K8s renders are unchanged.
+   */
+  nestAllContains?: boolean;
 }
 
 /** Build the nested ELK input graph (mirrors the frontend `toElkGraph`). */
@@ -118,11 +124,17 @@ function toElkGraph(graph: Graph, opts: LayoutOptions): ElkNode {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
   }
 
+  const containsParents = new Set(
+    graph.edges.filter((e) => e.kind === "contains").map((e) => e.from),
+  );
+  const isContainer = (node: GraphNode): boolean =>
+    isModule(node) || (opts.nestAllContains === true && containsParents.has(node.id));
+
   const elkById = new Map<string, ElkNode>();
   for (const node of graph.nodes) {
     elkById.set(
       node.id,
-      isModule(node)
+      isContainer(node)
         ? { id: node.id, layoutOptions: ELK_MODULE_OPTIONS, children: [] }
         : { id: node.id, width: opts.nodeWidth?.(node) ?? RESOURCE_WIDTH, height: RESOURCE_HEIGHT },
     );

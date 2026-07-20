@@ -22,11 +22,12 @@ before(async () => {
 });
 
 const graph: Graph = {
-  version: 2,
+  version: 4,
   nodes: [
     { id: "azurerm_virtual_network.this", name: "this", type: "azurerm_virtual_network", provider: "azurerm", module_path: [], change: "create" },
-    { id: "azurerm_subnet.a", name: "a", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: "create" },
+    { id: "azurerm_subnet.a", name: "a", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: "create", parent_id: "azurerm_virtual_network.this" },
     { id: "aws_s3_bucket.untouched", name: "untouched", type: "aws_s3_bucket", provider: "aws", module_path: [], change: "noop" },
+    { id: "azurerm_role_assignment.ra", name: "ra", type: "azurerm_role_assignment", provider: "azurerm", module_path: [], change: "noop", role_assignment: { role: "Reader", principal: "aws_s3_bucket.untouched", scope: "azurerm_virtual_network.this" } },
   ],
   edges: [
     { from: "azurerm_subnet.a", to: "azurerm_virtual_network.this", kind: "depends_on" },
@@ -108,8 +109,8 @@ test("?scope=changes renders a smaller image than the full graph", async () => {
     const changes = await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/export.svg?scope=changes` });
     const fullRects = (full.payload.match(/rx="8"/g) ?? []).length;
     const changesRects = (changes.payload.match(/rx="8"/g) ?? []).length;
-    // The untouched s3 bucket is dropped from the changes view.
-    assert.equal(fullRects, 3);
+    // The untouched bucket and role assignment are dropped from the changes view.
+    assert.equal(fullRects, 4);
     assert.equal(changesRects, 2);
     await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
@@ -155,6 +156,45 @@ test("export.drawio always exports the full snapshot — a scope parameter is ig
     // Same bytes as the full export: the untouched s3 bucket is still there.
     assert.equal(scoped.payload, full.payload);
     assert.ok(scoped.payload.includes("aws_s3_bucket.untouched"));
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("export.drawio?view= serves the network and IAM projections, cached per view", async () => {
+  const app = await buildApp(env);
+  try {
+    const orgId = await seedOrg(app);
+    const { projectId, snapshotId } = await seedSnapshot(app, orgId);
+    const base = `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/export.drawio`;
+
+    const network = await app.inject({ method: "GET", url: `${base}?view=network` });
+    assert.equal(network.statusCode, 200);
+    assert.equal(network.headers["x-groundplan-cache"], "miss");
+    // Network view keeps the vnet/subnet, drops the bucket and the assignment.
+    assert.ok(network.payload.includes("azurerm_subnet.a"));
+    assert.ok(!network.payload.includes("aws_s3_bucket.untouched"));
+
+    const iam = await app.inject({ method: "GET", url: `${base}?view=iam` });
+    assert.equal(iam.statusCode, 200);
+    assert.equal(iam.headers["x-groundplan-cache"], "miss"); // its own cache entry
+    // IAM view is the grant graph: principal, scope and the role edge.
+    assert.ok(iam.payload.includes("aws_s3_bucket.untouched"));
+    assert.ok(iam.payload.includes('value="Reader"'));
+    assert.ok(!iam.payload.includes("azurerm_subnet.a"));
+
+    const again = await app.inject({ method: "GET", url: `${base}?view=network` });
+    assert.equal(again.headers["x-groundplan-cache"], "hit");
+    assert.equal(again.payload, network.payload);
+
+    // The default view is untouched by the new parameter.
+    const infra = await app.inject({ method: "GET", url: base });
+    assert.notEqual(infra.payload, network.payload);
+
+    const bogus = await app.inject({ method: "GET", url: `${base}?view=bogus` });
+    assert.equal(bogus.statusCode, 422); // schema violations are 422 app-wide
+
     await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
     await app.close();

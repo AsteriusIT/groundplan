@@ -7,11 +7,17 @@
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 
-import { ApiError, getSnapshotExport, type ExportFormat, type ExportScope } from "@/api/client";
+import {
+  ApiError,
+  getSnapshotExport,
+  type ExportFormat,
+  type ExportScope,
+  type ExportView,
+} from "@/api/client";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 
-type Choice = { format: ExportFormat; scope: ExportScope; label: string };
+type Choice = { format: ExportFormat; scope: ExportScope; label: string; view?: ExportView };
 
 export function ExportMenu({
   snapshotId,
@@ -34,16 +40,26 @@ export function ExportMenu({
       ? ([{ format: "png", scope: "changes", label: "PNG (changes only)" }] as Choice[])
       : []),
     // Always the full snapshot (GP-177) — editable cells for diagrams.net.
+    // The view entries mirror the app's view switcher lenses.
     { format: "drawio", scope: "full", label: "draw.io diagram" },
+    { format: "drawio", scope: "full", view: "network", label: "draw.io (network view)" },
+    { format: "drawio", scope: "full", view: "iam", label: "draw.io (IAM view)" },
   ];
 
   const download = async (choice: Choice) => {
     setBusy(true);
     setError(null);
     try {
-      const blob = await getSnapshotExport(snapshotId, choice.format, choice.scope);
+      const blob = await getSnapshotExport(
+        snapshotId,
+        choice.format,
+        choice.scope,
+        choice.view ?? "infra",
+      );
       const url = URL.createObjectURL(blob);
-      const suffix = choice.scope === "changes" ? "-changes" : "";
+      let suffix = "";
+      if (choice.view) suffix = `-${choice.view}`;
+      else if (choice.scope === "changes") suffix = "-changes";
       const a = document.createElement("a");
       a.href = url;
       a.download = `${filenameBase}${suffix}.${choice.format}`;
@@ -77,7 +93,7 @@ export function ExportMenu({
       >
         {choices.map((choice) => (
           <button
-            key={`${choice.format}-${choice.scope}`}
+            key={`${choice.format}-${choice.scope}-${choice.view ?? "infra"}`}
             type="button"
             role="menuitem"
             disabled={busy}

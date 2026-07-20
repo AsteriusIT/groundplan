@@ -12,11 +12,18 @@ hand-drawn diagram, and module containers collapse.
 Use **Export → draw.io** on a PR or docs view, or fetch it directly:
 
 ```text
-GET /api/v1/orgs/:orgId/snapshots/:id/export.drawio
+GET /api/v1/orgs/:orgId/snapshots/:id/export.drawio?view=infra|network|iam
 ```
 
 The export always covers the full snapshot (never the current filter state)
-and is cached by snapshot id like the SVG/PNG exports.
+and is cached per snapshot id + view like the SVG/PNG exports. `view` picks
+the lens, mirroring the app's view switcher:
+
+- **infra** (default) — the raw graph with module containers.
+- **network** — vnet ⊃ subnet containment as real nested containers, join
+  plumbing folded away, internet-exposed subnets ringed in the exposed colour.
+- **iam** — the grant graph: one node per principal and scope, one edge per
+  role assignment labelled with the role (`— privileged` when flagged).
 
 ## The groundplan shape library
 

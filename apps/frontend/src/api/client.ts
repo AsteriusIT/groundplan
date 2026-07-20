@@ -216,6 +216,8 @@ export function streamingEndpoint(path: string): {
 
 export type ExportFormat = "svg" | "png" | "drawio";
 export type ExportScope = "full" | "changes";
+/** The lens a draw.io export renders; SVG/PNG always render "infra". */
+export type ExportView = "infra" | "network" | "iam";
 
 /**
  * Fetch a rendered snapshot export (GP-37) as a Blob. The export endpoints sit
@@ -226,11 +228,15 @@ export async function getSnapshotExport(
   id: string,
   format: ExportFormat,
   scope: ExportScope = "full",
+  view: ExportView = "infra",
 ): Promise<Blob> {
   const headers: Record<string, string> = {};
   const token = tokenProvider();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const query = scope === "changes" ? "?scope=changes" : "";
+  const params = new URLSearchParams();
+  if (scope === "changes") params.set("scope", "changes");
+  if (view !== "infra") params.set("view", view);
+  const query = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetch(
     `${apiBase()}/orgs/${encode(activeOrg())}/snapshots/${encode(id)}/export.${format}${query}`,
     { headers },

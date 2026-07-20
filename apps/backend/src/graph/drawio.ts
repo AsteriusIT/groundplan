@@ -9,7 +9,12 @@
  */
 import { shortType } from "./categories.js";
 import { drawioIconUri } from "./drawio-icons.js";
-import { edgeStyleString, moduleStyleString, nodeStyleString } from "./drawio-style.js";
+import {
+  containerStyleString,
+  edgeStyleString,
+  moduleStyleString,
+  nodeStyleString,
+} from "./drawio-style.js";
 import type { Graph, GraphNode } from "./graph.js";
 import {
   edgeRel,
@@ -41,13 +46,20 @@ function geometry(x: number, y: number, w: number, h: number): string {
   return `<mxGeometry x="${x}" y="${y}" width="${w}" height="${h}" as="geometry"/>`;
 }
 
+/** A container is a module (module view) or a vnet/subnet (network view). */
+function cellStyle(p: PlacedNode): string {
+  if (!p.isModule) return nodeStyleString(p.node);
+  return p.node.type === "module" ? moduleStyleString() : containerStyleString(p.node);
+}
+
 function vertex(p: PlacedNode, parent: PlacedNode | undefined): string {
   // Resource labels are HTML (html=1): bold short type over the name. The
   // inner esc() protects the HTML, the outer one the XML attribute.
-  const label = p.isModule
-    ? esc(`module.${p.node.name}`)
-    : esc(`<b>${esc(shortType(p.node.type))}</b><br/>${esc(p.node.name)}`);
-  const style = p.isModule ? moduleStyleString() : nodeStyleString(p.node);
+  const label =
+    p.isModule && p.node.type === "module"
+      ? esc(`module.${p.node.name}`)
+      : esc(`<b>${esc(shortType(p.node.type))}</b><br/>${esc(p.node.name)}`);
+  const style = cellStyle(p);
   // Children of a draw.io container are positioned relative to its origin.
   const x = p.x - (parent?.x ?? 0);
   const y = p.y - (parent?.y ?? 0);

@@ -23,8 +23,20 @@ it("offers SVG and PNG downloads and fetches the chosen format", async () => {
 
   fireEvent.click(screen.getByRole("menuitem", { name: /SVG/i }));
 
-  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "svg", "full"));
+  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "svg", "full", "infra"));
   expect(URL.createObjectURL).toHaveBeenCalled();
+});
+
+it("offers network and IAM view draw.io exports", async () => {
+  render(<ExportMenu snapshotId="s1" filenameBase="infra-2c9f8061" />);
+
+  fireEvent.click(screen.getByRole("menuitem", { name: /network view/i }));
+  await waitFor(() =>
+    expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full", "network"),
+  );
+
+  fireEvent.click(screen.getByRole("menuitem", { name: /IAM view/i }));
+  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full", "iam"));
 });
 
 it("adds a changes-only PNG variant when requested", () => {
@@ -37,7 +49,7 @@ it("offers a draw.io export and downloads it with the .drawio extension", async 
 
   fireEvent.click(screen.getByRole("menuitem", { name: /draw\.io diagram/i }));
 
-  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full"));
+  await waitFor(() => expect(getExportMock).toHaveBeenCalledWith("s1", "drawio", "full", "infra"));
 });
 
 it("links the downloadable draw.io shape library", () => {

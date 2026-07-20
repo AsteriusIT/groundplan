@@ -33,6 +33,7 @@ export const COLOR = {
   deleteSoft: "#fdf1ef",
   impacted: "#7b5bd6",
   impactedSoft: "#f1edfc",
+  exposed: "#d4531e",
 } as const;
 
 export const CATEGORY_COLOR: Record<Category, string> = {

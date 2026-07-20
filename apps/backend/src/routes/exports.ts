@@ -7,6 +7,7 @@ import {
   repoLabel,
   type ExportFormat,
   type ExportScope,
+  type ExportView,
 } from "../services/snapshot-export.js";
 
 const UUID_PATTERN =
@@ -26,8 +27,13 @@ const scopeQuerySchema = {
 };
 
 // draw.io always exports the full snapshot (GP-177); unknown query params are
-// stripped by validation, so a stray ?scope= cannot change the output.
-const noQuerySchema = { type: "object", additionalProperties: false };
+// stripped by validation, so a stray ?scope= cannot change the output. `view`
+// picks the lens (mirrors the app's view switcher).
+const drawioQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: { view: { type: "string", enum: ["infra", "network", "iam"] } },
+};
 
 export const exportRoutes: FastifyPluginAsync = async (app) => {
   const handle =
@@ -57,14 +63,23 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
             .where(eq(repositories.id, snapshot.repositoryId))
         : [];
 
+      const view: ExportView =
+        format === "drawio"
+          ? ((request.query as { view?: ExportView }).view ?? "infra")
+          : "infra";
+
       const { body, contentType, cached } = await cachedSnapshotExport(
         app.exportCacheDir,
-        { snapshot, repoUrl: repo?.url ?? "", format, scope },
+        { snapshot, repoUrl: repo?.url ?? "", format, scope, view },
       );
 
       if (format === "drawio") {
         const base =
-          [repoLabel(repo?.url ?? "").replaceAll("/", "-"), snapshot.commitSha.slice(0, 8)]
+          [
+            repoLabel(repo?.url ?? "").replaceAll("/", "-"),
+            snapshot.commitSha.slice(0, 8),
+            view === "infra" ? "" : view,
+          ]
             .filter(Boolean)
             .join("-") || "snapshot";
         reply.header("content-disposition", `attachment; filename="${base}.drawio"`);
@@ -91,7 +106,7 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
 
   app.get(
     "/snapshots/:id/export.drawio",
-    { schema: { params: idParamsSchema, querystring: noQuerySchema } },
+    { schema: { params: idParamsSchema, querystring: drawioQuerySchema } },
     handle("drawio"),
   );
 };

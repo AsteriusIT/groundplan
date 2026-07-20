@@ -27,15 +27,46 @@ function resourceStyle(
   );
 }
 
+/**
+ * Exposure ring (GP-45): internet-exposed nodes get the exposed stroke — but a
+ * diff colour always wins, so a changed node still reads as its change.
+ */
+function withExposure(node: GraphNode, stroke: string): { color: string; wide: boolean } {
+  if (node.internet_exposed && stroke === COLOR.border) {
+    return { color: COLOR.exposed, wide: true };
+  }
+  return { color: stroke, wide: false };
+}
+
 /** Resource vertex style: the type's own embedded app icon + change fill/stroke. */
 export function nodeStyleString(node: GraphNode): string {
   const icon = drawioIconUri(node.type);
   const { fill, stroke, dashed } = nodeStyle(node);
   // An icon-less node shows its category as the border colour instead — but
   // never at the cost of a diff colour.
-  const strokeColor =
-    icon || stroke !== COLOR.border ? stroke : CATEGORY_COLOR[categorize(node.type)];
-  return resourceStyle(icon, fill, strokeColor, dashed);
+  const base = icon || stroke !== COLOR.border ? stroke : CATEGORY_COLOR[categorize(node.type)];
+  const exposure = withExposure(node, node.internet_exposed ? stroke : base);
+  return (
+    resourceStyle(icon, fill, node.internet_exposed ? exposure.color : base, dashed) +
+    (exposure.wide ? "strokeWidth=2;" : "")
+  );
+}
+
+/**
+ * Network container style (vnet/subnet in the network view): a collapsible
+ * frame carrying the network hue — or the exposed ring when an associated NSG
+ * is open to the internet.
+ */
+export function containerStyleString(node: GraphNode): string {
+  const { stroke } = nodeStyle(node);
+  const base = stroke !== COLOR.border ? stroke : CATEGORY_COLOR.network;
+  const exposure = withExposure(node, stroke);
+  const strokeColor = exposure.wide ? exposure.color : base;
+  return (
+    `rounded=1;html=1;verticalAlign=top;align=left;spacingLeft=8;container=1;collapsible=1;` +
+    `fillColor=${COLOR.card};strokeColor=${strokeColor};fontColor=${COLOR.ink};` +
+    (exposure.wide ? "strokeWidth=2;" : "")
+  );
 }
 
 /** The neutral (no change state) template style for a library entry (GP-176). */
