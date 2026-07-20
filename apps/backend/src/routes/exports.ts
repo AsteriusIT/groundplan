@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { graphSnapshots, repositories } from "../db/schema.js";
 import {
   cachedSnapshotExport,
+  repoLabel,
   type ExportFormat,
   type ExportScope,
 } from "../services/snapshot-export.js";
@@ -24,12 +25,18 @@ const scopeQuerySchema = {
   properties: { scope: { type: "string", enum: ["full", "changes"] } },
 };
 
+// draw.io always exports the full snapshot (GP-177); unknown query params are
+// stripped by validation, so a stray ?scope= cannot change the output.
+const noQuerySchema = { type: "object", additionalProperties: false };
+
 export const exportRoutes: FastifyPluginAsync = async (app) => {
   const handle =
     (format: ExportFormat) => async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
       const scope: ExportScope =
-        (request.query as { scope?: ExportScope }).scope ?? "full";
+        format === "drawio"
+          ? "full"
+          : ((request.query as { scope?: ExportScope }).scope ?? "full");
 
       const [snapshot] = await app.db
         .select()
@@ -55,6 +62,14 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
         { snapshot, repoUrl: repo?.url ?? "", format, scope },
       );
 
+      if (format === "drawio") {
+        const base =
+          [repoLabel(repo?.url ?? "").replaceAll("/", "-"), snapshot.commitSha.slice(0, 8)]
+            .filter(Boolean)
+            .join("-") || "snapshot";
+        reply.header("content-disposition", `attachment; filename="${base}.drawio"`);
+      }
+
       return reply
         .header("content-type", contentType)
         .header("cache-control", "public, max-age=300")
@@ -72,5 +87,11 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
     "/snapshots/:id/export.png",
     { schema: { params: idParamsSchema, querystring: scopeQuerySchema } },
     handle("png"),
+  );
+
+  app.get(
+    "/snapshots/:id/export.drawio",
+    { schema: { params: idParamsSchema, querystring: noQuerySchema } },
+    handle("drawio"),
   );
 };

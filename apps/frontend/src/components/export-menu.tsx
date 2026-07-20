@@ -33,6 +33,8 @@ export function ExportMenu({
     ...(includeChangesScope
       ? ([{ format: "png", scope: "changes", label: "PNG (changes only)" }] as Choice[])
       : []),
+    // Always the full snapshot (GP-177) — editable cells for diagrams.net.
+    { format: "drawio", scope: "full", label: "draw.io diagram" },
   ];
 
   const download = async (choice: Choice) => {

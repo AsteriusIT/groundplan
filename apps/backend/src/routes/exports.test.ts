@@ -117,6 +117,50 @@ test("?scope=changes renders a smaller image than the full graph", async () => {
   }
 });
 
+test("export.drawio returns a real mxfile and serves the second request from cache", async () => {
+  const app = await buildApp(env);
+  try {
+    const orgId = await seedOrg(app);
+    const { projectId, snapshotId } = await seedSnapshot(app, orgId);
+
+    const first = await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/export.drawio` });
+    assert.equal(first.statusCode, 200);
+    assert.equal(first.headers["content-type"], "application/vnd.jgraph.mxfile");
+    assert.match(first.headers["content-disposition"] as string, /attachment; filename=".*\.drawio"/);
+    assert.equal(first.headers["x-groundplan-cache"], "miss");
+    // Real cells (not an image), openable by diagrams.net.
+    assert.ok(first.payload.startsWith("<mxfile"));
+    assert.ok(first.payload.includes('vertex="1"'));
+    assert.ok(first.payload.includes('tooltip="azurerm_virtual_network.this"'));
+
+    const second = await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/export.drawio` });
+    assert.equal(second.statusCode, 200);
+    assert.equal(second.headers["x-groundplan-cache"], "hit");
+    assert.equal(second.payload, first.payload);
+
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("export.drawio always exports the full snapshot — a scope parameter is ignored", async () => {
+  const app = await buildApp(env);
+  try {
+    const orgId = await seedOrg(app);
+    const { projectId, snapshotId } = await seedSnapshot(app, orgId);
+    const full = await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/export.drawio` });
+    const scoped = await app.inject({ method: "GET", url: `/api/v1/orgs/${orgId}/snapshots/${snapshotId}/export.drawio?scope=changes` });
+    assert.equal(scoped.statusCode, 200);
+    // Same bytes as the full export: the untouched s3 bucket is still there.
+    assert.equal(scoped.payload, full.payload);
+    assert.ok(scoped.payload.includes("aws_s3_bucket.untouched"));
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
 test("export endpoints 404 for an unknown snapshot", async () => {
   const app = await buildApp(env);
   try {

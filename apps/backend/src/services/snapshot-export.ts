@@ -12,11 +12,12 @@ import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 
 import type { GraphSnapshotRow } from "../db/schema.js";
+import { renderDrawio } from "../graph/drawio.js";
 import { layoutGraph } from "../graph/layout.js";
 import { renderSvg, STYLE_VERSION, type SvgMeta } from "../graph/svg.js";
 import { changesSubgraph } from "../graph/subgraph.js";
 
-export type ExportFormat = "svg" | "png";
+export type ExportFormat = "svg" | "png" | "drawio";
 export type ExportScope = "full" | "changes";
 
 /** Default raster width, per GP-37. */
@@ -25,6 +26,7 @@ const PNG_WIDTH = 1200;
 const CONTENT_TYPE: Record<ExportFormat, string> = {
   svg: "image/svg+xml; charset=utf-8",
   png: "image/png",
+  drawio: "application/vnd.jgraph.mxfile",
 };
 
 export interface ExportRequest {
@@ -42,18 +44,21 @@ export function repoLabel(url: string): string {
   return parts.slice(-2).join("/") || cleaned;
 }
 
-/** Render the SVG for a snapshot at a given scope (no caching). */
-export async function renderSnapshotSvg(req: ExportRequest): Promise<string> {
-  const graph = req.scope === "changes" ? changesSubgraph(req.snapshot.graph) : req.snapshot.graph;
-  const laidOut = await layoutGraph(graph);
-  const meta: SvgMeta = {
+function exportMeta(req: ExportRequest): SvgMeta {
+  return {
     repoName: repoLabel(req.repoUrl),
     ref: req.snapshot.ref,
     sha: req.snapshot.commitSha,
     date: req.snapshot.createdAt.toISOString().slice(0, 10),
     scopeLabel: req.scope === "changes" ? "changes only" : undefined,
   };
-  return renderSvg(laidOut, meta);
+}
+
+/** Render the SVG for a snapshot at a given scope (no caching). */
+export async function renderSnapshotSvg(req: ExportRequest): Promise<string> {
+  const graph = req.scope === "changes" ? changesSubgraph(req.snapshot.graph) : req.snapshot.graph;
+  const laidOut = await layoutGraph(graph);
+  return renderSvg(laidOut, exportMeta(req));
 }
 
 /** Rasterize an SVG string to a PNG buffer at the default export width. */
@@ -65,10 +70,17 @@ export function svgToPng(svg: string): Buffer {
   return Buffer.from(resvg.render().asPng());
 }
 
-/** Render a snapshot export (SVG or PNG) without touching the cache. */
+/** Render a snapshot export (SVG, PNG or draw.io) without touching the cache. */
 export async function renderSnapshotExport(
   req: ExportRequest,
 ): Promise<{ body: Buffer; contentType: string }> {
+  if (req.format === "drawio") {
+    // draw.io exports are always the full snapshot (GP-177): deterministic and
+    // cache-friendly, never the current filter state.
+    const graph = req.snapshot.graph;
+    const xml = renderDrawio(graph, await layoutGraph(graph), exportMeta(req));
+    return { body: Buffer.from(xml, "utf8"), contentType: CONTENT_TYPE.drawio };
+  }
   const svg = await renderSnapshotSvg(req);
   const body = req.format === "png" ? svgToPng(svg) : Buffer.from(svg, "utf8");
   return { body, contentType: CONTENT_TYPE[req.format] };

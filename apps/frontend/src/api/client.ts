@@ -214,7 +214,7 @@ export function streamingEndpoint(path: string): {
   };
 }
 
-export type ExportFormat = "svg" | "png";
+export type ExportFormat = "svg" | "png" | "drawio";
 export type ExportScope = "full" | "changes";
 
 /**
