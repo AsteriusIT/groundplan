@@ -1,18 +1,17 @@
 /**
- * Laid-out GraphSnapshot → draw.io / mxGraph XML converter (GP-174). Every
- * node becomes a real, editable mxCell vertex positioned by the same headless
- * ELK layout as the SVG export (GP-37), so the exported diagram mirrors the
- * canvas; modules become collapsible container cells whose children move with
- * them. Deterministic (ADR #3): same snapshot → byte-identical XML.
+ * Laid-out GraphSnapshot → draw.io / mxGraph XML converter (GP-174, styled in
+ * GP-175). Every node becomes a real, editable cell positioned by the same
+ * headless ELK layout as the SVG export (GP-37), so the exported diagram
+ * mirrors the canvas; modules become collapsible container cells whose
+ * children move with them. Cells are wrapped in `<object>` so the Terraform
+ * address rides along as the hover tooltip. Deterministic (ADR #3): same
+ * snapshot → byte-identical XML.
  */
+import { shortType } from "./categories.js";
+import { edgeStyleString, moduleStyleString, nodeStyleString } from "./drawio-style.js";
 import type { Graph } from "./graph.js";
-import type { LaidOutGraph, PlacedNode } from "./layout.js";
+import { edgeRel, type LaidOutGraph, type PlacedNode } from "./layout.js";
 import { esc, type SvgMeta } from "./svg.js";
-
-const MODULE_STYLE =
-  "rounded=1;html=1;verticalAlign=top;align=left;spacingLeft=8;container=1;collapsible=1;";
-const RESOURCE_STYLE = "rounded=1;whiteSpace=wrap;html=1;";
-const EDGE_STYLE = "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;";
 
 /** A geometry tag; coordinates are emitted verbatim so they match the layout. */
 function geometry(x: number, y: number, w: number, h: number): string {
@@ -20,23 +19,30 @@ function geometry(x: number, y: number, w: number, h: number): string {
 }
 
 function vertex(p: PlacedNode, parent: PlacedNode | undefined): string {
-  const value = p.isModule ? `module.${p.node.name}` : p.node.name;
-  const style = p.isModule ? MODULE_STYLE : RESOURCE_STYLE;
+  // Resource labels are HTML (html=1): bold short type over the name. The
+  // inner esc() protects the HTML, the outer one the XML attribute.
+  const label = p.isModule
+    ? esc(`module.${p.node.name}`)
+    : esc(`<b>${esc(shortType(p.node.type))}</b><br/>${esc(p.node.name)}`);
+  const style = p.isModule ? moduleStyleString() : nodeStyleString(p.node);
   // Children of a draw.io container are positioned relative to its origin.
   const x = p.x - (parent?.x ?? 0);
   const y = p.y - (parent?.y ?? 0);
   return (
-    `<mxCell id="${esc(p.id)}" value="${esc(value)}" style="${style}" vertex="1" parent="${esc(parent?.id ?? "1")}">` +
+    `<object id="${esc(p.id)}" label="${label}" tooltip="${esc(p.id)}">` +
+    `<mxCell style="${style}" vertex="1" parent="${esc(parent?.id ?? "1")}">` +
     geometry(x, y, p.w, p.h) +
-    `</mxCell>`
+    `</mxCell></object>`
   );
 }
 
 /**
  * Render a laid-out graph as an uncompressed .drawio (mxfile) document. The
- * graph supplies structure (containment, edges); the layout supplies geometry.
+ * graph supplies structure (containment, edges, labels); the layout supplies
+ * geometry.
  */
 export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta): string {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const parentOf = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
@@ -52,12 +58,18 @@ export function renderDrawio(graph: Graph, laidOut: LaidOutGraph, meta: SvgMeta)
 
   const edges = graph.edges
     .filter((e) => e.kind !== "contains" && placedById.has(e.from) && placedById.has(e.to))
-    .map(
-      (e, i) =>
-        `<mxCell id="e${i}" style="${EDGE_STYLE}" edge="1" parent="1" source="${esc(e.from)}" target="${esc(e.to)}">` +
+    .map((e, i) => {
+      const rel = edgeRel(byId.get(e.from), byId.get(e.to));
+      const label = [e.label, e.count && e.count > 1 ? `×${e.count}` : null]
+        .filter(Boolean)
+        .join(" ");
+      const valueAttr = label ? ` value="${esc(label)}"` : "";
+      return (
+        `<mxCell id="e${i}"${valueAttr} style="${edgeStyleString(rel, e.inferred === true)}" edge="1" parent="1" source="${esc(e.from)}" target="${esc(e.to)}">` +
         `<mxGeometry relative="1" as="geometry"/>` +
-        `</mxCell>`,
-    );
+        `</mxCell>`
+      );
+    });
 
   const name = [meta.repoName, meta.sha.slice(0, 8)].filter(Boolean).join(" · ") || "groundplan";
   return [

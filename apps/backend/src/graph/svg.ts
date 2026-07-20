@@ -14,8 +14,9 @@ import type { ChangeKind, GraphNode } from "./graph.js";
 /** Cache-busting version tag — bump on any visual change. */
 export const STYLE_VERSION = "1";
 
-// Blueprint tokens (see apps/frontend/src/index.css). Restated as hex here.
-const COLOR = {
+// Blueprint tokens (see apps/frontend/src/index.css). Restated as hex here and
+// shared with the draw.io exporter (GP-175) — the backend's single colour table.
+export const COLOR = {
   canvas: "#fbfdff",
   card: "#ffffff",
   ink: "#182a42",
@@ -34,7 +35,7 @@ const COLOR = {
   impactedSoft: "#f1edfc",
 } as const;
 
-const CATEGORY_COLOR: Record<Category, string> = {
+export const CATEGORY_COLOR: Record<Category, string> = {
   compute: "#2563c9",
   network: "#0e8f9e",
   data: "#4f46c7",
@@ -44,7 +45,7 @@ const CATEGORY_COLOR: Record<Category, string> = {
   other: "#5d7391",
 };
 
-const EDGE_COLOR: Record<EdgeRel, string> = {
+export const EDGE_COLOR: Record<EdgeRel, string> = {
   new: COLOR.create,
   removed: COLOR.delete,
   impact: COLOR.impacted,
@@ -52,7 +53,7 @@ const EDGE_COLOR: Record<EdgeRel, string> = {
 };
 
 /** Fill / stroke for a node given its change + impacted status. */
-function nodeStyle(node: GraphNode): { fill: string; stroke: string; dashed: boolean } {
+export function nodeStyle(node: GraphNode): { fill: string; stroke: string; dashed: boolean } {
   if (node.impacted && node.change !== "create" && node.change !== "delete") {
     return { fill: COLOR.impactedSoft, stroke: COLOR.impacted, dashed: false };
   }

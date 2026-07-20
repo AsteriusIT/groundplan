@@ -88,6 +88,37 @@ test("renderDrawio is deterministic for the same input (ADR #3)", async () => {
   assert.equal(a, b);
 });
 
+test("every node carries its Terraform address as the hover tooltip (GP-175)", async () => {
+  const xml = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  for (const n of GRAPH.nodes) {
+    assert.ok(xml.includes(`tooltip="${n.id}"`), `missing tooltip for ${n.id}`);
+  }
+});
+
+test("labels show the short type and the resource name — no empty boxes (GP-175)", async () => {
+  const xml = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  // Type-first label on a resource…
+  assert.ok(xml.includes("s3_bucket"));
+  assert.ok(xml.includes("logs"));
+  // …and no vertex without a label.
+  assert.equal((xml.match(/label=""/g) ?? []).length, 0);
+});
+
+test("edge labels are carried onto the edge cells (GP-175)", async () => {
+  const labelled: Graph = {
+    version: 5,
+    nodes: [
+      { id: "aws_lambda_function.f", name: "f", type: "aws_lambda_function", provider: "aws", module_path: [], change: null },
+      { id: "aws_s3_bucket.b", name: "b", type: "aws_s3_bucket", provider: "aws", module_path: [], change: null },
+    ],
+    edges: [
+      { from: "aws_lambda_function.f", to: "aws_s3_bucket.b", kind: "logical", label: "reads objects" },
+    ],
+  };
+  const xml = renderDrawio(labelled, await layoutGraph(labelled), META);
+  assert.ok(xml.includes('value="reads objects"'));
+});
+
 // Golden file: the full expected document, byte for byte. Refresh after an
 // intentional visual change with: UPDATE_GOLDENS=1 pnpm --filter @groundplan/backend test
 test("renderDrawio matches the committed golden file", async () => {

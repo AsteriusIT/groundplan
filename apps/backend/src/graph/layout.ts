@@ -70,7 +70,7 @@ const elk = new ELK();
 /** How an edge relates to the change set (mirrors the frontend `edgeRel`). */
 export type EdgeRel = "new" | "removed" | "impact" | "neutral";
 
-function edgeRel(from: GraphNode | undefined, to: GraphNode | undefined): EdgeRel {
+export function edgeRel(from: GraphNode | undefined, to: GraphNode | undefined): EdgeRel {
   if (from?.change === "delete" || to?.change === "delete") return "removed";
   if (to?.change === "create") return "new";
   if (from?.impacted || to?.impacted) return "impact";
