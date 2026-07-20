@@ -37,7 +37,8 @@ export function drawioNodeWidth(node: GraphNode): number {
     return Math.max(MODULE_LEAF_WIDTH, Math.ceil(8 + `module.${node.name}`.length * CHAR_W + PAD_RIGHT));
   }
   const spacingLeft = drawioIconUri(node.type) ? 34 : 12;
-  const line = Math.max(shortType(node.type).length * BOLD_CHAR_W, node.name.length * CHAR_W);
+  const name = node.display_label ?? node.name;
+  const line = Math.max(shortType(node.type).length * BOLD_CHAR_W, name.length * CHAR_W);
   return Math.max(RESOURCE_WIDTH, Math.ceil(spacingLeft + line + PAD_RIGHT));
 }
 
@@ -55,10 +56,11 @@ function cellStyle(p: PlacedNode): string {
 function vertex(p: PlacedNode, parent: PlacedNode | undefined): string {
   // Resource labels are HTML (html=1): bold short type over the name. The
   // inner esc() protects the HTML, the outer one the XML attribute.
+  const name = p.node.display_label ?? p.node.name;
   const label =
     p.isModule && p.node.type === "module"
       ? esc(`module.${p.node.name}`)
-      : esc(`<b>${esc(shortType(p.node.type))}</b><br/>${esc(p.node.name)}`);
+      : esc(`<b>${esc(shortType(p.node.type))}</b><br/>${esc(name)}`);
   const style = cellStyle(p);
   // Children of a draw.io container are positioned relative to its origin.
   const x = p.x - (parent?.x ?? 0);

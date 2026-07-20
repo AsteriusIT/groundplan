@@ -24,7 +24,9 @@ in the order below):
 
 - **infra** (default) — the raw graph with module containers.
 - **network** — vnet ⊃ subnet containment as real nested containers, join
-  plumbing folded away, internet-exposed subnets ringed in the exposed colour.
+  plumbing folded away, associated NSGs folded into their anchor's label,
+  containment-restating dependencies hidden, and internet-exposed subnets
+  ringed in the exposed colour.
 - **iam** — the grant graph: one node per principal and scope, one edge per
   role assignment labelled with the role (`— privileged` when flagged).
 

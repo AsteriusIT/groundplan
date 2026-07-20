@@ -33,10 +33,8 @@ function exposedNodeIds(nodes: GraphNode[]): Set<string> {
   return ids;
 }
 
-/** Project a graph to its network view. */
-export function networkViewGraph(graph: Graph): Graph {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-
+/** The three keep passes, mirroring the canvas `keptNetworkIds`. */
+function keptNetworkIds(graph: Graph): Set<string> {
   const keep = new Set<string>();
   for (const node of graph.nodes) {
     if (isModule(node) || isNetworkPlumbing(node)) continue;
@@ -50,20 +48,73 @@ export function networkViewGraph(graph: Graph): Graph {
   for (const node of graph.nodes) {
     if (node.associated_ids?.some((id) => keep.has(id))) keep.add(node.id);
   }
+  return keep;
+}
 
+/**
+ * The canvas renders an associated NSG as a chip on its anchor, not a node
+ * (GP-44); the export mirrors that by folding the NSG into the anchor's label
+ * — the exposure ring still carries the risk signal.
+ */
+function chipFold(
+  kept: GraphNode[],
+  keep: Set<string>,
+): { chipIds: Set<string>; namesByAnchor: Map<string, string[]> } {
+  const chips = kept.filter((n) => n.associated_ids?.some((id) => keep.has(id)));
+  const namesByAnchor = new Map<string, string[]>();
+  for (const chip of chips) {
+    for (const id of chip.associated_ids ?? []) {
+      if (keep.has(id)) namesByAnchor.set(id, [...(namesByAnchor.get(id) ?? []), chip.name]);
+    }
+  }
+  return { chipIds: new Set(chips.map((n) => n.id)), namesByAnchor };
+}
+
+/** Project a graph to its network view. */
+export function networkViewGraph(graph: Graph): Graph {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const keep = keptNetworkIds(graph);
   const kept = graph.nodes.filter((n) => keep.has(n.id));
   const exposed = exposedNodeIds(kept);
-  const nodes = kept.map((n) =>
-    exposed.has(n.id) && !n.internet_exposed ? { ...n, internet_exposed: true } : n,
-  );
+  const { chipIds, namesByAnchor } = chipFold(kept, keep);
+
+  const nodes = kept
+    .filter((n) => !chipIds.has(n.id))
+    .map((n) => {
+      const extra: Partial<GraphNode> = {};
+      if (exposed.has(n.id) && !n.internet_exposed) extra.internet_exposed = true;
+      const chipNames = namesByAnchor.get(n.id);
+      if (chipNames) extra.display_label = `${n.name} · NSG ${chipNames.join(", ")}`;
+      return Object.keys(extra).length > 0 ? { ...n, ...extra } : n;
+    });
 
   const containerIds = new Set(nodes.filter(isNetworkContainer).map((n) => n.id));
   const containsEdges: GraphEdge[] = nodes
     .filter((n) => n.parent_id !== undefined && containerIds.has(n.parent_id))
     .map((n) => ({ from: n.parent_id!, to: n.id, kind: "contains" }));
 
+  // A dependency on your own container (or vice versa) restates the nesting —
+  // the canvas hides those, and so do we.
+  const parentOf = new Map(
+    graph.nodes.filter((n) => n.parent_id !== undefined).map((n) => [n.id, n.parent_id!]),
+  );
+  const isAncestor = (ancestor: string, id: string): boolean => {
+    for (let cur = parentOf.get(id); cur !== undefined; cur = parentOf.get(cur)) {
+      if (cur === ancestor) return true;
+    }
+    return false;
+  };
+
   const dependsOn = graph.edges.filter(
-    (e) => e.kind === "depends_on" && keep.has(e.from) && keep.has(e.to) && byId.has(e.from),
+    (e) =>
+      e.kind === "depends_on" &&
+      keep.has(e.from) &&
+      keep.has(e.to) &&
+      byId.has(e.from) &&
+      !chipIds.has(e.from) &&
+      !chipIds.has(e.to) &&
+      !isAncestor(e.from, e.to) &&
+      !isAncestor(e.to, e.from),
   );
 
   return { version: graph.version, nodes, edges: [...containsEdges, ...dependsOn] };
