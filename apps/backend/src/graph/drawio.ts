@@ -7,8 +7,9 @@
  * address rides along as the hover tooltip. Deterministic (ADR #3): same
  * snapshot → byte-identical XML.
  */
-import { categorize, shortType } from "./categories.js";
-import { CATEGORY_SHAPE, edgeStyleString, moduleStyleString, nodeStyleString } from "./drawio-style.js";
+import { shortType } from "./categories.js";
+import { drawioIconUri } from "./drawio-icons.js";
+import { edgeStyleString, moduleStyleString, nodeStyleString } from "./drawio-style.js";
 import type { Graph, GraphNode } from "./graph.js";
 import {
   edgeRel,
@@ -30,7 +31,7 @@ export function drawioNodeWidth(node: GraphNode): number {
   if (node.type === "module") {
     return Math.max(MODULE_LEAF_WIDTH, Math.ceil(8 + `module.${node.name}`.length * CHAR_W + PAD_RIGHT));
   }
-  const spacingLeft = CATEGORY_SHAPE[categorize(node.type)] ? 34 : 12;
+  const spacingLeft = drawioIconUri(node.type) ? 34 : 12;
   const line = Math.max(shortType(node.type).length * BOLD_CHAR_W, node.name.length * CHAR_W);
   return Math.max(RESOURCE_WIDTH, Math.ceil(spacingLeft + line + PAD_RIGHT));
 }

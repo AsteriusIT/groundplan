@@ -12,6 +12,8 @@ on:
       - "apps/backend/src/graph/drawio*"
       - "apps/backend/src/graph/svg.ts"
       - "apps/backend/src/graph/categories.ts"
+      - "apps/backend/scripts/generate-drawio-icons.mts"
+      - "packages/canvas/src/icons/**"
       - "apps/frontend/public/groundplan-shapes.xml"
       - ".github/workflows/drawio-library.yml"
   pull_request:
@@ -19,6 +21,8 @@ on:
       - "apps/backend/src/graph/drawio*"
       - "apps/backend/src/graph/svg.ts"
       - "apps/backend/src/graph/categories.ts"
+      - "apps/backend/scripts/generate-drawio-icons.mts"
+      - "packages/canvas/src/icons/**"
       - "apps/frontend/public/groundplan-shapes.xml"
       - ".github/workflows/drawio-library.yml"
   workflow_dispatch:
@@ -45,6 +49,9 @@ jobs:
 
       - name: Install (backend + workspace deps)
         run: pnpm install --frozen-lockfile --filter @groundplan/backend...
+
+      - name: Icon module is generated from the canvas icon set
+        run: pnpm --filter @groundplan/backend drawio:icons:check
 
       - name: Shape library is generated from the style builder
         run: pnpm --filter @groundplan/backend drawio:library:check

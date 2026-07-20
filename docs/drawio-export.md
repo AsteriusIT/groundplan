@@ -1,8 +1,9 @@
 # draw.io export & shape library
 
 groundplan can export any snapshot as a **draw.io diagram** (`.drawio`): real,
-editable cells — not an image — positioned exactly like the canvas, with the
-category icon (diagrams.net's built-in Azure shape set), the change colours
+editable cells — not an image — positioned exactly like the canvas, with each
+resource's own vendored provider icon (the same official Azure/AWS/GCP/
+Kubernetes set the app draws, embedded in the file), the change colours
 (create / update / delete / impacted) and the Terraform address of every node
 in its hover tooltip. Open the file in [diagrams.net](https://app.diagrams.net)
 (web or desktop): moving, deleting and re-connecting nodes behaves like any
@@ -20,8 +21,9 @@ and is cached by snapshot id like the SVG/PNG exports.
 ## The groundplan shape library
 
 `groundplan-shapes.xml` is a draw.io **custom shape library** holding one
-template per resource category plus a module container, styled identically to
-exported diagrams — so you can extend an export with new nodes that match.
+template per vendored provider icon — the app's whole icon set — plus a
+generic resource and a module container, styled identically to exported
+diagrams, so you can extend an export with new nodes that match.
 
 Download it from the Export menu ("draw.io shape library") or grab
 `/groundplan-shapes.xml` from your groundplan instance.
@@ -42,14 +44,14 @@ To load it in diagrams.net:
 
 ## Keeping the library in sync (contributors)
 
-The committed artifact `apps/frontend/public/groundplan-shapes.xml` is
-**generated** from the style builder
-(`apps/backend/src/graph/drawio-style.ts`). After changing any draw.io style,
-regenerate it:
+Two committed artifacts are **generated**, never hand-edited:
 
-```sh
-pnpm --filter @groundplan/backend drawio:library
-```
+- `apps/backend/src/graph/drawio-icons.generated.ts` — the canvas package's
+  type→icon maps + inlined SVGs (`pnpm --filter @groundplan/backend
+  drawio:icons`); regenerate after touching `packages/canvas/src/icons`.
+- `apps/frontend/public/groundplan-shapes.xml` — the shape library, from the
+  style builder (`pnpm --filter @groundplan/backend drawio:library`);
+  regenerate after changing any draw.io style.
 
-CI (`drawio-library.yml`) fails when the committed file drifts from the
-builder, and the backend test suite asserts the same locally.
+CI (`drawio-library.yml`) fails when either drifts from its source, and the
+backend test suite asserts the same locally.

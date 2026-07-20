@@ -12,6 +12,8 @@
     "migrate": "tsx src/db/migrate.cli.ts",
     "drawio:library": "tsx src/graph/drawio-library.cli.ts",
     "drawio:library:check": "tsx src/graph/drawio-library.cli.ts --check",
+    "drawio:icons": "tsx scripts/generate-drawio-icons.mts",
+    "drawio:icons:check": "tsx scripts/generate-drawio-icons.mts --check",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo"

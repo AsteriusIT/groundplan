@@ -34,19 +34,17 @@ test("the library file is valid XML: no raw markup inside the payload", () => {
   assert.ok(!inner.includes("&"));
 });
 
-test("the library holds one template per category plus a module container", () => {
+test("the library holds the whole vendored icon set plus generic + module templates", () => {
   const all = entries();
   const titles = all.map((e) => e.title);
-  assert.deepEqual(titles, [
-    "Compute",
-    "Network",
-    "Data",
-    "Security",
-    "Identity",
-    "Observability",
-    "Other",
-    "Module container",
-  ]);
+  // One entry per vendored app icon (the whole GP-29 set)…
+  assert.ok(all.length >= 100, `expected the whole icon set, got ${all.length}`);
+  assert.ok(titles.includes("Azure subnet"));
+  assert.ok(titles.includes("Azure virtual network"));
+  assert.ok(titles.includes("AWS s3"));
+  assert.ok(titles.includes("Kubernetes deployment"));
+  // …plus the icon-less templates, last.
+  assert.deepEqual(titles.slice(-2), ["Generic resource", "Module container"]);
   for (const entry of all) {
     assert.ok(decompress(entry.xml).includes("<mxGraphModel>"), `${entry.title} is not a cell template`);
     assert.ok(entry.w > 0 && entry.h > 0);
@@ -57,14 +55,15 @@ test("templates are styled by the same builder as the export", () => {
   const all = entries();
   const byTitle = new Map(all.map((e) => [e.title, decompress(e.xml)]));
 
-  // A category with a built-in Azure shape…
-  assert.ok(
-    byTitle.get("Compute")!.includes("image=img/lib/azure2/compute/Virtual_Machine.svg;"),
-  );
-  // …the icon-less fallback carrying the category colour…
-  const other = byTitle.get("Other")!;
-  assert.ok(!other.includes("image="));
-  assert.ok(other.includes("strokeColor=#5d7391;"));
+  // Every icon template embeds its vendored SVG, subnet ≠ vnet…
+  const subnet = byTitle.get("Azure subnet")!;
+  const vnet = byTitle.get("Azure virtual network")!;
+  assert.ok(subnet.includes("image=data:image/svg+xml,"));
+  assert.notEqual(subnet, vnet);
+  // …the icon-less fallback carries the category colour…
+  const generic = byTitle.get("Generic resource")!;
+  assert.ok(!generic.includes("image="));
+  assert.ok(generic.includes("strokeColor=#5d7391;"));
   // …and the collapsible module container.
   const mod = byTitle.get("Module container")!;
   assert.ok(mod.includes("container=1;"));

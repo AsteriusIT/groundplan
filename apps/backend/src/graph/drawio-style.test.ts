@@ -14,28 +14,28 @@ const node = (overrides: Partial<GraphNode>): GraphNode => ({
   ...overrides,
 });
 
-test("a known category gets its built-in Azure shape", () => {
+test("a mapped type gets its vendored app icon, embedded", () => {
   const style = nodeStyleString(node({}));
   assert.ok(style.includes("shape=label;"));
-  assert.ok(style.includes("image=img/lib/azure2/compute/Virtual_Machine.svg;"));
+  assert.ok(style.includes("image=data:image/svg+xml,"));
   // The label must clear the 22px icon or the two overlap.
   assert.ok(style.includes("spacingLeft=34;"));
 });
 
-test("every category maps to a distinct built-in shape; unknown types fall back to a plain rectangle", () => {
+test("each type carries its own icon; unknown types fall back to a plain rectangle", () => {
   const styles = [
-    "azurerm_virtual_network.a", // network
-    "aws_s3_bucket.a", // data
-    "azurerm_key_vault.a", // security
-    "aws_iam_role.a", // identity
-    "azurerm_monitor_action_group.a", // observability
+    "azurerm_virtual_network.a",
+    "azurerm_subnet.a", // must differ from the vnet — not a shared category icon
+    "aws_s3_bucket.a",
+    "azurerm_key_vault.a",
+    "azurerm_monitor_diagnostic_setting.a",
   ].map((id) => {
     const [type] = id.split(".");
     return nodeStyleString(node({ id, type: type! }));
   });
   const images = styles.map((s) => /image=([^;]+);/.exec(s)?.[1]);
   assert.equal(new Set(images).size, images.length);
-  for (const image of images) assert.match(image!, /^img\/lib\/azure2\//);
+  for (const image of images) assert.match(image!, /^data:image\/svg\+xml,/);
 
   // Unknown type → generic rectangle carrying the category colour, never an image.
   const fallback = nodeStyleString(node({ type: "mystery_widget", change: null }));
