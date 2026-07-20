@@ -53,7 +53,7 @@ export function Sidebar() {
   return (
     <aside className="bg-card flex h-svh w-[236px] shrink-0 flex-col border-r border-border">
       <div className="flex items-center gap-2.5 px-4 py-4">
-        <Logo className="text-primary size-7" />
+        <Logo className="size-7" />
         <span className="font-display text-lg font-semibold tracking-tight">
           groundplan
         </span>
