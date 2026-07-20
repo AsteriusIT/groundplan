@@ -1,0 +1,88 @@
+{{- if .Values.postgresql.enabled }}
+{{/*
+EVALUATION-ONLY Postgres (GP-170): one replica, one PVC, no HA, no backups.
+Deliberately our own ~80 lines instead of a Bitnami subchart: nothing to
+`helm dependency update`, no third-party image licensing drift, and the eval
+scope stays honest. Production points externalDatabase.* at a real Postgres.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "groundplan.fullname" . }}-postgresql
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "groundplan.selectorLabels" (dict "root" . "component" "postgresql") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "groundplan.fullname" . }}-postgresql
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: {{ include "groundplan.fullname" . }}-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "groundplan.selectorLabels" (dict "root" . "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "groundplan.selectorLabels" (dict "root" . "component" "postgresql") | nindent 8 }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.image }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: groundplan
+            - name: POSTGRES_DB
+              value: groundplan
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "groundplan.dbSecretName" . }}
+                  key: password
+            # Subdirectory: the volume root holds lost+found on some
+            # provisioners, which initdb refuses.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "groundplan", "-d", "groundplan"]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "groundplan", "-d", "groundplan"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.postgresql.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage }}
+{{- end }}

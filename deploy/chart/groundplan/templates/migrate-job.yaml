@@ -1,0 +1,62 @@
+{{/*
+Schema migrations (GP-170): the backend image's own migration CLI
+(node dist/db/migrate.cli.js — Drizzle under an advisory lock), fed by the
+same DATABASE_URL helper as the API, run as a Helm hook.
+
+Timing: always pre-upgrade, so a pending migration lands before new pods
+roll. pre-install only when the database AND its credential Secret pre-exist
+the release (external DB + existingSecret) — a pre-install hook blocks the
+install, so it cannot wait for an embedded Postgres or a chart-managed Secret
+the install itself would create; those modes migrate post-install instead
+(the API boots and turns ready meanwhile — /readyz only checks connectivity).
+*/}}
+{{- $preInstallOk := and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "groundplan.fullname" . }}-migrate
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": {{ ternary "pre-install,pre-upgrade" "post-install,pre-upgrade" (not (empty $preInstallOk)) }}
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  # Retries cover the embedded Postgres still coming up on first install.
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "groundplan.selectorLabels" (dict "root" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: {{ include "groundplan.image" (dict "root" . "name" "groundplan-backend") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["node", "dist/db/migrate.cli.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            {{- include "groundplan.databaseEnv" . | nindent 12 }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

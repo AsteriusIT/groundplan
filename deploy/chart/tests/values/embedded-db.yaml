@@ -1,0 +1,15 @@
+# Evaluation shape: embedded Postgres, external OIDC, plain-http ingress.
+image:
+  tag: 1.0.0
+
+api:
+  encryptionKey: ZXZhbC1vbmx5LWtleS0zMi1ieXRlcy1sb25nISE=
+
+ingress:
+  host: groundplan.local.test
+
+postgresql:
+  enabled: true
+
+oidc:
+  issuerUrl: https://login.example.com/realms/groundplan

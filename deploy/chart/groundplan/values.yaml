@@ -87,6 +87,34 @@ externalDatabase:
   # Appended as ?sslmode=... when set (e.g. "require").
   sslMode: ""
 
+# EVALUATION ONLY: a single-replica in-cluster Postgres (no HA, no backups, no
+# tuning) so the chart runs self-contained on kind/minikube. Mutually exclusive
+# with externalDatabase.host — enabling both fails template rendering. Do not
+# run production on this.
+postgresql:
+  enabled: false
+  image: postgres:17-alpine
+  # Password of the "groundplan" user owning the "groundplan" database. An
+  # eval default on purpose; the Service is cluster-internal only.
+  password: groundplan
+  storage: 2Gi
+  # Empty = the cluster's default StorageClass.
+  storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Migrations run as a Helm hook Job (GP-170) using the same image + DATABASE_URL
+# as the API: always pre-upgrade (schema lands before new pods roll), and
+# pre-install too when both the database and its credentials pre-exist the
+# release (external DB + existingSecret) — otherwise post-install, because a
+# hook cannot wait on resources the install itself is about to create.
+migrations:
+  backoffLimit: 10
+
 # --- Identity provider (GP-171) --------------------------------------------
 # Production: point at your own OIDC issuer (Keycloak, Azure AD, ...). The
 # issuer must mint access tokens whose `aud` matches oidc.audience; the SPA

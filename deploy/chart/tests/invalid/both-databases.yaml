@@ -1,0 +1,12 @@
+# expect: enable only one database mode
+api:
+  encryptionKey: dGVzdC1rZXk=
+ingress:
+  host: groundplan.example.com
+postgresql:
+  enabled: true
+externalDatabase:
+  host: db.example.com
+  existingSecret: my-db-credentials
+oidc:
+  issuerUrl: https://login.example.com/realms/groundplan

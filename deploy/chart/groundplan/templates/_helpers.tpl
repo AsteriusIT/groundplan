@@ -49,23 +49,37 @@ app.kubernetes.io/component: {{ .component }}
 
 {{/* Name of the Secret holding the database password. */}}
 {{- define "groundplan.dbSecretName" -}}
+{{- if .Values.postgresql.enabled -}}
+{{- printf "%s-db" (include "groundplan.fullname" .) -}}
+{{- else -}}
 {{- .Values.externalDatabase.existingSecret | default (printf "%s-db" (include "groundplan.fullname" .)) -}}
+{{- end -}}
+{{- end }}
+
+{{/* Key inside that Secret holding the password. */}}
+{{- define "groundplan.dbPasswordKey" -}}
+{{- ternary "password" .Values.externalDatabase.passwordKey .Values.postgresql.enabled -}}
 {{- end }}
 
 {{/*
 The one templated DATABASE_URL (GP-170): env entries shared verbatim by the
-api Deployment and the migration Job. The password never appears in the
-rendered URL — it is pulled from the Secret into DB_PASSWORD and substituted
-by Kubernetes' $(VAR) expansion at container start.
+api Deployment and the migration Job, pointing at either the embedded eval
+Postgres or the external one. The password never appears in the rendered
+URL — it is pulled from the Secret into DB_PASSWORD and substituted by
+Kubernetes' $(VAR) expansion at container start.
 */}}
 {{- define "groundplan.databaseEnv" -}}
 - name: DB_PASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ include "groundplan.dbSecretName" . }}
-      key: {{ .Values.externalDatabase.passwordKey }}
+      key: {{ include "groundplan.dbPasswordKey" . }}
 - name: DATABASE_URL
+{{- if .Values.postgresql.enabled }}
+  value: {{ printf "postgres://groundplan:$(DB_PASSWORD)@%s-postgresql:5432/groundplan" (include "groundplan.fullname" .) | quote }}
+{{- else }}
   value: {{ printf "postgres://%s:$(DB_PASSWORD)@%s:%d/%s%s" .Values.externalDatabase.username .Values.externalDatabase.host (.Values.externalDatabase.port | int) .Values.externalDatabase.database (ternary (printf "?sslmode=%s" .Values.externalDatabase.sslMode) "" (ne .Values.externalDatabase.sslMode "")) | quote }}
+{{- end }}
 {{- end }}
 
 {{/* The OIDC issuer URL the api validates against and the SPA logs in with. */}}
@@ -82,14 +96,19 @@ never a half-deployed release.
 {{- if and .Values.ingress.enabled (not .Values.ingress.host) -}}
 {{- fail "ingress.enabled requires ingress.host (the public hostname the app is served on)" -}}
 {{- end -}}
-{{- if not .Values.externalDatabase.host -}}
-{{- fail "no database configured: set externalDatabase.host (and its credentials)" -}}
+{{- if and .Values.postgresql.enabled .Values.externalDatabase.host -}}
+{{- fail "enable only one database mode: unset externalDatabase.host or set postgresql.enabled=false (the embedded Postgres is evaluation-only)" -}}
 {{- end -}}
+{{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.host) -}}
+{{- fail "no database configured: set externalDatabase.host (production) or postgresql.enabled=true (evaluation only)" -}}
+{{- end -}}
+{{- if not .Values.postgresql.enabled -}}
 {{- if and .Values.externalDatabase.existingSecret .Values.externalDatabase.password -}}
 {{- fail "set only one of externalDatabase.existingSecret and externalDatabase.password" -}}
 {{- end -}}
 {{- if and (not .Values.externalDatabase.existingSecret) (not .Values.externalDatabase.password) -}}
 {{- fail "the database password is required: set externalDatabase.existingSecret (recommended) or externalDatabase.password" -}}
+{{- end -}}
 {{- end -}}
 {{- if and .Values.api.existingSecret .Values.api.encryptionKey -}}
 {{- fail "set only one of api.existingSecret and api.encryptionKey" -}}
