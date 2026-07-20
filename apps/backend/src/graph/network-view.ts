@@ -83,8 +83,13 @@ export function networkViewGraph(graph: Graph): Graph {
     .map((n) => {
       const extra: Partial<GraphNode> = {};
       if (exposed.has(n.id) && !n.internet_exposed) extra.internet_exposed = true;
+      const parts = [n.name];
       const chipNames = namesByAnchor.get(n.id);
-      if (chipNames) extra.display_label = `${n.name} · NSG ${chipNames.join(", ")}`;
+      if (chipNames) parts.push(`NSG ${chipNames.join(", ")}`);
+      // The declared CIDR, exactly as the canvas container header shows it.
+      const cidr = n.attributes?.["address_prefixes"] ?? n.attributes?.["address_space"];
+      if (cidr) parts.push(cidr);
+      if (parts.length > 1) extra.display_label = parts.join(" · ");
       return Object.keys(extra).length > 0 ? { ...n, ...extra } : n;
     });
 

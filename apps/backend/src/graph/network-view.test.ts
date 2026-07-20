@@ -22,9 +22,17 @@ const node = (id: string, type: string, extra: Partial<GraphNode> = {}): GraphNo
 const GRAPH: Graph = {
   version: 4,
   nodes: [
-    node("azurerm_virtual_network.main", "azurerm_virtual_network"),
-    node("azurerm_subnet.web", "azurerm_subnet", { parent_id: "azurerm_virtual_network.main" }),
-    node("azurerm_subnet.data", "azurerm_subnet", { parent_id: "azurerm_virtual_network.main" }),
+    node("azurerm_virtual_network.main", "azurerm_virtual_network", {
+      attributes: { address_space: "10.20.0.0/16" },
+    }),
+    node("azurerm_subnet.web", "azurerm_subnet", {
+      parent_id: "azurerm_virtual_network.main",
+      attributes: { address_prefixes: "10.20.1.0/24" },
+    }),
+    node("azurerm_subnet.data", "azurerm_subnet", {
+      parent_id: "azurerm_virtual_network.main",
+      attributes: { address_prefixes: "10.20.2.0/24" },
+    }),
     node("azurerm_linux_virtual_machine.vm", "azurerm_linux_virtual_machine", { parent_id: "azurerm_subnet.web" }),
     node("azurerm_postgresql_flexible_server.db", "azurerm_postgresql_flexible_server", { parent_id: "azurerm_subnet.data" }),
     node("azurerm_network_security_group.web", "azurerm_network_security_group", {
@@ -88,7 +96,17 @@ test("an associated NSG folds into its anchor: label + exposure, no floating nod
 
   const subnet = projected.nodes.find((n) => n.id === "azurerm_subnet.web")!;
   assert.equal(subnet.internet_exposed, true); // exposure propagated
-  assert.equal(subnet.display_label, "web · NSG web"); // the chip's name rides along
+  // Chip name and CIDR ride along in the label, like the canvas header.
+  assert.equal(subnet.display_label, "web · NSG web · 10.20.1.0/24");
+});
+
+test("declared CIDRs land in the container labels, like the canvas", () => {
+  const projected = networkViewGraph(GRAPH);
+  const byId = new Map(projected.nodes.map((n) => [n.id, n]));
+  assert.equal(byId.get("azurerm_virtual_network.main")!.display_label, "main · 10.20.0.0/16");
+  assert.equal(byId.get("azurerm_subnet.data")!.display_label, "data · 10.20.2.0/24");
+  // Resources without address attributes keep their plain name.
+  assert.equal(byId.get("azurerm_linux_virtual_machine.vm")!.display_label, undefined);
 });
 
 test("the projection renders to draw.io with real network containers", async () => {
