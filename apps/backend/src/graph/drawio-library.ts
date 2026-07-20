@@ -6,9 +6,20 @@
  * — regenerate with `pnpm --filter @groundplan/backend drawio:library` (CI
  * fails when it drifts from the builder).
  */
+import { deflateRawSync } from "node:zlib";
+
 import { CATEGORY_LABEL, type Category } from "./categories.js";
 import { moduleStyleString, templateStyleString } from "./drawio-style.js";
 import { esc } from "./svg.js";
+
+/**
+ * draw.io's content encoding for library entries (and diagrams): URI-encode →
+ * raw deflate → base64. Compressing keeps the JSON payload free of raw '<'/'&'
+ * — the whole file must XML-parse before draw.io JSON-parses the payload.
+ */
+function compress(xml: string): string {
+  return deflateRawSync(Buffer.from(encodeURIComponent(xml))).toString("base64");
+}
 
 const CATEGORIES: Category[] = [
   "compute",
@@ -25,13 +36,13 @@ const RESOURCE_H = 56;
 const MODULE_W = 260;
 const MODULE_H = 120;
 
-/** One library entry: a self-contained cell template. */
+/** One library entry: a self-contained, compressed cell template. */
 function cellTemplate(style: string, label: string, w: number, h: number): string {
-  return (
+  return compress(
     `<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>` +
-    `<mxCell id="2" value="${esc(label)}" style="${style}" vertex="1" parent="1">` +
-    `<mxGeometry width="${w}" height="${h}" as="geometry"/>` +
-    `</mxCell></root></mxGraphModel>`
+      `<mxCell id="2" value="${esc(label)}" style="${style}" vertex="1" parent="1">` +
+      `<mxGeometry width="${w}" height="${h}" as="geometry"/>` +
+      `</mxCell></root></mxGraphModel>`,
   );
 }
 
