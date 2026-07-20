@@ -1,0 +1,103 @@
+{{- if .Values.keycloak.enabled }}
+{{/*
+EVALUATION-ONLY Keycloak (GP-171): start-dev on the embedded file database —
+no HA, no external DB, state dies with the pod and the realm import brings the
+groundplan realm (and the dev user) straight back. Production points oidc.*
+at a real issuer instead.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "groundplan.fullname" . }}-keycloak
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "groundplan.selectorLabels" (dict "root" . "component" "keycloak") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "groundplan.fullname" . }}-keycloak
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "groundplan.selectorLabels" (dict "root" . "component" "keycloak") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "groundplan.selectorLabels" (dict "root" . "component" "keycloak") | nindent 8 }}
+      annotations:
+        # Re-import the realm when its definition changes.
+        checksum/realm: {{ include (print $.Template.BasePath "/keycloak-realm-configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak
+          image: {{ include "groundplan.keycloakImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["start-dev", "--import-realm"]
+          env:
+            # Fixed public URL: every token carries this issuer whatever host
+            # the request arrived on, so the api's iss check always matches.
+            - name: KC_HOSTNAME
+              value: {{ include "groundplan.keycloakUrl" . | quote }}
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            # TLS (if any) ends at the ingress.
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: {{ .Values.keycloak.adminPassword | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          volumeMounts:
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            initialDelaySeconds: 90
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.keycloak.resources | nindent 12 }}
+      volumes:
+        - name: realm-import
+          configMap:
+            name: {{ include "groundplan.fullname" . }}-keycloak-realm
+{{- end }}

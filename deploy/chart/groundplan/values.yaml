@@ -123,3 +123,37 @@ oidc:
   issuerUrl: ""
   audience: groundplan-api
   clientId: groundplan-frontend
+
+# EVALUATION ONLY: an in-cluster Keycloak preconfigured with the "groundplan"
+# realm + clients via realm import, auto-wired into oidc.* (setting both
+# keycloak.enabled and oidc.issuerUrl fails template rendering). It runs
+# start-dev on its embedded file database — nothing outlives the pod except
+# what the realm import recreates. Do not run production on this.
+keycloak:
+  enabled: false
+  # Empty = <image.registry>/groundplan-keycloak:<tag> — the groundplan-themed
+  # Keycloak published beside the app images. Any stock
+  # quay.io/keycloak/keycloak image works too (set theme: "" with it).
+  image: ""
+  # Public host for the browser login, served by its own ingress rule (same
+  # class/annotations as the app ingress). Empty = in-cluster only — token
+  # grants work (CI), browser login does not.
+  host: ""
+  tls:
+    enabled: false
+    secretName: ""
+  # Login/account/email theme the imported realm uses; "" = Keycloak default.
+  theme: groundplan
+  # Bootstrap admin credentials (admin console) — eval defaults, eval scope.
+  adminPassword: admin
+  # The imported ready-to-use login. Disable once you created real users.
+  devUser:
+    enabled: true
+    username: dev
+    password: dev
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1536Mi

@@ -1,0 +1,17 @@
+# All-in-one evaluation shape: embedded Postgres + embedded Keycloak with a
+# public host for the browser login.
+image:
+  tag: 1.0.0
+
+api:
+  encryptionKey: ZXZhbC1vbmx5LWtleS0zMi1ieXRlcy1sb25nISE=
+
+ingress:
+  host: groundplan.local.test
+
+postgresql:
+  enabled: true
+
+keycloak:
+  enabled: true
+  host: auth.local.test

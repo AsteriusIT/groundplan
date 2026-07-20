@@ -13,8 +13,17 @@ groundplan {{ .Chart.Version }} deployed.
     kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
 
 Identity provider: {{ include "groundplan.issuerUrl" . }}
-(the issuer must allow the redirect URI {{ include "groundplan.publicUrl" . }}/callback
- for the public client "{{ .Values.oidc.clientId }}", and mint access tokens
- with audience "{{ .Values.oidc.audience }}").
+{{- if .Values.keycloak.enabled }}
+  (embedded Keycloak — EVALUATION ONLY. Login: {{ .Values.keycloak.devUser.username }}/{{ .Values.keycloak.devUser.password }}{{ if not .Values.keycloak.host }}; set keycloak.host to make browser login reachable{{ end }})
+{{- else }}
+  (the issuer must allow the redirect URI {{ include "groundplan.publicUrl" . }}/callback
+   for the public client "{{ .Values.oidc.clientId }}", and mint access tokens
+   with audience "{{ .Values.oidc.audience }}").
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+
+NOTE: postgresql.enabled runs an EVALUATION-ONLY database — single replica,
+no backups. Point externalDatabase.* at a real Postgres for production.
+{{- end }}
 
 Docs: docs/install-kubernetes.md in the groundplan repository.

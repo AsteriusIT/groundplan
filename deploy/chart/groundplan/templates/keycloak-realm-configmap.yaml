@@ -1,0 +1,70 @@
+{{- if .Values.keycloak.enabled }}
+{{/*
+The imported groundplan realm — the chart-shipped sibling of
+infra/keycloak/groundplan-realm.json (compose): the public SPA client with the
+audience mapper the api requires, optionally the eval dev user. Redirects are
+pinned to the app's public URL when one exists.
+*/}}
+{{- $publicUrl := include "groundplan.publicUrl" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "groundplan.fullname" . }}-keycloak-realm
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+data:
+  groundplan-realm.json: |
+    {
+      "realm": "groundplan",
+      "enabled": true,
+      "sslRequired": "none",
+      "registrationAllowed": false,
+      {{- with .Values.keycloak.theme }}
+      "loginTheme": {{ . | quote }},
+      "accountTheme": {{ . | quote }},
+      "emailTheme": {{ . | quote }},
+      {{- end }}
+      "clients": [
+        {
+          "clientId": {{ .Values.oidc.clientId | quote }},
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": true,
+          "redirectUris": [{{ ternary (printf "%s/*" $publicUrl | quote) (quote "*") (ne $publicUrl "") }}],
+          "webOrigins": ["*"],
+          "protocolMappers": [
+            {
+              "name": "groundplan-audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": {{ .Values.oidc.audience | quote }},
+                "id.token.claim": "false",
+                "access.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ]
+      {{- if .Values.keycloak.devUser.enabled }},
+      "users": [
+        {
+          "username": {{ .Values.keycloak.devUser.username | quote }},
+          "enabled": true,
+          "email": "dev@example.com",
+          "emailVerified": true,
+          "firstName": "Dev",
+          "lastName": "User",
+          "credentials": [
+            { "type": "password", "value": {{ .Values.keycloak.devUser.password | quote }}, "temporary": false }
+          ],
+          "clientRoles": {
+            "account": ["view-profile", "manage-account"]
+          }
+        }
+      ]
+      {{- end }}
+    }
+{{- end }}

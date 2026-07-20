@@ -82,9 +82,31 @@ Kubernetes' $(VAR) expansion at container start.
 {{- end }}
 {{- end }}
 
-{{/* The OIDC issuer URL the api validates against and the SPA logs in with. */}}
+{{/* Public origin of the embedded Keycloak; in-cluster service URL without a host. */}}
+{{- define "groundplan.keycloakUrl" -}}
+{{- if .Values.keycloak.host -}}
+{{- printf "%s://%s" (ternary "https" "http" .Values.keycloak.tls.enabled) .Values.keycloak.host -}}
+{{- else -}}
+{{- printf "http://%s-keycloak:8080" (include "groundplan.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/* Image the embedded Keycloak runs (themed groundplan build by default). */}}
+{{- define "groundplan.keycloakImage" -}}
+{{- .Values.keycloak.image | default (include "groundplan.image" (dict "root" . "name" "groundplan-keycloak")) -}}
+{{- end }}
+
+{{/*
+The OIDC issuer URL the api validates against and the SPA logs in with —
+auto-wired to the embedded Keycloak's groundplan realm when it is enabled
+(GP-171), oidc.issuerUrl otherwise.
+*/}}
 {{- define "groundplan.issuerUrl" -}}
+{{- if .Values.keycloak.enabled -}}
+{{- printf "%s/realms/groundplan" (include "groundplan.keycloakUrl" .) -}}
+{{- else -}}
 {{- .Values.oidc.issuerUrl -}}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -116,7 +138,10 @@ never a half-deployed release.
 {{- if and (not .Values.api.existingSecret) (not .Values.api.encryptionKey) -}}
 {{- fail "ENCRYPTION_KEY is required: set api.existingSecret (recommended) or api.encryptionKey (generate one with: openssl rand -base64 32)" -}}
 {{- end -}}
+{{- if and .Values.keycloak.enabled .Values.oidc.issuerUrl -}}
+{{- fail "set only one identity provider: unset oidc.issuerUrl or set keycloak.enabled=false (the embedded Keycloak is evaluation-only and wires oidc.* itself)" -}}
+{{- end -}}
 {{- if not (include "groundplan.issuerUrl" .) -}}
-{{- fail "no identity provider configured: set oidc.issuerUrl" -}}
+{{- fail "no identity provider configured: set oidc.issuerUrl (production) or keycloak.enabled=true (evaluation only)" -}}
 {{- end -}}
 {{- end }}

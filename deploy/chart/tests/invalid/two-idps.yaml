@@ -1,0 +1,12 @@
+# expect: set only one identity provider
+api:
+  encryptionKey: dGVzdC1rZXk=
+ingress:
+  host: groundplan.example.com
+externalDatabase:
+  host: db.example.com
+  existingSecret: my-db-credentials
+keycloak:
+  enabled: true
+oidc:
+  issuerUrl: https://login.example.com/realms/groundplan

@@ -1,0 +1,662 @@
+---
+# Source: groundplan/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: groundplan-api
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: api
+type: Opaque
+stringData:
+  ENCRYPTION_KEY: "ZXZhbC1vbmx5LWtleS0zMi1ieXRlcy1sb25nISE="
+---
+# Source: groundplan/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: groundplan-db
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: database
+type: Opaque
+stringData:
+  password: "groundplan"
+
+---
+# Source: groundplan/templates/frontend-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: groundplan-frontend-config
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+data:
+  # Runtime config the SPA fetches at startup. apiUrl stays empty: the app
+  # calls /api on its own origin and the ingress routes it to the API.
+  config.json: |
+    {
+      "apiUrl": "",
+      "oidcIssuer": "http://auth.local.test/realms/groundplan",
+      "oidcClientId": "groundplan-frontend"
+    }
+
+---
+# Source: groundplan/templates/keycloak-realm-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: groundplan-keycloak-realm
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: keycloak
+data:
+  groundplan-realm.json: |
+    {
+      "realm": "groundplan",
+      "enabled": true,
+      "sslRequired": "none",
+      "registrationAllowed": false,
+      "loginTheme": "groundplan",
+      "accountTheme": "groundplan",
+      "emailTheme": "groundplan",
+      "clients": [
+        {
+          "clientId": "groundplan-frontend",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": true,
+          "redirectUris": ["http://groundplan.local.test/*"],
+          "webOrigins": ["*"],
+          "protocolMappers": [
+            {
+              "name": "groundplan-audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "groundplan-api",
+                "id.token.claim": "false",
+                "access.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "users": [
+        {
+          "username": "dev",
+          "enabled": true,
+          "email": "dev@example.com",
+          "emailVerified": true,
+          "firstName": "Dev",
+          "lastName": "User",
+          "credentials": [
+            { "type": "password", "value": "dev", "temporary": false }
+          ],
+          "clientRoles": {
+            "account": ["view-profile", "manage-account"]
+          }
+        }
+      ]
+    }
+
+---
+# Source: groundplan/templates/api-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: groundplan-api
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+
+---
+# Source: groundplan/templates/frontend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: groundplan-frontend
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/component: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+# Source: groundplan/templates/keycloak.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: groundplan-keycloak
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: keycloak
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/component: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Source: groundplan/templates/postgresql.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: groundplan-postgresql
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/component: postgresql
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+# Source: groundplan/templates/api-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groundplan-api
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: groundplan
+      app.kubernetes.io/instance: groundplan
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: groundplan
+        app.kubernetes.io/instance: groundplan
+        app.kubernetes.io/component: api
+      annotations:
+        # Roll the pods when the chart-managed secret material changes.
+        checksum/secrets: 1a843016f307a8eb2b6591c08f13179c307adff106b57ee860df13e4607023a9
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/asteriusit/groundplan-backend:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "3000"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: groundplan-db
+                  key: password
+            - name: DATABASE_URL
+              value: "postgres://groundplan:$(DB_PASSWORD)@groundplan-postgresql:5432/groundplan"
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: groundplan-api
+                  key: ENCRYPTION_KEY
+            - name: OIDC_ISSUER_URL
+              value: "http://auth.local.test/realms/groundplan"
+            - name: OIDC_AUDIENCE
+              value: "groundplan-api"
+            - name: CORS_ORIGIN
+              value: "http://groundplan.local.test"
+            - name: PUBLIC_BASE_URL
+              value: "http://groundplan.local.test"
+            - name: SINGLE_ORG
+              value: "true"
+          # Probe pair (GP-168): liveness ignores the DB, readiness checks it.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+---
+# Source: groundplan/templates/frontend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groundplan-frontend
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: groundplan
+      app.kubernetes.io/instance: groundplan
+      app.kubernetes.io/component: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: groundplan
+        app.kubernetes.io/instance: groundplan
+        app.kubernetes.io/component: frontend
+      annotations:
+        # Roll the pods when the runtime config.json changes.
+        checksum/config: eb248e10091ea82bac83ba7ed36bb1d0407f52d810eea992e5448b3496701363
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          # nginx-unprivileged serving the static SPA on 8080 (GP-168).
+          image: ghcr.io/asteriusit/groundplan-frontend:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+          # The SPA reads its runtime config (API base + OIDC) from
+          # /config.json — the chart mounts it over the image default, so the
+          # image stays environment-agnostic.
+          volumeMounts:
+            - name: runtime-config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+      volumes:
+        - name: runtime-config
+          configMap:
+            name: groundplan-frontend-config
+
+---
+# Source: groundplan/templates/keycloak.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groundplan-keycloak
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: groundplan
+      app.kubernetes.io/instance: groundplan
+      app.kubernetes.io/component: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: groundplan
+        app.kubernetes.io/instance: groundplan
+        app.kubernetes.io/component: keycloak
+      annotations:
+        # Re-import the realm when its definition changes.
+        checksum/realm: 8f64e10beda0fda34e64ca74d10ca644cdbbf24a2c48722c5759435fe4214692
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak
+          image: ghcr.io/asteriusit/groundplan-keycloak:1.0.0
+          imagePullPolicy: IfNotPresent
+          args: ["start-dev", "--import-realm"]
+          env:
+            # Fixed public URL: every token carries this issuer whatever host
+            # the request arrived on, so the api's iss check always matches.
+            - name: KC_HOSTNAME
+              value: "http://auth.local.test"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            # TLS (if any) ends at the ingress.
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: "admin"
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          volumeMounts:
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            initialDelaySeconds: 90
+            periodSeconds: 15
+          resources:
+            limits:
+              memory: 1536Mi
+            requests:
+              cpu: 250m
+              memory: 512Mi
+      volumes:
+        - name: realm-import
+          configMap:
+            name: groundplan-keycloak-realm
+
+---
+# Source: groundplan/templates/postgresql.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: groundplan-postgresql
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: groundplan-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: groundplan
+      app.kubernetes.io/instance: groundplan
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: groundplan
+        app.kubernetes.io/instance: groundplan
+        app.kubernetes.io/component: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: groundplan
+            - name: POSTGRES_DB
+              value: groundplan
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: groundplan-db
+                  key: password
+            # Subdirectory: the volume root holds lost+found on some
+            # provisioners, which initdb refuses.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "groundplan", "-d", "groundplan"]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "groundplan", "-d", "groundplan"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+
+---
+# Source: groundplan/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: groundplan
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - host: groundplan.local.test
+      http:
+        paths:
+          # API first (longest prefix); everything else is the SPA, whose
+          # nginx falls back to index.html for client-side routes.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: groundplan-api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: groundplan-frontend
+                port:
+                  name: http
+
+---
+# Source: groundplan/templates/keycloak-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: groundplan-keycloak
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: keycloak
+spec:
+  rules:
+    - host: auth.local.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: groundplan-keycloak
+                port:
+                  name: http
+---
+# Source: groundplan/templates/migrate-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: groundplan-migrate
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  # Retries cover the embedded Postgres still coming up on first install.
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: groundplan
+        app.kubernetes.io/instance: groundplan
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/asteriusit/groundplan-backend:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["node", "dist/db/migrate.cli.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: groundplan-db
+                  key: password
+            - name: DATABASE_URL
+              value: "postgres://groundplan:$(DB_PASSWORD)@groundplan-postgresql:5432/groundplan"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+
