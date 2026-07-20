@@ -25,6 +25,21 @@ export const CATEGORY_SHAPE: Record<Category, string | null> = {
   other: null,
 };
 
+function resourceStyle(
+  icon: string | null,
+  fill: string,
+  strokeColor: string,
+  dashed: boolean,
+): string {
+  return (
+    (icon ? `shape=label;image=${icon};imageWidth=22;imageHeight=22;spacing=6;spacingLeft=4;` : "") +
+    `rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;` +
+    (icon ? "" : "spacingLeft=12;") +
+    `fillColor=${fill};strokeColor=${strokeColor};fontColor=${COLOR.ink};` +
+    (dashed ? "dashed=1;" : "")
+  );
+}
+
 /** Resource vertex style: category icon + change-state fill/stroke. */
 export function nodeStyleString(node: GraphNode): string {
   const category = categorize(node.type);
@@ -33,13 +48,13 @@ export function nodeStyleString(node: GraphNode): string {
   // An icon-less node shows its category as the border colour instead — but
   // never at the cost of a diff colour.
   const strokeColor = icon || stroke !== COLOR.border ? stroke : CATEGORY_COLOR[category];
-  return (
-    (icon ? `shape=label;image=${icon};imageWidth=22;imageHeight=22;spacing=6;spacingLeft=4;` : "") +
-    `rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;` +
-    (icon ? "" : "spacingLeft=12;") +
-    `fillColor=${fill};strokeColor=${strokeColor};fontColor=${COLOR.ink};` +
-    (dashed ? "dashed=1;" : "")
-  );
+  return resourceStyle(icon, fill, strokeColor, dashed);
+}
+
+/** The neutral (no change state) template style for a category (GP-176). */
+export function templateStyleString(category: Category): string {
+  const icon = CATEGORY_SHAPE[category];
+  return resourceStyle(icon, COLOR.card, icon ? COLOR.border : CATEGORY_COLOR[category], false);
 }
 
 /** Module container style: collapsible, dashed boundary like the canvas. */

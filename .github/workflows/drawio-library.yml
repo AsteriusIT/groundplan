@@ -1,0 +1,50 @@
+# Guard the draw.io shape library (GP-176): the committed, user-downloadable
+# apps/frontend/public/groundplan-shapes.xml is generated from the export's
+# style builder, so any change to the builder must regenerate it —
+# `pnpm --filter @groundplan/backend drawio:library` refreshes, this workflow
+# fails when the two drift.
+name: drawio-library
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/backend/src/graph/drawio*"
+      - "apps/backend/src/graph/svg.ts"
+      - "apps/backend/src/graph/categories.ts"
+      - "apps/frontend/public/groundplan-shapes.xml"
+      - ".github/workflows/drawio-library.yml"
+  pull_request:
+    paths:
+      - "apps/backend/src/graph/drawio*"
+      - "apps/backend/src/graph/svg.ts"
+      - "apps/backend/src/graph/categories.ts"
+      - "apps/frontend/public/groundplan-shapes.xml"
+      - ".github/workflows/drawio-library.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: drawio-library-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install (backend + workspace deps)
+        run: pnpm install --frozen-lockfile --filter @groundplan/backend...
+
+      - name: Shape library is generated from the style builder
+        run: pnpm --filter @groundplan/backend drawio:library:check

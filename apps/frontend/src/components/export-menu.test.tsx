@@ -32,6 +32,13 @@ it("adds a changes-only PNG variant when requested", () => {
   expect(screen.getByRole("menuitem", { name: /changes only/i })).toBeInTheDocument();
 });
 
+it("links the downloadable draw.io shape library", () => {
+  render(<ExportMenu snapshotId="s1" filenameBase="infra" />);
+  const link = screen.getByRole("menuitem", { name: /shape library/i });
+  expect(link).toHaveAttribute("href", "/groundplan-shapes.xml");
+  expect(link).toHaveAttribute("download");
+});
+
 it("surfaces an export error", async () => {
   const { ApiError } = await import("@/api/client");
   getExportMock.mockRejectedValue(new ApiError(500, "boom"));

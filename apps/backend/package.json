@@ -10,6 +10,8 @@
     "start": "node dist/index.js",
     "test": "NODE_ENV=test node --import tsx --test-global-setup=./src/test-global-setup.ts --test \"src/**/*.test.ts\"",
     "migrate": "tsx src/db/migrate.cli.ts",
+    "drawio:library": "tsx src/graph/drawio-library.cli.ts",
+    "drawio:library:check": "tsx src/graph/drawio-library.cli.ts --check",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo"

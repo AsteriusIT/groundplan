@@ -86,6 +86,14 @@ export function ExportMenu({
             <span className="text-muted-foreground text-xs">{choice.label}</span>
           </button>
         ))}
+        <a
+          role="menuitem"
+          href="/groundplan-shapes.xml"
+          download
+          className="hover:bg-accent text-muted-foreground block border-t border-border px-3 py-2 text-xs"
+        >
+          draw.io shape library
+        </a>
         {error && (
           <p role="alert" className="text-destructive border-t border-border px-3 py-2 text-xs">
             {error}
