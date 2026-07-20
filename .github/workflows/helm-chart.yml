@@ -1,0 +1,28 @@
+# Guard the Helm chart (GP-169): lint + golden-file rendering tests on every
+# change to the chart. `deploy/chart/tests/run.sh --update` refreshes goldens.
+name: helm-chart
+
+on:
+  push:
+    branches: [main]
+    paths: ["deploy/chart/**", ".github/workflows/helm-chart.yml"]
+  pull_request:
+    paths: ["deploy/chart/**", ".github/workflows/helm-chart.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: helm-chart-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-golden:
+    runs-on: ubuntu-latest # helm is preinstalled on GitHub runners
+    steps:
+      - uses: actions/checkout@v4
+      - name: helm lint
+        run: helm lint deploy/chart/groundplan
+      - name: Golden-file tests
+        run: deploy/chart/tests/run.sh

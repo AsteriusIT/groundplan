@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "groundplan.fullname" . }}-frontend-config
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+data:
+  # Runtime config the SPA fetches at startup. apiUrl stays empty: the app
+  # calls /api on its own origin and the ingress routes it to the API.
+  config.json: |
+    {
+      "apiUrl": "",
+      "oidcIssuer": {{ include "groundplan.issuerUrl" . | quote }},
+      "oidcClientId": {{ .Values.oidc.clientId | quote }}
+    }

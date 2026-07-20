@@ -1,0 +1,20 @@
+groundplan {{ .Chart.Version }} deployed.
+
+{{- if .Values.ingress.enabled }}
+
+  App URL:   {{ include "groundplan.publicUrl" . }}
+{{- else }}
+
+  No ingress: port-forward to try it out —
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "groundplan.fullname" . }}-frontend 8080:80
+{{- end }}
+
+  API readiness:
+    kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Identity provider: {{ include "groundplan.issuerUrl" . }}
+(the issuer must allow the redirect URI {{ include "groundplan.publicUrl" . }}/callback
+ for the public client "{{ .Values.oidc.clientId }}", and mint access tokens
+ with audience "{{ .Values.oidc.audience }}").
+
+Docs: docs/install-kubernetes.md in the groundplan repository.

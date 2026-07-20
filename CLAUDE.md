@@ -53,6 +53,9 @@ groundplan/
 │   │                   #   frontend paths are one-line re-export shims
 │   └── graph-parser/   # @groundplan/graph-parser — Producer B (HCL → GraphSnapshot)
 │                       #   as a pure shared package + the graph types/validator (GP-145)
+├── deploy/
+│   └── chart/          # Helm chart (GP-167 epic) + golden-file tests — see
+│                       #   deploy/chart/groundplan and docs/install-kubernetes.md
 ├── keycloak/           # Keycloakify carbon theme (login/account/email) — see keycloak/README.md
 ├── docker-compose.yml  # local Postgres + (auth profile) Keycloak, which mounts the theme jar
 ├── pnpm-workspace.yaml

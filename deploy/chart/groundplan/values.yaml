@@ -1,0 +1,97 @@
+# Groundplan Helm chart — documented values (GP-169..GP-171).
+#
+# The two production prerequisites are brought by you, referenced by name:
+#   * a Postgres database        -> externalDatabase.*
+#   * an OIDC identity provider  -> oidc.*
+# For evaluation on a laptop/kind cluster the chart can run both itself —
+# see postgresql.enabled and keycloak.enabled (both are eval-only, not HA,
+# and mutually exclusive with their external counterpart).
+#
+# Secrets are referenced by name (existingSecret) wherever possible so you can
+# bring sealed-secrets / external-secrets. The inline value alternatives exist
+# for evaluation and CI; they end up in a chart-managed Secret.
+
+image:
+  # Registry/namespace holding groundplan-backend, groundplan-frontend and
+  # groundplan-keycloak (published by the build-images workflow on release tags).
+  registry: ghcr.io/asteriusit
+  # Image tag; empty = the chart's appVersion. Pin a release (e.g. "1.4.0") in
+  # production — "latest" moves.
+  tag: ""
+  pullPolicy: IfNotPresent
+  # Names of imagePullSecrets in the release namespace, for private registries.
+  pullSecrets: []
+
+api:
+  replicas: 1
+  # ENCRYPTION_KEY protects repository PATs / kubeconfigs at rest. Provide ONE:
+  #   existingSecret: name of a Secret with an ENCRYPTION_KEY entry, or
+  #   encryptionKey:  the key inline (eval/CI) — generate: openssl rand -base64 32
+  existingSecret: ""
+  encryptionKey: ""
+  # Single-org (self-hosted, default) vs SaaS multi-tenant — see docs.
+  singleOrg: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # Extra environment for the API container (k8s EnvVar objects, verbatim).
+  # This is the home of every optional knob — e.g. the AI layer:
+  #   - name: AI_API_KEY
+  #     valueFrom: { secretKeyRef: { name: groundplan-ai, key: AI_API_KEY } }
+  extraEnv: []
+
+frontend:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  # IngressClass name; empty = the cluster default.
+  className: ""
+  # Public host the app is served on, e.g. groundplan.example.com. Routes:
+  # /api -> the API, everything else -> the SPA.
+  host: ""
+  annotations: {}
+  tls:
+    # true = serve https; secretName may stay empty when a controller-level
+    # default certificate (or cert-manager annotation) provides it.
+    enabled: false
+    secretName: ""
+
+# Public origin (scheme://host) the deployment is reachable on. Empty = derived
+# from ingress.host (+ ingress.tls.enabled). Used for CORS and the absolute
+# URLs the API writes into PR comments.
+publicUrl: ""
+
+# --- Database (GP-170) ------------------------------------------------------
+# Production: point at your own Postgres. The password is read from
+# existingSecret (key passwordKey) or, for eval/CI, from the inline password.
+# NOTE: username/password become part of a connection URL — URL-encode any
+# special characters.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: groundplan
+  username: groundplan
+  existingSecret: ""
+  passwordKey: password
+  password: ""
+  # Appended as ?sslmode=... when set (e.g. "require").
+  sslMode: ""
+
+# --- Identity provider (GP-171) --------------------------------------------
+# Production: point at your own OIDC issuer (Keycloak, Azure AD, ...). The
+# issuer must mint access tokens whose `aud` matches oidc.audience; the SPA
+# authenticates with the public client oidc.clientId (Authorization Code+PKCE).
+oidc:
+  issuerUrl: ""
+  audience: groundplan-api
+  clientId: groundplan-frontend

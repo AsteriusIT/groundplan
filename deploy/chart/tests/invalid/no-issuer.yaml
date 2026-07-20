@@ -1,0 +1,8 @@
+# expect: no identity provider configured
+api:
+  encryptionKey: dGVzdC1rZXk=
+ingress:
+  host: groundplan.example.com
+externalDatabase:
+  host: db.example.com
+  existingSecret: my-db-credentials

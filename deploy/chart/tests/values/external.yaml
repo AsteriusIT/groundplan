@@ -1,0 +1,23 @@
+# The production shape: external Postgres + external OIDC issuer, TLS ingress.
+image:
+  tag: 1.0.0
+
+api:
+  existingSecret: my-groundplan-secrets
+
+ingress:
+  host: groundplan.example.com
+  className: nginx
+  tls:
+    enabled: true
+    secretName: groundplan-tls
+
+externalDatabase:
+  host: db.internal.example.com
+  database: groundplan
+  username: groundplan
+  existingSecret: my-db-credentials
+  sslMode: require
+
+oidc:
+  issuerUrl: https://login.example.com/realms/groundplan
