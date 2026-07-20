@@ -7,11 +7,33 @@
  * address rides along as the hover tooltip. Deterministic (ADR #3): same
  * snapshot → byte-identical XML.
  */
-import { shortType } from "./categories.js";
-import { edgeStyleString, moduleStyleString, nodeStyleString } from "./drawio-style.js";
-import type { Graph } from "./graph.js";
-import { edgeRel, type LaidOutGraph, type PlacedNode } from "./layout.js";
+import { categorize, shortType } from "./categories.js";
+import { CATEGORY_SHAPE, edgeStyleString, moduleStyleString, nodeStyleString } from "./drawio-style.js";
+import type { Graph, GraphNode } from "./graph.js";
+import {
+  edgeRel,
+  MODULE_LEAF_WIDTH,
+  RESOURCE_WIDTH,
+  type LaidOutGraph,
+  type PlacedNode,
+} from "./layout.js";
 import { esc, type SvgMeta } from "./svg.js";
+
+// Deterministic label-width estimate (draw.io's default 12px font): a node is
+// never narrower than the canvas width, but grows so 100% of the text fits.
+const BOLD_CHAR_W = 7.5;
+const CHAR_W = 7;
+const PAD_RIGHT = 16;
+
+/** Width for a node sized to its draw.io label — passed to `layoutGraph`. */
+export function drawioNodeWidth(node: GraphNode): number {
+  if (node.type === "module") {
+    return Math.max(MODULE_LEAF_WIDTH, Math.ceil(8 + `module.${node.name}`.length * CHAR_W + PAD_RIGHT));
+  }
+  const spacingLeft = CATEGORY_SHAPE[categorize(node.type)] ? 34 : 12;
+  const line = Math.max(shortType(node.type).length * BOLD_CHAR_W, node.name.length * CHAR_W);
+  return Math.max(RESOURCE_WIDTH, Math.ceil(spacingLeft + line + PAD_RIGHT));
+}
 
 /** A geometry tag; coordinates are emitted verbatim so they match the layout. */
 function geometry(x: number, y: number, w: number, h: number): string {

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 
 import type { GraphSnapshotRow } from "../db/schema.js";
-import { renderDrawio } from "../graph/drawio.js";
+import { drawioNodeWidth, renderDrawio } from "../graph/drawio.js";
 import { layoutGraph } from "../graph/layout.js";
 import { renderSvg, STYLE_VERSION, type SvgMeta } from "../graph/svg.js";
 import { changesSubgraph } from "../graph/subgraph.js";
@@ -78,7 +78,8 @@ export async function renderSnapshotExport(
     // draw.io exports are always the full snapshot (GP-177): deterministic and
     // cache-friendly, never the current filter state.
     const graph = req.snapshot.graph;
-    const xml = renderDrawio(graph, await layoutGraph(graph), exportMeta(req));
+    const laidOut = await layoutGraph(graph, { nodeWidth: drawioNodeWidth });
+    const xml = renderDrawio(graph, laidOut, exportMeta(req));
     return { body: Buffer.from(xml, "utf8"), contentType: CONTENT_TYPE.drawio };
   }
   const svg = await renderSnapshotSvg(req);

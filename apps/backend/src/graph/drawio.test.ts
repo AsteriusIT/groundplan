@@ -5,7 +5,10 @@ import { test } from "node:test";
 
 import type { Graph } from "./graph.js";
 import { layoutGraph } from "./layout.js";
-import { renderDrawio } from "./drawio.js";
+import { drawioNodeWidth, renderDrawio } from "./drawio.js";
+
+// The production layout call for draw.io exports: nodes sized to their label.
+const layoutForDrawio = (g: Graph) => layoutGraph(g, { nodeWidth: drawioNodeWidth });
 
 // A plan snapshot with a module container so container/child geometry is covered.
 const GRAPH: Graph = {
@@ -32,7 +35,7 @@ const META = {
 };
 
 test("renderDrawio produces a well-formed mxfile document", async () => {
-  const xml = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  const xml = renderDrawio(GRAPH, await layoutForDrawio(GRAPH), META);
 
   assert.ok(xml.startsWith("<mxfile"));
   assert.ok(xml.trimEnd().endsWith("</mxfile>"));
@@ -43,7 +46,7 @@ test("renderDrawio produces a well-formed mxfile document", async () => {
 });
 
 test("every graph node is a real vertex cell and every dependency a real edge cell", async () => {
-  const xml = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  const xml = renderDrawio(GRAPH, await layoutForDrawio(GRAPH), META);
 
   assert.equal((xml.match(/vertex="1"/g) ?? []).length, GRAPH.nodes.length);
   assert.equal((xml.match(/edge="1"/g) ?? []).length, 2);
@@ -90,7 +93,7 @@ test("depends_on edges follow the ELK route through explicit waypoints", async (
 });
 
 test("positions match the server-side canvas layout", async () => {
-  const laidOut = await layoutGraph(GRAPH);
+  const laidOut = await layoutForDrawio(GRAPH);
   const xml = renderDrawio(GRAPH, laidOut, META);
 
   const bucket = laidOut.nodes.find((n) => n.id === "aws_s3_bucket.logs")!;
@@ -102,7 +105,7 @@ test("positions match the server-side canvas layout", async () => {
 });
 
 test("module children live inside the container with parent-relative coordinates", async () => {
-  const laidOut = await layoutGraph(GRAPH);
+  const laidOut = await layoutForDrawio(GRAPH);
   const xml = renderDrawio(GRAPH, laidOut, META);
 
   const mod = laidOut.nodes.find((n) => n.id === "module.net")!;
@@ -120,20 +123,20 @@ test("module children live inside the container with parent-relative coordinates
 });
 
 test("renderDrawio is deterministic for the same input (ADR #3)", async () => {
-  const a = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
-  const b = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  const a = renderDrawio(GRAPH, await layoutForDrawio(GRAPH), META);
+  const b = renderDrawio(GRAPH, await layoutForDrawio(GRAPH), META);
   assert.equal(a, b);
 });
 
 test("every node carries its Terraform address as the hover tooltip (GP-175)", async () => {
-  const xml = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  const xml = renderDrawio(GRAPH, await layoutForDrawio(GRAPH), META);
   for (const n of GRAPH.nodes) {
     assert.ok(xml.includes(`tooltip="${n.id}"`), `missing tooltip for ${n.id}`);
   }
 });
 
 test("labels show the short type and the resource name — no empty boxes (GP-175)", async () => {
-  const xml = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  const xml = renderDrawio(GRAPH, await layoutForDrawio(GRAPH), META);
   // Type-first label on a resource…
   assert.ok(xml.includes("s3_bucket"));
   assert.ok(xml.includes("logs"));
@@ -156,11 +159,36 @@ test("edge labels are carried onto the edge cells (GP-175)", async () => {
   assert.ok(xml.includes('value="reads objects"'));
 });
 
+test("nodes grow to fit long labels instead of overflowing the box", async () => {
+  const long: Graph = {
+    version: 2,
+    nodes: [
+      { id: "azurerm_subnet_network_security_group_association.web", name: "web", type: "azurerm_subnet_network_security_group_association", provider: "azurerm", module_path: [], change: null },
+      { id: "azurerm_subnet.web", name: "web", type: "azurerm_subnet", provider: "azurerm", module_path: [], change: null },
+    ],
+    edges: [
+      { from: "azurerm_subnet_network_security_group_association.web", to: "azurerm_subnet.web", kind: "depends_on" },
+    ],
+  };
+
+  // Short labels keep the canvas width; long ones get 100% of their text.
+  assert.equal(drawioNodeWidth(long.nodes[1]!), 220);
+  const wide = drawioNodeWidth(long.nodes[0]!);
+  assert.ok(wide > 300, `expected a widened node, got ${wide}`);
+
+  // The layout uses the widened size, and the XML carries it.
+  const laidOut = await layoutForDrawio(long);
+  const placed = laidOut.nodes.find((n) => n.id === long.nodes[0]!.id)!;
+  assert.equal(placed.w, wide);
+  const xml = renderDrawio(long, laidOut, META);
+  assert.ok(xml.includes(`width="${wide}"`));
+});
+
 // Golden file: the full expected document, byte for byte. Refresh after an
 // intentional visual change with: UPDATE_GOLDENS=1 pnpm --filter @groundplan/backend test
 test("renderDrawio matches the committed golden file", async () => {
   const golden = fileURLToPath(new URL("./goldens/plan-snapshot.drawio", import.meta.url));
-  const xml = renderDrawio(GRAPH, await layoutGraph(GRAPH), META);
+  const xml = renderDrawio(GRAPH, await layoutForDrawio(GRAPH), META);
   if (process.env.UPDATE_GOLDENS) {
     writeFileSync(golden, xml);
     return;

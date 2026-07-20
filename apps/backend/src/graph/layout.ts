@@ -13,9 +13,9 @@ import ElkBundled from "elkjs/lib/elk.bundled.js";
 
 import type { Graph, GraphNode } from "./graph.js";
 
-const RESOURCE_WIDTH = 220;
+export const RESOURCE_WIDTH = 220;
 const RESOURCE_HEIGHT = 56;
-const MODULE_LEAF_WIDTH = 200;
+export const MODULE_LEAF_WIDTH = 200;
 
 // Mirrors ELK_ROOT_OPTIONS on the frontend.
 const ELK_ROOT_OPTIONS: Record<string, string> = {
@@ -106,8 +106,13 @@ export interface LaidOutGraph {
   edges: PlacedEdge[];
 }
 
+/** Optional per-consumer sizing (the draw.io export widens nodes to fit labels). */
+export interface LayoutOptions {
+  nodeWidth?: (node: GraphNode) => number;
+}
+
 /** Build the nested ELK input graph (mirrors the frontend `toElkGraph`). */
-function toElkGraph(graph: Graph): ElkNode {
+function toElkGraph(graph: Graph, opts: LayoutOptions): ElkNode {
   const parentOf = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.kind === "contains") parentOf.set(edge.to, edge.from);
@@ -119,7 +124,7 @@ function toElkGraph(graph: Graph): ElkNode {
       node.id,
       isModule(node)
         ? { id: node.id, layoutOptions: ELK_MODULE_OPTIONS, children: [] }
-        : { id: node.id, width: RESOURCE_WIDTH, height: RESOURCE_HEIGHT },
+        : { id: node.id, width: opts.nodeWidth?.(node) ?? RESOURCE_WIDTH, height: RESOURCE_HEIGHT },
     );
   }
 
@@ -132,11 +137,12 @@ function toElkGraph(graph: Graph): ElkNode {
     else roots.push(elkNode);
   }
 
-  for (const elkNode of elkById.values()) {
+  for (const node of graph.nodes) {
+    const elkNode = elkById.get(node.id)!;
     if (elkNode.children?.length === 0) {
       delete elkNode.children;
       delete elkNode.layoutOptions;
-      elkNode.width = MODULE_LEAF_WIDTH;
+      elkNode.width = opts.nodeWidth?.(node) ?? MODULE_LEAF_WIDTH;
       elkNode.height = RESOURCE_HEIGHT;
     }
   }
@@ -176,9 +182,9 @@ function flatten(
 }
 
 /** Lay out a graph and return every node + edge in one absolute space. */
-export async function layoutGraph(graph: Graph): Promise<LaidOutGraph> {
+export async function layoutGraph(graph: Graph, opts: LayoutOptions = {}): Promise<LaidOutGraph> {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const input = toElkGraph(graph);
+  const input = toElkGraph(graph, opts);
   const result = (await elk.layout(input)) as ElkNode;
 
   const nodes: PlacedNode[] = [];
