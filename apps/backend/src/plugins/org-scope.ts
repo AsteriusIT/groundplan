@@ -32,6 +32,7 @@ import "../rbac/request.js";
 import { aiRoutes } from "../routes/ai.js";
 import { annotationRoutes } from "../routes/annotations.js";
 import { clusterRoutes } from "../routes/clusters.js";
+import { confluenceRoutes } from "../routes/confluence.js";
 import { dashboardRoutes } from "../routes/dashboard.js";
 import { docsRoutes } from "../routes/docs.js";
 import { exportRoutes } from "../routes/exports.js";
@@ -124,6 +125,7 @@ export const orgScopePlugin: FastifyPluginAsync = async (app) => {
   await app.register(tourRoutes);
   await app.register(dashboardRoutes);
   await app.register(clusterRoutes);
+  await app.register(confluenceRoutes);
   await app.register(k8sSnapshotRoutes);
   await app.register(shareRoutes);
   await app.register(invitationRoutes);

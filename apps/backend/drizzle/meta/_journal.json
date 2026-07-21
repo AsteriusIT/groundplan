@@ -232,6 +232,13 @@
       "when": 1784402092694,
       "tag": "0032_medical_doctor_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1784629322044,
+      "tag": "0033_volatile_king_bedlam",
+      "breakpoints": true
     }
   ]
 }

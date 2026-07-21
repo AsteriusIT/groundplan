@@ -18,6 +18,10 @@ import {
   type AiProvider,
 } from "./services/ai.js";
 import type { LanguageModel } from "ai";
+import {
+  realConfluenceClient,
+  type ConfluenceClient,
+} from "./services/confluence.js";
 import { realK8sReader, type K8sReader } from "./services/k8s-reader.js";
 import { realK8sVerify, type K8sVerify } from "./services/k8s-verify.js";
 import { authPlugin } from "./plugins/auth.js";
@@ -66,6 +70,8 @@ declare module "fastify" {
     ai: AiProvider;
     /** The AI studio's chat model (GP-137). `null` = studio disabled (no key). */
     studioModel: LanguageModel | null;
+    /** Confluence REST client (GP-179); injectable in tests. */
+    confluence: ConfluenceClient;
     /** Checks a Kubernetes cluster is reachable (GP-95); injectable in tests. */
     k8sVerify: K8sVerify;
     /** Lists namespaces and reads one (GP-97); injectable in tests. */
@@ -92,6 +98,8 @@ export type BuildAppOptions = {
   ai?: AiProvider;
   /** Inject the studio chat model (tests). Defaults to real (null without a key). */
   studioModel?: LanguageModel | null;
+  /** Inject a Confluence client (tests). Defaults to the real REST client. */
+  confluence?: ConfluenceClient;
   /** Inject a cluster verifier (tests). Defaults to the real `/version` check. */
   k8sVerify?: K8sVerify;
   /** Inject a cluster reader (tests). Defaults to the real Kubernetes client. */
@@ -140,6 +148,7 @@ export async function buildApp(
   app.decorate("gitlab", opts.gitlab ?? realGitLabClient);
   app.decorate("azureDevOps", opts.azureDevOps ?? realAzureDevOpsClient);
   app.decorate("publicBaseUrl", env.publicBaseUrl);
+  app.decorate("confluence", opts.confluence ?? realConfluenceClient);
   // AI layer (GP-62). Without AI_API_KEY the real provider reports model: null,
   // so /ai/status says disabled and no generation route can reach a model.
   app.decorate("ai", opts.ai ?? realAiProvider(env));

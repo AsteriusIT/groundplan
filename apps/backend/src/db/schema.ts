@@ -171,6 +171,96 @@ export function toPublicRepository(row: RepositoryRow): PublicRepository {
 }
 
 /**
+ * How a Confluence credential authenticates (GP-179): a Confluence Cloud API
+ * token (Basic `email:token`) or a Data Center PAT (`Bearer`). The REST v1 API
+ * is common to both editions, so this is a header strategy, not two adapters.
+ */
+export const confluenceAuthType = pgEnum("confluence_auth_type", [
+  "cloud_token",
+  "dc_pat",
+]);
+
+/** Same three states as the repository check (GP-11); own enum, same reason as
+ * `cluster_connection_status` below — the two travel independently, and enum
+ * values are forever. */
+export const confluenceConnectionStatus = pgEnum(
+  "confluence_connection_status",
+  ["unverified", "ok", "failed"],
+);
+
+/**
+ * A repository's Confluence target (GP-179): where its docs snapshot publishes
+ * to (GP-180). One connection per repository (unique below) — a page mirrors a
+ * repo's main, so a second target would be a second product decision, not a row.
+ *
+ * The credential (API token or PAT) follows the repository-PAT rules exactly:
+ * ENCRYPTED at rest (AES-256-GCM, lib/encryption), WRITE-ONLY — responses mask
+ * it as "***" via `toPublicConfluenceConnection` — and never logged.
+ */
+export const confluenceConnections = pgTable("confluence_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .unique()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  /** Instance base URL (https, stored without a trailing slash) — for Cloud the
+   * wiki origin, e.g. `https://acme.atlassian.net/wiki`. */
+  baseUrl: text("base_url").notNull(),
+  spaceKey: text("space_key").notNull(),
+  authType: confluenceAuthType("auth_type").notNull(),
+  /** Basic-auth username for a Cloud token; null for a DC PAT. */
+  email: text("email"),
+  /** AES-256-GCM ciphertext of the API token / PAT. Never plaintext, never logged. */
+  credential: text("credential").notNull(),
+  /** Result of the last `GET /rest/api/space/{key}` check. */
+  connectionStatus: confluenceConnectionStatus("connection_status")
+    .notNull()
+    .default("unverified"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type ConfluenceConnectionRow = typeof confluenceConnections.$inferSelect;
+
+export type PublicConfluenceConnection = {
+  id: string;
+  repositoryId: string;
+  baseUrl: string;
+  spaceKey: string;
+  authType: (typeof confluenceAuthType.enumValues)[number];
+  email: string | null;
+  /** Always "***" — a stored credential is never handed back, in any response. */
+  credential: "***";
+  connectionStatus: (typeof confluenceConnectionStatus.enumValues)[number];
+  verifiedAt: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * Map a connection row to its API shape — the ONE way it reaches a response,
+ * like `toPublicRepository`/`toPublicCluster`, so no handler can leak the
+ * credential by omission.
+ */
+export function toPublicConfluenceConnection(
+  row: ConfluenceConnectionRow,
+): PublicConfluenceConnection {
+  return {
+    id: row.id,
+    repositoryId: row.repositoryId,
+    baseUrl: row.baseUrl,
+    spaceKey: row.spaceKey,
+    authType: row.authType,
+    email: row.email,
+    credential: "***",
+    connectionStatus: row.connectionStatus,
+    verifiedAt: row.verifiedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
  * The same three states as a repository's connection check (GP-11), for the same
  * reason. A separate Postgres enum rather than a shared one: the two travel
  * independently, and a type named `repository_connection_status` on a cluster
