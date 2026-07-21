@@ -12,7 +12,11 @@ const STATUS = {
   ok: {
     label: "Connected",
     icon: CheckCircle2,
-    className: "border-emerald-300 bg-emerald-50 text-emerald-700",
+    // Solid green fill (semantic `create` token) with white text — the same
+    // filled-status treatment the node StatusBadge uses. A confident "yes":
+    // it reads at a glance where the old pale-mint pill did not. Failed /
+    // unverified deliberately stay quiet, so success is the only badge that pops.
+    className: "border-create bg-create text-white",
   },
   failed: {
     label: "Connection failed",
