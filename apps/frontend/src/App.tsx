@@ -12,6 +12,7 @@ import { DocsPage } from "@/pages/docs-page";
 import { InvitePage } from "@/pages/invite-page";
 import { OnboardingPage } from "@/pages/onboarding-page";
 import { OrgLandingPage } from "@/pages/org-landing-page";
+import { OrgSettingsPage } from "@/pages/org-settings-page";
 import { PlaygroundPage } from "@/pages/playground-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
@@ -124,7 +125,10 @@ function App() {
         <Route path="/clusters/:id" element={<ClusterPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/playground" element={<PlaygroundPage />} />
+        {/* Personal settings (GP-187): Account + Appearance, every user. */}
         <Route path="/settings" element={<SettingsPage />} />
+        {/* Organization settings (GP-188): org-scoped sections, per active org. */}
+        <Route path="/orgs/:orgId/settings" element={<OrgSettingsPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/projects" replace />} />
