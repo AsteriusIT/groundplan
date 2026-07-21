@@ -9,6 +9,7 @@ vi.mock("@/api/client", async (importOriginal) => {
   return {
     ...actual,
     getRepository: vi.fn(),
+    getConfluenceConnection: vi.fn(),
     listSnapshots: vi.fn(),
     getSnapshot: vi.fn(),
     getAdaptedSnapshot: vi.fn(),
@@ -38,6 +39,7 @@ import {
   getAdaptedSnapshot,
   getAiGeneration,
   getAiStatus,
+  getConfluenceConnection,
   getRepository,
   getSnapshot,
   listAnnotations,
@@ -55,6 +57,7 @@ import type {
 import { DocsPage } from "./docs-page";
 
 const getRepositoryMock = vi.mocked(getRepository);
+const getConfluenceConnectionMock = vi.mocked(getConfluenceConnection);
 const listSnapshotsMock = vi.mocked(listSnapshots);
 const getSnapshotMock = vi.mocked(getSnapshot);
 const getAdaptedSnapshotMock = vi.mocked(getAdaptedSnapshot);
@@ -141,6 +144,8 @@ function renderPage(entry = "/projects/p1/repos/r1/docs") {
 
 beforeEach(() => {
   getRepositoryMock.mockReset().mockResolvedValue(repo);
+  // No Confluence connection unless a test wires one (GP-181).
+  getConfluenceConnectionMock.mockReset().mockResolvedValue(null);
   listSnapshotsMock.mockReset();
   getSnapshotMock.mockReset().mockImplementation((id: string) =>
     Promise.resolve(snapshot(id, id === "s3" ? 3 : 1)),

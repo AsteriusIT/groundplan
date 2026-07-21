@@ -58,6 +58,10 @@ import type {
   UpdateRepositoryInput,
   User,
   VerifyResult,
+  ConfluenceConnection,
+  ConfluencePublishResult,
+  ConfluenceVerifyResult,
+  SaveConfluenceConnectionInput,
 } from "./types";
 
 /** API origin from runtime config (`""` = same-origin). Read lazily so the
@@ -320,6 +324,58 @@ export function verifyRepository(id: string): Promise<VerifyResult> {
 
 export function deleteRepository(id: string): Promise<void> {
   return orgRequest<void>(`/repositories/${encode(id)}`, { method: "DELETE" });
+}
+
+// --- Confluence export (GP-179..GP-181) --------------------------------------
+
+/** The repository's Confluence connection, or null when none is configured. */
+export async function getConfluenceConnection(
+  repositoryId: string,
+): Promise<ConfluenceConnection | null> {
+  try {
+    return await orgRequest<ConfluenceConnection>(
+      `/repositories/${encode(repositoryId)}/confluence`,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** Create-or-replace the connection; the server verifies the target on save. */
+export function saveConfluenceConnection(
+  repositoryId: string,
+  input: SaveConfluenceConnectionInput,
+): Promise<ConfluenceConnection> {
+  return orgRequest<ConfluenceConnection>(
+    `/repositories/${encode(repositoryId)}/confluence`,
+    { method: "PUT", body: input },
+  );
+}
+
+export function deleteConfluenceConnection(repositoryId: string): Promise<void> {
+  return orgRequest<void>(`/repositories/${encode(repositoryId)}/confluence`, {
+    method: "DELETE",
+  });
+}
+
+export function verifyConfluenceConnection(
+  repositoryId: string,
+): Promise<ConfluenceVerifyResult> {
+  return orgRequest<ConfluenceVerifyResult>(
+    `/repositories/${encode(repositoryId)}/confluence/verify`,
+    { method: "POST" },
+  );
+}
+
+/** Publish the latest docs snapshot to the configured page (GP-180). */
+export function publishToConfluence(
+  repositoryId: string,
+): Promise<ConfluencePublishResult> {
+  return orgRequest<ConfluencePublishResult>(
+    `/repositories/${encode(repositoryId)}/confluence/publish`,
+    { method: "POST" },
+  );
 }
 
 /**

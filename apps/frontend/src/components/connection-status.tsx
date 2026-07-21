@@ -2,6 +2,7 @@ import { CheckCircle2, CircleDashed, XCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type {
+  ConfluenceErrorKind,
   ConnectionStatus,
   K8sErrorKind,
   VerifyErrorKind,
@@ -100,5 +101,17 @@ export function clusterErrorMessage(kind: K8sErrorKind): string {
       return "Could not reach the cluster — check the API server is reachable from Groundplan.";
     case "invalid_config":
       return "The kubeconfig could not be read — check it is complete and has a current context.";
+  }
+}
+
+/** The same, for a Confluence connection or publish (GP-179/GP-180). */
+export function confluenceErrorMessage(kind: ConfluenceErrorKind): string {
+  switch (kind) {
+    case "auth_failed":
+      return "Confluence rejected the credential — check the token (and, on a Cloud site, the account email).";
+    case "space_not_found":
+      return "The space was not found — check the space key exists on that site.";
+    case "network":
+      return "Could not reach the Confluence site — check the base URL.";
   }
 }

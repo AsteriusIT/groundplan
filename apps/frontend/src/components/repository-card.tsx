@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  BookUp,
   Ellipsis,
   FileText,
   FolderTree,
@@ -40,6 +41,7 @@ import {
   ConnectionStatusDot,
   connectionErrorMessage,
 } from "@/components/connection-status";
+import { ConfluenceSettingsDialog } from "@/components/confluence-settings-dialog";
 import { DeleteRepositoryDialog } from "@/components/delete-repository-dialog";
 import { RepositorySettingsDialog } from "@/components/repository-settings-dialog";
 
@@ -70,6 +72,7 @@ export function RepositoryCard({
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confluenceOpen, setConfluenceOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // A freshly rotated token, shown once inside the CI block; null until rotated.
   const [freshToken, setFreshToken] = useState<string | null>(null);
@@ -187,6 +190,11 @@ export function RepositoryCard({
                 <Settings2 className="size-3.5" />
                 Repository settings
               </DropdownMenuItem>
+              {/* GP-181: where this repository's docs page publishes to. */}
+              <DropdownMenuItem onSelect={() => setConfluenceOpen(true)}>
+                <BookUp className="size-3.5" />
+                Confluence
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setShowCi((v) => !v)}>
                 <Plug className="size-3.5" />
                 CI setup
@@ -257,6 +265,11 @@ export function RepositoryCard({
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onUpdated={onChanged}
+      />
+      <ConfluenceSettingsDialog
+        repository={repo}
+        open={confluenceOpen}
+        onOpenChange={setConfluenceOpen}
       />
       <DeleteRepositoryDialog
         name={repoName(repo.url)}

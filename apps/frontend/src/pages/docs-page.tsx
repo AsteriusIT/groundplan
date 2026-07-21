@@ -51,6 +51,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CompareView } from "@/components/compare-view";
+import { ConfluencePublish } from "@/components/confluence-publish";
 import { ExportMenu } from "@/components/export-menu";
 import { ShareDialog } from "@/components/share-dialog";
 import { GraphCanvas } from "@/components/graph-canvas";
@@ -565,6 +566,9 @@ export function DocsPage() {
                     filenameBase={`${(repo ? repoName(repo.url) : "diagram").replaceAll("/", "-")}-${shortSha(current.commitSha)}`}
                   />
                 )}
+                {/* GP-181: present only when a verified Confluence connection
+                    exists — the component gates itself. */}
+                {repoId && <ConfluencePublish repositoryId={repoId} />}
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

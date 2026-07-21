@@ -153,6 +153,58 @@ export type ClusterVerifyResult =
   | { ok: true; version: string | null }
   | { ok: false; error: K8sErrorKind };
 
+// --- Confluence export (GP-179..GP-181) --------------------------------------
+
+/** How the Confluence credential authenticates: Cloud API token or DC PAT. */
+export type ConfluenceAuthType = "cloud_token" | "dc_pat";
+
+/** Structured reason a Confluence call failed (GP-179/GP-180). */
+export type ConfluenceErrorKind = "auth_failed" | "space_not_found" | "network";
+
+/**
+ * A repository's Confluence target (GP-179): where its docs page publishes to.
+ * The credential is write-only — the only value the field can hold is the mask.
+ */
+export interface ConfluenceConnection {
+  id: string;
+  repositoryId: string;
+  baseUrl: string;
+  spaceKey: string;
+  authType: ConfluenceAuthType;
+  /** Basic-auth username for a Cloud token; null for a DC PAT. */
+  email: string | null;
+  /** Always "***". The credential you sent is never sent back. */
+  credential: "***";
+  connectionStatus: ConnectionStatus;
+  verifiedAt: string | null;
+  /** The published page's web URL (GP-180), once a publish has landed. */
+  pageUrl: string | null;
+  lastPublishedAt: string | null;
+  /** Categorized kind of the last failed publish, or null. */
+  lastPublishError: string | null;
+  createdAt: string;
+}
+
+export interface SaveConfluenceConnectionInput {
+  baseUrl: string;
+  spaceKey: string;
+  authType: ConfluenceAuthType;
+  /** Required for `cloud_token`; ignored for a DC PAT. */
+  email?: string;
+  /** Write-only. Omit on an update to keep the stored one. */
+  credential?: string;
+}
+
+/** Result of POST /repositories/:id/confluence/verify. */
+export type ConfluenceVerifyResult =
+  | { ok: true }
+  | { ok: false; error: ConfluenceErrorKind };
+
+/** Result of POST /repositories/:id/confluence/publish (GP-180). */
+export type ConfluencePublishResult =
+  | { ok: true; pageUrl: string | null; publishedAt: string }
+  | { ok: false; error: ConfluenceErrorKind };
+
 // --- Organizations, membership & RBAC (GP-113..GP-118) ----------------------
 
 /** A member's role in an org. A strict hierarchy: owner > admin > member. */
