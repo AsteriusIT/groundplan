@@ -1,12 +1,6 @@
 import type { ComponentType } from "react";
 import { NavLink } from "react-router-dom";
-import {
-  Boxes,
-  FlaskConical,
-  LayoutDashboard,
-  Settings,
-  Sparkles,
-} from "lucide-react";
+import { Boxes, FlaskConical, LayoutDashboard, Sparkles } from "lucide-react";
 
 import { useAiStatus } from "@/lib/use-ai-status";
 import { cn } from "@/lib/utils";
@@ -35,7 +29,6 @@ const NAV: NavEntry[] = [
   { to: "/projects", label: "Projects", icon: Boxes },
   { to: "/clusters", label: "Clusters", icon: KubernetesMark },
   { to: "/playground", label: "Playground", icon: FlaskConical },
-  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 /** The AI-mode switch (GP-141): present only when the AI layer is on — with

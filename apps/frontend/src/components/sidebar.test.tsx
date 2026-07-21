@@ -73,14 +73,25 @@ it("puts Clusters beside Projects — a cluster is not inside one", () => {
   expect(clusters).toHaveAttribute("href", "/clusters");
   expect(clusters).toHaveAttribute("aria-current", "page");
 
-  // The five top-level places, in order.
+  // Settings left NAV for the user-card menu (GP-186): four top-level places.
   expect(
     screen.getAllByRole("link").map((a) => a.textContent),
-  ).toEqual(["Dashboard", "Projects", "Clusters", "Playground", "Settings"]);
+  ).toEqual(["Dashboard", "Projects", "Clusters", "Playground"]);
 });
 
-it("signs out from the user card", () => {
+it("no longer carries a Settings entry in the primary nav (GP-186)", () => {
+  renderSidebar();
+  expect(
+    screen.queryByRole("link", { name: "Settings" }),
+  ).not.toBeInTheDocument();
+});
+
+it("signs out from the user-card menu, not a bare icon (GP-186)", async () => {
   const value = renderSidebar();
-  fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+  // The card is the menu trigger; the sign-out icon button is gone.
+  fireEvent.keyDown(screen.getByRole("button", { name: /ada lovelace/i }), {
+    key: "Enter",
+  });
+  fireEvent.click(await screen.findByRole("menuitem", { name: /sign out/i }));
   expect(value.logout).toHaveBeenCalledTimes(1);
 });
