@@ -97,6 +97,32 @@ export async function ensureSnapshotShareLink(
   return row.token;
 }
 
+/**
+ * The token of an existing, non-revoked `docs_latest` share link for a
+ * repository, or null when none exists (GP-182). Unlike `ensureSnapshotShareLink`
+ * this never *creates* a link: publishing to Confluence must not silently mint a
+ * public link — it reuses one the team already chose to make, else the backlink
+ * falls back to the (login-guarded) in-app docs URL.
+ */
+export async function findDocsLatestShareToken(
+  db: NodePgDatabase,
+  repositoryId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ token: shareTokens.token })
+    .from(shareTokens)
+    .where(
+      and(
+        eq(shareTokens.repositoryId, repositoryId),
+        eq(shareTokens.kind, "docs_latest"),
+        isNull(shareTokens.revokedAt),
+      ),
+    )
+    .orderBy(desc(shareTokens.createdAt))
+    .limit(1);
+  return row?.token ?? null;
+}
+
 /** Active (non-revoked) links for a repository, newest first. */
 export async function listShareLinks(
   db: NodePgDatabase,

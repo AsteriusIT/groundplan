@@ -129,12 +129,15 @@ export function docsPageStorage(input: DocsPageInput): string {
     )}</code> · <code>${escapeXml(input.ref)}</code> · ${escapeXml(
       input.generatedAt.toISOString().slice(0, 10),
     )}</p>`,
+    // An explicit display width (GP-182): the attachment is a high-resolution
+    // PNG, so pinning it to 1200px makes Confluence downscale it crisply rather
+    // than stretch a low-res image to page width.
     `<ac:image ac:width="1200"><ri:attachment ri:filename="${DIAGRAM_FILENAME}" /></ac:image>`,
     markdownToStorage(input.summaryMd),
   ];
   if (input.appUrl) {
     parts.push(
-      `<p><a href="${escapeXml(input.appUrl)}">View the interactive diagram in Groundplan</a></p>`,
+      `<p><a href="${escapeXml(input.appUrl)}">View live in Groundplan</a></p>`,
     );
   }
   parts.push(

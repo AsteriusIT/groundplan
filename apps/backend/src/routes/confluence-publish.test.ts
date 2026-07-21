@@ -229,6 +229,45 @@ test("first publish creates page + attachment; second updates in place, no dupli
   }
 });
 
+test("the backlink prefers an existing docs share link over the in-app URL (GP-182)", async () => {
+  const stub = stubConfluence();
+  const app = await buildApp(
+    { ...env, publicBaseUrl: "https://app.test" },
+    { confluence: stub },
+  );
+  const orgId = await seedOrg(app);
+  try {
+    const { repoId } = await seedRepoWithConnection(app, orgId);
+    await insertGraphSnapshot(app.db, {
+      repositoryId: repoId,
+      source: "hcl",
+      ref: "main",
+      commitSha: "abcdef1234567890",
+      graph: GRAPH,
+    });
+    // The team has an "always latest" public share link for this repo.
+    const share = await app.inject({
+      method: "POST",
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/share-links`,
+      payload: { kind: "docs_latest" },
+    });
+    assert.equal(share.statusCode, 201);
+    const token = share.json().token as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/confluence/publish`,
+    });
+    const page = stub.pages.get("page-1");
+    assert.ok(page);
+    // The page links to the read-only share view, not the login-gated app URL.
+    assert.ok(page.storage.includes(`https://app.test/share/${token}`));
+    assert.ok(!page.storage.includes(`/projects/`));
+  } finally {
+    await app.close();
+  }
+});
+
 test("a page deleted on the Confluence side is recreated transparently", async () => {
   const stub = stubConfluence();
   const app = await buildApp(env, { confluence: stub });

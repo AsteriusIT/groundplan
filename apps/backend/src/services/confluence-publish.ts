@@ -35,7 +35,13 @@ import type {
 } from "./confluence.js";
 import { DIAGRAM_FILENAME, docsPageStorage } from "./confluence-content.js";
 import { docsSourceFor } from "./graph-snapshots.js";
+import { findDocsLatestShareToken } from "./share-links.js";
 import { cachedSnapshotExport, repoLabel } from "./snapshot-export.js";
+
+/** GP-182: raster the published diagram at 2× page width so Confluence — which
+ * displays it at an explicit 1200px — downscales it crisply instead of
+ * stretching a 1× image. 2× keeps the attachment comfortably under ~2 MB. */
+const CONFLUENCE_PNG_SCALE = 2;
 
 export type ConfluencePublishResult =
   | { ok: true; pageUrl: string | null; publishedAt: Date }
@@ -108,9 +114,17 @@ async function buildPageStorage(
     annotations: notes,
   });
 
-  const appUrl = app.publicBaseUrl
-    ? `${app.publicBaseUrl}/projects/${repo.projectId}/repos/${repo.id}/docs`
-    : null;
+  // GP-182: prefer a read-only "always latest" share link (login-free, AI
+  // content excluded by the share view) when the team has one; otherwise link to
+  // the in-app docs. Never mint one here — publishing must not create a public
+  // link on its own.
+  let appUrl: string | null = null;
+  if (app.publicBaseUrl) {
+    const shareToken = await findDocsLatestShareToken(app.db, repo.id);
+    appUrl = shareToken
+      ? `${app.publicBaseUrl}/share/${shareToken}`
+      : `${app.publicBaseUrl}/projects/${repo.projectId}/repos/${repo.id}/docs`;
+  }
 
   return docsPageStorage({
     repoLabel: repoLabel(repo.url),
@@ -211,12 +225,14 @@ export async function publishDocsSnapshot(
   };
 
   const storage = await buildPageStorage(app, repo, snapshot);
-  // The same deterministic render + disk cache the export routes use (GP-37).
+  // The same deterministic render + disk cache the export routes use (GP-37),
+  // rendered at high resolution for Confluence (GP-182).
   const png = await cachedSnapshotExport(app.exportCacheDir, {
     snapshot,
     repoUrl: repo.url,
     format: "png",
     scope: "full",
+    pngScale: CONFLUENCE_PNG_SCALE,
   });
 
   const ensured = await ensurePage(
