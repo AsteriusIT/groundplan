@@ -268,11 +268,15 @@ only — `viewsFor()` is the one place that decides; no annotate/AI/tours/share.
 **Exports & integrations.** SVG/PNG server-rendered and cached (GP-37);
 draw.io export (GP-173..177) embeds vendored icons and mirrors canvas edge
 semantics — regenerate assets with the `drawio:*` scripts (CI checks them);
-shape library must load from Device, not URL. Confluence (GP-178): per-repo
-connection (encrypted credential, verify) publishes the docs summary +
-diagram PNG as one idempotently-updated page; publish failures land in
-`last_publish_error`, never thrown. PR comments have one adapter per
-provider behind `pr-comment-port.ts`.
+shape library must load from Device, not URL. Confluence (GP-178, complete):
+the credential lives on an **org-level Integration** (`integrations`,
+GP-183 — encrypted, write-only, `integration:manage` = admin, verify checks
+credential + base URL), attachable by N repos; a `confluence_connections` row
+is now a pure per-repo target (`integrationId` + `spaceKey`). Publish renders
+a 2× PNG (GP-182) and a summary as one idempotently-updated page with a "View
+live in Groundplan" backlink (a `docs_latest` share link when one exists, else
+the in-app docs URL); failures land in `last_publish_error`, never thrown. PR
+comments have one adapter per provider behind `pr-comment-port.ts`.
 
 **VS Code extension (GP-144, GP-151).** Live preview: parse in the extension
 host with `@groundplan/graph-parser`, draw with `@groundplan/canvas` in a
@@ -315,7 +319,8 @@ live view · GP-100 K8s Git flow · GP-106 GitOps/CLI · GP-112 orgs & RBAC ·
 GP-119 HCL source in docs · GP-122 playground · GP-136 AI Studio · GP-144
 VS Code extension · GP-151 VS Code diff mode · GP-157 website (stories
 done; GP-166 legal gate **in progress**) · GP-167 Helm chart · GP-173
-draw.io export.
+draw.io export · GP-178 Confluence export (GP-179..184 done; page quality +
+org-level Atlassian integration).
 
 **Open:**
 
@@ -326,7 +331,4 @@ draw.io export.
   Nothing in the product prices resources today — never claim cost.
 - **GP-131 Visual Builder** (GP-132..135, To Do): compose visually →
   generate deterministic HCL into the playground (one-way scaffolding).
-- **GP-178 Confluence** epic remainder: GP-179..181 shipped; open: GP-182
-  (high-res PNG + backlink polish), GP-183/184 (org-level Atlassian
-  integration + settings page, migrating off per-repo config).
 - **GP-166** naming clearance (see "Naming").

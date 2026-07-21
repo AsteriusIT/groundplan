@@ -199,7 +199,7 @@ diagram, same summary, same SVG.
 | GP-157 | Marketing website | GP-158..165 (GP-166 open) |
 | GP-167 | Helm chart & Kubernetes install | GP-168..172 |
 | GP-173 | Editable draw.io export | GP-174..177 |
-| GP-178 | Confluence export (partial) | GP-179..181 done |
+| GP-178 | Confluence export (page quality + org integration) | GP-179..184 |
 
 **Open / not implemented:**
 
@@ -212,8 +212,6 @@ diagram, same summary, same SVG.
   visually → generate deterministic HCL (one-way scaffolding).
 - **GP-166** (In Progress): trademark/domain clearance gate — "Groundplan"
   rejected; awaiting the founder's fallback name.
-- **GP-182..184** (To Do): Confluence polish (high-res PNG + backlink) and
-  org-level Atlassian integration settings replacing per-repo config.
 
 **Honesty list — what must not be claimed:** no cost estimation; AI Studio
 is experimental and Azure-only; deep network/IAM semantics are Azure-first
