@@ -60,8 +60,11 @@ import type {
   VerifyResult,
   ConfluenceConnection,
   ConfluencePublishResult,
-  ConfluenceVerifyResult,
   SaveConfluenceConnectionInput,
+  Integration,
+  CreateIntegrationInput,
+  UpdateIntegrationInput,
+  IntegrationVerifyResult,
 } from "./types";
 
 /** API origin from runtime config (`""` = same-origin). Read lazily so the
@@ -326,9 +329,46 @@ export function deleteRepository(id: string): Promise<void> {
   return orgRequest<void>(`/repositories/${encode(id)}`, { method: "DELETE" });
 }
 
-// --- Confluence export (GP-179..GP-181) --------------------------------------
+// --- Organization integrations (GP-183) --------------------------------------
 
-/** The repository's Confluence connection, or null when none is configured. */
+/** The org's integrations (GP-183); readable by any member (masked). */
+export function listIntegrations(): Promise<Integration[]> {
+  return orgRequest<Integration[]>(`/integrations`);
+}
+
+/** Create an org integration; the server verifies the credential on save. */
+export function createIntegration(
+  input: CreateIntegrationInput,
+): Promise<Integration> {
+  return orgRequest<Integration>(`/integrations`, { method: "POST", body: input });
+}
+
+/** Edit an org integration; re-verified on save. Omit the credential to keep it. */
+export function updateIntegration(
+  id: string,
+  input: UpdateIntegrationInput,
+): Promise<Integration> {
+  return orgRequest<Integration>(`/integrations/${encode(id)}`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+export function verifyIntegration(id: string): Promise<IntegrationVerifyResult> {
+  return orgRequest<IntegrationVerifyResult>(
+    `/integrations/${encode(id)}/verify`,
+    { method: "POST" },
+  );
+}
+
+/** Delete an org integration; the server answers 409 if a repo still uses it. */
+export function deleteIntegration(id: string): Promise<void> {
+  return orgRequest<void>(`/integrations/${encode(id)}`, { method: "DELETE" });
+}
+
+// --- Confluence export (GP-179..GP-183) --------------------------------------
+
+/** The repository's Confluence target, or null when none is configured. */
 export async function getConfluenceConnection(
   repositoryId: string,
 ): Promise<ConfluenceConnection | null> {
@@ -342,7 +382,7 @@ export async function getConfluenceConnection(
   }
 }
 
-/** Create-or-replace the connection; the server verifies the target on save. */
+/** Create-or-replace the target (an org integration + a space key). */
 export function saveConfluenceConnection(
   repositoryId: string,
   input: SaveConfluenceConnectionInput,
@@ -357,15 +397,6 @@ export function deleteConfluenceConnection(repositoryId: string): Promise<void> 
   return orgRequest<void>(`/repositories/${encode(repositoryId)}/confluence`, {
     method: "DELETE",
   });
-}
-
-export function verifyConfluenceConnection(
-  repositoryId: string,
-): Promise<ConfluenceVerifyResult> {
-  return orgRequest<ConfluenceVerifyResult>(
-    `/repositories/${encode(repositoryId)}/confluence/verify`,
-    { method: "POST" },
-  );
 }
 
 /** Publish the latest docs snapshot to the configured page (GP-180). */

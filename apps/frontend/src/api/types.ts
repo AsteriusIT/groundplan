@@ -153,7 +153,7 @@ export type ClusterVerifyResult =
   | { ok: true; version: string | null }
   | { ok: false; error: K8sErrorKind };
 
-// --- Confluence export (GP-179..GP-181) --------------------------------------
+// --- Confluence export (GP-179..GP-182) --------------------------------------
 
 /** How the Confluence credential authenticates: Cloud API token or DC PAT. */
 export type ConfluenceAuthType = "cloud_token" | "dc_pat";
@@ -162,21 +162,15 @@ export type ConfluenceAuthType = "cloud_token" | "dc_pat";
 export type ConfluenceErrorKind = "auth_failed" | "space_not_found" | "network";
 
 /**
- * A repository's Confluence target (GP-179): where its docs page publishes to.
- * The credential is write-only — the only value the field can hold is the mask.
+ * A repository's Confluence publish target (GP-179; re-homed by GP-183): the org
+ * Integration that authenticates it and the space its docs land in. No
+ * credential travels on a target — that lives on the Integration.
  */
 export interface ConfluenceConnection {
   id: string;
   repositoryId: string;
-  baseUrl: string;
+  integrationId: string;
   spaceKey: string;
-  authType: ConfluenceAuthType;
-  /** Basic-auth username for a Cloud token; null for a DC PAT. */
-  email: string | null;
-  /** Always "***". The credential you sent is never sent back. */
-  credential: "***";
-  connectionStatus: ConnectionStatus;
-  verifiedAt: string | null;
   /** The published page's web URL (GP-180), once a publish has landed. */
   pageUrl: string | null;
   lastPublishedAt: string | null;
@@ -186,23 +180,71 @@ export interface ConfluenceConnection {
 }
 
 export interface SaveConfluenceConnectionInput {
-  baseUrl: string;
+  /** An org Atlassian integration of this repo's org. */
+  integrationId: string;
   spaceKey: string;
-  authType: ConfluenceAuthType;
-  /** Required for `cloud_token`; ignored for a DC PAT. */
-  email?: string;
-  /** Write-only. Omit on an update to keep the stored one. */
-  credential?: string;
 }
-
-/** Result of POST /repositories/:id/confluence/verify. */
-export type ConfluenceVerifyResult =
-  | { ok: true }
-  | { ok: false; error: ConfluenceErrorKind };
 
 /** Result of POST /repositories/:id/confluence/publish (GP-180). */
 export type ConfluencePublishResult =
   | { ok: true; pageUrl: string | null; publishedAt: string }
+  | { ok: false; error: ConfluenceErrorKind };
+
+// --- Organization integrations (GP-183) --------------------------------------
+
+/** The kind of external system an integration connects to. */
+export type IntegrationType = "atlassian";
+
+/** Non-secret, type-specific configuration of an Atlassian integration. */
+export interface AtlassianIntegrationConfig {
+  baseUrl: string;
+  authType: ConfluenceAuthType;
+  /** Basic-auth username for a Cloud token; null for a DC PAT. */
+  email: string | null;
+}
+
+/**
+ * An org-level integration (GP-183): an external credential configured once per
+ * org and attached by N repositories. The credential is write-only — the field
+ * only ever holds the mask.
+ */
+export interface Integration {
+  id: string;
+  organizationId: string;
+  type: IntegrationType;
+  name: string;
+  config: AtlassianIntegrationConfig;
+  /** Always "***". The credential you sent is never sent back. */
+  credential: "***";
+  connectionStatus: ConnectionStatus;
+  verifiedAt: string | null;
+  createdAt: string;
+}
+
+/** Body of POST /orgs/:orgId/integrations. */
+export interface CreateIntegrationInput {
+  type: IntegrationType;
+  name: string;
+  baseUrl: string;
+  authType: ConfluenceAuthType;
+  /** Required for `cloud_token`; omitted for a DC PAT. */
+  email?: string;
+  credential: string;
+}
+
+/** Body of PATCH /orgs/:orgId/integrations/:id — every field optional. */
+export interface UpdateIntegrationInput {
+  name?: string;
+  baseUrl?: string;
+  authType?: ConfluenceAuthType;
+  email?: string;
+  /** Write-only. Omit to keep the stored credential. */
+  credential?: string;
+}
+
+/** Result of POST /orgs/:orgId/integrations/:id/verify. */
+export type IntegrationVerifyResult =
+  | { ok: true }
   | { ok: false; error: ConfluenceErrorKind };
 
 // --- Organizations, membership & RBAC (GP-113..GP-118) ----------------------

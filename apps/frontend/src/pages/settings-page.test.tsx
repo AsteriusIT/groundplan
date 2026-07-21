@@ -10,6 +10,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     getAiStatus: vi.fn(),
     listMembers: vi.fn(),
     listInvitations: vi.fn(),
+    listIntegrations: vi.fn(),
   };
 });
 
@@ -17,7 +18,12 @@ const logout = vi.fn();
 const useAuthMock = vi.fn();
 vi.mock("@/auth/use-auth", () => ({ useAuth: () => useAuthMock() }));
 
-import { getAiStatus, listInvitations, listMembers } from "@/api/client";
+import {
+  getAiStatus,
+  listIntegrations,
+  listInvitations,
+  listMembers,
+} from "@/api/client";
 import type { AiStatus, User } from "@/api/types";
 import { OrgContext, type OrgContextValue } from "@/org/org-context";
 import { resetAiStatus } from "@/lib/use-ai-status";
@@ -29,6 +35,7 @@ import { SettingsPage } from "./settings-page";
 const getAiStatusMock = vi.mocked(getAiStatus);
 const listMembersMock = vi.mocked(listMembers);
 const listInvitationsMock = vi.mocked(listInvitations);
+const listIntegrationsMock = vi.mocked(listIntegrations);
 
 // Single-org context: the members roster shows; invites and danger zone hide.
 const orgValue: OrgContextValue = {
@@ -73,6 +80,8 @@ beforeEach(() => {
   listMembersMock.mockResolvedValue([]);
   listInvitationsMock.mockReset();
   listInvitationsMock.mockResolvedValue([]);
+  listIntegrationsMock.mockReset();
+  listIntegrationsMock.mockResolvedValue([]);
   logout.mockReset();
   localStorage.clear();
   useAuthMock.mockReturnValue({
@@ -182,6 +191,7 @@ it("lists exactly the rendered sections in the rail", () => {
     "Account",
     "Appearance",
     "Members",
+    "Integrations",
     "CI ingestion token",
     "AI",
   ]);
@@ -199,6 +209,7 @@ it("adds invitations and the danger zone for a multi-org owner", () => {
     "Account",
     "Appearance",
     "Members",
+    "Integrations",
     "Invitations",
     "CI ingestion token",
     "AI",

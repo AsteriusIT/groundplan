@@ -1,17 +1,17 @@
-import { type SubmitEvent, useCallback, useEffect, useState } from "react";
+import { type SubmitEvent, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import {
   ApiError,
   deleteConfluenceConnection,
   getConfluenceConnection,
+  listIntegrations,
   saveConfluenceConnection,
-  verifyConfluenceConnection,
 } from "@/api/client";
 import type {
-  ConfluenceAuthType,
   ConfluenceConnection,
+  Integration,
   Repository,
-  SaveConfluenceConnectionInput,
 } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,23 +23,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  ConnectionStatusBadge,
-  confluenceErrorMessage,
-} from "@/components/connection-status";
+import { ConnectionStatusBadge } from "@/components/connection-status";
+import { cn } from "@/lib/utils";
+import { useCan } from "@/rbac/use-can";
 
 /**
- * Where this repository's docs page publishes to (GP-179/GP-181): base URL,
- * space key, and a credential that follows the repository-PAT rules — write
- * only, never displayed back, blank on update means "keep the stored one".
+ * Where this repository's docs page publishes to (GP-179; simplified by GP-184):
+ * pick one of the organization's Atlassian integrations — which holds the
+ * credential — plus the space key. No credential lives here anymore; it is
+ * configured once per org in organization settings.
  *
- * Auth is a toggle, not two forms: Cloud (API token, as Basic email:token) and
- * Data Center (PAT, as Bearer) differ only in the credential field and whether
- * an email is needed. The server verifies the target on save; the outcome is
- * shown here rather than the dialog closing on a connection that does not work.
- *
- * Controlled (no trigger) for the same reason as the settings dialog: it opens
- * from the card's overflow menu, which unmounts on select.
+ * Controlled (no trigger): it opens from the card's overflow menu, which
+ * unmounts on select.
  */
 export function ConfluenceSettingsDialog({
   repository,
@@ -50,122 +45,72 @@ export function ConfluenceSettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }>) {
+  const canManageIntegrations = useCan("integration:manage");
   const [connection, setConnection] = useState<ConfluenceConnection | null>(null);
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [baseUrl, setBaseUrl] = useState("");
+  const [integrationId, setIntegrationId] = useState("");
   const [spaceKey, setSpaceKey] = useState("");
-  const [authType, setAuthType] = useState<ConfluenceAuthType>("cloud_token");
-  const [email, setEmail] = useState("");
-  const [credential, setCredential] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const seed = useCallback((conn: ConfluenceConnection | null) => {
-    setBaseUrl(conn?.baseUrl ?? "");
-    setSpaceKey(conn?.spaceKey ?? "");
-    setAuthType(conn?.authType ?? "cloud_token");
-    setEmail(conn?.email ?? "");
-    setCredential("");
-  }, []);
-
-  // Re-fetch each time it opens: the connection may have been verified,
-  // published to, or removed since — a stale draft would silently undo that.
+  // Re-fetch each time it opens: the target may have been published to or
+  // removed, and the org's integrations may have changed, since last time.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoaded(false);
     setError(null);
-    getConfluenceConnection(repository.id)
-      .then((conn) => {
+    Promise.all([getConfluenceConnection(repository.id), listIntegrations()])
+      .then(([conn, list]) => {
         if (cancelled) return;
+        const atlassian = list.filter((i) => i.type === "atlassian");
         setConnection(conn);
-        seed(conn);
+        setIntegrations(atlassian);
+        setIntegrationId(conn?.integrationId ?? atlassian[0]?.id ?? "");
+        setSpaceKey(conn?.spaceKey ?? "");
         setLoaded(true);
       })
       .catch(() => {
         if (cancelled) return;
         setConnection(null);
-        seed(null);
+        setIntegrations([]);
+        setIntegrationId("");
+        setSpaceKey("");
         setLoaded(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, repository.id, seed]);
+  }, [open, repository.id]);
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
     if (!next) {
-      setCredential("");
       setError(null);
       setSubmitting(false);
     }
   }
 
-  const hasStored = connection !== null;
-  const cloud = authType === "cloud_token";
-  const credentialLabel = cloud
-    ? hasStored
-      ? "Replace API token"
-      : "API token"
-    : hasStored
-      ? "Replace personal access token"
-      : "Personal access token";
-
-  const incomplete =
-    !baseUrl.trim() ||
-    !spaceKey.trim() ||
-    (cloud && !email.trim()) ||
-    (!hasStored && !credential.trim());
+  const incomplete = !integrationId || !spaceKey.trim();
+  const selected = integrations.find((i) => i.id === integrationId);
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const input: SaveConfluenceConnectionInput = {
-        baseUrl: baseUrl.trim(),
+      const saved = await saveConfluenceConnection(repository.id, {
+        integrationId,
         spaceKey: spaceKey.trim(),
-        authType,
-        ...(cloud ? { email: email.trim() } : {}),
-        ...(credential.trim() ? { credential: credential.trim() } : {}),
-      };
-      const saved = await saveConfluenceConnection(repository.id, input);
+      });
       setConnection(saved);
-      setCredential("");
-      if (saved.connectionStatus === "failed") {
-        // The row stores the outcome, not the reason — ask the verify endpoint
-        // once, so the user reads *why* instead of just "failed".
-        const result = await verifyConfluenceConnection(repository.id);
-        if (result.ok) {
-          setConnection({ ...saved, connectionStatus: "ok" });
-        } else {
-          setError(confluenceErrorMessage(result.error));
-        }
-      }
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Could not save the connection.",
+        err instanceof ApiError ? err.message : "Could not save the target.",
       );
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleVerify() {
-    setVerifying(true);
-    setError(null);
-    try {
-      const result = await verifyConfluenceConnection(repository.id);
-      setConnection((prev) =>
-        prev ? { ...prev, connectionStatus: result.ok ? "ok" : "failed" } : prev,
-      );
-      if (!result.ok) setError(confluenceErrorMessage(result.error));
-    } catch {
-      setError("Could not verify the connection.");
-    } finally {
-      setVerifying(false);
     }
   }
 
@@ -174,9 +119,8 @@ export function ConfluenceSettingsDialog({
     try {
       await deleteConfluenceConnection(repository.id);
       setConnection(null);
-      seed(null);
     } catch {
-      setError("Could not remove the connection.");
+      setError("Could not remove the target.");
     }
   }
 
@@ -186,49 +130,66 @@ export function ConfluenceSettingsDialog({
         <DialogHeader>
           <DialogTitle className="font-display">Confluence</DialogTitle>
           <DialogDescription>
-            Publish this repository's documentation to a Confluence page. The
-            page is created once and updated in place on every publish.
+            Publish this repository's documentation to a Confluence page, using
+            one of your organization's Atlassian integrations. The page is created
+            once and updated in place on every publish.
           </DialogDescription>
         </DialogHeader>
 
-        {loaded && (
+        {loaded && integrations.length === 0 && (
+          <div className="space-y-3 text-sm">
+            <p className="text-muted-foreground">
+              {canManageIntegrations
+                ? "No Atlassian integration yet."
+                : "No Atlassian integration is configured for this organization."}
+            </p>
+            {canManageIntegrations && (
+              <Link
+                to="/settings"
+                onClick={() => handleOpenChange(false)}
+                className="text-primary text-sm underline underline-offset-2"
+              >
+                Set one up in organization settings
+              </Link>
+            )}
+          </div>
+        )}
+
+        {loaded && integrations.length > 0 && (
           <form onSubmit={handleSubmit} className="space-y-5">
             {connection && (
               <div className="flex items-center gap-2">
-                <ConnectionStatusBadge status={connection.connectionStatus} />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleVerify}
-                  disabled={verifying}
-                >
-                  {verifying ? "Verifying…" : "Verify"}
-                </Button>
+                {selected && (
+                  <ConnectionStatusBadge status={selected.connectionStatus} />
+                )}
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-destructive ml-auto text-xs underline underline-offset-2"
                   onClick={handleRemove}
                 >
-                  Remove connection
+                  Remove target
                 </button>
               </div>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="confluence-base-url">Base URL</Label>
-              <Input
-                id="confluence-base-url"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://your-site.atlassian.net/wiki"
-                autoComplete="off"
-              />
-              <p className="text-muted-foreground text-xs">
-                For Confluence Cloud include the{" "}
-                <span className="font-mono">/wiki</span> suffix; for Data Center
-                the instance origin.
-              </p>
+              <Label htmlFor="confluence-integration">Atlassian integration</Label>
+              <select
+                id="confluence-integration"
+                value={integrationId}
+                onChange={(e) => setIntegrationId(e.target.value)}
+                className={cn(
+                  "border-input bg-transparent h-9 w-full min-w-0 rounded-md border px-3 py-1 text-sm shadow-xs outline-none",
+                  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+                  "dark:bg-input/30",
+                )}
+              >
+                {integrations.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name} — {i.config.baseUrl}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-2">
@@ -242,67 +203,6 @@ export function ConfluenceSettingsDialog({
               />
             </div>
 
-            <div className="space-y-2">
-              <p className="text-sm leading-none font-medium">Authentication</p>
-              <div
-                role="group"
-                aria-label="Authentication type"
-                className="flex gap-2"
-              >
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={cloud ? "default" : "outline"}
-                  aria-pressed={cloud}
-                  onClick={() => setAuthType("cloud_token")}
-                >
-                  Cloud API token
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={cloud ? "outline" : "default"}
-                  aria-pressed={!cloud}
-                  onClick={() => setAuthType("dc_pat")}
-                >
-                  Data Center PAT
-                </Button>
-              </div>
-            </div>
-
-            {cloud && (
-              <div className="space-y-2">
-                <Label htmlFor="confluence-email">Account email</Label>
-                <Input
-                  id="confluence-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="off"
-                />
-                <p className="text-muted-foreground text-xs">
-                  The Atlassian account the API token belongs to.
-                </p>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="confluence-credential">{credentialLabel}</Label>
-              <Input
-                id="confluence-credential"
-                type="password"
-                value={credential}
-                onChange={(e) => setCredential(e.target.value)}
-                placeholder={hasStored ? "••••••••" : undefined}
-                autoComplete="off"
-              />
-              <p className="text-muted-foreground text-xs">
-                {hasStored
-                  ? "A credential is stored. Leave this blank to keep it."
-                  : "Stored encrypted at rest. Used only to publish this repository's docs page."}
-              </p>
-            </div>
-
             {error && (
               <p className="text-destructive text-sm" role="alert">
                 {error}
@@ -311,7 +211,7 @@ export function ConfluenceSettingsDialog({
 
             <div className="flex justify-end">
               <Button type="submit" disabled={submitting || incomplete}>
-                {submitting ? "Saving…" : "Save connection"}
+                {submitting ? "Saving…" : "Save target"}
               </Button>
             </div>
           </form>

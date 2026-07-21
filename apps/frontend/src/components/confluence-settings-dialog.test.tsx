@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { axe } from "vitest-axe";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -7,24 +8,27 @@ vi.mock("@/api/client", async (importOriginal) => {
   return {
     ...actual,
     getConfluenceConnection: vi.fn(),
+    listIntegrations: vi.fn(),
     saveConfluenceConnection: vi.fn(),
-    verifyConfluenceConnection: vi.fn(),
     deleteConfluenceConnection: vi.fn(),
   };
 });
 
+let canManageIntegrations = true;
+vi.mock("@/rbac/use-can", () => ({ useCan: () => canManageIntegrations }));
+
 import {
   deleteConfluenceConnection,
   getConfluenceConnection,
+  listIntegrations,
   saveConfluenceConnection,
-  verifyConfluenceConnection,
 } from "@/api/client";
-import type { ConfluenceConnection, Repository } from "@/api/types";
+import type { ConfluenceConnection, Integration, Repository } from "@/api/types";
 import { ConfluenceSettingsDialog } from "./confluence-settings-dialog";
 
 const getMock = vi.mocked(getConfluenceConnection);
+const listMock = vi.mocked(listIntegrations);
 const saveMock = vi.mocked(saveConfluenceConnection);
-const verifyMock = vi.mocked(verifyConfluenceConnection);
 const deleteMock = vi.mocked(deleteConfluenceConnection);
 
 const repo: Repository = {
@@ -44,16 +48,30 @@ const repo: Repository = {
   createdAt: "2026-07-01T00:00:00Z",
 };
 
+function integration(overrides: Partial<Integration> = {}): Integration {
+  return {
+    id: "i1",
+    organizationId: "o1",
+    type: "atlassian",
+    name: "Acme Cloud",
+    config: {
+      baseUrl: "https://acme.atlassian.net/wiki",
+      authType: "cloud_token",
+      email: "docs@acme.test",
+    },
+    credential: "***",
+    connectionStatus: "ok",
+    verifiedAt: "2026-07-20T10:00:00Z",
+    createdAt: "2026-07-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
 const connection: ConfluenceConnection = {
   id: "c1",
   repositoryId: "r1",
-  baseUrl: "https://acme.atlassian.net/wiki",
+  integrationId: "i2",
   spaceKey: "DOCS",
-  authType: "cloud_token",
-  email: "docs@acme.test",
-  credential: "***",
-  connectionStatus: "ok",
-  verifiedAt: "2026-07-20T10:00:00Z",
   pageUrl: null,
   lastPublishedAt: null,
   lastPublishError: null,
@@ -61,156 +79,89 @@ const connection: ConfluenceConnection = {
 };
 
 beforeEach(() => {
+  canManageIntegrations = true;
   getMock.mockReset().mockResolvedValue(null);
+  listMock.mockReset().mockResolvedValue([]);
   saveMock.mockReset();
-  verifyMock.mockReset();
   deleteMock.mockReset();
 });
 
 function renderDialog() {
   return render(
-    <main>
-      <ConfluenceSettingsDialog
-        repository={repo}
-        open
-        onOpenChange={() => {}}
-      />
-    </main>,
+    <MemoryRouter>
+      <main>
+        <ConfluenceSettingsDialog repository={repo} open onOpenChange={() => {}} />
+      </main>
+    </MemoryRouter>,
   );
 }
 
-it("creates a Cloud connection: email + API token, verified on save", async () => {
-  saveMock.mockResolvedValue({ ...connection, connectionStatus: "ok" });
+it("with no integration, a manager sees the org-settings set-up hint", async () => {
   renderDialog();
-
-  fireEvent.change(await screen.findByLabelText(/base url/i), {
-    target: { value: "https://acme.atlassian.net/wiki" },
-  });
-  fireEvent.change(screen.getByLabelText(/space key/i), {
-    target: { value: "DOCS" },
-  });
-  fireEvent.change(screen.getByLabelText(/email/i), {
-    target: { value: "docs@acme.test" },
-  });
-  fireEvent.change(screen.getByLabelText(/api token/i), {
-    target: { value: "secret-token" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /save/i }));
-
-  await waitFor(() =>
-    expect(saveMock).toHaveBeenCalledWith("r1", {
-      baseUrl: "https://acme.atlassian.net/wiki",
-      spaceKey: "DOCS",
-      authType: "cloud_token",
-      email: "docs@acme.test",
-      credential: "secret-token",
-    }),
-  );
-  // The save auto-verifies; the outcome is shown, not hidden behind a close.
-  expect(await screen.findByText(/connected/i)).toBeInTheDocument();
+  expect(await screen.findByText(/no atlassian integration yet/i)).toBeInTheDocument();
+  expect(
+    screen.getByRole("link", { name: /set one up in organization settings/i }),
+  ).toBeInTheDocument();
 });
 
-it("a DC PAT needs no email, and the credential field says PAT", async () => {
-  saveMock.mockResolvedValue({
-    ...connection,
-    authType: "dc_pat",
-    email: null,
-    baseUrl: "https://confluence.acme.test",
-  });
+it("with no integration, a member sees no set-up action", async () => {
+  canManageIntegrations = false;
+  renderDialog();
+  expect(
+    await screen.findByText(/no atlassian integration is configured/i),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+});
+
+it("picks an integration and a space key, then saves the target — no credential", async () => {
+  listMock.mockResolvedValue([
+    integration({ id: "i1", name: "Acme Cloud" }),
+    integration({ id: "i2", name: "Acme DC", config: {
+      baseUrl: "https://confluence.acme.test", authType: "dc_pat", email: null,
+    } }),
+  ]);
+  saveMock.mockResolvedValue({ ...connection, integrationId: "i2", spaceKey: "OPS" });
   renderDialog();
 
-  fireEvent.click(
-    await screen.findByRole("button", { name: /data center pat/i }),
-  );
-  expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
-
-  fireEvent.change(screen.getByLabelText(/base url/i), {
-    target: { value: "https://confluence.acme.test" },
-  });
+  const select = await screen.findByLabelText(/atlassian integration/i);
+  fireEvent.change(select, { target: { value: "i2" } });
   fireEvent.change(screen.getByLabelText(/space key/i), {
     target: { value: "OPS" },
   });
-  fireEvent.change(screen.getByLabelText(/personal access token/i), {
-    target: { value: "dc-pat" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /save/i }));
+  fireEvent.click(screen.getByRole("button", { name: /save target/i }));
 
   await waitFor(() =>
     expect(saveMock).toHaveBeenCalledWith("r1", {
-      baseUrl: "https://confluence.acme.test",
+      integrationId: "i2",
       spaceKey: "OPS",
-      authType: "dc_pat",
-      credential: "dc-pat",
     }),
   );
 });
 
-it("an existing connection seeds the form; a blank credential means keep it", async () => {
+it("an existing target seeds its integration and space key, and can be removed", async () => {
   getMock.mockResolvedValue(connection);
-  saveMock.mockResolvedValue({ ...connection, spaceKey: "OPS" });
+  listMock.mockResolvedValue([
+    integration({ id: "i1", name: "Acme Cloud" }),
+    integration({ id: "i2", name: "Acme DC" }),
+  ]);
+  deleteMock.mockResolvedValue();
   renderDialog();
 
-  const baseUrl = await screen.findByLabelText(/base url/i);
-  expect(baseUrl).toHaveValue("https://acme.atlassian.net/wiki");
-  // Write-only: the stored credential is never displayed back.
-  const credential = screen.getByLabelText(/replace api token/i);
-  expect(credential).toHaveValue("");
-  expect(credential).toHaveAttribute("placeholder", "••••••••");
-  expect(screen.getByText(/leave this blank to keep it/i)).toBeInTheDocument();
+  const select = (await screen.findByLabelText(
+    /atlassian integration/i,
+  )) as HTMLSelectElement;
+  expect(select.value).toBe("i2");
+  expect(screen.getByLabelText(/space key/i)).toHaveValue("DOCS");
 
-  fireEvent.change(screen.getByLabelText(/space key/i), {
-    target: { value: "OPS" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /save/i }));
-
-  await waitFor(() =>
-    expect(saveMock).toHaveBeenCalledWith("r1", {
-      baseUrl: "https://acme.atlassian.net/wiki",
-      spaceKey: "OPS",
-      authType: "cloud_token",
-      email: "docs@acme.test",
-    }),
-  );
-});
-
-it("verify reports the categorized reason in words", async () => {
-  getMock.mockResolvedValue(connection);
-  verifyMock.mockResolvedValue({ ok: false, error: "space_not_found" });
-  renderDialog();
-
-  fireEvent.click(await screen.findByRole("button", { name: /^verify$/i }));
-
-  const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toMatch(/space was not found/i);
-});
-
-it("a save that fails verification says why, not just that it failed", async () => {
-  saveMock.mockResolvedValue({ ...connection, connectionStatus: "failed" });
-  verifyMock.mockResolvedValue({ ok: false, error: "auth_failed" });
-  renderDialog();
-
-  fireEvent.change(await screen.findByLabelText(/base url/i), {
-    target: { value: "https://acme.atlassian.net/wiki" },
-  });
-  fireEvent.change(screen.getByLabelText(/space key/i), {
-    target: { value: "DOCS" },
-  });
-  fireEvent.change(screen.getByLabelText(/email/i), {
-    target: { value: "docs@acme.test" },
-  });
-  fireEvent.change(screen.getByLabelText(/api token/i), {
-    target: { value: "wrong" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /save/i }));
-
-  const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toMatch(/rejected the credential/i);
+  fireEvent.click(screen.getByRole("button", { name: /remove target/i }));
+  await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("r1"));
 });
 
 it("has no axe violations", async () => {
   getMock.mockResolvedValue(connection);
+  listMock.mockResolvedValue([integration({ id: "i2", name: "Acme DC" })]);
   const { baseElement } = renderDialog();
-  await screen.findByLabelText(/base url/i);
+  await screen.findByLabelText(/atlassian integration/i);
   const results = await axe(baseElement);
   expect(results.violations).toEqual([]);
 });

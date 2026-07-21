@@ -9,10 +9,11 @@ import { relativeTime } from "@/lib/format";
 
 /**
  * The docs page's "Publish to Confluence" action (GP-181). Renders only when
- * the repository has a *verified* Confluence connection — absent, not
- * disabled, otherwise every repo without one carries a button that cannot
- * work. Success shows the page link and when it was last published; failure
- * shows the categorized reason in words a non-dev can act on.
+ * the repository has a Confluence target configured (GP-184: the credential and
+ * its verified status live on the org integration now) — absent, not disabled,
+ * otherwise every repo without one carries a button that cannot work. Success
+ * shows the page link and when it was last published; failure shows the
+ * categorized reason in words a non-dev can act on.
  */
 export function ConfluencePublish({
   repositoryId,
@@ -61,7 +62,7 @@ export function ConfluencePublish({
     }
   }, [repositoryId]);
 
-  if (connection?.connectionStatus !== "ok") return null;
+  if (!connection) return null;
 
   return (
     <>

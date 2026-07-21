@@ -11,6 +11,7 @@ import {
   LogOut,
   Mail,
   Palette,
+  Plug,
   Sparkles,
   UserRound,
   Users,
@@ -26,6 +27,7 @@ import { useOrg } from "@/org/use-org";
 import { useCan } from "@/rbac/use-can";
 import { useTheme } from "@/theme/theme-provider";
 import { AppIngestionSettings } from "@/components/app-ingestion-settings";
+import { OrgIntegrations } from "@/components/org-integrations";
 import { OrgInvites } from "@/components/org-invites";
 import { OrgMembers } from "@/components/org-members";
 import { Button } from "@/components/ui/button";
@@ -103,6 +105,11 @@ export function SettingsPage() {
       label: "Organization",
       sections: [
         { id: "members", label: "Members", element: <MembersCard /> },
+        {
+          id: "integrations",
+          label: "Integrations",
+          element: <IntegrationsCard />,
+        },
         ...(showInvites
           ? [
               {
@@ -401,6 +408,23 @@ function MembersCard() {
       }
     >
       <OrgMembers />
+    </Section>
+  );
+}
+
+/**
+ * Org-level integrations (GP-183): external credentials (Confluence today)
+ * configured once and shared by repositories. Shown to every member as a
+ * read-only list; the component gates create/edit/verify/delete on the role.
+ */
+function IntegrationsCard() {
+  return (
+    <Section
+      icon={<Plug className="size-4" />}
+      title="Integrations"
+      description="External services your repositories connect to, configured once per organization."
+    >
+      <OrgIntegrations />
     </Section>
   );
 }

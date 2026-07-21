@@ -21,13 +21,8 @@ const publishMock = vi.mocked(publishToConfluence);
 const connection: ConfluenceConnection = {
   id: "c1",
   repositoryId: "r1",
-  baseUrl: "https://acme.atlassian.net/wiki",
+  integrationId: "i1",
   spaceKey: "DOCS",
-  authType: "cloud_token",
-  email: "docs@acme.test",
-  credential: "***",
-  connectionStatus: "ok",
-  verifiedAt: "2026-07-20T10:00:00Z",
   pageUrl: null,
   lastPublishedAt: null,
   lastPublishError: null,
@@ -39,16 +34,11 @@ beforeEach(() => {
   publishMock.mockReset();
 });
 
-it("renders nothing without a verified connection", async () => {
+it("renders nothing when no Confluence target is configured", async () => {
   getMock.mockResolvedValue(null);
   const { container } = render(<ConfluencePublish repositoryId="r1" />);
   await vi.waitFor(() => expect(getMock).toHaveBeenCalled());
   expect(container).toBeEmptyDOMElement();
-
-  getMock.mockResolvedValue({ ...connection, connectionStatus: "failed" });
-  const second = render(<ConfluencePublish repositoryId="r1" />);
-  await vi.waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
-  expect(second.container).toBeEmptyDOMElement();
 });
 
 it("publishes and shows the page link with the publish time", async () => {
