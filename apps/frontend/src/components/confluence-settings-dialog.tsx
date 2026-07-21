@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConnectionStatusBadge } from "@/components/connection-status";
 import { cn } from "@/lib/utils";
+import { useOrg } from "@/org/use-org";
 import { useCan } from "@/rbac/use-can";
 
 /**
@@ -45,6 +46,7 @@ export function ConfluenceSettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }>) {
+  const { activeOrg } = useOrg();
   const canManageIntegrations = useCan("integration:manage");
   const [connection, setConnection] = useState<ConfluenceConnection | null>(null);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -145,7 +147,11 @@ export function ConfluenceSettingsDialog({
             </p>
             {canManageIntegrations && (
               <Link
-                to="/settings"
+                to={
+                  activeOrg
+                    ? `/orgs/${activeOrg.id}/settings#integrations`
+                    : "/settings"
+                }
                 onClick={() => handleOpenChange(false)}
                 className="text-primary text-sm underline underline-offset-2"
               >

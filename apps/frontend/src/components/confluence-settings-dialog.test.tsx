@@ -24,7 +24,15 @@ import {
   saveConfluenceConnection,
 } from "@/api/client";
 import type { ConfluenceConnection, Integration, Repository } from "@/api/types";
+import { OrgContext, type OrgContextValue } from "@/org/org-context";
 import { ConfluenceSettingsDialog } from "./confluence-settings-dialog";
+
+const orgValue: OrgContextValue = {
+  memberships: [],
+  activeOrg: { id: "o1", name: "Acme", slug: "acme", role: "admin" },
+  singleOrg: false,
+  switchOrg: vi.fn(),
+};
 
 const getMock = vi.mocked(getConfluenceConnection);
 const listMock = vi.mocked(listIntegrations);
@@ -89,9 +97,15 @@ beforeEach(() => {
 function renderDialog() {
   return render(
     <MemoryRouter>
-      <main>
-        <ConfluenceSettingsDialog repository={repo} open onOpenChange={() => {}} />
-      </main>
+      <OrgContext.Provider value={orgValue}>
+        <main>
+          <ConfluenceSettingsDialog
+            repository={repo}
+            open
+            onOpenChange={() => {}}
+          />
+        </main>
+      </OrgContext.Provider>
     </MemoryRouter>,
   );
 }
@@ -99,9 +113,11 @@ function renderDialog() {
 it("with no integration, a manager sees the org-settings set-up hint", async () => {
   renderDialog();
   expect(await screen.findByText(/no atlassian integration yet/i)).toBeInTheDocument();
+  // GP-190: the hint links to the org settings integrations section, not the
+  // old combined /settings page.
   expect(
     screen.getByRole("link", { name: /set one up in organization settings/i }),
-  ).toBeInTheDocument();
+  ).toHaveAttribute("href", "/orgs/o1/settings#integrations");
 });
 
 it("with no integration, a member sees no set-up action", async () => {

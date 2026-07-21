@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { axe } from "vitest-axe";
 
 // The personal page fetches no org or workspace data (GP-187). We still mock
@@ -61,15 +61,26 @@ function user(over: Partial<User> = {}): User {
   };
 }
 
+let lastLoc = { pathname: "", hash: "" };
+function LocationProbe() {
+  const loc = useLocation();
+  lastLoc = { pathname: loc.pathname, hash: loc.hash };
+  return null;
+}
+
 /** The appearance card writes through the two display-preference providers. */
-function renderPage(org: Partial<OrgContextValue> = {}) {
+function renderPage(
+  org: Partial<OrgContextValue> = {},
+  initialEntries: string[] = ["/settings"],
+) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <ThemeProvider>
         <TourStyleProvider>
           <PanelPrefsProvider>
             <OrgContext.Provider value={{ ...orgValue, ...org }}>
               <SettingsPage />
+              <LocationProbe />
             </OrgContext.Provider>
           </PanelPrefsProvider>
         </TourStyleProvider>
@@ -205,6 +216,29 @@ it("keeps the #account / #appearance anchors for deep links", () => {
   renderPage();
   expect(document.getElementById("account")).not.toBeNull();
   expect(document.getElementById("appearance")).not.toBeNull();
+});
+
+it("redirects a legacy moved-section anchor to the org settings page (GP-190)", async () => {
+  // The component reads the real window hash (jsdom), then navigates the router.
+  window.history.replaceState(null, "", "#members");
+  try {
+    renderPage();
+    await waitFor(() => expect(lastLoc.pathname).toBe("/orgs/o1/settings"));
+    expect(lastLoc.hash).toBe("#members");
+  } finally {
+    window.history.replaceState(null, "", "/");
+  }
+});
+
+it("keeps a personal anchor on /settings (GP-190)", () => {
+  window.history.replaceState(null, "", "#appearance");
+  try {
+    renderPage();
+    // No redirect — appearance is a personal section and stays here.
+    expect(lastLoc.pathname).toBe("/settings");
+  } finally {
+    window.history.replaceState(null, "", "/");
+  }
 });
 
 it("has no accessibility violations", async () => {
