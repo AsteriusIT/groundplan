@@ -13,6 +13,7 @@ import type { Graph, UnresolvedReference } from "../graph/graph.js";
 import { mapK8sObjects } from "../graph/k8s-mapper.js";
 import { isManifestPath, parseManifests } from "../graph/manifest-parser.js";
 import { reconcileRepositoryAnnotations } from "./annotation-reconcile.js";
+import { autoPublishDocsSnapshot } from "./confluence-publish.js";
 import { docsSourceFor, insertGraphSnapshot } from "./graph-snapshots.js";
 import { readRepoTextFiles, type RepoTextFile } from "./repo-files.js";
 
@@ -206,7 +207,14 @@ export async function regenerateDocsForSha(
   }
 
   try {
-    await generateDocsSnapshot(app, repo, { commitSha, trigger: "auto" });
+    const snapshot = await generateDocsSnapshot(app, repo, {
+      commitSha,
+      trigger: "auto",
+    });
+    // Fresh docs of main → the Confluence page mirrors it (GP-180). A no-op
+    // without a connection; a failed publish is recorded on the connection
+    // and never fails the docs pass.
+    await autoPublishDocsSnapshot(app, snapshot);
   } catch (err) {
     if (err instanceof DocsGenerationInProgressError) {
       app.log.info(

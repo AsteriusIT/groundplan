@@ -26,12 +26,20 @@ before(async () => {
 /** A stub Confluence that records what it was asked and answers as told. */
 function stubConfluence(result: ConfluenceVerifyResult = { ok: true, spaceName: "Docs" }) {
   const seen: Array<{ target: ConfluenceTarget; spaceKey: string }> = [];
+  // The connection stories never touch a page — publishing is GP-180's flow.
+  const unused = async (): Promise<never> => {
+    throw new Error("not used in these tests");
+  };
   const stub: ConfluenceClient & { result: ConfluenceVerifyResult } = {
     result,
     async verifySpace(target, spaceKey) {
       seen.push({ target, spaceKey });
       return stub.result;
     },
+    getPage: unused,
+    createPage: unused,
+    updatePage: unused,
+    uploadAttachment: unused,
   };
   return { stub, seen };
 }

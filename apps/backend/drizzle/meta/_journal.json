@@ -239,6 +239,13 @@
       "when": 1784629322044,
       "tag": "0033_volatile_king_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1784629619688,
+      "tag": "0034_bright_meltdown",
+      "breakpoints": true
     }
   ]
 }

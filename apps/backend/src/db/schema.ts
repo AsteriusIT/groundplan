@@ -217,6 +217,16 @@ export const confluenceConnections = pgTable("confluence_connections", {
     .notNull()
     .default("unverified"),
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  // GP-180: the published page. The id is what makes publish idempotent —
+  // create once, then update version n+1 in place; when Confluence answers 404
+  // for it (page deleted over there), publish recreates and stores the new id.
+  pageId: text("page_id"),
+  /** The page's web URL, captured from the API response for the UI's link. */
+  pageUrl: text("page_url"),
+  lastPublishedAt: timestamp("last_published_at", { withTimezone: true }),
+  /** Categorized kind of the last failed publish (auth_failed / space_not_found
+   * / network), cleared on success. Shown in the UI; never an upstream body. */
+  lastPublishError: text("last_publish_error"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -235,6 +245,9 @@ export type PublicConfluenceConnection = {
   credential: "***";
   connectionStatus: (typeof confluenceConnectionStatus.enumValues)[number];
   verifiedAt: Date | null;
+  pageUrl: string | null;
+  lastPublishedAt: Date | null;
+  lastPublishError: string | null;
   createdAt: Date;
 };
 
@@ -256,6 +269,9 @@ export function toPublicConfluenceConnection(
     credential: "***",
     connectionStatus: row.connectionStatus,
     verifiedAt: row.verifiedAt,
+    pageUrl: row.pageUrl,
+    lastPublishedAt: row.lastPublishedAt,
+    lastPublishError: row.lastPublishError,
     createdAt: row.createdAt,
   };
 }

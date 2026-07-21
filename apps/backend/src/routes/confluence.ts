@@ -8,7 +8,14 @@ import {
   type ConfluenceConnectionRow,
 } from "../db/schema.js";
 import { requirePermission } from "../rbac/request.js";
-import type { ConfluenceAuthType } from "../services/confluence.js";
+import {
+  trimTrailingSlashes,
+  type ConfluenceAuthType,
+} from "../services/confluence.js";
+import {
+  latestDocsSnapshot,
+  publishDocsSnapshot,
+} from "../services/confluence-publish.js";
 import { verifyConfluenceAndStore } from "../services/confluence-verification.js";
 
 const UUID_PATTERN =
@@ -128,7 +135,7 @@ export const confluenceRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const values = {
-        baseUrl: body.baseUrl.replace(/\/+$/, ""),
+        baseUrl: trimTrailingSlashes(body.baseUrl),
         spaceKey: body.spaceKey,
         authType: body.authType,
         email: body.authType === "cloud_token" ? (body.email ?? null) : null,
@@ -174,6 +181,43 @@ export const confluenceRoutes: FastifyPluginAsync = async (app) => {
       }
       const { result } = await verifyConfluenceAndStore(app, connection);
       if (result.ok) return { ok: true };
+      return { ok: false, error: result.error };
+    },
+  );
+
+  // Publish the latest docs snapshot to the configured page (GP-180).
+  // Member-level on purpose, like docs generation (GP-23): publishing the
+  // team's own docs page is a docs action — and auto-publish already runs with
+  // no user at all on merge. Managing the *connection* is what needs admin.
+  app.post(
+    "/repositories/:id/confluence/publish",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const [repo] = await app.db
+        .select()
+        .from(repositories)
+        .where(eq(repositories.id, id));
+      if (!repo) return notFound(reply, "repository not found");
+      const connection = await loadConnection(app, id);
+      if (!connection) {
+        return notFound(reply, "confluence connection not configured");
+      }
+      const snapshot = await latestDocsSnapshot(app, repo);
+      if (!snapshot) {
+        return notFound(
+          reply,
+          "no docs snapshot to publish — generate documentation first",
+        );
+      }
+      const result = await publishDocsSnapshot(app, repo, connection, snapshot);
+      if (result.ok) {
+        return {
+          ok: true,
+          pageUrl: result.pageUrl,
+          publishedAt: result.publishedAt,
+        };
+      }
       return { ok: false, error: result.error };
     },
   );
