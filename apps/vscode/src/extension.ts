@@ -37,6 +37,7 @@ import type {
   WebviewMessage,
 } from "./messages";
 import { toPosixRelative } from "./paths";
+import { detectRootCandidates, resolveRootDir, stackForFile } from "./root-dir";
 import { gatherTfFiles } from "./workspace-files";
 import { buildWebviewHtml, makeNonce } from "./webview-html";
 
@@ -51,15 +52,31 @@ const HIGHLIGHT_FADE_MS = 1000;
 const PREF_ENABLED = "groundplan.diff.enabled";
 const PREF_MODE = "groundplan.diff.mode";
 const PREF_CHANGED_ONLY = "groundplan.diff.changedOnly";
+/** The stack last picked in the panel's switcher (multi-stack workspaces). */
+const PREF_ROOT_DIR = "groundplan.rootDir.picked";
 /** The theme is a contributed VS Code setting — no in-panel switch (chrome
  * stays quiet); VS Code owns the persistence and the settings UI. */
 const THEME_SETTING = "groundplan.theme";
+/** Where the parse starts (`terraform -chdir`); empty = auto-detect. */
+const ROOT_DIR_SETTING = "groundplan.rootDir";
+/** Whether the previewed stack follows the file being edited. */
+const FOLLOW_SETTING = "groundplan.followActiveFile";
 
 /** The current value of the `groundplan.theme` setting. */
 function previewTheme(): PreviewTheme {
   return vscode.workspace
     .getConfiguration()
     .get<PreviewTheme>(THEME_SETTING, "carbon");
+}
+
+/** The current value of the `groundplan.rootDir` setting ("" = auto-detect). */
+function rootDirSetting(): string {
+  return vscode.workspace.getConfiguration().get<string>(ROOT_DIR_SETTING, "");
+}
+
+/** The current value of the `groundplan.followActiveFile` setting. */
+function followActiveFile(): boolean {
+  return vscode.workspace.getConfiguration().get<boolean>(FOLLOW_SETTING, true);
 }
 
 let preview: LivePreview | null = null;
@@ -102,6 +119,11 @@ class LivePreview {
   private lastPosted: Graph | null = null;
   /** The last address either side selected — the loop guard (GP-149). */
   private lastSelected: string | null = null;
+  /** The entrypoint + candidates of the last refresh — what follow works off. */
+  private lastRootDir = "";
+  private lastCandidates: string[] = [];
+  /** The first refresh aligns to the file the preview was opened from, once. */
+  private initialFollowDone = false;
 
   /** Diff mode (GP-152/154): the baseline provider + the git-change signal. */
   private readonly baseline: BaselineProvider;
@@ -142,6 +164,9 @@ class LivePreview {
       this.folder.uri.fsPath,
       undefined,
       (line) => this.gitLog.appendLine(line),
+      // The baseline parses from the same entrypoint the live side resolves —
+      // read live so a settings change reaches it (reset() drops stale parses).
+      (files) => resolveRootDir(rootDirSetting(), this.pickedRootDir(), files),
     );
     // A commit/checkout/fetch moves the baseline; a keystroke never does.
     const gitRoot = findGitRoot(this.folder.uri.fsPath);
@@ -181,6 +206,13 @@ class LivePreview {
         }
       }),
     );
+    // Follow the file being edited: focusing a file that belongs to another
+    // stack moves the preview there (multi-stack workspaces).
+    this.disposables.push(
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        this.followActiveStack(editor ?? null);
+      }),
+    );
 
     this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
       if (message.type === "ready") void this.refresh();
@@ -204,6 +236,15 @@ class LivePreview {
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration(THEME_SETTING)) {
           void this.post({ type: "theme", theme: previewTheme() });
+        }
+        if (e.affectsConfiguration(ROOT_DIR_SETTING)) {
+          // The entrypoint moved: cached baseline parses are stale too.
+          this.baseline.reset();
+          this.reparse.schedule();
+        }
+        if (e.affectsConfiguration(FOLLOW_SETTING) && followActiveFile()) {
+          // Turned on: align with the file being edited right away.
+          this.followActiveStack(vscode.window.activeTextEditor ?? null);
         }
       }),
     );
@@ -243,10 +284,51 @@ class LivePreview {
     };
   }
 
+  /** The stack the switcher last picked here, if any. */
+  private pickedRootDir(): string | null {
+    return this.workspaceState.get<string | null>(PREF_ROOT_DIR, null);
+  }
+
+  /** Move the preview to `dir`: remember it, drop stale baseline parses, redraw. */
+  private switchStack(dir: string): void {
+    void this.workspaceState.update(PREF_ROOT_DIR, dir);
+    this.baseline.reset();
+    void this.refresh();
+  }
+
+  /**
+   * Follow the file being edited: when it belongs to another stack, move the
+   * preview there. A file belonging to no stack (a shared module, something
+   * outside every candidate) moves nothing — better to stay than to guess.
+   * The `groundplan.rootDir` setting pins the stack and disables following.
+   */
+  private followActiveStack(editor: vscode.TextEditor | null): void {
+    if (!followActiveFile() || rootDirSetting()) return;
+    if (editor?.document.uri.scheme !== "file") return;
+    if (!editor.document.fileName.endsWith(".tf")) return;
+    const rel = toPosixRelative(
+      this.folder.uri.fsPath,
+      editor.document.uri.fsPath,
+    );
+    // toPosixRelative echoes paths outside the folder — they stay absolute.
+    if (/^([A-Za-z]:)?\//.test(rel)) return;
+    const stack = stackForFile(rel, this.lastCandidates);
+    if (stack === null || stack === this.lastRootDir) return;
+    this.switchStack(stack);
+  }
+
   /** Re-parse the folder and reconcile panel + Problems with the result. */
   private async refresh(): Promise<void> {
     const files = await gatherTfFiles(this.folder);
-    const { snapshot, diagnostics } = parse(files);
+    // The entrypoint (`terraform -chdir` semantics): setting > panel pick >
+    // detection — a stack below the folder root used to parse silently empty.
+    const rootDir = resolveRootDir(rootDirSetting(), this.pickedRootDir(), files);
+    const { snapshot, diagnostics } = parse(files, { rootDir });
+    this.lastRootDir = rootDir;
+    // The switcher offers every stack unless the setting has pinned one.
+    this.lastCandidates = rootDirSetting()
+      ? [rootDir]
+      : detectRootCandidates(files);
 
     this.publishProblems(toFileDiagnostics(diagnostics));
 
@@ -287,14 +369,26 @@ class LivePreview {
     }
 
     this.lastPosted = posted;
+    // The tab names the stack being previewed — the only place it is said.
+    this.panel.title = rootDir
+      ? `Groundplan — ${rootDir}`
+      : "Groundplan Preview";
     await this.post({
       type: "snapshot",
       snapshot: posted,
       folder: this.folder.name,
       multiRoot: (vscode.workspace.workspaceFolders?.length ?? 0) > 1,
+      rootDir,
     });
     await this.post({ type: "diffState", state });
     await this.post({ type: "outOfSync", value: hasParseErrors(diagnostics) });
+
+    // Opened from a file in another stack? Align once, now that candidates
+    // are known — later switches come from the editor listener.
+    if (!this.initialFollowDone) {
+      this.initialFollowDone = true;
+      this.followActiveStack(vscode.window.activeTextEditor ?? null);
+    }
   }
 
   /** The snapshot of the last clean parse (GP-149 navigation works off it). */

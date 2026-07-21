@@ -179,6 +179,42 @@ test("vendored directories are excluded, matching the live view's glob", async (
   );
 });
 
+test("a stack below the folder root still parses into the baseline snapshot", async () => {
+  const dir = makeRepo();
+  mkdirSync(join(dir, "infra"));
+  writeFileSync(join(dir, "infra", "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  const result = await new BaselineProvider(dir).get("head");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.equal(result.baseline.snapshot.nodes.length, 1);
+});
+
+test("reset() re-parses under a moved root; the sha cache alone holds it", async () => {
+  const dir = makeRepo();
+  mkdirSync(join(dir, "infra"));
+  writeFileSync(join(dir, "infra", "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  let root = "infra";
+  const provider = new BaselineProvider(dir, undefined, undefined, () => root);
+  const first = await provider.get("head");
+  assert.ok(first.ok, !first.ok ? first.reason : "");
+  assert.equal(first.baseline.snapshot.nodes.length, 1);
+
+  // The setting moved, but a sha's cached parse is only dropped by reset().
+  root = "elsewhere";
+  const cached = await provider.get("head");
+  assert.ok(cached.ok && cached.baseline.snapshot.nodes.length === 1);
+
+  provider.reset();
+  const reparsed = await provider.get("head");
+  assert.ok(reparsed.ok, !reparsed.ok ? reparsed.reason : "");
+  assert.equal(reparsed.baseline.snapshot.nodes.length, 0);
+});
+
 test("watchGitChanges fires on a commit and stays quiet for worktree edits", async () => {
   const dir = makeRepo();
   writeFileSync(join(dir, "main.tf"), MAIN_TF);

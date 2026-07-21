@@ -67,6 +67,16 @@
           ],
           "default": "carbon",
           "description": "Colour theme of the Groundplan preview panel."
+        },
+        "groundplan.rootDir": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Workspace-relative directory the Terraform parse starts from, like `terraform -chdir`. Leave empty to auto-detect: the workspace root when it holds `.tf` files, otherwise the shallowest directory that does and is not sourced as a module by another."
+        },
+        "groundplan.followActiveFile": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Switch the previewed stack to the one the file being edited belongs to. Ignored while `groundplan.rootDir` pins a stack."
         }
       }
     }

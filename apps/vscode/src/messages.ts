@@ -44,6 +44,13 @@ export type HostMessage =
       /** The workspace folder previewed, and whether others were ignored. */
       folder: string;
       multiRoot: boolean;
+      /**
+       * The entrypoint directory the parse started from, folder-relative
+       * ("" = the folder root) — the `groundplan.rootDir` setting, the stack
+       * being edited (follow), or auto-detection, in that order. The empty
+       * state names it.
+       */
+      rootDir: string;
     }
   | {
       /** GP-148: the last parse failed — the graph shown is the last good one. */

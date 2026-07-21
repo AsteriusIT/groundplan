@@ -92,9 +92,38 @@ function Pill({
   );
 }
 
+/** Where the parse looked and how to look elsewhere — never a blank grid. */
+function EmptyState({
+  folder,
+  rootDir,
+  outOfSync,
+}: Readonly<{
+  folder: string;
+  rootDir: string;
+  outOfSync: boolean;
+}>): React.JSX.Element {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-2 bg-background px-6 text-center">
+      <p className="text-foreground text-sm">
+        No Terraform found under{" "}
+        <span className="font-mono">
+          {rootDir ? `${folder}/${rootDir}` : folder}
+        </span>
+        {outOfSync ? " — the last parse failed (see Problems)" : ""}.
+      </p>
+      <p className="text-muted-foreground text-xs">
+        Focus a <span className="font-mono">.tf</span> file to preview its
+        stack, or point the{" "}
+        <span className="font-mono">groundplan.rootDir</span> setting at one.
+      </p>
+    </div>
+  );
+}
+
 function App(): React.JSX.Element {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [folder, setFolder] = useState("");
+  const [rootDir, setRootDir] = useState("");
   const [multiRoot, setMultiRoot] = useState(false);
   const [outOfSync, setOutOfSync] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
@@ -107,6 +136,7 @@ function App(): React.JSX.Element {
       if (message.type === "snapshot") {
         setGraph(message.snapshot);
         setFolder(message.folder);
+        setRootDir(message.rootDir);
         setMultiRoot(message.multiRoot);
       } else if (message.type === "outOfSync") {
         setOutOfSync(message.value);
@@ -165,6 +195,12 @@ function App(): React.JSX.Element {
         <p className="text-muted-foreground text-sm">Reading Terraform…</p>
       </div>
     );
+  }
+
+  // An empty snapshot drew a silent blank grid; say where the parse looked
+  // and how to point it elsewhere instead.
+  if (graph.nodes.length === 0) {
+    return <EmptyState folder={folder} rootDir={rootDir} outOfSync={outOfSync} />;
   }
 
   const prefs = diff ?? {

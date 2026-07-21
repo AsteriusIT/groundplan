@@ -23,6 +23,7 @@ import { parse, type Graph, type HclFile } from "@groundplan/graph-parser";
 
 import type { BaselineMode } from "./messages";
 import { toPosixRelative } from "./paths";
+import { detectRootDir } from "./root-dir";
 
 export type { BaselineMode } from "./messages";
 
@@ -82,11 +83,23 @@ export class BaselineProvider {
     private readonly folder: string,
     private readonly git: GitRunner = runGit,
     private readonly log: (line: string) => void = () => {},
+    /** The entrypoint a baseline file set parses from — mirrors the live side. */
+    private readonly rootDirOf: (files: HclFile[]) => string = detectRootDir,
   ) {}
 
   /** Drop the mode → sha resolution; the next get() asks git again. */
   invalidate(): void {
     this.refByMode.clear();
+  }
+
+  /**
+   * Drop everything, parses included — for when `rootDirOf` would answer
+   * differently now (the `groundplan.rootDir` setting moved). A sha's *files*
+   * never go stale, but the snapshot parsed from them just did.
+   */
+  reset(): void {
+    this.refByMode.clear();
+    this.bySha.clear();
   }
 
   async get(mode: BaselineMode): Promise<BaselineResult> {
@@ -178,7 +191,7 @@ export class BaselineProvider {
 
     // Baseline files are committed code: even if a commit somehow fails to
     // parse cleanly, the partial snapshot is still the honest "before".
-    const { snapshot } = parse(files);
+    const { snapshot } = parse(files, { rootDir: this.rootDirOf(files) });
     return { files, snapshot };
   }
 }
