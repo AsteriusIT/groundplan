@@ -18,6 +18,7 @@ export function roleAtLeast(role: Role, min: Role): boolean {
 export const PERMISSIONS = [
   "org:read",
   "project:manage",
+  "integration:manage",
   "member:manage",
   "org:manage",
   "org:delete",
@@ -28,6 +29,9 @@ export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_MIN_ROLE: Record<Permission, Role> = {
   "org:read": "member",
   "project:manage": "admin",
+  // GP-183: manage org-level integrations (Confluence credentials shared across
+  // repos). Members may read the list to pick one at repo level.
+  "integration:manage": "admin",
   "member:manage": "admin",
   "org:manage": "admin",
   "org:delete": "owner",

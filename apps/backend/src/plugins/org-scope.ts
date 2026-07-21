@@ -37,6 +37,7 @@ import { dashboardRoutes } from "../routes/dashboard.js";
 import { docsRoutes } from "../routes/docs.js";
 import { exportRoutes } from "../routes/exports.js";
 import { repositoryEventsRoutes } from "../routes/ingestion.js";
+import { integrationRoutes } from "../routes/integrations.js";
 import { invitationRoutes } from "../routes/invitations.js";
 import { k8sSnapshotRoutes } from "../routes/k8s-snapshots.js";
 import { memberRoutes } from "../routes/members.js";
@@ -125,6 +126,7 @@ export const orgScopePlugin: FastifyPluginAsync = async (app) => {
   await app.register(tourRoutes);
   await app.register(dashboardRoutes);
   await app.register(clusterRoutes);
+  await app.register(integrationRoutes);
   await app.register(confluenceRoutes);
   await app.register(k8sSnapshotRoutes);
   await app.register(shareRoutes);

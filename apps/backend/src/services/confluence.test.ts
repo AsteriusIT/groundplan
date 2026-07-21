@@ -30,6 +30,11 @@ function fakeConfluence(opts: { expectAuth: string; status?: number }) {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ key: "DOCS", name: "Documentation" }));
     }
+    // GP-183: the org Integration's reachability probe — a space list, no key.
+    if (req.url === "/rest/api/space?limit=1") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ results: [] }));
+    }
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ message: "no such space" }));
   });
@@ -120,6 +125,51 @@ test("an unknown space (404) is space_not_found — distinct from a bad credenti
   } finally {
     server.close();
   }
+});
+
+test("verifyCredential (GP-183): a good credential reaches the instance with no space", async () => {
+  const { server, seen } = fakeConfluence({ expectAuth: "Bearer dc-pat" });
+  const baseUrl = await listen(server);
+  try {
+    const result = await realConfluenceClient.verifyCredential({
+      baseUrl,
+      authType: "dc_pat",
+      email: null,
+      credential: "dc-pat",
+    });
+    assert.deepEqual(result, { ok: true, spaceName: null });
+    assert.equal(seen[0]?.path, "/rest/api/space?limit=1");
+  } finally {
+    server.close();
+  }
+});
+
+test("verifyCredential distinguishes a bad credential (auth_failed) from an unreachable URL (network)", async () => {
+  const { server } = fakeConfluence({ expectAuth: "Bearer right" });
+  const baseUrl = await listen(server);
+  try {
+    const badCredential = await realConfluenceClient.verifyCredential({
+      baseUrl,
+      authType: "dc_pat",
+      email: null,
+      credential: "wrong",
+    });
+    assert.deepEqual(badCredential, { ok: false, error: "auth_failed" });
+  } finally {
+    server.close();
+  }
+
+  // Grab a port, then close it: nothing listens there → a bad URL is network.
+  const { server: dead } = fakeConfluence({ expectAuth: "Bearer pat" });
+  const deadUrl = await listen(dead);
+  await new Promise((resolve) => dead.close(resolve));
+  const badUrl = await realConfluenceClient.verifyCredential({
+    baseUrl: deadUrl,
+    authType: "dc_pat",
+    email: null,
+    credential: "pat",
+  });
+  assert.deepEqual(badUrl, { ok: false, error: "network" });
 });
 
 test("an unreachable instance is network, never a thrown error", async () => {

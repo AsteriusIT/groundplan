@@ -50,6 +50,12 @@ export type ConfluenceAttachmentResult =
   | { ok: false; error: ConfluencePageErrorKind };
 
 export interface ConfluenceClient {
+  /** `GET /rest/api/space?limit=1` — reachability + credential, no space (GP-183):
+   * an org Integration authenticates to the *instance*; which space a repo
+   * publishes to is a repo-level target checked at publish. A 401/403 is a bad
+   * credential; an unreachable host (or a 404 from the wrong base URL) is a bad
+   * URL — the two the verify endpoint must distinguish. */
+  verifyCredential(target: ConfluenceTarget): Promise<ConfluenceVerifyResult>;
   /** `GET /rest/api/space/{key}` — reachability, credential and space in one call. */
   verifySpace(
     target: ConfluenceTarget,
@@ -172,6 +178,16 @@ function pageBody(title: string, storage: string, extra: Record<string, unknown>
 const JSON_HEADERS = { "content-type": "application/json" };
 
 export const realConfluenceClient: ConfluenceClient = {
+  async verifyCredential(target) {
+    // `space?limit=1` is the cheapest authenticated read common to Cloud and
+    // DC: a 2xx (even an empty list) proves the credential is accepted and the
+    // instance is reachable. A 404 here means the base URL is not a Confluence
+    // API root → `network` (bad URL), not `space_not_found`.
+    const res = await apiCall(target, "space?limit=1", {}, "network");
+    if (!res.ok) return res;
+    return { ok: true, spaceName: null };
+  },
+
   async verifySpace(target, spaceKey) {
     const res = await apiCall(
       target,

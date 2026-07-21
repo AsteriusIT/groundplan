@@ -55,6 +55,9 @@ function stubConfluence() {
     calls,
     attachments,
     failWith: null,
+    async verifyCredential() {
+      return { ok: true, spaceName: null };
+    },
     async verifySpace() {
       return { ok: true, spaceName: "Docs" };
     },
@@ -137,15 +140,24 @@ async function seedRepoWithConnection(
   });
   const repoId = r.json().id as string;
   if (opts.connection !== false) {
-    const put = await app.inject({
-      method: "PUT",
-      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/confluence`,
+    // The credential lives on an org Integration now (GP-183); the repo target
+    // only names it plus the space.
+    const integration = await app.inject({
+      method: "POST",
+      url: `/api/v1/orgs/${orgId}/integrations`,
       payload: {
+        type: "atlassian",
+        name: "Acme Confluence",
         baseUrl: "https://acme.atlassian.net/wiki",
-        spaceKey: "DOCS",
         authType: "dc_pat",
         credential: "pat",
       },
+    });
+    assert.equal(integration.statusCode, 201);
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/v1/orgs/${orgId}/repositories/${repoId}/confluence`,
+      payload: { integrationId: integration.json().id, spaceKey: "DOCS" },
     });
     assert.equal(put.statusCode, 201);
   }

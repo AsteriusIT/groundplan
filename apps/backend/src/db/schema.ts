@@ -189,13 +189,14 @@ export const confluenceConnectionStatus = pgEnum(
 );
 
 /**
- * A repository's Confluence target (GP-179): where its docs snapshot publishes
- * to (GP-180). One connection per repository (unique below) — a page mirrors a
+ * A repository's Confluence publish **target** (GP-179; re-homed by GP-183):
+ * which org-level Integration authenticates the publish, and which space + page
+ * the docs land on. One target per repository (unique below) — a page mirrors a
  * repo's main, so a second target would be a second product decision, not a row.
  *
- * The credential (API token or PAT) follows the repository-PAT rules exactly:
- * ENCRYPTED at rest (AES-256-GCM, lib/encryption), WRITE-ONLY — responses mask
- * it as "***" via `toPublicConfluenceConnection` — and never logged.
+ * The credential no longer lives here (GP-183): it moved to `integrations`, an
+ * org-owned record shared across repositories. This table is now pure target —
+ * no secret to mask, only a foreign key to the integration that holds one.
  */
 export const confluenceConnections = pgTable("confluence_connections", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -203,20 +204,14 @@ export const confluenceConnections = pgTable("confluence_connections", {
     .notNull()
     .unique()
     .references(() => repositories.id, { onDelete: "cascade" }),
-  /** Instance base URL (https, stored without a trailing slash) — for Cloud the
-   * wiki origin, e.g. `https://acme.atlassian.net/wiki`. */
-  baseUrl: text("base_url").notNull(),
-  spaceKey: text("space_key").notNull(),
-  authType: confluenceAuthType("auth_type").notNull(),
-  /** Basic-auth username for a Cloud token; null for a DC PAT. */
-  email: text("email"),
-  /** AES-256-GCM ciphertext of the API token / PAT. Never plaintext, never logged. */
-  credential: text("credential").notNull(),
-  /** Result of the last `GET /rest/api/space/{key}` check. */
-  connectionStatus: confluenceConnectionStatus("connection_status")
+  /** The org Integration (GP-183) whose credential + base URL this target
+   * publishes with. No ON DELETE cascade on purpose: an integration a repo
+   * references cannot be deleted (the route answers 409); this FK is the DB
+   * backstop for that rule. */
+  integrationId: uuid("integration_id")
     .notNull()
-    .default("unverified"),
-  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    .references(() => integrations.id),
+  spaceKey: text("space_key").notNull(),
   // GP-180: the published page. The id is what makes publish idempotent —
   // create once, then update version n+1 in place; when Confluence answers 404
   // for it (page deleted over there), publish recreates and stores the new id.
@@ -237,14 +232,9 @@ export type ConfluenceConnectionRow = typeof confluenceConnections.$inferSelect;
 export type PublicConfluenceConnection = {
   id: string;
   repositoryId: string;
-  baseUrl: string;
+  /** The org Integration that authenticates this target's publishes. */
+  integrationId: string;
   spaceKey: string;
-  authType: (typeof confluenceAuthType.enumValues)[number];
-  email: string | null;
-  /** Always "***" — a stored credential is never handed back, in any response. */
-  credential: "***";
-  connectionStatus: (typeof confluenceConnectionStatus.enumValues)[number];
-  verifiedAt: Date | null;
   pageUrl: string | null;
   lastPublishedAt: Date | null;
   lastPublishError: string | null;
@@ -252,9 +242,9 @@ export type PublicConfluenceConnection = {
 };
 
 /**
- * Map a connection row to its API shape — the ONE way it reaches a response,
- * like `toPublicRepository`/`toPublicCluster`, so no handler can leak the
- * credential by omission.
+ * Map a target row to its API shape — the ONE way it reaches a response, like
+ * `toPublicRepository`/`toPublicCluster`. There is no secret here to mask; the
+ * credential lives on the referenced integration (`toPublicIntegration`).
  */
 export function toPublicConfluenceConnection(
   row: ConfluenceConnectionRow,
@@ -262,16 +252,101 @@ export function toPublicConfluenceConnection(
   return {
     id: row.id,
     repositoryId: row.repositoryId,
-    baseUrl: row.baseUrl,
+    integrationId: row.integrationId,
     spaceKey: row.spaceKey,
-    authType: row.authType,
-    email: row.email,
-    credential: "***",
-    connectionStatus: row.connectionStatus,
-    verifiedAt: row.verifiedAt,
     pageUrl: row.pageUrl,
     lastPublishedAt: row.lastPublishedAt,
     lastPublishError: row.lastPublishError,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * The kind of external system an Integration connects to (GP-183). Only
+ * `atlassian` (Confluence) today; the model is deliberately type-tagged so a
+ * future Slack/Jira integration is a new enum value + a new `config` variant,
+ * never a new table. Enum values are forever.
+ */
+export const integrationType = pgEnum("integration_type", ["atlassian"]);
+
+/**
+ * The non-secret, type-specific configuration of an Integration, stored as JSONB
+ * and discriminated by the row's `type` column. Only the `atlassian` shape
+ * exists today; when a second type lands this becomes a union narrowed on
+ * `type`, with no schema migration. The credential is NOT here — it lives in its
+ * own encrypted column, so it can never leak through a config read.
+ */
+export type AtlassianIntegrationConfig = {
+  baseUrl: string;
+  authType: (typeof confluenceAuthType.enumValues)[number];
+  /** Basic-auth username for a Cloud token; null for a DC PAT. */
+  email: string | null;
+};
+export type IntegrationConfig = AtlassianIntegrationConfig;
+
+/**
+ * An organization-level Integration (GP-183): an external credential configured
+ * once per org and attachable by N repositories, replacing the per-repo
+ * credential of GP-179. First (and only) type: `atlassian` (Confluence). Owned
+ * by an org exactly like a cluster (GP-114); deleting the org cascades.
+ *
+ * The credential (API token / PAT) follows the uniform secret rules (PATs,
+ * kubeconfigs): AES-256-GCM encrypted at rest (lib/encryption), WRITE-ONLY —
+ * responses mask it as "***" via `toPublicIntegration` — and never logged.
+ */
+export const integrations = pgTable("integrations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  type: integrationType("type").notNull(),
+  name: text("name").notNull(),
+  config: jsonb("config").$type<IntegrationConfig>().notNull(),
+  /** AES-256-GCM ciphertext of the API token / PAT. Never plaintext, never logged. */
+  credential: text("credential").notNull(),
+  /** Result of the last credential + base-URL reachability check (GP-183):
+   * a verify hits the instance with the stored credential — the space is a
+   * repo-level concern, checked at publish. Reuses the shared status enum. */
+  connectionStatus: confluenceConnectionStatus("connection_status")
+    .notNull()
+    .default("unverified"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type IntegrationRow = typeof integrations.$inferSelect;
+
+export type PublicIntegration = {
+  id: string;
+  organizationId: string;
+  type: (typeof integrationType.enumValues)[number];
+  name: string;
+  /** Non-secret config only; the credential is never part of this shape. */
+  config: IntegrationConfig;
+  /** Always "***" — a stored credential is never handed back, in any response. */
+  credential: "***";
+  connectionStatus: (typeof confluenceConnectionStatus.enumValues)[number];
+  verifiedAt: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * Map an integration row to its API shape — the ONE way it reaches a response,
+ * like `toPublicCluster`. `config` carries no secret (the credential is its own
+ * column), so it travels whole; the credential is masked to "***".
+ */
+export function toPublicIntegration(row: IntegrationRow): PublicIntegration {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    type: row.type,
+    name: row.name,
+    config: row.config,
+    credential: "***",
+    connectionStatus: row.connectionStatus,
+    verifiedAt: row.verifiedAt,
     createdAt: row.createdAt,
   };
 }

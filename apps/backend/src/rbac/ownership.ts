@@ -17,6 +17,7 @@ import {
   annotations,
   clusters,
   graphSnapshots,
+  integrations,
   invitations,
   projects,
   repositories,
@@ -28,6 +29,7 @@ export type ResourceKind =
   | "repository"
   | "snapshot"
   | "cluster"
+  | "integration"
   | "annotation"
   | "shareLink"
   | "invitation";
@@ -38,6 +40,7 @@ export const RESOURCE_BY_SEGMENT: Record<string, ResourceKind> = {
   repositories: "repository",
   snapshots: "snapshot",
   clusters: "cluster",
+  integrations: "integration",
   annotations: "annotation",
   "share-links": "shareLink",
   invitations: "invitation",
@@ -79,6 +82,13 @@ export async function resolveResourceOrg(
         .select({ orgId: clusters.organizationId })
         .from(clusters)
         .where(eq(clusters.id, id));
+      return row?.orgId ?? null;
+    }
+    case "integration": {
+      const [row] = await db
+        .select({ orgId: integrations.organizationId })
+        .from(integrations)
+        .where(eq(integrations.id, id));
       return row?.orgId ?? null;
     }
     case "repository": {

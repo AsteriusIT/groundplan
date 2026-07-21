@@ -12,10 +12,12 @@ it("gates the matrix as the backend does", () => {
   // member: read only
   expect(can("member", "org:read")).toBe(true);
   expect(can("member", "project:manage")).toBe(false);
+  expect(can("member", "integration:manage")).toBe(false);
   expect(can("member", "member:manage")).toBe(false);
 
-  // admin: manage projects, repos, members
+  // admin: manage projects, repos, integrations, members
   expect(can("admin", "project:manage")).toBe(true);
+  expect(can("admin", "integration:manage")).toBe(true);
   expect(can("admin", "member:manage")).toBe(true);
   expect(can("admin", "org:delete")).toBe(false);
   expect(can("admin", "ownership:transfer")).toBe(false);

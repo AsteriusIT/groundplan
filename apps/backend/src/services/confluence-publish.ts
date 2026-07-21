@@ -19,6 +19,7 @@ import {
   annotations,
   confluenceConnections,
   graphSnapshots,
+  integrations,
   projects,
   repositories,
   type ConfluenceConnectionRow,
@@ -179,21 +180,33 @@ export async function publishDocsSnapshot(
   connection: ConfluenceConnectionRow,
   snapshot: GraphSnapshotRow,
 ): Promise<ConfluencePublishResult> {
+  // The credential + base URL live on the org Integration now (GP-183); the
+  // repo target only names it (plus the space). Resolve and decrypt here.
+  const [integration] = await app.db
+    .select()
+    .from(integrations)
+    .where(eq(integrations.id, connection.integrationId));
+  if (!integration) {
+    // The FK makes this unreachable, but a target with no integration cannot
+    // authenticate — surface it like a credential failure, never a throw.
+    return recordFailure(app, connection.id, "auth_failed");
+  }
+
   let credential: string;
   try {
-    credential = app.encryptor.decrypt(connection.credential);
+    credential = app.encryptor.decrypt(integration.credential);
   } catch {
     app.log.warn(
-      { connectionId: connection.id },
+      { connectionId: connection.id, integrationId: integration.id },
       "could not decrypt stored Confluence credential",
     );
     return recordFailure(app, connection.id, "auth_failed");
   }
 
   const target: ConfluenceTarget = {
-    baseUrl: connection.baseUrl,
-    authType: connection.authType,
-    email: connection.email,
+    baseUrl: integration.config.baseUrl,
+    authType: integration.config.authType,
+    email: integration.config.email,
     credential,
   };
 
