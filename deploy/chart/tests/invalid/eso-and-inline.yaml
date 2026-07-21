@@ -1,0 +1,24 @@
+# expect: set only one ENCRYPTION_KEY source
+# ENCRYPTION_KEY supplied both inline and via ESO.
+externalSecrets:
+  enabled: true
+  secretStore:
+    name: cluster-store
+
+api:
+  encryptionKey: not-a-real-key
+  externalSecret:
+    remoteRef:
+      key: groundplan/encryption-key
+
+ingress:
+  host: groundplan.example.com
+
+externalDatabase:
+  host: db.internal.example.com
+  externalSecret:
+    remoteRef:
+      key: groundplan/database
+
+oidc:
+  issuerUrl: https://login.example.com/realms/groundplan

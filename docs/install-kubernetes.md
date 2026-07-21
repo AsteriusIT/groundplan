@@ -38,6 +38,13 @@ kubectl -n groundplan create secret generic groundplan-db \
 (Or manage both with sealed-secrets / external-secrets — the chart only ever
 references them by name.)
 
+Each chart secret — `ENCRYPTION_KEY`, the database password and the optional
+`AI_API_KEY` — accepts one of **three** sources: an inline value (eval/CI), an
+`existingSecret` you bring by name (above), or the **External Secrets Operator**
+(ESO). With ESO the chart renders the `ExternalSecret` for you, so no secret
+material lives in the release — see [Sourcing secrets from a secret store
+(ESO)](#sourcing-secrets-from-a-secret-store-eso) below.
+
 ### 2. Configure your identity provider
 
 Any OIDC provider works (Keycloak, Entra ID, ...). The deployment needs:
@@ -89,9 +96,57 @@ story.
 
 Open `https://groundplan.example.com`, log in, and connect your first
 repository. Every configuration knob is documented in
-[`values.yaml`](../deploy/chart/groundplan/values.yaml); anything without a
-first-class value (e.g. the AI layer's `AI_API_KEY`) goes through
+[`values.yaml`](../deploy/chart/groundplan/values.yaml); the AI layer's key is a
+first-class value (`ai.apiKey` / `ai.existingSecret` / `ai.externalSecret`,
+below), and anything else without one (e.g. `AI_MODEL`) goes through
 `api.extraEnv`.
+
+## Sourcing secrets from a secret store (ESO)
+
+If your cluster runs the [External Secrets
+Operator](https://external-secrets.io), the chart can render the
+`ExternalSecret` objects that pull `ENCRYPTION_KEY`, the database password and
+the AI key straight from your store into the Secrets its pods consume — so **no
+secret material lives in the release** and you skip the `kubectl create secret`
+step above. The chart only declares the reads; the ESO controller and its CRDs
+are the cluster's.
+
+Enable it once (shared store + refresh), then give each secret its remote key:
+
+```yaml
+externalSecrets:
+  enabled: true
+  secretStore:
+    name: cluster-store        # your (Cluster)SecretStore
+    kind: ClusterSecretStore   # or SecretStore (namespaced)
+  refreshInterval: 1h
+  # apiVersion: external-secrets.io/v1   # override for pre-v1 ESO controllers
+
+api:
+  externalSecret:
+    remoteRef:
+      key: groundplan/encryption-key
+
+externalDatabase:
+  host: postgres.internal.example.com
+  database: groundplan
+  username: groundplan
+  externalSecret:
+    remoteRef:
+      key: groundplan/database
+      property: password        # optional field within the stored key
+
+# Optional — enables the AI layer from an ESO-managed key:
+ai:
+  externalSecret:
+    remoteRef:
+      key: groundplan/ai-api-key
+```
+
+Each secret still accepts exactly one source: setting both an inline value / an
+`existingSecret` and an `externalSecret` for the same secret fails `helm
+template` with a sentence. ESO for the database password is only valid with an
+external Postgres (the embedded eval Postgres manages its own Secret).
 
 ## Evaluation: all-in-one on kind
 

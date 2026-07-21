@@ -110,6 +110,40 @@ auto-wired to the embedded Keycloak's groundplan realm when it is enabled
 {{- end }}
 
 {{/*
+External Secrets Operator (ESO) sourcing predicates — each emits "true" when
+that secret is materialised by ESO: the global switch is on AND the section's
+remote key is set. Empty string otherwise (falsy in `if`).
+*/}}
+{{- define "groundplan.apiExternalSecretActive" -}}
+{{- if and .Values.externalSecrets.enabled .Values.api.externalSecret.remoteRef.key -}}true{{- end -}}
+{{- end }}
+{{- define "groundplan.dbExternalSecretActive" -}}
+{{- if and .Values.externalSecrets.enabled .Values.externalDatabase.externalSecret.remoteRef.key -}}true{{- end -}}
+{{- end }}
+{{- define "groundplan.aiExternalSecretActive" -}}
+{{- if and .Values.externalSecrets.enabled .Values.ai.externalSecret.remoteRef.key -}}true{{- end -}}
+{{- end }}
+
+{{/* The AI layer is on when the key is supplied by any of its three modes. */}}
+{{- define "groundplan.aiEnabled" -}}
+{{- if or .Values.ai.apiKey .Values.ai.existingSecret (include "groundplan.aiExternalSecretActive" .) -}}true{{- end -}}
+{{- end }}
+
+{{/* Name of the Secret holding AI_API_KEY (user-brought or chart/ESO-managed). */}}
+{{- define "groundplan.aiSecretName" -}}
+{{- .Values.ai.existingSecret | default (printf "%s-ai" (include "groundplan.fullname" .)) -}}
+{{- end }}
+
+{{/* Key inside that Secret; a brought Secret may name it differently. */}}
+{{- define "groundplan.aiSecretKey" -}}
+{{- if .Values.ai.existingSecret -}}
+{{- .Values.ai.existingSecretKey | default "AI_API_KEY" -}}
+{{- else -}}
+AI_API_KEY
+{{- end -}}
+{{- end }}
+
+{{/*
 Cross-value validation — included from the api Deployment (always rendered),
 so an impossible combination fails `helm template`/`install` with a sentence,
 never a half-deployed release.
@@ -118,25 +152,40 @@ never a half-deployed release.
 {{- if and .Values.ingress.enabled (not .Values.ingress.host) -}}
 {{- fail "ingress.enabled requires ingress.host (the public hostname the app is served on)" -}}
 {{- end -}}
+{{- if and .Values.externalSecrets.enabled (not .Values.externalSecrets.secretStore.name) -}}
+{{- fail "externalSecrets.enabled requires externalSecrets.secretStore.name (the (Cluster)SecretStore to read from)" -}}
+{{- end -}}
 {{- if and .Values.postgresql.enabled .Values.externalDatabase.host -}}
 {{- fail "enable only one database mode: unset externalDatabase.host or set postgresql.enabled=false (the embedded Postgres is evaluation-only)" -}}
 {{- end -}}
 {{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.host) -}}
 {{- fail "no database configured: set externalDatabase.host (production) or postgresql.enabled=true (evaluation only)" -}}
 {{- end -}}
+{{- if and .Values.postgresql.enabled (include "groundplan.dbExternalSecretActive" .) -}}
+{{- fail "externalDatabase.externalSecret cannot be combined with the embedded postgresql (it manages its own Secret)" -}}
+{{- end -}}
 {{- if not .Values.postgresql.enabled -}}
-{{- if and .Values.externalDatabase.existingSecret .Values.externalDatabase.password -}}
-{{- fail "set only one of externalDatabase.existingSecret and externalDatabase.password" -}}
+{{- $dbEso := include "groundplan.dbExternalSecretActive" . -}}
+{{- $dbCount := add (ternary 1 0 (not (empty .Values.externalDatabase.existingSecret))) (ternary 1 0 (not (empty .Values.externalDatabase.password))) (ternary 1 0 (not (empty $dbEso))) -}}
+{{- if gt $dbCount 1 -}}
+{{- fail "set only one database password source: externalDatabase.existingSecret, externalDatabase.password, or externalDatabase.externalSecret (with externalSecrets.enabled)" -}}
 {{- end -}}
-{{- if and (not .Values.externalDatabase.existingSecret) (not .Values.externalDatabase.password) -}}
-{{- fail "the database password is required: set externalDatabase.existingSecret (recommended) or externalDatabase.password" -}}
+{{- if eq $dbCount 0 -}}
+{{- fail "the database password is required: set externalDatabase.existingSecret (recommended), externalDatabase.password, or externalDatabase.externalSecret.remoteRef.key (with externalSecrets.enabled)" -}}
 {{- end -}}
 {{- end -}}
-{{- if and .Values.api.existingSecret .Values.api.encryptionKey -}}
-{{- fail "set only one of api.existingSecret and api.encryptionKey" -}}
+{{- $apiEso := include "groundplan.apiExternalSecretActive" . -}}
+{{- $apiCount := add (ternary 1 0 (not (empty .Values.api.existingSecret))) (ternary 1 0 (not (empty .Values.api.encryptionKey))) (ternary 1 0 (not (empty $apiEso))) -}}
+{{- if gt $apiCount 1 -}}
+{{- fail "set only one ENCRYPTION_KEY source: api.existingSecret, api.encryptionKey, or api.externalSecret (with externalSecrets.enabled)" -}}
 {{- end -}}
-{{- if and (not .Values.api.existingSecret) (not .Values.api.encryptionKey) -}}
-{{- fail "ENCRYPTION_KEY is required: set api.existingSecret (recommended) or api.encryptionKey (generate one with: openssl rand -base64 32)" -}}
+{{- if eq $apiCount 0 -}}
+{{- fail "ENCRYPTION_KEY is required: set api.existingSecret (recommended), api.encryptionKey (generate one with: openssl rand -base64 32), or api.externalSecret.remoteRef.key (with externalSecrets.enabled)" -}}
+{{- end -}}
+{{- $aiEso := include "groundplan.aiExternalSecretActive" . -}}
+{{- $aiCount := add (ternary 1 0 (not (empty .Values.ai.apiKey))) (ternary 1 0 (not (empty .Values.ai.existingSecret))) (ternary 1 0 (not (empty $aiEso))) -}}
+{{- if gt $aiCount 1 -}}
+{{- fail "set only one AI_API_KEY source: ai.apiKey, ai.existingSecret, or ai.externalSecret (with externalSecrets.enabled)" -}}
 {{- end -}}
 {{- if and .Values.keycloak.enabled .Values.oidc.issuerUrl -}}
 {{- fail "set only one identity provider: unset oidc.issuerUrl or set keycloak.enabled=false (the embedded Keycloak is evaluation-only and wires oidc.* itself)" -}}

@@ -1,0 +1,25 @@
+# expect: externalDatabase.externalSecret cannot be combined with the embedded postgresql
+# The embedded eval Postgres manages its own Secret; ESO for the db is nonsense.
+externalSecrets:
+  enabled: true
+  secretStore:
+    name: cluster-store
+
+api:
+  externalSecret:
+    remoteRef:
+      key: groundplan/encryption-key
+
+ingress:
+  host: groundplan.example.com
+
+postgresql:
+  enabled: true
+
+externalDatabase:
+  externalSecret:
+    remoteRef:
+      key: groundplan/database
+
+oidc:
+  issuerUrl: https://login.example.com/realms/groundplan

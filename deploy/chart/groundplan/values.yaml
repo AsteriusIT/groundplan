@@ -22,13 +22,46 @@ image:
   # Names of imagePullSecrets in the release namespace, for private registries.
   pullSecrets: []
 
+# --- External Secrets Operator (ESO) ---------------------------------------
+# A third way to provide each chart secret, beside the inline value and the
+# bring-your-own existingSecret: have ESO (https://external-secrets.io) pull it
+# from your secret store into the Secret this chart's pods already consume. The
+# chart only emits the ExternalSecret CRs — the ESO controller + CRDs must
+# already be installed in the cluster. Enable it here (shared store + refresh),
+# then set the per-secret remote key under api.externalSecret /
+# externalDatabase.externalSecret / ai.externalSecret. Using ESO for a secret
+# is mutually exclusive with that secret's inline / existingSecret modes.
+externalSecrets:
+  enabled: false
+  secretStore:
+    # Name of the (Cluster)SecretStore to read from. Required when enabled.
+    name: ""
+    # ClusterSecretStore (cluster-scoped, the common case) or SecretStore
+    # (namespaced, must live in the release namespace).
+    kind: ClusterSecretStore
+  # How often ESO re-reads the store and reconciles the Secret.
+  refreshInterval: 1h
+  # CRD apiVersion the ExternalSecret objects are emitted as. Default is the GA
+  # API (ESO >= 0.10); set external-secrets.io/v1beta1 for older controllers.
+  apiVersion: external-secrets.io/v1
+
 api:
   replicas: 1
   # ENCRYPTION_KEY protects repository PATs / kubeconfigs at rest. Provide ONE:
   #   existingSecret: name of a Secret with an ENCRYPTION_KEY entry, or
   #   encryptionKey:  the key inline (eval/CI) — generate: openssl rand -base64 32
+  #   externalSecret: have ESO fetch it (set externalSecrets.enabled + the key)
   existingSecret: ""
   encryptionKey: ""
+  # ESO source for ENCRYPTION_KEY. Active when externalSecrets.enabled and
+  # remoteRef.key is set; the chart writes it into the api Secret as
+  # ENCRYPTION_KEY. Mutually exclusive with existingSecret/encryptionKey.
+  externalSecret:
+    remoteRef:
+      # Key/path of the value in the store (e.g. "groundplan/encryption-key").
+      key: ""
+      # Optional property within that key (JSON field / provider-specific).
+      property: ""
   # Single-org (self-hosted, default) vs SaaS multi-tenant — see docs.
   singleOrg: true
   resources:
@@ -84,6 +117,14 @@ externalDatabase:
   existingSecret: ""
   passwordKey: password
   password: ""
+  # ESO source for the password (requires externalSecrets.enabled). Active when
+  # remoteRef.key is set; the chart writes it into the db Secret under
+  # passwordKey. Mutually exclusive with existingSecret/password, and cannot be
+  # combined with the embedded postgresql.
+  externalSecret:
+    remoteRef:
+      key: ""
+      property: ""
   # Appended as ?sslmode=... when set (e.g. "require").
   sslMode: ""
 
@@ -157,3 +198,24 @@ keycloak:
       memory: 512Mi
     limits:
       memory: 1536Mi
+
+# --- AI layer (GP-61.., opt-in) --------------------------------------------
+# The AI features (PR summaries, docs "Explain", annotation proposals, tours,
+# the Studio) are gated on AI_API_KEY. Leave every field below empty to keep AI
+# disabled (routes 404, no frontend surface). To enable it, supply the key ONE
+# of three ways — same pattern as the other secrets:
+#   apiKey:         inline (eval/CI)
+#   existingSecret: name of a Secret holding the key (under existingSecretKey)
+#   externalSecret: have ESO fetch it (set externalSecrets.enabled + the key)
+# The chart wires the resolved key into the api container as AI_API_KEY. The
+# model can still be overridden via api.extraEnv (AI_MODEL); it defaults in-app.
+ai:
+  apiKey: ""
+  existingSecret: ""
+  # Key inside existingSecret holding the value (ignored for the other modes,
+  # which always write AI_API_KEY).
+  existingSecretKey: AI_API_KEY
+  externalSecret:
+    remoteRef:
+      key: ""
+      property: ""

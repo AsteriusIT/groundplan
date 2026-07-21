@@ -66,6 +66,13 @@ spec:
               value: {{ include "groundplan.publicUrl" . | quote }}
             - name: SINGLE_ORG
               value: {{ .Values.api.singleOrg | quote }}
+            {{- if include "groundplan.aiEnabled" . }}
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "groundplan.aiSecretName" . }}
+                  key: {{ include "groundplan.aiSecretKey" . }}
+            {{- end }}
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
