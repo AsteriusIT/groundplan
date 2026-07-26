@@ -375,6 +375,12 @@ export function toPublicRepository(
 export const confluenceAuthType = pgEnum("confluence_auth_type", [
   "cloud_token",
   "dc_pat",
+  // GP-197: an Atlassian OAuth 2.0 (3LO) app. The stored credential is a
+  // refresh token we exchange for a short-lived Bearer access token, and the
+  // base URL is the `api.atlassian.com/ex/confluence/{cloudId}` gateway. Added
+  // to the enum rather than replacing anything — enum values are forever, and
+  // the token/PAT modes remain the only option for Data Center.
+  "oauth",
 ]);
 
 /** Same three states as the repository check (GP-11); own enum, same reason as
@@ -476,8 +482,12 @@ export const integrationType = pgEnum("integration_type", ["atlassian"]);
 export type AtlassianIntegrationConfig = {
   baseUrl: string;
   authType: (typeof confluenceAuthType.enumValues)[number];
-  /** Basic-auth username for a Cloud token; null for a DC PAT. */
+  /** Basic-auth username for a Cloud token; null for a DC PAT or OAuth. */
   email: string | null;
+  /** OAuth only (GP-197): the Atlassian site id behind the API gateway. */
+  cloudId?: string | null;
+  /** OAuth only: the site's human URL, for the UI and the page backlink. */
+  siteUrl?: string | null;
 };
 export type IntegrationConfig = AtlassianIntegrationConfig;
 
@@ -507,6 +517,10 @@ export const integrations = pgTable("integrations", {
   connectionStatus: confluenceConnectionStatus("connection_status")
     .notNull()
     .default("unverified"),
+  /** Why the last check failed, cleared on the next success (GP-197). It is
+   * what turns "failed" into something actionable — an OAuth grant the user
+   * revoked reads as "reconnect required", not just a red dot. */
+  lastError: text("last_error"),
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -525,6 +539,8 @@ export type PublicIntegration = {
   /** Always "***" — a stored credential is never handed back, in any response. */
   credential: "***";
   connectionStatus: (typeof confluenceConnectionStatus.enumValues)[number];
+  /** Why the last check failed, or null (GP-197). Never a credential. */
+  lastError: string | null;
   verifiedAt: Date | null;
   createdAt: Date;
 };
@@ -543,6 +559,7 @@ export function toPublicIntegration(row: IntegrationRow): PublicIntegration {
     config: row.config,
     credential: "***",
     connectionStatus: row.connectionStatus,
+    lastError: row.lastError,
     verifiedAt: row.verifiedAt,
     createdAt: row.createdAt,
   };

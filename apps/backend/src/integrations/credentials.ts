@@ -26,6 +26,7 @@ import {
   type IntegrationCredentialRow,
   type RepositoryRow,
 } from "../db/schema.js";
+import type { OAuth2Store } from "./oauth2.js";
 import {
   CredentialRevokedError,
   type AccessToken,
@@ -163,6 +164,35 @@ export async function repositoriesUsingCredential(
     .select({ id: repositories.id, url: repositories.url })
     .from(repositories)
     .where(eq(repositories.credentialId, credentialId));
+}
+
+/**
+ * The `OAuth2Store` view of a connection row (GP-197) — how the shared refresh
+ * logic reads and writes this table without knowing it exists.
+ */
+export function credentialStore(
+  app: FastifyInstance,
+  row: IntegrationCredentialRow,
+): OAuth2Store {
+  return {
+    id: row.id,
+    secretCiphertext: row.secret,
+    healthy: row.status === "ok",
+    async persistSecret(ciphertext) {
+      await app.db
+        .update(integrationCredentials)
+        .set({ secret: ciphertext, updatedAt: new Date() })
+        .where(eq(integrationCredentials.id, row.id));
+    },
+    async markStatus(healthy, error) {
+      await setCredentialStatus(
+        app,
+        row.id,
+        healthy ? "ok" : "reconnect_required",
+        error,
+      );
+    },
+  };
 }
 
 /** Record a connection's health after a token attempt (GP-192). */

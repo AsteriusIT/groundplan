@@ -45,6 +45,9 @@ x-backend-env: &backend-env
   ADO_ENTRA_CLIENT_ID: ${ADO_ENTRA_CLIENT_ID:-}
   ADO_ENTRA_CLIENT_SECRET: ${ADO_ENTRA_CLIENT_SECRET:-}
   ADO_ENTRA_TENANT: ${ADO_ENTRA_TENANT:-organizations}
+  # Atlassian OAuth 2.0 (3LO) for Confluence (GP-197) — optional, same flag rule.
+  ATLASSIAN_CLIENT_ID: ${ATLASSIAN_CLIENT_ID:-}
+  ATLASSIAN_CLIENT_SECRET: ${ATLASSIAN_CLIENT_SECRET:-}
   # Orgs (GP-112): single-org unless explicitly opted out (SINGLE_ORG=false
   # enables SaaS multi-org mode — org switcher, invites, onboarding).
   SINGLE_ORG: ${SINGLE_ORG:-true}

@@ -237,8 +237,12 @@ export type ClusterVerifyResult =
 
 // --- Confluence export (GP-179..GP-182) --------------------------------------
 
-/** How the Confluence credential authenticates: Cloud API token or DC PAT. */
-export type ConfluenceAuthType = "cloud_token" | "dc_pat";
+/**
+ * How the Confluence credential authenticates: a Cloud API token, a Data Center
+ * PAT, or — GP-197 — an Atlassian OAuth (3LO) grant whose refresh token the
+ * server renews. Only the first two are ever entered by hand.
+ */
+export type ConfluenceAuthType = "cloud_token" | "dc_pat" | "oauth";
 
 /** Structured reason a Confluence call failed (GP-179/GP-180). */
 export type ConfluenceErrorKind = "auth_failed" | "space_not_found" | "network";
@@ -281,8 +285,12 @@ export type IntegrationType = "atlassian";
 export interface AtlassianIntegrationConfig {
   baseUrl: string;
   authType: ConfluenceAuthType;
-  /** Basic-auth username for a Cloud token; null for a DC PAT. */
+  /** Basic-auth username for a Cloud token; null for a DC PAT or OAuth. */
   email: string | null;
+  /** OAuth only (GP-197): the Atlassian site id behind the API gateway. */
+  cloudId?: string | null;
+  /** OAuth only: the site's human URL — what a person should be shown. */
+  siteUrl?: string | null;
 }
 
 /**
@@ -299,8 +307,16 @@ export interface Integration {
   /** Always "***". The credential you sent is never sent back. */
   credential: "***";
   connectionStatus: ConnectionStatus;
+  /** Why the last check failed, or null (GP-197) — never a credential. */
+  lastError: string | null;
   verifiedAt: string | null;
   createdAt: string;
+}
+
+/** One integration type and whether this deployment can connect it by OAuth. */
+export interface IntegrationOAuthProvider {
+  type: IntegrationType;
+  connectable: boolean;
 }
 
 /** Body of POST /orgs/:orgId/integrations. */

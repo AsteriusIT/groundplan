@@ -7,6 +7,8 @@ vi.mock("@/api/client", async (importOriginal) => {
   return {
     ...actual,
     listIntegrations: vi.fn(),
+    listIntegrationOAuthProviders: vi.fn(),
+    startIntegrationOAuth: vi.fn(),
     createIntegration: vi.fn(),
     updateIntegration: vi.fn(),
     verifyIntegration: vi.fn(),
@@ -21,7 +23,9 @@ import {
   ApiError,
   createIntegration,
   deleteIntegration,
+  listIntegrationOAuthProviders,
   listIntegrations,
+  startIntegrationOAuth,
   updateIntegration,
   verifyIntegration,
 } from "@/api/client";
@@ -33,6 +37,8 @@ const createMock = vi.mocked(createIntegration);
 const updateMock = vi.mocked(updateIntegration);
 const verifyMock = vi.mocked(verifyIntegration);
 const deleteMock = vi.mocked(deleteIntegration);
+const oauthProvidersMock = vi.mocked(listIntegrationOAuthProviders);
+const startOAuthMock = vi.mocked(startIntegrationOAuth);
 
 function integration(over: Partial<Integration> = {}): Integration {
   return {
@@ -47,6 +53,7 @@ function integration(over: Partial<Integration> = {}): Integration {
     },
     credential: "***",
     connectionStatus: "ok",
+  lastError: null,
     verifiedAt: "2026-07-20T10:00:00Z",
     createdAt: "2026-07-01T00:00:00Z",
     ...over,
@@ -56,6 +63,11 @@ function integration(over: Partial<Integration> = {}): Integration {
 beforeEach(() => {
   canManage = true;
   listMock.mockReset().mockResolvedValue([]);
+  // Nothing OAuth-configured by default: the deployment offers tokens only.
+  oauthProvidersMock
+    .mockReset()
+    .mockResolvedValue([{ type: "atlassian", connectable: false }]);
+  startOAuthMock.mockReset();
   createMock.mockReset();
   updateMock.mockReset();
   verifyMock.mockReset();
@@ -72,7 +84,7 @@ it("a member sees the list read-only — no manage actions", async () => {
     screen.getByText("https://acme.atlassian.net/wiki"),
   ).toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /add integration/i }),
+    screen.queryByRole("button", { name: /add with a token/i }),
   ).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /^verify$/i })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
@@ -83,7 +95,7 @@ it("an owner/admin adds a Cloud Atlassian integration", async () => {
   createMock.mockResolvedValue(created);
   render(<OrgIntegrations />);
 
-  fireEvent.click(await screen.findByRole("button", { name: /add integration/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /add with a token/i }));
   fireEvent.change(screen.getByLabelText(/^name$/i), {
     target: { value: "New Site" },
   });
@@ -115,7 +127,7 @@ it("a DC PAT needs no email and sends none", async () => {
   createMock.mockResolvedValue(integration({ id: "i9", name: "DC" }));
   render(<OrgIntegrations />);
 
-  fireEvent.click(await screen.findByRole("button", { name: /add integration/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /add with a token/i }));
   fireEvent.click(screen.getByRole("button", { name: /data center pat/i }));
   expect(screen.queryByLabelText(/account email/i)).not.toBeInTheDocument();
 
@@ -200,4 +212,50 @@ it("has no axe violations", async () => {
   await screen.findByText("Acme Cloud");
   const results = await axe(baseElement);
   expect(results.violations).toEqual([]);
+});
+
+it("offers Connect only where the deployment registered an Atlassian app", async () => {
+  oauthProvidersMock.mockResolvedValue([{ type: "atlassian", connectable: true }]);
+  startOAuthMock.mockResolvedValue({
+    authorizeUrl: "https://auth.atlassian.com/authorize?state=sealed",
+    redirectUri: "https://gp.example.com/integrations/callback",
+  });
+
+  render(<OrgIntegrations />);
+
+  fireEvent.click(await screen.findByRole("button", { name: /connect confluence/i }));
+  await waitFor(() => expect(startOAuthMock).toHaveBeenCalledWith("atlassian"));
+});
+
+it("hides Connect when no Atlassian app is configured on this instance", async () => {
+  render(<OrgIntegrations />);
+
+  await screen.findByRole("button", { name: /add with a token/i });
+  expect(
+    screen.queryByRole("button", { name: /connect confluence/i }),
+  ).not.toBeInTheDocument();
+});
+
+it("shows the site URL and the last error for a connected integration", async () => {
+  listMock.mockResolvedValue([
+    integration({
+      name: "Acme",
+      config: {
+        baseUrl: "https://api.atlassian.com/ex/confluence/cloud-1",
+        authType: "oauth",
+        email: null,
+        cloudId: "cloud-1",
+        siteUrl: "https://acme.atlassian.net",
+      },
+      connectionStatus: "failed",
+      lastError: "the credential was refused — reconnect this integration",
+    }),
+  ]);
+
+  render(<OrgIntegrations />);
+
+  expect(await screen.findByText("https://acme.atlassian.net")).toBeInTheDocument();
+  expect(
+    screen.getByText(/the credential was refused/),
+  ).toBeInTheDocument();
 });

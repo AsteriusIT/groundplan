@@ -24,13 +24,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
 
-import {
-  integrationCredentials,
-  type IntegrationCredentialRow,
-} from "../db/schema.js";
-import { setCredentialStatus } from "./credentials.js";
 import {
   CredentialRevokedError,
   type AccessToken,
@@ -239,6 +233,24 @@ export function oauth2ConnectFlow(
 }
 
 /**
+ * Where a connection's refresh token lives, abstracted (GP-197). Git provider
+ * connections sit in `integration_credentials`; the Atlassian one sits in
+ * `integrations`, beside the Confluence credential it replaces. The refresh
+ * logic does not care which — it needs to read a secret, write a rotated one
+ * back, and record health.
+ */
+export type OAuth2Store = {
+  /** Stable id — the access-token cache key. */
+  id: string;
+  /** The stored refresh token, still encrypted. */
+  secretCiphertext: string | null;
+  /** Whether the record currently reads as healthy (to avoid a needless write). */
+  healthy: boolean;
+  persistSecret(ciphertext: string): Promise<void>;
+  markStatus(healthy: boolean, error: string | null): Promise<void>;
+};
+
+/**
  * Access tokens, in memory only, keyed by connection. Never persisted: an
  * access token outliving the process would be a long-lived secret at rest, and
  * the refresh token already is the durable one.
@@ -257,26 +269,26 @@ export function clearAccessTokenCache(): void {
  */
 export function oauth2Strategy(
   app: FastifyInstance,
-  row: IntegrationCredentialRow,
+  store: OAuth2Store,
   config: OAuth2Config,
   http: OAuth2Http,
 ): CredentialStrategy {
   return {
     mode: "oauth2",
     async getToken(): Promise<AccessToken> {
-      const cached = accessTokens.get(row.id);
+      const cached = accessTokens.get(store.id);
       if (cached?.expiresAt && cached.expiresAt.getTime() - RENEW_MARGIN_MS > Date.now()) {
         return cached;
       }
 
-      if (!row.secret) {
+      if (!store.secretCiphertext) {
         throw new CredentialRevokedError(
           "this connection has no refresh token stored — reconnect it",
         );
       }
       let refreshToken: string;
       try {
-        refreshToken = app.encryptor.decrypt(row.secret);
+        refreshToken = app.encryptor.decrypt(store.secretCiphertext);
       } catch {
         throw new CredentialRevokedError(
           "this connection's stored credential could not be read — reconnect it",
@@ -293,17 +305,12 @@ export function oauth2Strategy(
           ...config.refreshParams,
         });
       } catch (err) {
-        accessTokens.delete(row.id);
+        accessTokens.delete(store.id);
         if (err instanceof OAuth2Error && err.revoked) {
-          await setCredentialStatus(
-            app,
-            row.id,
-            "reconnect_required",
-            "the provider rejected the stored authorization — reconnect this integration",
-          );
-          throw new CredentialRevokedError(
-            "the provider rejected the stored authorization — reconnect this integration",
-          );
+          const message =
+            "the provider rejected the stored authorization — reconnect this integration";
+          await store.markStatus(false, message);
+          throw new CredentialRevokedError(message);
         }
         throw err;
       }
@@ -311,23 +318,15 @@ export function oauth2Strategy(
       // Rotation: the token we just used may already be dead. Persist the new
       // one before handing out the access token that came with it.
       if (tokens.refresh_token && tokens.refresh_token !== refreshToken) {
-        await app.db
-          .update(integrationCredentials)
-          .set({
-            secret: app.encryptor.encrypt(tokens.refresh_token),
-            updatedAt: new Date(),
-          })
-          .where(eq(integrationCredentials.id, row.id));
+        await store.persistSecret(app.encryptor.encrypt(tokens.refresh_token));
       }
-      if (row.status !== "ok") {
-        await setCredentialStatus(app, row.id, "ok", null);
-      }
+      if (!store.healthy) await store.markStatus(true, null);
 
       const expiresAt = tokens.expires_in
         ? new Date(Date.now() + tokens.expires_in * 1000)
         : null;
       const token: AccessToken = { token: tokens.access_token, expiresAt };
-      if (expiresAt) accessTokens.set(row.id, token);
+      if (expiresAt) accessTokens.set(store.id, token);
       return token;
     },
   };

@@ -41,8 +41,12 @@ export type GitLabOAuthConfig = OAuth2AppConfig & { instanceUrl: string };
  */
 export type EntraOAuthConfig = OAuth2AppConfig & { tenant: string };
 
+/** Atlassian OAuth 2.0 (3LO) app for Confluence (GP-197). */
+export type AtlassianOAuthConfig = OAuth2AppConfig;
+
 export type IntegrationsConfig = {
   githubApp: GitHubAppConfig | null;
+  atlassianOAuth: AtlassianOAuthConfig | null;
   gitlabOAuth: GitLabOAuthConfig | null;
   entraOAuth: EntraOAuthConfig | null;
   /** Public origin the provider redirects back to; "" = flows unavailable. */
@@ -80,9 +84,19 @@ export function entraOAuthFrom(env: AppEnv): EntraOAuthConfig | null {
   };
 }
 
+/** Atlassian 3LO is on only when both halves of the client credential are set. */
+export function atlassianOAuthFrom(env: AppEnv): AtlassianOAuthConfig | null {
+  if (!env.atlassianClientId || !env.atlassianClientSecret) return null;
+  return {
+    clientId: env.atlassianClientId,
+    clientSecret: env.atlassianClientSecret,
+  };
+}
+
 export function integrationsConfigFrom(env: AppEnv): IntegrationsConfig {
   return {
     githubApp: githubAppFrom(env),
+    atlassianOAuth: atlassianOAuthFrom(env),
     gitlabOAuth: gitlabOAuthFrom(env),
     entraOAuth: entraOAuthFrom(env),
     publicBaseUrl: env.publicBaseUrl,
@@ -92,6 +106,7 @@ export function integrationsConfigFrom(env: AppEnv): IntegrationsConfig {
 /** Nothing configured — the default every existing deployment already has. */
 export const NO_INTEGRATIONS_CONFIG: IntegrationsConfig = {
   githubApp: null,
+  atlassianOAuth: null,
   gitlabOAuth: null,
   entraOAuth: null,
   publicBaseUrl: "",

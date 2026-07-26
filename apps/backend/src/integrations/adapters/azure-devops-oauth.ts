@@ -19,7 +19,10 @@
  * tenant — and keeps using a PAT, which is why the mode never replaces `pat`.
  */
 import type { EntraOAuthConfig } from "../config.js";
-import { registerStrategy } from "../credentials.js";
+import type { FastifyInstance } from "fastify";
+
+import type { IntegrationCredentialRow } from "../../db/schema.js";
+import { credentialStore, registerStrategy } from "../credentials.js";
 import {
   oauth2ConnectFlow,
   oauth2Strategy,
@@ -73,12 +76,12 @@ export function azureDevOpsConnectFlow(
 }
 
 export function azureDevOpsOAuthStrategy(
-  app: Parameters<typeof oauth2Strategy>[0],
-  row: Parameters<typeof oauth2Strategy>[1],
+  app: FastifyInstance,
+  row: IntegrationCredentialRow,
   config: EntraOAuthConfig,
   http: OAuth2Http,
 ): CredentialStrategy {
-  return oauth2Strategy(app, row, entraOAuthConfig(config), http);
+  return oauth2Strategy(app, credentialStore(app, row), entraOAuthConfig(config), http);
 }
 
 registerStrategy("azure_devops", "oauth2", (app, row) => {

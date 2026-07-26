@@ -27,6 +27,10 @@ import {
 } from "../integrations/connect-state.js";
 import { repositoriesUsingCredential } from "../integrations/credentials.js";
 import {
+  completeIntegrationOAuth,
+  integrationTypeOf,
+} from "../services/integration-connect.js";
+import {
   CREDENTIAL_MODES,
   PROVIDER_IDS,
   type CredentialMode,
@@ -154,9 +158,13 @@ export const integrationConnectionRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
-   * Finish a connection from the provider's callback. The state proves which org
-   * started it, so a completion aimed at another org's id cannot bind an
-   * installation there: the mismatch is a 404, like every cross-tenant answer.
+   * Finish a connection from the provider's callback — the **single sink** every
+   * flow returns to, git provider or integration alike, because there is one
+   * registered redirect URI and one callback page.
+   *
+   * The state proves which org started it, so a completion aimed at another
+   * org's id cannot bind a grant there: the mismatch is a 404, like every
+   * cross-tenant answer.
    */
   app.post(
     "/connections/complete",
@@ -180,6 +188,16 @@ export const integrationConnectionRoutes: FastifyPluginAsync = async (app) => {
       }
       if (opened.orgId !== orgId) {
         return notFound(reply, "this connection attempt does not belong to this organization");
+      }
+
+      // An Atlassian grant (GP-197) lands here too and is stored as an org
+      // Integration, beside the credential it replaces.
+      if (integrationTypeOf(opened)) {
+        const result = await completeIntegrationOAuth(app, orgId, opened, params);
+        if (!result.ok) return unprocessable(reply, result.message);
+        return reply
+          .code(result.created ? 201 : 200)
+          .send(result.integration);
       }
 
       const flow = app.providers.get(opened.provider).connectFlow(opened.mode);

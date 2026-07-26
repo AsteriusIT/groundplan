@@ -65,6 +65,8 @@ import type {
   CreateIntegrationInput,
   UpdateIntegrationInput,
   IntegrationVerifyResult,
+  IntegrationOAuthProvider,
+  IntegrationType,
   CompleteConnectionInput,
   ConnectionImpact,
   ProviderCatalogEntry,
@@ -371,6 +373,27 @@ export function verifyIntegration(id: string): Promise<IntegrationVerifyResult> 
 /** Delete an org integration; the server answers 409 if a repo still uses it. */
 export function deleteIntegration(id: string): Promise<void> {
   return orgRequest<void>(`/integrations/${encode(id)}`, { method: "DELETE" });
+}
+
+/**
+ * Which integration types this deployment can connect by OAuth (GP-197). The UI
+ * offers "Connect" only where the answer is yes — never hardcoding that an
+ * Atlassian app exists.
+ */
+export function listIntegrationOAuthProviders(): Promise<
+  IntegrationOAuthProvider[]
+> {
+  return orgRequest<IntegrationOAuthProvider[]>(`/integrations/oauth/providers`);
+}
+
+/** Begin an integration OAuth grant; send the browser to the URL returned. */
+export function startIntegrationOAuth(
+  type: IntegrationType,
+): Promise<StartConnectionResult> {
+  return orgRequest<StartConnectionResult>(`/integrations/oauth/start`, {
+    method: "POST",
+    body: { type },
+  });
 }
 
 // --- Provider connections (GP-193..GP-198) -----------------------------------

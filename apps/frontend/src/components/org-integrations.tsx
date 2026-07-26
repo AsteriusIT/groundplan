@@ -5,7 +5,9 @@ import {
   ApiError,
   createIntegration,
   deleteIntegration,
+  listIntegrationOAuthProviders,
   listIntegrations,
+  startIntegrationOAuth,
   updateIntegration,
   verifyIntegration,
 } from "@/api/client";
@@ -45,13 +47,36 @@ export function OrgIntegrations() {
   const [error, setError] = useState<string | null>(null);
   // `null` = closed, `"new"` = the add form, an Integration = editing it.
   const [editing, setEditing] = useState<Integration | "new" | null>(null);
+  // Whether this deployment registered an Atlassian OAuth app (GP-197). The
+  // button appears only when it did — never a dead control.
+  const [canConnect, setCanConnect] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const load = useCallback(() => {
     listIntegrations()
       .then(setIntegrations)
       .catch(() => setIntegrations([]));
+    listIntegrationOAuthProviders()
+      .then((providers) =>
+        setCanConnect(providers.some((p) => p.type === "atlassian" && p.connectable)),
+      )
+      .catch(() => setCanConnect(false));
   }, []);
   useEffect(load, [load]);
+
+  async function handleConnect() {
+    setError(null);
+    setConnecting(true);
+    try {
+      const { authorizeUrl } = await startIntegrationOAuth("atlassian");
+      window.location.assign(authorizeUrl);
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Could not start the connection.",
+      );
+      setConnecting(false);
+    }
+  }
 
   async function handleVerify(id: string) {
     setError(null);
@@ -109,7 +134,7 @@ export function OrgIntegrations() {
         <p className="text-muted-foreground text-sm">
           No integrations yet.
           {canManage
-            ? " Add an Atlassian site to publish documentation to Confluence."
+            ? " Connect an Atlassian site to publish documentation to Confluence."
             : ""}
         </p>
       ) : (
@@ -123,9 +148,17 @@ export function OrgIntegrations() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{i.name}</p>
                 <p className="text-muted-foreground truncate font-mono text-xs">
-                  {i.config.baseUrl}
+                  {/* An OAuth integration's base URL is Atlassian's API gateway;
+                      the site URL is the thing a person recognises. */}
+                  {i.config.siteUrl ?? i.config.baseUrl}
                 </p>
+                {i.lastError && (
+                  <p className="text-destructive truncate text-xs">{i.lastError}</p>
+                )}
               </div>
+              {i.config.authType === "oauth" && (
+                <span className="text-muted-foreground text-xs">Connected</span>
+              )}
               <ConnectionStatusBadge status={i.connectionStatus} />
               {canManage && (
                 <div className="flex items-center gap-1">
@@ -161,9 +194,16 @@ export function OrgIntegrations() {
       )}
 
       {canManage && (
-        <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
-          Add integration
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canConnect && (
+            <Button size="sm" onClick={() => void handleConnect()} disabled={connecting}>
+              {connecting ? "Connecting…" : "Connect Confluence"}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
+            Add with a token
+          </Button>
+        </div>
       )}
 
       {editing && (

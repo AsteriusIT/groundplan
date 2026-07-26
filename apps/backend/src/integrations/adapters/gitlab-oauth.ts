@@ -16,7 +16,10 @@
  * application fails at connect time rather than silently an hour later.
  */
 import type { GitLabOAuthConfig } from "../config.js";
-import { registerStrategy } from "../credentials.js";
+import type { FastifyInstance } from "fastify";
+
+import type { IntegrationCredentialRow } from "../../db/schema.js";
+import { credentialStore, registerStrategy } from "../credentials.js";
 import {
   oauth2ConnectFlow,
   oauth2Strategy,
@@ -64,12 +67,12 @@ export function gitlabConnectFlow(
 }
 
 export function gitlabOAuthStrategy(
-  app: Parameters<typeof oauth2Strategy>[0],
-  row: Parameters<typeof oauth2Strategy>[1],
+  app: FastifyInstance,
+  row: IntegrationCredentialRow,
   config: GitLabOAuthConfig,
   http: OAuth2Http,
 ): CredentialStrategy {
-  return oauth2Strategy(app, row, gitlabOAuthConfig(config), http);
+  return oauth2Strategy(app, credentialStore(app, row), gitlabOAuthConfig(config), http);
 }
 
 /**

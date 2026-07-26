@@ -71,6 +71,7 @@ function integration(overrides: Partial<Integration> = {}): Integration {
     },
     credential: "***",
     connectionStatus: "ok",
+    lastError: null,
     verifiedAt: "2026-07-20T10:00:00Z",
     createdAt: "2026-07-01T00:00:00Z",
     ...overrides,

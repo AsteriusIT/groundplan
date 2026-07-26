@@ -12,15 +12,23 @@
  * credential; error bodies are never surfaced (they can echo the request).
  */
 
-export type ConfluenceAuthType = "cloud_token" | "dc_pat";
+export type ConfluenceAuthType = "cloud_token" | "dc_pat" | "oauth";
 
 export type ConfluenceTarget = {
-  /** Instance base URL — for Cloud the wiki origin (`https://x.atlassian.net/wiki`). */
+  /**
+   * REST base URL. For Cloud the wiki origin (`https://x.atlassian.net/wiki`),
+   * for Data Center the instance origin, and for OAuth 3LO (GP-197) the gateway
+   * `https://api.atlassian.com/ex/confluence/{cloudId}` — the paths below are
+   * identical in all three, which is why one client still serves them all.
+   */
   baseUrl: string;
   authType: ConfluenceAuthType;
-  /** Basic-auth username for a Cloud token; null for a DC PAT. */
+  /** Basic-auth username for a Cloud token; null for a DC PAT or OAuth. */
   email: string | null;
-  /** The plaintext API token / PAT. Never logged. */
+  /**
+   * The plaintext credential for this call: an API token, a PAT, or — for
+   * OAuth — a short-lived access token minted just now. Never logged.
+   */
   credential: string;
 };
 
@@ -87,6 +95,9 @@ export function confluenceAuthHeader(target: ConfluenceTarget): string {
     const basic = Buffer.from(`${target.email ?? ""}:${target.credential}`);
     return `Basic ${basic.toString("base64")}`;
   }
+  // A Data Center PAT and an OAuth access token are both Bearer — different
+  // provenance, identical header, which is the whole reason this stayed a
+  // header strategy rather than an adapter hierarchy.
   return `Bearer ${target.credential}`;
 }
 

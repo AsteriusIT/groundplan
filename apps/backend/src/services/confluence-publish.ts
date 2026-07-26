@@ -26,6 +26,7 @@ import {
   type GraphSnapshotRow,
   type RepositoryRow,
 } from "../db/schema.js";
+import { atlassianCredential } from "../integrations/atlassian.js";
 import { buildDocsExplainInput } from "./ai-input.js";
 import type {
   ConfluenceErrorKind,
@@ -206,13 +207,15 @@ export async function publishDocsSnapshot(
     return recordFailure(app, connection.id, "auth_failed");
   }
 
+  // A stored API token / PAT, or a fresh access token from the org's OAuth
+  // grant (GP-197) — the publish path never learns which.
   let credential: string;
   try {
-    credential = app.encryptor.decrypt(integration.credential);
-  } catch {
+    credential = await atlassianCredential(app, integration);
+  } catch (err) {
     app.log.warn(
-      { connectionId: connection.id, integrationId: integration.id },
-      "could not decrypt stored Confluence credential",
+      { err, connectionId: connection.id, integrationId: integration.id },
+      "could not obtain a Confluence credential",
     );
     return recordFailure(app, connection.id, "auth_failed");
   }

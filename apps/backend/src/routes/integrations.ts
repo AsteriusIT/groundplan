@@ -4,11 +4,14 @@ import { and, asc, eq } from "drizzle-orm";
 import {
   confluenceConnections,
   integrations,
+  integrationType,
   toPublicIntegration,
   type IntegrationConfig,
   type IntegrationRow,
 } from "../db/schema.js";
+import { sealConnectState } from "../integrations/connect-state.js";
 import { orgIdOf, requirePermission } from "../rbac/request.js";
+import { integrationFlow } from "../services/integration-connect.js";
 import {
   trimTrailingSlashes,
   type ConfluenceAuthType,
@@ -53,6 +56,15 @@ const patchSchema = {
     email: { type: "string", minLength: 3, maxLength: 320 },
     credential: { type: "string", minLength: 1, maxLength: 8000 },
   },
+};
+
+type IntegrationType = (typeof integrationType.enumValues)[number];
+
+const oauthStartSchema = {
+  type: "object",
+  required: ["type"],
+  additionalProperties: false,
+  properties: { type: { type: "string", enum: [...integrationType.enumValues] } },
 };
 
 type CreateBody = {
@@ -104,8 +116,63 @@ async function loadIntegration(
  * at repo level. The org-scope guard proves the addressed integration belongs to
  * `:orgId` (a cross-tenant id is a 404), and the credential is write-only —
  * encrypted at rest, masked as "***" on the way out.
+ *
+ * GP-197 adds a second way to acquire that credential: an Atlassian OAuth (3LO)
+ * grant, whose refresh token replaces the pasted API token. Everything
+ * downstream — the repo targets, the publish path — is unchanged.
  */
 export const integrationRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * Which integration types this deployment can connect by OAuth. The UI reads
+   * it to decide whether to offer "Connect" beside "Add credential" — never
+   * hardcoding that an Atlassian app exists here.
+   */
+  app.get("/integrations/oauth/providers", async () => {
+    return integrationType.enumValues.map((type) => ({
+      type,
+      connectable: integrationFlow(app, type) !== null,
+    }));
+  });
+
+  /** Begin an OAuth connection for an integration type. */
+  app.post(
+    "/integrations/oauth/start",
+    { schema: { body: oauthStartSchema } },
+    async (request, reply) => {
+      if (!requirePermission(request, reply, "integration:manage")) return reply;
+      const { type } = request.body as { type: IntegrationType };
+      const flow = integrationFlow(app, type);
+      if (!flow) {
+        return unprocessable(
+          reply,
+          "type",
+          `${type} cannot be connected by OAuth on this instance — it is not configured here`,
+        );
+      }
+      if (!app.integrations.publicBaseUrl) {
+        return unprocessable(
+          reply,
+          "type",
+          "this deployment has no public base URL configured, so a provider cannot redirect back to it",
+        );
+      }
+
+      const redirectUri = `${app.integrations.publicBaseUrl}/integrations/callback`;
+      const started = flow.start({ redirectUri });
+      // `integrationType` in the carry is what tells the single callback sink
+      // (`POST /connections/complete`) that this grant belongs to an
+      // integration rather than a git provider connection. The provider slot is
+      // unused here and holds the harmless `generic`.
+      const state = sealConnectState(app.encryptor, {
+        orgId: orgIdOf(request),
+        provider: "generic",
+        mode: "oauth2",
+        carry: { ...started.carry, integrationType: type },
+      });
+      return { authorizeUrl: started.authorizeUrl(state), redirectUri };
+    },
+  );
+
   // Any member reads the list — name + status only, credential masked.
   app.get("/integrations", async (request) => {
     const orgId = orgIdOf(request);

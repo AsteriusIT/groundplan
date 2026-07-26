@@ -129,6 +129,13 @@ export type AppEnv = {
   adoEntraClientId: string;
   adoEntraClientSecret: string;
   adoEntraTenant: string;
+  /**
+   * Atlassian OAuth 2.0 (3LO) app for Confluence (GP-197). Same flag rule:
+   * without a client id + secret the org connects Confluence with an API token
+   * or a Data Center PAT, exactly as before.
+   */
+  atlassianClientId: string;
+  atlassianClientSecret: string;
 };
 
 /** Sensible default model for the AI layer; override with `AI_MODEL`. */
@@ -170,5 +177,7 @@ export function loadEnv(): AppEnv {
     adoEntraClientId: process.env.ADO_ENTRA_CLIENT_ID ?? "",
     adoEntraClientSecret: process.env.ADO_ENTRA_CLIENT_SECRET ?? "",
     adoEntraTenant: process.env.ADO_ENTRA_TENANT ?? "organizations",
+    atlassianClientId: process.env.ATLASSIAN_CLIENT_ID ?? "",
+    atlassianClientSecret: process.env.ATLASSIAN_CLIENT_SECRET ?? "",
   };
 }

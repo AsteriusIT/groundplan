@@ -226,6 +226,27 @@ customer tenant.
 Azure DevOps **Server** (on-premises) has no Entra tenant; it keeps using a PAT,
 which is why the mode is offered beside `pat` and never instead of it.
 
+### Confluence via Atlassian OAuth (optional, GP-197)
+
+Instead of pasting a Confluence API token per site, an organization can connect
+Atlassian once: we hold a refresh token and mint a short-lived Bearer token per
+call. Existing API-token and Data Center PAT integrations keep working exactly
+as they did — Data Center has no 3LO, so those modes never go away.
+
+Create an **OAuth 2.0 (3LO)** app at developer.atlassian.com with callback
+`https://${APP_DOMAIN}/integrations/callback` and the Confluence scopes
+(`read:confluence-space.summary`, `read:confluence-content.all`,
+`write:confluence-content`, `write:confluence-file`, plus `offline_access`).
+
+| Variable                   | Value             |
+| -------------------------- | ----------------- |
+| `ATLASSIAN_CLIENT_ID`      | The app's client id     |
+| `ATLASSIAN_CLIENT_SECRET`  | The app's client secret |
+
+Then **Organization settings → Integrations → Connect Confluence**. Reconnecting
+the same site replaces the credential in place, so pages already published keep
+being updated rather than recreated.
+
 ### Provider webhooks (optional, GP-194)
 
 The ref poller (`git ls-remote` every 60s) works everywhere and needs nothing
