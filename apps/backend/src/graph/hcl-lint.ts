@@ -24,8 +24,30 @@ export type LintFinding = {
   fixHint: string;
 };
 
-/** A rule: look at one node (with its source block) and speak or stay silent. */
-type LintRule = (node: GraphNode) => Omit<LintFinding, "terraformAddress">[];
+/** What one rule says about one node: the sentence, and what to do about it. */
+export type LintNote = { message: string; fixHint: string };
+
+/**
+ * A rule: its identity, and a pure function that looks at one node (with its
+ * source block) and speaks or stays silent.
+ *
+ * The identity fields exist because these rules have a second reader: the policy
+ * engine's built-in catalogue (GP-200) lists them, and a catalogue entry needs a
+ * title and a sentence of description — the lint pass itself only ever needed
+ * the id and the severity.
+ */
+export type LintRuleDefinition = {
+  ruleId: string;
+  severity: LintSeverity;
+  /** Short imperative title, e.g. "No NSG open to the internet". */
+  title: string;
+  /** One sentence: what the rule looks for, and why it is worth looking. */
+  description: string;
+  run: (node: GraphNode) => LintNote[];
+};
+
+/** A rule body: look at one node and speak or stay silent. */
+type LintRule = (node: GraphNode) => LintNote[];
 
 /** The raw right-hand side of a top-level-ish `name = value`, or null. */
 function attrRaw(code: string, name: string): string | null {
@@ -70,8 +92,6 @@ const nsgOpenToInternet: LintRule = (node) => {
   if (node.internet_exposed !== true) return [];
   return [
     {
-      ruleId: "nsg-open-to-internet",
-      severity: "high",
       message:
         "This network security group has an inbound Allow rule open to the internet.",
       fixHint:
@@ -90,8 +110,6 @@ const sshRdpOpenToInternet: LintRule = (node) => {
       (coversPort(r.ports, 22) || coversPort(r.ports, 3389)),
   );
   return open.map((r) => ({
-    ruleId: "ssh-rdp-open-to-internet",
-    severity: "high" as const,
     message: `Rule "${r.name}" allows SSH/RDP (${r.ports}) from the internet.`,
     fixHint:
       "Management ports should sit behind a bastion or a VPN, never open to 0.0.0.0/0.",
@@ -104,13 +122,11 @@ const SECRET_ATTR =
 
 const hardcodedSecret: LintRule = (node) => {
   const code = node.source?.code ?? "";
-  const findings: ReturnType<LintRule> = [];
+  const findings: LintNote[] = [];
   for (const match of code.matchAll(SECRET_ATTR)) {
     const [, attr, value] = match;
     if (value!.includes("${")) continue; // interpolation, not a literal
     findings.push({
-      ruleId: "hardcoded-secret",
-      severity: "high",
       message: `"${attr}" is assigned a literal value in the code.`,
       fixHint:
         "Use a sensitive variable with no default, random_password, or a Key Vault reference.",
@@ -128,8 +144,6 @@ const storagePublicBlobAccess: LintRule = (node) => {
   if (!isPublic) return [];
   return [
     {
-      ruleId: "storage-public-blob-access",
-      severity: "high",
       message: "This storage account allows public (anonymous) blob access.",
       fixHint: "Set allow_nested_items_to_be_public = false.",
     },
@@ -142,8 +156,6 @@ const storageContainerPublic: LintRule = (node) => {
   if (access !== "blob" && access !== "container") return [];
   return [
     {
-      ruleId: "storage-container-public",
-      severity: "high",
       message: `This container is publicly readable (container_access_type = "${access}").`,
       fixHint: 'Set container_access_type = "private".',
     },
@@ -159,8 +171,6 @@ const storageHttpAllowed: LintRule = (node) => {
   if (!httpAllowed) return [];
   return [
     {
-      ruleId: "storage-http-allowed",
-      severity: "warn",
       message: "This storage account accepts plain-HTTP traffic.",
       fixHint: "Set https_traffic_only_enabled = true.",
     },
@@ -177,8 +187,6 @@ const weakTls: LintRule = (node) => {
   if (!version || !WEAK_TLS.has(version)) return [];
   return [
     {
-      ruleId: "weak-tls",
-      severity: "warn",
       message: `TLS minimum is set to ${version}.`,
       fixHint: "Require TLS 1.2 or newer.",
     },
@@ -199,8 +207,6 @@ const httpsOnlyOff: LintRule = (node) => {
   if (attrBool(node.source?.code ?? "", "https_only") !== false) return [];
   return [
     {
-      ruleId: "app-https-only-off",
-      severity: "warn",
       message: "https_only is explicitly disabled — the app serves plain HTTP.",
       fixHint: "Set https_only = true.",
     },
@@ -213,8 +219,6 @@ const keyVaultPublicNetwork: LintRule = (node) => {
   if (attrBool(code, "public_network_access_enabled") !== true) return [];
   return [
     {
-      ruleId: "key-vault-public-network",
-      severity: "warn",
       message: "This key vault is reachable from public networks.",
       fixHint:
         "Set public_network_access_enabled = false and use a private endpoint.",
@@ -234,8 +238,6 @@ const sqlPublicNetwork: LintRule = (node) => {
   if (attrBool(code, "public_network_access_enabled") !== true) return [];
   return [
     {
-      ruleId: "sql-public-network",
-      severity: "warn",
       message: "This database server is reachable from public networks.",
       fixHint:
         "Set public_network_access_enabled = false and use a private endpoint.",
@@ -249,8 +251,6 @@ const vmPasswordAuth: LintRule = (node) => {
   if (attrBool(code, "disable_password_authentication") !== false) return [];
   return [
     {
-      ruleId: "vm-password-auth",
-      severity: "warn",
       message: "Password authentication is enabled on this Linux VM.",
       fixHint: "Use SSH keys: disable_password_authentication = true.",
     },
@@ -258,8 +258,11 @@ const vmPasswordAuth: LintRule = (node) => {
 };
 
 /** Types where a missing `tags` block is worth a nudge — common, definitely
- * taggable resources only, so the rule cannot cry wolf on an association. */
-const TAGGABLE_TYPES = new Set([
+ * taggable resources only, so the rule cannot cry wolf on an association.
+ * Exported because the policy engine's `required-tags` rule (GP-200) judges the
+ * same population: one list, so the two rules can never disagree about which
+ * resources are supposed to carry tags. */
+export const TAGGABLE_TYPES = new Set([
   "azurerm_resource_group",
   "azurerm_storage_account",
   "azurerm_virtual_network",
@@ -275,12 +278,14 @@ const TAGGABLE_TYPES = new Set([
 
 const missingTags: LintRule = (node) => {
   if (!TAGGABLE_TYPES.has(node.type)) return [];
-  const code = node.source?.code ?? "";
+  // No source is not "no tags": a plan-flow node carries no HCL (GP-120 attaches
+  // it in the docs flow only), and reading its absence as an empty tags block
+  // would flag every taggable resource of every pull request.
+  const code = node.source?.code;
+  if (code === undefined) return [];
   if (/^\s*tags\s*=/m.test(code)) return [];
   return [
     {
-      ruleId: "missing-tags",
-      severity: "info",
       message: "This resource carries no tags.",
       fixHint:
         "Tag at least environment and managed_by so cost and ownership stay traceable.",
@@ -288,19 +293,104 @@ const missingTags: LintRule = (node) => {
   ];
 };
 
-const RULES: LintRule[] = [
-  nsgOpenToInternet,
-  sshRdpOpenToInternet,
-  hardcodedSecret,
-  storagePublicBlobAccess,
-  storageContainerPublic,
-  storageHttpAllowed,
-  weakTls,
-  httpsOnlyOff,
-  keyVaultPublicNetwork,
-  sqlPublicNetwork,
-  vmPasswordAuth,
-  missingTags,
+/**
+ * The rule set, in the order it was written. This array is the registry both
+ * readers share: the lint pass below runs it, and the policy engine's built-in
+ * catalogue (GP-200) wraps each entry as a `PolicyRule` — so a rule added here
+ * is evaluated on a pull request and on the documentation of main without being
+ * written twice.
+ */
+export const LINT_RULES: LintRuleDefinition[] = [
+  {
+    ruleId: "nsg-open-to-internet",
+    severity: "high",
+    title: "No security group open to the internet",
+    description:
+      "A network security group with an inbound Allow rule whose source is the internet — the exposure the `Exposed` badge names.",
+    run: nsgOpenToInternet,
+  },
+  {
+    ruleId: "ssh-rdp-open-to-internet",
+    severity: "high",
+    title: "No SSH/RDP open to the internet",
+    description:
+      "An inbound Allow rule reaching port 22 or 3389 from any internet source.",
+    run: sshRdpOpenToInternet,
+  },
+  {
+    ruleId: "hardcoded-secret",
+    severity: "high",
+    title: "No hardcoded secrets",
+    description:
+      "A password, key, token or connection string written into the code as a literal string.",
+    run: hardcodedSecret,
+  },
+  {
+    ruleId: "storage-public-blob-access",
+    severity: "high",
+    title: "No anonymous blob access",
+    description:
+      "A storage account that allows public (anonymous) access to its blobs.",
+    run: storagePublicBlobAccess,
+  },
+  {
+    ruleId: "storage-container-public",
+    severity: "high",
+    title: "No public storage containers",
+    description:
+      'A storage container whose access type is "blob" or "container", making it world-readable.',
+    run: storageContainerPublic,
+  },
+  {
+    ruleId: "storage-http-allowed",
+    severity: "warn",
+    title: "Storage requires HTTPS",
+    description: "A storage account that accepts plain-HTTP traffic.",
+    run: storageHttpAllowed,
+  },
+  {
+    ruleId: "weak-tls",
+    severity: "warn",
+    title: "TLS 1.2 or newer",
+    description: "A resource whose minimum TLS version is 1.0 or 1.1.",
+    run: weakTls,
+  },
+  {
+    ruleId: "app-https-only-off",
+    severity: "warn",
+    title: "Web apps serve HTTPS only",
+    description: "An app or function app with https_only explicitly disabled.",
+    run: httpsOnlyOff,
+  },
+  {
+    ruleId: "key-vault-public-network",
+    severity: "warn",
+    title: "Key vaults are private",
+    description: "A key vault reachable from public networks.",
+    run: keyVaultPublicNetwork,
+  },
+  {
+    ruleId: "sql-public-network",
+    severity: "warn",
+    title: "Database servers are private",
+    description: "A managed database server reachable from public networks.",
+    run: sqlPublicNetwork,
+  },
+  {
+    ruleId: "vm-password-auth",
+    severity: "warn",
+    title: "Linux VMs use SSH keys",
+    description: "A Linux virtual machine with password authentication enabled.",
+    run: vmPasswordAuth,
+  },
+  {
+    ruleId: "missing-tags",
+    severity: "info",
+    title: "Resources carry tags",
+    description:
+      "A commonly-taggable resource declared with no tags at all — ownership and cost stop being traceable.",
+    run: missingTags,
+  },
 ];
 
 const SEVERITY_ORDER: Record<LintSeverity, number> = {
@@ -314,9 +404,14 @@ const SEVERITY_ORDER: Record<LintSeverity, number> = {
 export function lintGraph(graph: Graph): LintFinding[] {
   const findings: LintFinding[] = [];
   for (const node of graph.nodes) {
-    for (const rule of RULES) {
-      for (const finding of rule(node)) {
-        findings.push({ ...finding, terraformAddress: node.id });
+    for (const rule of LINT_RULES) {
+      for (const note of rule.run(node)) {
+        findings.push({
+          ruleId: rule.ruleId,
+          severity: rule.severity,
+          terraformAddress: node.id,
+          ...note,
+        });
       }
     }
   }

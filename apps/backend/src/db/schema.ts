@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { Graph, GraphStats } from "../graph/graph.js";
+import type { PolicyReport } from "../graph/policy/types.js";
 
 export const repositoryProvider = pgEnum("repository_provider", [
   "github",
@@ -1185,6 +1186,45 @@ export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
     updatedAt: row.updatedAt,
   };
 }
+
+/**
+ * The policy engine's verdict on one snapshot (GP-200), stored **beside** the
+ * snapshot and never inside it — the rule the annotation layer follows (ADR #4).
+ * A snapshot is what the code said; a report is what we made of it, and keeping
+ * the two apart is what lets the engine be re-run when the configuration changes
+ * without ever rewriting a graph.
+ *
+ * One row per snapshot (the unique key): re-evaluating replaces the verdict for
+ * that snapshot rather than accumulating verdicts. History is kept the way the
+ * product keeps history everywhere else — each docs snapshot of main has its own
+ * row, so the timeline can show what a past version was judged to be, under the
+ * configuration that judged it (which travels inside `report.rules`).
+ */
+export const policyReports = pgTable(
+  "policy_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => graphSnapshots.id, { onDelete: "cascade" }),
+    /** Denormalized from the snapshot so per-repository reads need no join. */
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    report: jsonb("report").$type<PolicyReport>().notNull(),
+    /** Deterministic Markdown of the report, rendered on write (GP-200). */
+    summaryMd: text("summary_md").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [unique("policy_reports_snapshot_unique").on(t.snapshotId)],
+);
+
+export type PolicyReportRow = typeof policyReports.$inferSelect;
 
 export const aiGenerationKind = pgEnum("ai_generation_kind", [
   "pr_summary",
