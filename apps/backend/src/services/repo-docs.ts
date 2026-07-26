@@ -17,6 +17,7 @@ import { reconcileRepositoryAnnotations } from "./annotation-reconcile.js";
 import { autoPublishDocsSnapshot } from "./confluence-publish.js";
 import { docsSourceFor, insertGraphSnapshot } from "./graph-snapshots.js";
 import { evaluateRepositorySnapshot } from "./policy.js";
+import { reconcileRepositoryWaivers } from "./policy-waivers.js";
 import { readRepoTextFiles, type RepoTextFile } from "./repo-files.js";
 
 /** Thrown when a docs generation is already running for a repository. */
@@ -163,6 +164,11 @@ export async function generateDocsSnapshot(
     // there is nothing to reconcile them against — and reconciling anyway would
     // quietly orphan a repository's Terraform annotations against a YAML graph.
     if (!kubernetes) await reconcileRepositoryAnnotations(app.db, repo.id, graph);
+
+    // GP-204: waivers are reconciled the way annotations are, and *before* the
+    // evaluation below — a waiver whose resource has gone must not still be
+    // suspending anything in the report we are about to write.
+    await reconcileRepositoryWaivers(app.db, repo.id, graph);
 
     // GP-203: fresh documentation of main is re-judged in the same pass, so the
     // diagram and its compliance state are never out of step — which is the

@@ -20,6 +20,7 @@ import {
   integrationCredentials,
   integrations,
   invitations,
+  policyWaivers,
   projects,
   repositories,
   shareTokens,
@@ -34,6 +35,7 @@ export type ResourceKind =
   | "connection"
   | "annotation"
   | "shareLink"
+  | "waiver"
   | "invitation";
 
 /** Which resource a route's `:id` addresses, keyed by its first path segment. */
@@ -46,6 +48,7 @@ export const RESOURCE_BY_SEGMENT: Record<string, ResourceKind> = {
   connections: "connection",
   annotations: "annotation",
   "share-links": "shareLink",
+  waivers: "waiver",
   invitations: "invitation",
 };
 
@@ -142,6 +145,16 @@ export async function resolveResourceOrg(
         .where(eq(graphSnapshots.id, id));
       if (!row) return null;
       return row.repoOrg ?? row.clusterOrg ?? null;
+    }
+    // GP-204: a waiver belongs to a repository, and so to that repository's org.
+    case "waiver": {
+      const [row] = await db
+        .select({ orgId: projects.organizationId })
+        .from(policyWaivers)
+        .innerJoin(repositories, eq(policyWaivers.repositoryId, repositories.id))
+        .innerJoin(projects, eq(repositories.projectId, projects.id))
+        .where(eq(policyWaivers.id, id));
+      return row?.orgId ?? null;
     }
     case "invitation": {
       const [row] = await db

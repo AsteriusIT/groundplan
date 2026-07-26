@@ -1023,3 +1023,50 @@ export interface SnapshotPolicy {
   delta: PolicyDelta | null;
   summaryMd: string;
 }
+
+// --- Waivers (GP-204) --------------------------------------------------------
+
+/** `orphaned` mirrors the annotation layer: the resource it names is gone. */
+export type PolicyWaiverStatus = "active" | "orphaned";
+
+/** What was done to a waiver — the trail, and the base of a future audit log. */
+export type PolicyWaiverAction = "created" | "extended" | "revoked";
+
+/**
+ * An exemption from one rule on one resource. A waived violation is still
+ * evaluated, still reported and still listed — marked, counted apart and greyed.
+ */
+export interface PolicyWaiver {
+  id: string;
+  repositoryId: string;
+  ruleId: string;
+  address: string;
+  /** Mandatory. A waiver nobody justified is a rule nobody enforces. */
+  reason: string;
+  status: PolicyWaiverStatus;
+  /** Null = no end date. Past = the violation is active again next report. */
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PolicyWaiverEvent {
+  id: string;
+  waiverId: string;
+  repositoryId: string;
+  action: PolicyWaiverAction;
+  reason: string | null;
+  expiresAt: string | null;
+  actorId: string | null;
+  createdAt: string;
+}
+
+export interface CreateWaiverInput {
+  ruleId: string;
+  address: string;
+  reason: string;
+  /** ISO-8601; omit or null for a waiver with no end date. */
+  expiresAt?: string | null;
+}

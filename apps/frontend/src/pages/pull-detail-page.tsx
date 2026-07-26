@@ -80,7 +80,7 @@ export function PullDetailPage() {
   const kubernetes =
     graph.status === "ready" && isKubernetesSource(graph.snapshot.source);
 
-  const policy = useSnapshotPolicy(
+  const { policy, reload: reloadPolicy } = useSnapshotPolicy(
     graph.status === "ready" ? graph.snapshot.id : null,
   );
   // Only the violations this change introduced wear a badge on the canvas: the
@@ -350,6 +350,8 @@ export function PullDetailPage() {
           <PolicyPanel
             report={policy.report}
             delta={policy.delta}
+            repositoryId={repoId}
+            onChanged={reloadPolicy}
             onSelectAddress={(address) => {
               setFocusNodeId(address);
               setView("infra");

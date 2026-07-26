@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { getSnapshotPolicy } from "@/api/client";
 import type { SnapshotPolicy } from "@/api/types";
@@ -10,8 +10,14 @@ import type { SnapshotPolicy } from "@/api/types";
  * a precondition for it — a page that refuses to draw because the engine was
  * unreachable would be worse than one that simply has no badges.
  */
-export function useSnapshotPolicy(snapshotId: string | null): SnapshotPolicy | null {
+export function useSnapshotPolicy(snapshotId: string | null): {
+  policy: SnapshotPolicy | null;
+  /** Re-read the verdict — after granting or withdrawing a waiver (GP-204). */
+  reload: () => void;
+} {
   const [policy, setPolicy] = useState<SnapshotPolicy | null>(null);
+  const [nonce, setNonce] = useState(0);
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     if (!snapshotId) {
@@ -19,7 +25,6 @@ export function useSnapshotPolicy(snapshotId: string | null): SnapshotPolicy | n
       return;
     }
     let cancelled = false;
-    setPolicy(null);
     getSnapshotPolicy(snapshotId)
       .then((result) => {
         if (!cancelled) setPolicy(result);
@@ -30,7 +35,7 @@ export function useSnapshotPolicy(snapshotId: string | null): SnapshotPolicy | n
     return () => {
       cancelled = true;
     };
-  }, [snapshotId]);
+  }, [snapshotId, nonce]);
 
-  return policy;
+  return { policy, reload };
 }

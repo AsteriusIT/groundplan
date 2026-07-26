@@ -28,11 +28,22 @@ import {
 } from "../services/policy-config.js";
 import {
   ensurePolicyReport,
+  evaluateRepositorySnapshot,
+  latestDocsSnapshot,
   loadSnapshot,
   organizationRepositoryIds,
   reevaluateDocsPolicy,
   targetForSource,
 } from "../services/policy.js";
+import {
+  WaiverExistsError,
+  WaiverRuleUnknownError,
+  createWaiver,
+  extendWaiver,
+  listWaiverEvents,
+  listWaivers,
+  revokeWaiver,
+} from "../services/policy-waivers.js";
 import { docsSourceFor } from "../services/graph-snapshots.js";
 
 const UUID_PATTERN =
@@ -69,6 +80,29 @@ const configBodySchema = {
       // A configuration is written whole; this caps how big "whole" can be.
       maxProperties: 200,
     },
+  },
+};
+
+/** A waiver's reason is mandatory: unexplained exemptions are how a policy dies. */
+const createWaiverSchema = {
+  type: "object",
+  required: ["ruleId", "address", "reason"],
+  additionalProperties: false,
+  properties: {
+    ruleId: { type: "string", minLength: 1, maxLength: 100 },
+    address: { type: "string", minLength: 1, maxLength: 500 },
+    reason: { type: "string", minLength: 1, maxLength: 2000 },
+    expiresAt: { type: ["string", "null"], format: "date-time" },
+  },
+};
+
+const patchWaiverSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    expiresAt: { type: ["string", "null"], format: "date-time" },
+    reason: { type: "string", minLength: 1, maxLength: 2000 },
   },
 };
 
@@ -218,6 +252,139 @@ export const policyRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(204).send();
     },
   );
+
+  // --- Waivers (GP-204) -----------------------------------------------------
+
+  /** Live waivers of a repository. Any member may read them: an exemption
+   * nobody can see is indistinguishable from a rule that stopped working. */
+  app.get(
+    "/repositories/:id/waivers",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!(await loadRepo(id))) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "repository not found" });
+      }
+      return listWaivers(app.db, id);
+    },
+  );
+
+  /** The trail: created, extended, revoked — who and when (GP-204). */
+  app.get(
+    "/repositories/:id/waiver-events",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!(await loadRepo(id))) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "repository not found" });
+      }
+      return listWaiverEvents(app.db, id);
+    },
+  );
+
+  app.post(
+    "/repositories/:id/waivers",
+    { schema: { params: idParamsSchema, body: createWaiverSchema } },
+    async (request, reply) => {
+      if (!requirePermission(request, reply, "policy:manage")) return;
+      const { id } = request.params as { id: string };
+      const body = request.body as {
+        ruleId: string;
+        address: string;
+        reason: string;
+        expiresAt?: string | null;
+      };
+      if (!(await loadRepo(id))) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "repository not found" });
+      }
+
+      try {
+        const waiver = await createWaiver(app.db, {
+          repositoryId: id,
+          ruleId: body.ruleId,
+          address: body.address,
+          reason: body.reason,
+          expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+          actorId: request.authUser?.id ?? null,
+        });
+        await rejudgeMain(id);
+        return reply.code(201).send(waiver);
+      } catch (err) {
+        if (err instanceof WaiverRuleUnknownError) {
+          return reply
+            .code(422)
+            .send({ error: "Unprocessable Entity", message: err.message });
+        }
+        if (err instanceof WaiverExistsError) {
+          return reply
+            .code(409)
+            .send({ error: "Conflict", message: err.message });
+        }
+        throw err;
+      }
+    },
+  );
+
+  app.patch(
+    "/waivers/:id",
+    { schema: { params: idParamsSchema, body: patchWaiverSchema } },
+    async (request, reply) => {
+      if (!requirePermission(request, reply, "policy:manage")) return;
+      const { id } = request.params as { id: string };
+      const body = request.body as { expiresAt?: string | null; reason?: string };
+      const waiver = await extendWaiver(
+        app.db,
+        id,
+        {
+          ...(body.expiresAt !== undefined
+            ? { expiresAt: body.expiresAt ? new Date(body.expiresAt) : null }
+            : {}),
+          ...(body.reason !== undefined ? { reason: body.reason } : {}),
+        },
+        request.authUser?.id ?? null,
+      );
+      if (!waiver) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "waiver not found" });
+      }
+      await rejudgeMain(waiver.repositoryId);
+      return waiver;
+    },
+  );
+
+  app.delete(
+    "/waivers/:id",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      if (!requirePermission(request, reply, "policy:manage")) return;
+      const { id } = request.params as { id: string };
+      const waiver = await revokeWaiver(app.db, id, request.authUser?.id ?? null);
+      if (!waiver) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "waiver not found" });
+      }
+      await rejudgeMain(waiver.repositoryId);
+      return reply.code(204).send();
+    },
+  );
+
+  /**
+   * Re-judge the documentation of main after a waiver moved. Synchronous, unlike
+   * a configuration change: one repository, one snapshot, and the person who
+   * just granted the exemption is looking at the panel that has to reflect it.
+   */
+  async function rejudgeMain(repositoryId: string): Promise<void> {
+    const snapshot = await latestDocsSnapshot(app.db, repositoryId);
+    if (snapshot) await evaluateRepositorySnapshot(app.db, snapshot);
+  }
 
   async function loadRepo(id: string) {
     const [repo] = await app.db

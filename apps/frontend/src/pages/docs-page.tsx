@@ -361,7 +361,7 @@ export function DocsPage() {
     [annotations, current],
   );
 
-  const policy = useSnapshotPolicy(current?.id ?? null);
+  const { policy, reload: reloadPolicy } = useSnapshotPolicy(current?.id ?? null);
   const policyFindings = useMemo(
     () => findingsByNode(policy?.report.violations ?? []),
     [policy],
@@ -877,6 +877,8 @@ export function DocsPage() {
           <PolicyPanel
             report={policy.report}
             delta={policy.delta}
+            repositoryId={repoId}
+            onChanged={reloadPolicy}
             onSelectAddress={(address) => {
               setFocusNodeId(address);
               setView("infra");

@@ -1251,6 +1251,104 @@ export const policyConfigs = pgTable(
 export type PolicyConfigRow = typeof policyConfigs.$inferSelect;
 
 /**
+ * A waiver's life (GP-204). `orphaned` mirrors the annotation layer exactly: the
+ * resource it names is no longer in the latest documentation, so the waiver
+ * suspends nothing — and it is a status flip, never a delete, which reverses
+ * itself the moment the resource comes back.
+ */
+export const policyWaiverStatus = pgEnum("policy_waiver_status", [
+  "active",
+  "orphaned",
+]);
+
+/** What happened to a waiver, for the trail (GP-204). */
+export const policyWaiverAction = pgEnum("policy_waiver_action", [
+  "created",
+  "extended",
+  "revoked",
+]);
+
+/**
+ * An exemption from one rule on one resource (GP-204).
+ *
+ * Without exemptions, the first false alarm gets the whole rule turned off — so
+ * a waiver suspends one violation, visibly and (usually) temporarily. It is
+ * stored beside the snapshot like an annotation and never inside it, it is
+ * anchored to a resource address like an annotation, and it is reconciled like
+ * an annotation.
+ *
+ * A waived violation is still evaluated, still reported and still listed — it is
+ * marked, counted apart and greyed. Nothing here hides anything: a rule that
+ * quietly stops firing is a rule nobody can audit.
+ *
+ * Revoking sets `revoked_at` rather than deleting the row: the trail below
+ * refers to it, and an exemption somebody granted is a fact about the past.
+ */
+export const policyWaivers = pgTable(
+  "policy_waivers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** The rule being waived — a catalogue id (GP-200). */
+    ruleId: text("rule_id").notNull(),
+    /** The resource it is waived on: a node id, as annotations anchor. */
+    address: text("address").notNull(),
+    /** Mandatory. A waiver nobody justified is a rule nobody enforces. */
+    reason: text("reason").notNull(),
+    status: policyWaiverStatus("status").notNull().default("active"),
+    /** Null = no end date. Past = the violation is active again next report. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Set when somebody withdrew it; the row stays, for the trail. */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One live waiver per rule × resource. Revoked rows are excluded, so the
+    // same exemption can be granted again later and both grants stay on record.
+    uniqueIndex("policy_waivers_live_unique")
+      .on(t.repositoryId, t.ruleId, t.address)
+      .where(sql`${t.revokedAt} is null`),
+  ],
+);
+
+export type PolicyWaiverRow = typeof policyWaivers.$inferSelect;
+
+/**
+ * What was done to a waiver, and by whom (GP-204) — the base of the audit log
+ * the product will eventually want. Append-only: nothing here is ever updated,
+ * and a revoked waiver keeps its whole history.
+ */
+export const policyWaiverEvents = pgTable("policy_waiver_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  waiverId: uuid("waiver_id")
+    .notNull()
+    .references(() => policyWaivers.id, { onDelete: "cascade" }),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  action: policyWaiverAction("action").notNull(),
+  /** The reason as it stood at this event, and the expiry it moved to. */
+  reason: text("reason"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type PolicyWaiverEventRow = typeof policyWaiverEvents.$inferSelect;
+
+/**
  * The policy engine's verdict on one snapshot (GP-200), stored **beside** the
  * snapshot and never inside it — the rule the annotation layer follows (ADR #4).
  * A snapshot is what the code said; a report is what we made of it, and keeping

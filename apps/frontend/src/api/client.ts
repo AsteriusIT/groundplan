@@ -38,6 +38,9 @@ import type {
   PlaygroundSnapshot,
   OrgPolicyConfig,
   PolicyConfig,
+  CreateWaiverInput,
+  PolicyWaiver,
+  PolicyWaiverEvent,
   RepositoryPolicyConfig,
   Role,
   SnapshotPolicy,
@@ -1002,6 +1005,51 @@ export function deletePlaygroundDraft(id: string): Promise<void> {
  */
 export function getSnapshotPolicy(snapshotId: string): Promise<SnapshotPolicy> {
   return orgRequest<SnapshotPolicy>(`/snapshots/${encode(snapshotId)}/policy`);
+}
+
+// --- Waivers (GP-204) --------------------------------------------------------
+
+/** Live waivers of a repository. Readable by any member — an exemption nobody
+ * can see is indistinguishable from a rule that stopped working. */
+export function listWaivers(repositoryId: string): Promise<PolicyWaiver[]> {
+  return orgRequest<PolicyWaiver[]>(
+    `/repositories/${encode(repositoryId)}/waivers`,
+  );
+}
+
+/** The trail: created, extended, revoked — who and when. */
+export function listWaiverEvents(
+  repositoryId: string,
+): Promise<PolicyWaiverEvent[]> {
+  return orgRequest<PolicyWaiverEvent[]>(
+    `/repositories/${encode(repositoryId)}/waiver-events`,
+  );
+}
+
+export function createWaiver(
+  repositoryId: string,
+  input: CreateWaiverInput,
+): Promise<PolicyWaiver> {
+  return orgRequest<PolicyWaiver>(
+    `/repositories/${encode(repositoryId)}/waivers`,
+    { method: "POST", body: input },
+  );
+}
+
+/** Move a waiver's end date, or restate why it exists. Traced either way. */
+export function extendWaiver(
+  id: string,
+  patch: { expiresAt?: string | null; reason?: string },
+): Promise<PolicyWaiver> {
+  return orgRequest<PolicyWaiver>(`/waivers/${encode(id)}`, {
+    method: "PATCH",
+    body: patch,
+  });
+}
+
+/** Withdraw a waiver. The row stays on the record; it just stops suspending. */
+export function revokeWaiver(id: string): Promise<void> {
+  return orgRequest<void>(`/waivers/${encode(id)}`, { method: "DELETE" });
 }
 
 // --- Policy configuration (GP-201) ------------------------------------------

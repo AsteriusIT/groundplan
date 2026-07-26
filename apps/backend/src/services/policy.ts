@@ -21,6 +21,8 @@ import {
 import { diffPolicyReports, type PolicyDelta } from "../graph/policy/diff.js";
 import { evaluatePolicy } from "../graph/policy/engine.js";
 import { summarizePolicyReport } from "../graph/policy/summarize.js";
+import { applyWaivers } from "../graph/policy/waivers.js";
+import { listWaivers } from "./policy-waivers.js";
 import type {
   PolicyConfig,
   PolicyReport,
@@ -44,6 +46,12 @@ export function targetForSource(source: SnapshotSource): PolicyTarget {
 export type EvaluateSnapshotOptions = {
   /** The resolved configuration; the catalogue's defaults when omitted. */
   config?: PolicyConfig;
+  /**
+   * The instant expiry is judged against (GP-204). Passed in rather than read
+   * inside the engine so evaluation stays a pure function of its inputs;
+   * defaults to now, which is what every caller but a test wants.
+   */
+  now?: Date;
 };
 
 /**
@@ -68,10 +76,17 @@ export async function evaluateSnapshotPolicy(
   snapshot: GraphSnapshotRow,
   options: EvaluateSnapshotOptions = {},
 ): Promise<PolicyReportRow> {
-  const report = evaluatePolicy(snapshot.graph, {
+  const evaluated = evaluatePolicy(snapshot.graph, {
     target: targetForSource(snapshot.source),
     ...(options.config ? { config: options.config } : {}),
   });
+
+  // GP-204: waivers mark, they do not hide. Applied after evaluation so the
+  // violation is still found, still listed and still counted — just answered.
+  const waivers = snapshot.repositoryId
+    ? await listWaivers(db, snapshot.repositoryId)
+    : [];
+  const report = applyWaivers(evaluated, waivers, options.now ?? new Date());
   const summaryMd = summarizePolicyReport(report);
 
   let delta: PolicyDelta | null = null;
