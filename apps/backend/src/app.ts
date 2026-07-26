@@ -54,6 +54,7 @@ import { orgScopePlugin } from "./plugins/org-scope.js";
 // Global (not org-scoped) route plugins.
 import { aiStatusRoutes } from "./routes/ai.js";
 import { aiStudioRoutes } from "./routes/ai-studio.js";
+import { driftIngestionRoutes } from "./routes/drift.js";
 import { gitWebhookRoutes } from "./routes/git-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
@@ -235,6 +236,9 @@ export async function buildApp(
   await app.register(orgRoutes, { prefix: "/api/v1" });
   await app.register(invitationAcceptRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
+  // Drift ingestion (GP-206): the same posture as the plan webhook — a nightly
+  // `terraform plan -refresh-only`, pushed by the pipeline that ran it.
+  await app.register(driftIngestionRoutes, { prefix: "/api/v1" });
   // Provider webhooks (GP-194): auth-exempt like the CI one — a provider has
   // no bearer token, it proves it knows a secret. Registered in its own scope
   // so its raw-body parser touches nothing else.

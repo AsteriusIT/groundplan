@@ -35,6 +35,7 @@ import { clusterRoutes } from "../routes/clusters.js";
 import { confluenceRoutes } from "../routes/confluence.js";
 import { dashboardRoutes } from "../routes/dashboard.js";
 import { docsRoutes } from "../routes/docs.js";
+import { driftRoutes } from "../routes/drift.js";
 import { exportRoutes } from "../routes/exports.js";
 import { repositoryEventsRoutes } from "../routes/ingestion.js";
 import { integrationConnectionRoutes } from "../routes/integration-connections.js";
@@ -123,6 +124,7 @@ export const orgScopePlugin: FastifyPluginAsync = async (app) => {
   await app.register(exportRoutes);
   await app.register(pullRoutes);
   await app.register(docsRoutes);
+  await app.register(driftRoutes);
   await app.register(annotationRoutes);
   await app.register(policyRoutes);
   await app.register(aiRoutes);

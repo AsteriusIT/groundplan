@@ -19,6 +19,7 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
+import type { DriftReport } from "../graph/drift.js";
 import type { Graph, GraphStats } from "../graph/graph.js";
 import type { PolicyDelta } from "../graph/policy/diff.js";
 import type { PolicyConfig, PolicyReport } from "../graph/policy/types.js";
@@ -1395,6 +1396,67 @@ export const policyReports = pgTable(
 );
 
 export type PolicyReportRow = typeof policyReports.$inferSelect;
+
+/**
+ * One measurement of an estate against its code (GP-206) — what a
+ * `terraform plan -refresh-only`, run by the user's own pipeline with the user's
+ * own credentials, found had changed outside Terraform.
+ *
+ * Stored **beside** the documentation of main, never inside it, for the reason
+ * the policy report is (ADR #4): a snapshot is what the code said, and a drift
+ * report is what the world said back. Keeping them apart is what lets one be
+ * re-measured without rewriting the other.
+ *
+ * `commit_sha` is the sha of main that was refreshed, and it is the load-bearing
+ * column: staleness is **derived** from it (does it still match the documented
+ * main?) rather than stored, because a flag saying "still fresh" is a flag that
+ * can itself go stale, and drift shown against the wrong sha is worse than no
+ * drift at all. A merge therefore invalidates the report by simply happening.
+ *
+ * One row per repository × measured sha: re-running the cron against the same
+ * main replaces that measurement, while a new main starts a new one — so the
+ * history of an estate's drift survives, the way every other history here does.
+ */
+export const driftReports = pgTable(
+  "drift_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /**
+     * The documentation snapshot the measurement lines up with, when there is
+     * one. Null — and `set null` on delete — because the drift is a fact about a
+     * commit, not about our picture of it: losing the diagram must not lose the
+     * measurement.
+     */
+    snapshotId: uuid("snapshot_id").references(() => graphSnapshots.id, {
+      onDelete: "set null",
+    }),
+    /** The branch that was refreshed (the repository's default branch). */
+    ref: text("ref").notNull(),
+    /** The sha of main the refresh ran against — what staleness is judged on. */
+    commitSha: text("commit_sha").notNull(),
+    report: jsonb("report").$type<DriftReport>().notNull(),
+    /** Deterministic Markdown of the report, rendered on write (GP-206). */
+    summaryMd: text("summary_md").notNull().default(""),
+    /** When the estate was measured — the freshness the banner reports. */
+    measuredAt: timestamp("measured_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("drift_reports_repository_commit_unique").on(t.repositoryId, t.commitSha),
+  ],
+);
+
+export type DriftReportRow = typeof driftReports.$inferSelect;
 
 export const aiGenerationKind = pgEnum("ai_generation_kind", [
   "pr_summary",

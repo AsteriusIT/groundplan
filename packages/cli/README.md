@@ -1,8 +1,9 @@
 # @asteriusit/cli
 
-Send a Terraform `plan.json` to [Groundplan](https://github.com/AsteriusIT/groundplan)
-from your CI pipeline. It owns the integration ergonomics — git-context detection,
-validation, retries — so the webhook contract stays simple and stable.
+Send what your pipeline knows to
+[Groundplan](https://github.com/AsteriusIT/groundplan). It owns the integration
+ergonomics — git-context detection, validation, retries — so the webhook contract
+stays simple and stable.
 
 ## Usage
 
@@ -12,6 +13,30 @@ Run it after `terraform plan`, with no install step:
 terraform show -json plan.out > plan.json
 npx @asteriusit/cli push-plan --file plan.json
 ```
+
+### Drift
+
+`push-drift` sends a **refresh-only** plan: what changed in the cloud without
+anybody asking Terraform to. Groundplan holds no cloud credentials, so the
+refresh happens where the access already is — in your pipeline.
+
+```sh
+terraform plan -refresh-only -out=tfplan
+terraform show -json tfplan > plan.json
+npx @asteriusit/cli push-drift --file plan.json
+```
+
+A refresh-only plan plans nothing, and that is enforced: a file proposing a
+create, update or delete is refused before any request is made, because it says
+what your code wants rather than what the cloud did. A measurement with no drift
+is still worth sending — "clean as of an hour ago" and "nobody looked" are
+different answers.
+
+It is measured against a branch, never a pull request, and it uses the same two
+variables as `push-plan` (the drift endpoint is derived from `GROUNDPLAN_URL`).
+Run it on a schedule; nightly is a good default. Example cron jobs for GitHub
+Actions, GitLab CI and Azure DevOps are in
+[`docs/drift.md`](https://github.com/AsteriusIT/groundplan/blob/main/docs/drift.md).
 
 Configure it with two environment variables (both shown on the repository's CI
 setup page in Groundplan):
@@ -27,13 +52,13 @@ DevOps), including detached-HEAD CI checkouts. Override any of them with a flag.
 
 ### Options
 
-```
---file <path>     the plan.json to send (from `terraform show -json`)
+```text
+--file <path>     the JSON to send (from `terraform show -json`)
 --url <url>       webhook URL              (env: GROUNDPLAN_URL)
 --token <token>   webhook secret           (env: GROUNDPLAN_TOKEN)
 --branch <name>   override the detected branch
 --sha <sha>       override the detected commit sha
---pr <number>     override the detected pull request number
+--pr <number>     override the detected pull request number (push-plan only)
 --help            show this help
 ```
 
