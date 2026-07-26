@@ -3,6 +3,7 @@ import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 
 import {
   annotations,
+  driftReports,
   graphSnapshots,
   policyReports,
   projects,
@@ -57,19 +58,22 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get("/dashboard", async (request) => {
     const orgId = orgIdOf(request);
-    const [stats, prs, docs, orphanRepositories, compliance] = await Promise.all([
-      loadStats(orgId),
-      loadRecentPrs(orgId),
-      loadRecentDocs(orgId),
-      loadOrphanRepositories(orgId),
-      loadCompliance(orgId),
-    ]);
+    const [stats, prs, docs, orphanRepositories, compliance, drift] =
+      await Promise.all([
+        loadStats(orgId),
+        loadRecentPrs(orgId),
+        loadRecentDocs(orgId),
+        loadOrphanRepositories(orgId),
+        loadCompliance(orgId),
+        loadDrift(orgId),
+      ]);
     return {
       stats,
       recentPrs: prs,
       recentDocsSnapshots: docs,
       orphanRepositories,
       compliance,
+      drift,
     };
   });
 
@@ -295,6 +299,86 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
           STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
           b.counts.error - a.counts.error ||
           b.counts.warning - a.counts.warning ||
+          a.repositoryUrl.localeCompare(b.repositoryUrl),
+      );
+  }
+
+  /**
+   * Where each repository stands against reality (GP-207): the newest drift
+   * measurement, how much it found, and whether it still describes the main
+   * anybody is looking at.
+   *
+   * A repository nobody has measured is **absent**, exactly as it is from the
+   * compliance list: drift is opt-in, and a row saying "0 drifted" for an estate
+   * nobody refreshed would be the most reassuring lie in the product.
+   *
+   * Staleness is derived here too, by joining the measurement's sha against the
+   * sha main is currently documented at. `DISTINCT ON` keeps the newest
+   * measurement per repository and the newest documentation per repository, so
+   * both sides of that comparison are the current ones.
+   *
+   * Worst first: stale before fresh (a measurement you cannot trust is the one to
+   * act on), then most drifted.
+   */
+  async function loadDrift(orgId: string) {
+    const [measurements, documented] = await Promise.all([
+      app.db
+        .selectDistinctOn([driftReports.repositoryId], {
+          repositoryId: driftReports.repositoryId,
+          repositoryUrl: repositories.url,
+          projectId: repositories.projectId,
+          ref: driftReports.ref,
+          commitSha: driftReports.commitSha,
+          report: driftReports.report,
+          measuredAt: driftReports.measuredAt,
+        })
+        .from(driftReports)
+        .innerJoin(repositories, eq(driftReports.repositoryId, repositories.id))
+        .innerJoin(projects, eq(repositories.projectId, projects.id))
+        .where(eq(projects.organizationId, orgId))
+        .orderBy(driftReports.repositoryId, desc(driftReports.measuredAt)),
+      app.db
+        .selectDistinctOn([graphSnapshots.repositoryId], {
+          repositoryId: graphSnapshots.repositoryId,
+          commitSha: graphSnapshots.commitSha,
+        })
+        .from(graphSnapshots)
+        .innerJoin(repositories, eq(graphSnapshots.repositoryId, repositories.id))
+        .innerJoin(projects, eq(repositories.projectId, projects.id))
+        .where(
+          and(
+            inArray(graphSnapshots.source, DOCS_SOURCES),
+            eq(projects.organizationId, orgId),
+          ),
+        )
+        .orderBy(graphSnapshots.repositoryId, desc(graphSnapshots.createdAt)),
+    ]);
+
+    const mainSha = new Map(
+      documented
+        .filter((row) => row.repositoryId !== null)
+        .map((row) => [row.repositoryId as string, row.commitSha]),
+    );
+
+    return measurements
+      .map(({ report, measuredAt, ...row }) => {
+        const baseCommitSha = mainSha.get(row.repositoryId) ?? null;
+        return {
+          ...row,
+          baseCommitSha,
+          stale: baseCommitSha !== null && baseCommitSha !== row.commitSha,
+          drifted: report.counts.total,
+          deleted: report.counts.deleted,
+          /** GP-207: violations that exist in the cloud and not in the code. */
+          outsideIac: report.policy?.added.length ?? 0,
+          measuredAt,
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(b.stale) - Number(a.stale) ||
+          b.outsideIac - a.outsideIac ||
+          b.drifted - a.drifted ||
           a.repositoryUrl.localeCompare(b.repositoryUrl),
       );
   }

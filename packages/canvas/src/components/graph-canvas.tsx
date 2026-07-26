@@ -36,6 +36,7 @@ import "@xyflow/react/dist/style.css";
 
 import type {
   Annotation,
+  AttributeDiffRow,
   CreateAnnotationInput,
   Graph,
   GraphNode,
@@ -361,6 +362,8 @@ export function GraphCanvas({
   highlightIds,
   lint,
   findingsLabel,
+  drift,
+  driftRows,
   tour,
 }: Readonly<{
   graph: Graph;
@@ -435,6 +438,22 @@ export function GraphCanvas({
    * (GP-202), and the canvas does not care which — it only draws them.
    */
   findingsLabel?: string;
+  /**
+   * GP-207: node id → what drifted about it, for the resources a
+   * `terraform plan -refresh-only` found had changed outside Terraform. Those
+   * nodes wear the drift mark in every lens, because a resource somebody edited
+   * in the portal is that resource whichever way you are looking at it.
+   *
+   * A map of labels rather than a set of ids, so the mark can say *what* moved
+   * without the canvas knowing anything about drift reports.
+   */
+  drift?: ReadonlyMap<string, string>;
+  /**
+   * GP-207: node id → the masked before→after rows for what drifted, shown in
+   * the node's detail panel. Separate from `drift` because the mark is cheap and
+   * the rows are not: a lens that only needs badges passes the first alone.
+   */
+  driftRows?: ReadonlyMap<string, AttributeDiffRow[]>;
   /**
    * GP-79: the tour stop currently being narrated, if one is. The canvas is what a
    * tour *does* — it flies the camera to the stop's anchors and pushes everything
@@ -837,6 +856,10 @@ export function GraphCanvas({
           // GP-142: the badge wears the node's worst finding.
           lintSeverity: worstLintSeverity(lint?.get(node.id)),
           ...(findingsLabel ? { findingsLabel } : {}),
+          // GP-207: the drift mark, in its own hue and its own corner.
+          ...(drift?.has(node.id)
+            ? { drifted: true, driftLabel: drift.get(node.id) }
+            : {}),
         },
       };
     });
@@ -858,6 +881,7 @@ export function GraphCanvas({
     selectChip,
     lint,
     findingsLabel,
+    drift,
   ]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
@@ -1336,6 +1360,9 @@ export function GraphCanvas({
           showChange={variant === "plan"}
           lintFindings={lint?.get(selected.id)}
           {...(findingsLabel ? { findingsLabel } : {})}
+          {...(driftRows?.get(selected.id)
+            ? { driftRows: driftRows.get(selected.id) }
+            : {})}
           footer={
             annotations !== undefined && (annotate || selectedNotes.length > 0) ? (
               <NotePanel

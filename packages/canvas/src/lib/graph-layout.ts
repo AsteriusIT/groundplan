@@ -149,6 +149,10 @@ export type GraphNodeData = {
   hubHiddenCount?: number;
   /** True when this node is internet-exposed (an exposed NSG or its target; GP-45). */
   exposed?: boolean;
+  /** GP-207: this resource was changed outside Terraform — drives the drift mark. */
+  drifted?: boolean;
+  /** What drifted about it, for the mark's tooltip. */
+  driftLabel?: string;
   /** GP-87: satellite children stacked inside this host card (network view). */
   stack?: GraphNode[];
   /** GP-87: true when a stacked child changed — the host wears the impacted ring. */

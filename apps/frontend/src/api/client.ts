@@ -26,6 +26,7 @@ import type {
   CreateInvitationInput,
   CreatedInvitation,
   Dashboard,
+  DriftState,
   IngestionEvent,
   IacType,
   Invitation,
@@ -1113,3 +1114,25 @@ export const aiFetch: typeof fetch = async (input, init) => {
   }
   return response;
 };
+
+// --- Drift (GP-206 / GP-207) -------------------------------------------------
+
+/**
+ * The repository's newest drift measurement, or null when nobody has run one.
+ *
+ * A 404 is *the* expected answer for most repositories, and it means "nobody
+ * looked" — not "nothing drifted". Mapped to null here so callers render the
+ * absence rather than an error, and never a reassuring empty list.
+ */
+export async function getRepositoryDrift(
+  repositoryId: string,
+): Promise<DriftState | null> {
+  try {
+    return await orgRequest<DriftState>(
+      `/repositories/${encode(repositoryId)}/drift`,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}

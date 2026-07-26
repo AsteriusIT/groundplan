@@ -71,6 +71,7 @@ export function NodeDetailsPanel({
   showChange = true,
   lintFindings,
   findingsLabel = "Best practices",
+  driftRows,
   footer,
 }: Readonly<{
   graph: Graph;
@@ -81,6 +82,14 @@ export function NodeDetailsPanel({
   showChange?: boolean;
   /** GP-142: the studio lint findings anchored to this node, if any. */
   lintFindings?: LintFinding[];
+  /**
+   * GP-207: what a `plan -refresh-only` found had changed about this resource
+   * outside Terraform — the masked before→after rows, rendered by the same
+   * component the plan flow uses. In its own section, never merged into
+   * "Changes": one says what a pull request would do, the other says what
+   * somebody already did.
+   */
+  driftRows?: AttributeDiffRow[];
   /**
    * What those findings *are*, in the reader's language. The mechanic is shared
    * (GP-200): the same badge and the same section carry the studio's best
@@ -237,6 +246,19 @@ export function NodeDetailsPanel({
           >
             <div className="border-border divide-border divide-y rounded-md border">
               {diff.map((row) => (
+                <ChangeRow key={row.key} row={row} />
+              ))}
+            </div>
+          </SidePanelSection>
+        )}
+
+        {/* GP-207: changed outside Terraform. Its own section and its own hue —
+            this is not something a pull request proposes, it is something that
+            already happened to the estate. */}
+        {driftRows && driftRows.length > 0 && (
+          <SidePanelSection label="Drifted outside Terraform">
+            <div className="border-drift/40 divide-border divide-y rounded-md border">
+              {driftRows.map((row) => (
                 <ChangeRow key={row.key} row={row} />
               ))}
             </div>

@@ -12,6 +12,7 @@ import { runMigrations } from "../db/migrate.js";
 import { NotRefreshOnlyError } from "../graph/drift.js";
 import type { Graph } from "../graph/graph.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
+import { evaluateRepositorySnapshot } from "./policy.js";
 import { driftStateFor, recordDrift } from "./drift.js";
 import { seedOrg } from "../test-support.js";
 
@@ -255,6 +256,162 @@ test("a pull-request plan is refused rather than stored as drift", async () => {
       NotRefreshOnlyError,
     );
     assert.equal(await driftStateFor(app.db, repoId), null);
+  } finally {
+    await app.close();
+  }
+});
+
+// --- The policy cross-check (GP-207) ----------------------------------------
+
+/** A graph whose NSG is closed in the code, with an edge so nothing is orphaned. */
+const CLOSED_NSG: Graph = {
+  version: 4,
+  nodes: [
+    {
+      id: "azurerm_network_security_group.web",
+      name: "web",
+      type: "azurerm_network_security_group",
+      provider: "azurerm",
+      module_path: [],
+      change: null,
+      rules: [],
+      internet_exposed: false,
+    },
+    {
+      id: "azurerm_subnet.web",
+      name: "web",
+      type: "azurerm_subnet",
+      provider: "azurerm",
+      module_path: [],
+      change: null,
+    },
+  ],
+  edges: [
+    {
+      from: "azurerm_subnet.web",
+      to: "azurerm_network_security_group.web",
+      kind: "depends_on",
+    },
+  ],
+};
+
+/** Somebody opened it to the internet in the portal. */
+const OPENED_IN_PORTAL = {
+  format_version: "1.2",
+  resource_changes: [],
+  resource_drift: [
+    {
+      address: "azurerm_network_security_group.web",
+      mode: "managed",
+      type: "azurerm_network_security_group",
+      name: "web",
+      provider_name: "registry.terraform.io/hashicorp/azurerm",
+      change: {
+        actions: ["update"],
+        before: { security_rule: [] },
+        after: {
+          security_rule: [
+            {
+              name: "allow-all",
+              priority: 100,
+              direction: "Inbound",
+              access: "Allow",
+              protocol: "Tcp",
+              destination_port_range: "*",
+              source_address_prefix: "*",
+              destination_address_prefix: "*",
+            },
+          ],
+        },
+      },
+    },
+  ],
+};
+
+test("a violation the portal introduced is reported as introduced outside IaC", async () => {
+  const app = await buildApp(env);
+  const orgId = await seedOrg(app);
+  try {
+    const repoId = await createRepo(app, orgId);
+    const docs = await insertGraphSnapshot(app.db, {
+      repositoryId: repoId,
+      source: "hcl",
+      ref: "main",
+      commitSha: "sha-main-1",
+      graph: CLOSED_NSG,
+    });
+    await evaluateRepositorySnapshot(app.db, docs);
+
+    await recordDrift(app.db, {
+      repositoryId: repoId,
+      ref: "main",
+      commitSha: "sha-main-1",
+      plan: OPENED_IN_PORTAL,
+    });
+
+    const state = await driftStateFor(app.db, repoId);
+    assert.equal(state?.report.version, 2, "populating policy bumps the version");
+    const added = state?.report.policy?.added ?? [];
+    assert.ok(
+      added.some((v) => v.ruleId === "nsg-open-to-internet"),
+      `expected the exposure rule among ${JSON.stringify(added.map((v) => v.ruleId))}`,
+    );
+    assert.equal(state?.report.policy?.status, "failing");
+    // The code is clean, so the same rule must NOT be pre-existing.
+    assert.ok(
+      !(state?.report.policy?.preexisting ?? []).some(
+        (v) => v.ruleId === "nsg-open-to-internet",
+      ),
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("drift that breaks nothing introduces no violation", async () => {
+  const app = await buildApp(env);
+  const orgId = await seedOrg(app);
+  try {
+    const repoId = await createRepo(app, orgId);
+    const docs = await insertGraphSnapshot(app.db, {
+      repositoryId: repoId,
+      source: "hcl",
+      ref: "main",
+      commitSha: "sha-main-1",
+      graph: CLOSED_NSG,
+    });
+    await evaluateRepositorySnapshot(app.db, docs);
+
+    await recordDrift(app.db, {
+      repositoryId: repoId,
+      ref: "main",
+      commitSha: "sha-main-1",
+      plan: refreshOnlyPlan("TLS1_0"),
+    });
+
+    const state = await driftStateFor(app.db, repoId);
+    assert.deepEqual(state?.report.policy?.added, []);
+    assert.equal(state?.report.policy?.status, "passing");
+  } finally {
+    await app.close();
+  }
+});
+
+test("with no documented main at that sha there is no cross-check — not an empty one", async () => {
+  const app = await buildApp(env);
+  const orgId = await seedOrg(app);
+  try {
+    const repoId = await createRepo(app, orgId);
+    await recordDrift(app.db, {
+      repositoryId: repoId,
+      ref: "main",
+      commitSha: "sha-main-1",
+      plan: OPENED_IN_PORTAL,
+    });
+
+    const state = await driftStateFor(app.db, repoId);
+    assert.equal(state?.report.policy, undefined);
+    assert.equal(state?.report.version, 1);
   } finally {
     await app.close();
   }

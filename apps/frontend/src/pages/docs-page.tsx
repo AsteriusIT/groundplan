@@ -9,6 +9,7 @@ import {
   Loader2,
   PencilLine,
   RefreshCw,
+  RefreshCwOff,
   ShieldCheck,
   Sparkles,
   TriangleAlert,
@@ -59,6 +60,7 @@ import { GraphCanvas } from "@/components/graph-canvas";
 import { AnnotateToggle, useAnnotateMode } from "@/components/annotate-toolbar";
 import { AiPanel } from "@/components/ai-panel";
 import { ContextRail } from "@/components/context-section";
+import { DriftPanel } from "@/components/drift-panel";
 import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { OrphanReview } from "@/components/orphan-review";
 import { PolicyPanel } from "@/components/policy-panel";
@@ -72,6 +74,8 @@ import { TourLauncher } from "@/components/tour-launcher";
 import { TourRail } from "@/components/tour-rail";
 import { useAiStatus } from "@/lib/use-ai-status";
 import { findingsByNode } from "@/lib/policy";
+import { driftLabels, driftRowsByNode } from "@/lib/drift";
+import { useRepositoryDrift } from "@/lib/use-drift";
 import { useSnapshotPolicy } from "@/lib/use-policy";
 import { networkProjection } from "@/lib/graph-layout";
 import { useTourStyle } from "@/tour/tour-style";
@@ -125,6 +129,9 @@ export function DocsPage() {
   // the engine gave it, and the badges ride every lens — a rule about a resource
   // is about that resource whichever way you are looking at it.
   const [policyOpen, setPolicyOpen] = useState(false);
+  // GP-207: the drift rail. Its own panel, not a section of Compliance: one says
+  // what is wrong with the code, the other says the estate stopped matching it.
+  const [driftOpen, setDriftOpen] = useState(false);
   const aiStatus = useAiStatus();
   const { focus } = useFocusMode();
 
@@ -365,6 +372,21 @@ export function DocsPage() {
   const policyFindings = useMemo(
     () => findingsByNode(policy?.report.violations ?? []),
     [policy],
+  );
+
+  // GP-207: the estate's last measurement against this code. Marks ride every
+  // lens — a resource somebody edited in the portal is that resource whichever
+  // way you are looking at it — but only while the measurement is about the main
+  // on screen: a stale one marks nothing (see lib/drift).
+  const { drift } = useRepositoryDrift(repoId);
+  const showDrift = Boolean(drift) && !viewingOld;
+  const driftMarks = useMemo(
+    () => driftLabels(showDrift ? drift : null),
+    [drift, showDrift],
+  );
+  const driftDetail = useMemo(
+    () => driftRowsByNode(showDrift ? drift : null),
+    [drift, showDrift],
   );
 
   const { view, setView } = useGraphView(viewsFor("docs", kubernetes));
@@ -616,6 +638,23 @@ export function DocsPage() {
                         )}
                       </DropdownMenuCheckboxItem>
                     )}
+                    {/* GP-207: only when somebody has measured. No cron job,
+                        no menu entry — never a disabled one hinting at a
+                        feature the reader has not set up. */}
+                    {drift && !kubernetes && (
+                      <DropdownMenuCheckboxItem
+                        checked={driftOpen}
+                        onCheckedChange={(v) => setDriftOpen(Boolean(v))}
+                      >
+                        <RefreshCwOff className="size-3.5" />
+                        Drift
+                        {drift.report.counts.total > 0 && !drift.stale && (
+                          <span className="bg-drift ml-auto rounded-full px-1.5 text-[10px] text-white">
+                            {drift.report.counts.total}
+                          </span>
+                        )}
+                      </DropdownMenuCheckboxItem>
+                    )}
                     {policy && (
                       <DropdownMenuCheckboxItem
                         checked={policyOpen}
@@ -815,6 +854,8 @@ export function DocsPage() {
                   highlightIds={previewIds ?? undefined}
                   lint={policyFindings}
                   findingsLabel="Policy violation"
+                  drift={driftMarks}
+                  driftRows={driftDetail}
                   tour={tourChrome}
                 />
               )}
@@ -868,6 +909,19 @@ export function DocsPage() {
               setPreviewIds(anchors ? new Set(anchors) : null)
             }
             onClose={() => setProposalsOpen(false)}
+          />
+        )}
+
+        {/* GP-207: the drift rail — what the cloud says that the code does not,
+            with the provenance of the measurement leading. */}
+        {drift && driftOpen && !focus && !touring && (
+          <DriftPanel
+            drift={drift}
+            onSelectAddress={(address) => {
+              setFocusNodeId(address);
+              setView("infra");
+            }}
+            onClose={() => setDriftOpen(false)}
           />
         )}
 

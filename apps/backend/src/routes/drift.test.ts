@@ -283,3 +283,110 @@ test("a repository nobody measured reads as 404, not as a clean estate", async (
     await app.close();
   }
 });
+
+// --- The dashboard indicator (GP-207) ---------------------------------------
+
+test("the dashboard says where each measured repository stands, worst first", async () => {
+  const app = await buildApp(env);
+  const orgId = await seedOrg(app);
+  try {
+    const clean = await createRepo(app, orgId);
+    const drifted = await createRepo(app, orgId);
+    const never = await createRepo(app, orgId);
+
+    for (const repo of [clean, drifted]) {
+      await insertGraphSnapshot(app.db, {
+        repositoryId: repo.id,
+        source: "hcl",
+        ref: "main",
+        commitSha: "sha-main-1",
+        graph: GRAPH,
+      });
+    }
+    await push(app, clean, { format_version: "1.2", resource_changes: [] });
+    await push(app, drifted, REFRESH_ONLY);
+
+    const res = await app.inject({ url: `/api/v1/orgs/${orgId}/dashboard` });
+    assert.equal(res.statusCode, 200);
+    const rows = res.json().drift as {
+      repositoryId: string;
+      drifted: number;
+      stale: boolean;
+      measuredAt: string;
+    }[];
+
+    assert.equal(rows.length, 2, "an unmeasured repository is absent, not clean");
+    assert.equal(rows[0]?.repositoryId, drifted.id, "worst first");
+    assert.equal(rows[0]?.drifted, 1);
+    assert.equal(rows[0]?.stale, false);
+    assert.equal(rows[1]?.drifted, 0);
+    assert.ok(!rows.some((r) => r.repositoryId === never.id));
+  } finally {
+    await app.close();
+  }
+});
+
+test("the dashboard marks a measurement stale once its main has moved", async () => {
+  const app = await buildApp(env);
+  const orgId = await seedOrg(app);
+  try {
+    const repo = await createRepo(app, orgId);
+    await insertGraphSnapshot(app.db, {
+      repositoryId: repo.id,
+      source: "hcl",
+      ref: "main",
+      commitSha: "sha-main-1",
+      graph: GRAPH,
+    });
+    await push(app, repo, REFRESH_ONLY);
+    await insertGraphSnapshot(app.db, {
+      repositoryId: repo.id,
+      source: "hcl",
+      ref: "main",
+      commitSha: "sha-main-2",
+      graph: GRAPH,
+    });
+
+    const res = await app.inject({ url: `/api/v1/orgs/${orgId}/dashboard` });
+    const [row] = res.json().drift;
+    assert.equal(row.stale, true);
+    assert.equal(row.commitSha, "sha-main-1");
+    assert.equal(row.baseCommitSha, "sha-main-2");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a public share link carries no drift — measuring an estate is not publishing it", async () => {
+  const app = await buildApp(env);
+  const orgId = await seedOrg(app);
+  try {
+    const repo = await createRepo(app, orgId);
+    await insertGraphSnapshot(app.db, {
+      repositoryId: repo.id,
+      source: "hcl",
+      ref: "main",
+      commitSha: "sha-main-1",
+      graph: GRAPH,
+    });
+    await push(app, repo, REFRESH_ONLY);
+
+    const link = await app.inject({
+      method: "POST",
+      url: `/api/v1/orgs/${orgId}/repositories/${repo.id}/share-links`,
+      payload: { kind: "docs_latest" },
+    });
+    const token = link.json().token as string;
+
+    const view = await app.inject({ url: `/api/v1/public/${token}` });
+    assert.equal(view.statusCode, 200);
+    assert.equal(
+      view.json().drift,
+      undefined,
+      "drift must never ride a public link — it is not the diagram somebody chose to share",
+    );
+    assert.ok(!view.payload.includes("min_tls_version"));
+  } finally {
+    await app.close();
+  }
+});

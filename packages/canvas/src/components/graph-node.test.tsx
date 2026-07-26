@@ -281,3 +281,43 @@ it("selection restores a ghosted node's full contrast (GP-155)", () => {
   const card = container.firstElementChild as HTMLElement;
   expect(card.className).not.toContain("opacity-40");
 });
+
+// --- Drift (GP-207) ---------------------------------------------------------
+
+it("marks a drifted node with its own badge and ring", () => {
+  const { container } = render(<NodeCard graphNode={rg} drifted />);
+  expect(screen.getByLabelText(/drifted/i)).toBeInTheDocument();
+  const card = container.firstElementChild as HTMLElement;
+  expect(card.className).toContain("drift");
+});
+
+it("the drift mark never borrows a change colour — it is not a proposed change", () => {
+  const { container } = render(<NodeCard graphNode={rg} drifted />);
+  const card = container.firstElementChild as HTMLElement;
+  for (const change of ["create", "update", "delete"]) {
+    expect(card.className).not.toContain(`bg-${change}-soft`);
+    expect(card.className).not.toContain(`ring-${change}`);
+  }
+});
+
+it("a drifted node that is also part of a plan keeps its change treatment", () => {
+  const { container } = render(
+    <NodeCard graphNode={{ ...rg, change: "update" }} drifted />,
+  );
+  const card = container.firstElementChild as HTMLElement;
+  expect(card.className).toContain("bg-update-soft");
+  expect(screen.getByLabelText(/drifted/i)).toBeInTheDocument();
+});
+
+it("renders no drift mark on a node that matches the code", () => {
+  render(<NodeCard graphNode={rg} />);
+  expect(screen.queryByLabelText(/drifted/i)).not.toBeInTheDocument();
+});
+
+it("says what drifted when told", () => {
+  render(
+    <NodeCard graphNode={rg} drifted driftLabel="Drifted — min_tls_version changed" />,
+  );
+  expect(screen.getByTitle(/min_tls_version/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/min_tls_version/)).toBeInTheDocument();
+});

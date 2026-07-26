@@ -6,6 +6,7 @@ import {
   FolderGit2,
   Globe,
   GitPullRequest,
+  RefreshCwOff,
   ShieldAlert,
   ShieldCheck,
   TriangleAlert,
@@ -17,6 +18,7 @@ import { ApiError, getDashboard } from "@/api/client";
 import type {
   Dashboard,
   DashboardCompliance,
+  DashboardDrift,
   DashboardDocsSnapshot,
   DashboardPull,
 } from "@/api/types";
@@ -88,8 +90,14 @@ export function DashboardPage() {
 }
 
 function Estate({ data }: Readonly<{ data: Dashboard }>) {
-  const { stats, recentPrs, recentDocsSnapshots, orphanRepositories, compliance } =
-    data;
+  const {
+    stats,
+    recentPrs,
+    recentDocsSnapshots,
+    orphanRepositories,
+    compliance,
+    drift,
+  } = data;
   // Worst-hit repository first (GP-67), so the card lands on the review that
   // matters most when several repositories have drifted.
   const worstOrphans = orphanRepositories[0];
@@ -155,6 +163,20 @@ function Estate({ data }: Readonly<{ data: Dashboard }>) {
         </Section>
       )}
 
+      {/* GP-207: where each repository stands against reality. Stale first — a
+          measurement you cannot trust is the one that needs a hand. A repository
+          nobody has measured is absent, not clean. */}
+      {drift.length > 0 && (
+        <Section
+          title="Drift"
+          description="What changed in the cloud without the code being asked, from your own refresh jobs."
+        >
+          {drift.map((row) => (
+            <DriftRow key={row.repositoryId} row={row} />
+          ))}
+        </Section>
+      )}
+
       <Section
         title="Recent documentation updates"
         description="Docs regenerate on every merge to the default branch."
@@ -204,6 +226,60 @@ function ComplianceRow({ row }: Readonly<{ row: DashboardCompliance }>) {
       </span>
       <span className="text-muted-foreground font-mono text-[11px]">
         {shortSha(row.commitSha)}
+      </span>
+    </Link>
+  );
+}
+
+/**
+ * One repository's standing against reality (GP-207): how much drifted, how much
+ * of it nobody reviewed, and how much the measurement can be trusted.
+ *
+ * Freshness leads the numbers on purpose. A count of drifted resources measured
+ * against a commit that has since been replaced is not a smaller version of the
+ * truth — it is a different question's answer, and saying so is the point.
+ */
+function DriftRow({ row }: Readonly<{ row: DashboardDrift }>) {
+  return (
+    <Link
+      to={`/projects/${row.projectId}/repos/${row.repositoryId}/docs`}
+      className="hover:bg-accent flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors"
+    >
+      <RefreshCwOff className="text-muted-foreground size-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {repoName(row.repositoryUrl)}
+      </span>
+
+      {row.stale ? (
+        <span className="bg-warning-soft text-warning border-warning/40 rounded-full border px-2 py-0.5 font-mono text-[11px] leading-none font-medium">
+          Re-measure
+        </span>
+      ) : (
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 font-mono text-[11px] leading-none font-medium",
+            row.drifted === 0
+              ? "bg-create-soft text-create border-create/30"
+              : "bg-drift-soft text-drift border-drift/30",
+          )}
+        >
+          {row.drifted === 0 ? "In sync" : `${row.drifted} drifted`}
+        </span>
+      )}
+
+      {/* The strongest number here: nobody reviewed these, because there was no
+          pull request to review. */}
+      {!row.stale && row.outsideIac > 0 && (
+        <span className="text-drift font-mono text-[11px]">
+          {row.outsideIac} introduced outside your code
+        </span>
+      )}
+
+      <span className="text-muted-foreground font-mono text-[11px]">
+        {shortSha(row.commitSha)}
+      </span>
+      <span className="text-muted-foreground font-mono text-[11px]">
+        {new Date(row.measuredAt).toLocaleString()}
       </span>
     </Link>
   );

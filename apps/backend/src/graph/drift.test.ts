@@ -7,9 +7,11 @@ import assert from "node:assert/strict";
 import {
   NotRefreshOnlyError,
   parseDriftPlan,
+  realityGraph,
   refreshOnlyRejection,
   summarizeDrift,
 } from "./drift.js";
+import type { Graph, GraphNode } from "./graph.js";
 
 /** A refresh-only plan: nothing planned, one resource changed under our feet. */
 const REFRESH_ONLY = {
@@ -240,4 +242,136 @@ test("no drift says so rather than printing an empty list", () => {
     parseDriftPlan({ format_version: "1.2", resource_changes: [] }),
   );
   assert.match(md, /matches the code/);
+});
+
+// --- The reality graph (GP-207) ---------------------------------------------
+
+const node = (
+  partial: Partial<GraphNode> & Pick<GraphNode, "id" | "type">,
+): GraphNode => ({
+  name: partial.id.split(".").pop() ?? partial.id,
+  provider: "azurerm",
+  module_path: [],
+  change: null,
+  ...partial,
+});
+
+const CODE: Graph = {
+  version: 8,
+  nodes: [
+    node({
+      id: "azurerm_network_security_group.web",
+      type: "azurerm_network_security_group",
+      rules: [],
+      internet_exposed: false,
+      source: { file: "main.tf", start_line: 1, end_line: 3, code: 'tags = {\n  a = "b"\n}' },
+    }),
+    node({ id: "azurerm_subnet.web", type: "azurerm_subnet" }),
+  ],
+  edges: [
+    {
+      from: "azurerm_subnet.web",
+      to: "azurerm_network_security_group.web",
+      kind: "depends_on",
+    },
+  ],
+};
+
+/** Somebody opened the NSG to the internet in the portal. */
+const OPENED_IN_PORTAL = {
+  format_version: "1.2",
+  resource_changes: [],
+  resource_drift: [
+    {
+      address: "azurerm_network_security_group.web",
+      mode: "managed",
+      type: "azurerm_network_security_group",
+      name: "web",
+      provider_name: "registry.terraform.io/hashicorp/azurerm",
+      change: {
+        actions: ["update"],
+        before: { security_rule: [] },
+        after: {
+          security_rule: [
+            {
+              name: "allow-all",
+              priority: 100,
+              direction: "Inbound",
+              access: "Allow",
+              protocol: "Tcp",
+              destination_port_range: "*",
+              source_address_prefix: "*",
+              destination_address_prefix: "*",
+            },
+          ],
+        },
+      },
+    },
+  ],
+};
+
+test("the reality graph carries what the world says, over the graph the code says", () => {
+  const reality = realityGraph(CODE, OPENED_IN_PORTAL);
+
+  const nsg = reality.nodes.find((n) => n.id === "azurerm_network_security_group.web");
+  assert.equal(nsg?.internet_exposed, true, "the portal change should be visible");
+  assert.equal(nsg?.rules?.length, 1);
+});
+
+test("the reality graph keeps the code's own source — drift cannot edit a repository", () => {
+  const reality = realityGraph(CODE, OPENED_IN_PORTAL);
+  const nsg = reality.nodes.find((n) => n.id === "azurerm_network_security_group.web");
+  assert.equal(nsg?.source?.file, "main.tf");
+});
+
+test("edges and untouched resources come through unchanged", () => {
+  const reality = realityGraph(CODE, OPENED_IN_PORTAL);
+  assert.deepEqual(reality.edges, CODE.edges);
+  assert.ok(reality.nodes.some((n) => n.id === "azurerm_subnet.web"));
+});
+
+test("a resource deleted outside Terraform is not in the reality graph", () => {
+  const reality = realityGraph(CODE, {
+    format_version: "1.2",
+    resource_changes: [],
+    resource_drift: [
+      {
+        address: "azurerm_subnet.web",
+        mode: "managed",
+        type: "azurerm_subnet",
+        name: "web",
+        change: { actions: ["delete"], before: { name: "web" }, after: null },
+      },
+    ],
+  });
+
+  assert.ok(!reality.nodes.some((n) => n.id === "azurerm_subnet.web"));
+  // …and the edge to it goes with it: a line to nothing is not a line.
+  assert.deepEqual(reality.edges, []);
+});
+
+test("drift naming a resource the code does not have changes nothing", () => {
+  const reality = realityGraph(CODE, {
+    format_version: "1.2",
+    resource_changes: [],
+    resource_drift: [
+      {
+        address: "azurerm_storage_account.ghost",
+        mode: "managed",
+        type: "azurerm_storage_account",
+        name: "ghost",
+        change: { actions: ["update"], before: {}, after: { x: 1 } },
+      },
+    ],
+  });
+
+  assert.equal(reality.nodes.length, CODE.nodes.length);
+});
+
+test("no drift leaves the graph byte-identical", () => {
+  const reality = realityGraph(CODE, {
+    format_version: "1.2",
+    resource_changes: [],
+  });
+  assert.equal(JSON.stringify(reality), JSON.stringify(CODE));
 });

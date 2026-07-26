@@ -420,6 +420,7 @@ export interface User {
 
 import type {
   Annotation,
+  AttributeDiffRow,
   Graph,
   LintFinding,
   TourStep,
@@ -737,6 +738,11 @@ export interface Dashboard {
    * this list says what is known.
    */
   compliance: DashboardCompliance[];
+  /**
+   * GP-207: where each repository stands against reality, stale first. Same
+   * posture as `compliance` — a repository nobody measured is absent.
+   */
+  drift: DashboardDrift[];
 }
 
 /** One repository's compliance state, from its current documentation of main. */
@@ -1069,4 +1075,84 @@ export interface CreateWaiverInput {
   reason: string;
   /** ISO-8601; omit or null for a waiver with no end date. */
   expiresAt?: string | null;
+}
+
+// --- Drift (GP-206 / GP-207) -------------------------------------------------
+
+/**
+ * What reality did to a resource. There is no `create`: a resource created
+ * outside Terraform is not in the state, so a refresh cannot see it — that is
+ * the reality snapshot's question.
+ */
+export type DriftChange = "update" | "delete";
+
+/** One resource the world changed without the code being asked. */
+export interface DriftedResource {
+  address: string;
+  type: string;
+  provider: string | null;
+  module_path: string[];
+  change: DriftChange;
+  /** Masked before→after rows, from the same differ the plan view uses. */
+  attribute_diff: AttributeDiffRow[];
+  attribute_diff_truncated?: boolean;
+}
+
+/** One measurement of an estate against its code. */
+export interface DriftReport {
+  version: 1 | 2;
+  counts: { updated: number; deleted: number; total: number };
+  resources: DriftedResource[];
+  /**
+   * GP-207: what the drift does to compliance, read with reality as the head and
+   * the code as the base — so `added` means **introduced outside IaC**.
+   * Undefined when there was no comparable verdict of the code; undefined, never
+   * empty, because "nothing was introduced" and "nobody could check" differ.
+   */
+  policy?: PolicyDelta;
+}
+
+/**
+ * A measurement, plus the two facts a reader needs before believing it: when it
+ * was taken, and whether main has moved since (`stale`).
+ */
+export interface DriftState {
+  id: string;
+  repositoryId: string;
+  ref: string;
+  /** The sha of main that was measured. */
+  commitSha: string;
+  /** The documentation snapshot it lines up with; null when main had no diagram. */
+  snapshotId: string | null;
+  /** The sha main is documented at now; null when it never was. */
+  baseCommitSha: string | null;
+  /** True when main moved since — re-measure before believing it. */
+  stale: boolean;
+  measuredAt: string;
+  report: DriftReport;
+  summaryMd: string;
+}
+
+/**
+ * One repository's standing against reality (GP-207), from its newest drift
+ * measurement. A repository nobody has measured is absent from the list — drift
+ * is opt-in, and "0 drifted" for an estate nobody refreshed would be the most
+ * reassuring lie in the product.
+ */
+export interface DashboardDrift {
+  repositoryId: string;
+  repositoryUrl: string;
+  projectId: string;
+  ref: string;
+  /** The sha that was measured. */
+  commitSha: string;
+  /** The sha main is documented at now; null when it never was. */
+  baseCommitSha: string | null;
+  /** True when main moved since — the count answers a question nobody asked. */
+  stale: boolean;
+  drifted: number;
+  deleted: number;
+  /** Violations that exist in the cloud and not in the code (GP-207). */
+  outsideIac: number;
+  measuredAt: string;
 }

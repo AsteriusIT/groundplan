@@ -12,6 +12,7 @@ import { ApiError, getDashboard } from "@/api/client";
 import type {
   Dashboard,
   DashboardDocsSnapshot,
+  DashboardDrift,
   DashboardPull,
 } from "@/api/types";
 import { DashboardPage } from "./dashboard-page";
@@ -74,6 +75,7 @@ function dashboard(over: Partial<Dashboard> = {}): Dashboard {
     recentDocsSnapshots: [docs()],
     orphanRepositories: [],
     compliance: [],
+    drift: [],
     ...over,
   };
 }
@@ -240,6 +242,7 @@ it("greets a fresh user with one call to action instead of empty tables", async 
     recentDocsSnapshots: [],
     orphanRepositories: [],
     compliance: [],
+    drift: [],
   });
   renderPage();
 
@@ -259,6 +262,7 @@ it("keeps the lists (with their own empty notes) once a repository exists", asyn
     recentDocsSnapshots: [],
     orphanRepositories: [],
     compliance: [],
+    drift: [],
   });
   renderPage();
 
@@ -284,4 +288,69 @@ it("has no accessibility violations", async () => {
   await screen.findByText("Recent pull requests");
   const results = await axe(container);
   expect(results.violations).toEqual([]);
+});
+
+// --- Drift (GP-207) ---------------------------------------------------------
+
+const driftRow = (over: Partial<DashboardDrift> = {}): DashboardDrift => ({
+  repositoryId: "r9",
+  repositoryUrl: "https://github.com/acme/platform",
+  projectId: "p9",
+  ref: "main",
+  commitSha: "abcdef1234567890",
+  baseCommitSha: "abcdef1234567890",
+  stale: false,
+  drifted: 2,
+  deleted: 0,
+  outsideIac: 0,
+  measuredAt: "2026-07-26T03:00:00.000Z",
+  ...over,
+});
+
+it("shows how much each repository has drifted, and links to its diagram", async () => {
+  getDashboardMock.mockResolvedValue(dashboard({ drift: [driftRow()] }));
+  renderPage();
+
+  expect(await screen.findByText("Drift")).toBeInTheDocument();
+  expect(screen.getByText("2 drifted")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: /acme\/platform/ });
+  expect(link).toHaveAttribute("href", "/projects/p9/repos/r9/docs");
+});
+
+it("says a measured-and-clean estate is in sync", async () => {
+  getDashboardMock.mockResolvedValue(
+    dashboard({ drift: [driftRow({ drifted: 0 })] }),
+  );
+  renderPage();
+  expect(await screen.findByText("In sync")).toBeInTheDocument();
+});
+
+it("asks for a re-measure instead of reporting a count against the wrong commit", async () => {
+  getDashboardMock.mockResolvedValue(
+    dashboard({
+      drift: [driftRow({ stale: true, baseCommitSha: "999999999999", outsideIac: 3 })],
+    }),
+  );
+  renderPage();
+
+  expect(await screen.findByText("Re-measure")).toBeInTheDocument();
+  expect(screen.queryByText("2 drifted")).not.toBeInTheDocument();
+  expect(screen.queryByText(/introduced outside/i)).not.toBeInTheDocument();
+});
+
+it("calls out violations nobody reviewed, because no pull request introduced them", async () => {
+  getDashboardMock.mockResolvedValue(
+    dashboard({ drift: [driftRow({ outsideIac: 1 })] }),
+  );
+  renderPage();
+  expect(
+    await screen.findByText(/1 introduced outside your code/i),
+  ).toBeInTheDocument();
+});
+
+it("omits the section entirely when nobody has measured anything", async () => {
+  getDashboardMock.mockResolvedValue(dashboard({ drift: [] }));
+  renderPage();
+  await screen.findByText("Recent pull requests");
+  expect(screen.queryByText("Drift")).not.toBeInTheDocument();
 });

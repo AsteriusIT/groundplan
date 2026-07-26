@@ -18,6 +18,7 @@ import {
   type GraphSnapshotRow,
   type PolicyReportRow,
 } from "../db/schema.js";
+import type { Graph } from "../graph/graph.js";
 import { diffPolicyReports, type PolicyDelta } from "../graph/policy/diff.js";
 import { evaluatePolicy } from "../graph/policy/engine.js";
 import { summarizePolicyReport } from "../graph/policy/summarize.js";
@@ -160,6 +161,27 @@ export async function evaluateRepositorySnapshot(
   if (!snapshot.repositoryId) return null;
   const config = await resolvePolicyConfig(db, snapshot.repositoryId);
   return evaluateSnapshotPolicy(db, snapshot, { config });
+}
+
+/**
+ * Judge an arbitrary graph under a repository's configuration and its waivers,
+ * **storing nothing** (GP-207).
+ *
+ * The drift cross-check needs a verdict on a graph that is not a snapshot — the
+ * estate as a refresh found it — and it must not touch the verdict recorded for
+ * the documentation it was derived from. The evaluation is the same one; only
+ * the persistence is absent.
+ */
+export async function judgeGraph(
+  db: NodePgDatabase,
+  repositoryId: string,
+  graph: Graph,
+  target: PolicyTarget,
+  now: Date = new Date(),
+): Promise<PolicyReport> {
+  const config = await resolvePolicyConfig(db, repositoryId);
+  const evaluated = evaluatePolicy(graph, { target, config });
+  return applyWaivers(evaluated, await listWaivers(db, repositoryId), now);
 }
 
 /** The stored verdict for a snapshot, or null when it was never evaluated. */

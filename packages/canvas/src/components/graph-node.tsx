@@ -18,7 +18,13 @@ import {
   type Node as FlowNode,
   type NodeProps,
 } from "@xyflow/react";
-import { EyeOff, ShieldAlert, TriangleAlert, Waypoints } from "lucide-react";
+import {
+  EyeOff,
+  RefreshCwOff,
+  ShieldAlert,
+  TriangleAlert,
+  Waypoints,
+} from "lucide-react";
 
 import type { GraphNode, LintSeverity } from "../types";
 import type { Emphasis } from "../lib/emphasis";
@@ -140,6 +146,72 @@ function StackSection({
   );
 }
 
+/**
+ * Which treatments the card's surface wears, and in what order they win.
+ *
+ * Extracted from the card so the precedence is readable as one list rather than
+ * as a dozen guards threaded through a `cn(...)`: **picked** (you are choosing
+ * this node) beats **selected** (you are looking at it), and both beat every
+ * derived mark — because a node you are pointing at must never be receded or
+ * recoloured by something the data said about it.
+ */
+function cardClasses({
+  change,
+  selected,
+  picked,
+  dimmed,
+  emphasis,
+  impactRing,
+  exposed,
+  drifted,
+  hiddenByAnnotation,
+  isData,
+  hasStatus,
+}: {
+  change: GraphNode["change"];
+  selected: boolean;
+  picked: boolean;
+  dimmed: boolean;
+  emphasis: Emphasis | undefined;
+  impactRing: boolean;
+  exposed: boolean;
+  drifted: boolean;
+  hiddenByAnnotation: boolean;
+  isData: boolean;
+  hasStatus: boolean;
+}): string {
+  const pointedAt = selected || picked;
+  return cn(
+    // No overflow-hidden here: the status badge intentionally overhangs the
+    // top-right corner and must not be clipped (GP-30).
+    "relative flex h-full w-full flex-col rounded-[7px] border-[1.5px] shadow-sm transition-shadow hover:shadow-md",
+    changeClasses(change),
+    // A data source is read from the provider, not defined here — its surface
+    // recedes. Only while unstatused: in diff mode a changed data source keeps
+    // the full change treatment (the chip still says data).
+    isData && !hasStatus && "bg-muted/50",
+    // A picked node (annotate mode) gets the strongest, filled treatment so
+    // link endpoints / group members read at a glance (GP-58).
+    picked && "ring-primary ring-offset-background bg-primary/10 ring-[3px] ring-offset-1",
+    selected && !picked && "ring-primary ring-offset-background ring-2 ring-offset-1",
+    impactRing && !pointedAt && "outline-impacted outline-2 outline-offset-2 outline-dashed",
+    exposed && !pointedAt && "ring-exposed ring-offset-background ring-2 ring-offset-1",
+    // GP-207: drift wears a hue of its own, and a dashed ring — the estate has
+    // moved away from the drawing, which is *not* a change anybody proposed.
+    // Exposure keeps the ring when both apply: one is a risk, the other is news,
+    // and the risk is the one you act on first. The badge shows either way.
+    drifted && !pointedAt && !exposed && "ring-drift ring-offset-background ring-2 ring-offset-1",
+    // Marked for hiding: still drawn (this is the raw view — it shows what the
+    // code says), but visibly on its way out.
+    hiddenByAnnotation && !picked && "border-dashed opacity-50",
+    // GP-155: the unchanged estate recedes so the change set pops. A
+    // selected/picked node is being pointed at — never ghosted.
+    emphasis === "ghost" && !pointedAt && "opacity-40 saturate-[.35]",
+    emphasis === "context" && !pointedAt && "opacity-75",
+    dimmed && "opacity-20",
+  );
+}
+
 export function NodeCard({
   graphNode,
   selected = false,
@@ -149,6 +221,8 @@ export function NodeCard({
   isHub = false,
   hubHiddenCount = 0,
   exposed = false,
+  drifted = false,
+  driftLabel,
   hiddenByAnnotation = false,
   renameLabel,
   stack,
@@ -178,6 +252,15 @@ export function NodeCard({
   hubHiddenCount?: number;
   /** GP-45: internet-exposed (an exposed NSG or a subnet/NIC it guards). */
   exposed?: boolean;
+  /**
+   * GP-207: this resource no longer matches the code — somebody changed it
+   * outside Terraform. Deliberately not expressed as a `change`: a drift is an
+   * observation about the world, not a proposal about it, and colouring it like
+   * a plan would tell the reader their pull request does something it does not.
+   */
+  drifted?: boolean;
+  /** What drifted, for the badge's tooltip (e.g. the attributes that moved). */
+  driftLabel?: string;
   /**
    * GP-73: a `hide` annotation is anchored here. The raw view still draws the
    * node — it is what the code says — but marks it, so you can see the
@@ -225,36 +308,19 @@ export function NodeCard({
   return (
     <div
       title={graphNode.type}
-      className={cn(
-        // No overflow-hidden here: the status badge intentionally overhangs the
-        // top-right corner and must not be clipped (GP-30).
-        "relative flex h-full w-full flex-col rounded-[7px] border-[1.5px] shadow-sm transition-shadow hover:shadow-md",
-        changeClasses(graphNode.change),
-        // A data source is read from the provider, not defined here — its
-        // surface recedes. Only while unstatused: in diff mode a changed data
-        // source keeps the full change treatment (the chip still says data).
-        isData && !status && "bg-muted/50",
-        // A picked node (annotate mode) gets the strongest, filled treatment so
-        // link endpoints / group members read at a glance (GP-58).
-        picked && "ring-primary ring-offset-background bg-primary/10 ring-[3px] ring-offset-1",
-        selected && !picked && "ring-primary ring-offset-background ring-2 ring-offset-1",
-        showImpactRing &&
-          !selected &&
-          !picked &&
-          "outline-impacted outline-2 outline-offset-2 outline-dashed",
-        exposed &&
-          !selected &&
-          !picked &&
-          "ring-exposed ring-offset-background ring-2 ring-offset-1",
-        // Marked for hiding: still drawn (this is the raw view — it shows what
-        // the code says), but visibly on its way out.
-        hiddenByAnnotation && !picked && "border-dashed opacity-50",
-        // GP-155: the unchanged estate recedes so the change set pops. A
-        // selected/picked node is being pointed at — never ghosted.
-        emphasis === "ghost" && !selected && !picked && "opacity-40 saturate-[.35]",
-        emphasis === "context" && !selected && !picked && "opacity-75",
-        dimmed && "opacity-20",
-      )}
+      className={cardClasses({
+        change: graphNode.change,
+        selected,
+        picked,
+        dimmed,
+        emphasis,
+        impactRing: showImpactRing,
+        exposed,
+        drifted,
+        hiddenByAnnotation,
+        isData,
+        hasStatus: status !== null,
+      })}
     >
       {/* The card header — the node's own anatomy. Fills the card when there is
           no stack, so a plain node looks exactly as it did before (GP-87). */}
@@ -402,6 +468,21 @@ export function NodeCard({
         </span>
       )}
 
+      {/* GP-207: the drift mark (bottom-right — the last free corner: status and
+          impact own top-right, exposure top-left, findings bottom-left). Its own
+          hue and a struck-through refresh glyph, because the one thing this must
+          never read as is a change somebody proposed. */}
+      {drifted && (
+        <span
+          role="img"
+          aria-label={driftLabel ?? "Drifted — changed outside Terraform"}
+          title={driftLabel ?? "Drifted — changed outside Terraform"}
+          className="bg-drift absolute -right-2 -bottom-2 inline-grid size-4 place-items-center rounded-full text-white ring-2 ring-white"
+        >
+          <RefreshCwOff className="size-2.5" />
+        </span>
+      )}
+
       {/* GP-142: best-practices badge (bottom-left — the top corners belong to
           status and exposure). Severity colour only; the findings themselves
           live in the detail panel. */}
@@ -446,6 +527,8 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         isHub={data.isHub === true}
         hubHiddenCount={data.hubHiddenCount ?? 0}
         exposed={data.exposed === true}
+        drifted={data.drifted === true}
+        driftLabel={data.driftLabel}
         hiddenByAnnotation={data.hiddenByAnnotation === true}
         renameLabel={data.renameLabel as string | undefined}
         stack={data.stack}

@@ -28,7 +28,9 @@ import {
   type AttributeDiffRow,
   type PlanResourceChange,
 } from "./attribute-diff.js";
-import { isTerraformPlan } from "./plan-parser.js";
+import type { Graph, GraphNode } from "./graph.js";
+import { isTerraformPlan, parsePlanToGraph } from "./plan-parser.js";
+import type { PolicyDelta } from "./policy/diff.js";
 
 /**
  * What reality did to a resource. There is deliberately no `create`: a resource
@@ -74,6 +76,22 @@ export type DriftReport = {
   version: 1 | 2;
   counts: DriftCounts;
   resources: DriftedResource[];
+  /**
+   * v2 (GP-207): what the drift does to compliance, as a comparison between the
+   * estate as it *is* and the estate as the code *describes it*.
+   *
+   * It is a `PolicyDelta` — the same shape and the same comparison a pull request
+   * gets (GP-202) — read with reality as the head and the code as the base. So
+   * `added` means **a violation that exists in the cloud but not in the code**:
+   * something introduced outside IaC, which is the signal a security reader came
+   * for. `resolved` is the mirror image: a violation the code has that somebody
+   * already fixed by hand, which is its own kind of problem.
+   *
+   * Absent when there was no comparable verdict of the code to compare against
+   * (main has no diagram at the measured sha). Absent, never empty: "nothing was
+   * introduced outside IaC" and "nobody could check" are different answers.
+   */
+  policy?: PolicyDelta;
 };
 
 /** Thrown when a payload is not a refresh-only plan. Carries the reason shown. */
@@ -198,6 +216,101 @@ export function parseDriftPlan(plan: unknown): DriftReport {
   };
 
   return { version: 1, counts, resources };
+}
+
+/**
+ * The node fields that describe **the world**, as opposed to the code.
+ *
+ * This split is the whole idea behind the reality graph. A refresh tells us what
+ * a resource *is* right now — its security rules, whether it ended up
+ * internet-exposed, what identity it carries — and nothing whatsoever about the
+ * repository. So these fields are taken from the refresh and everything else,
+ * `source` above all, is left exactly as the code parse produced it: a change in
+ * the portal cannot edit somebody's `.tf` file, and a rule that reads the HCL
+ * must give the same verdict on both sides.
+ *
+ * The consequence is the point: the only violations that can appear in reality
+ * but not in the code are the ones the *world* introduced.
+ */
+const WORLD_FIELDS = [
+  "rules",
+  "internet_exposed",
+  "associated_ids",
+  "role_assignment",
+  "privileged",
+  "identity",
+  "attributes",
+  "attributes_truncated",
+  "parent_id",
+] as const satisfies readonly (keyof GraphNode)[];
+
+/**
+ * The estate as the refresh found it: the graph the code describes, with the
+ * resources that drifted carrying what is actually out there.
+ *
+ * Built by feeding `resource_drift` to Producer A as if it were `resource_changes`
+ * — the entries have exactly that shape, and doing so buys every semantic the
+ * plan parser already derives (NSG rules and exposure, role-assignment triples
+ * and the privileged flag, network containment) with no second parser to keep in
+ * step. What comes back is then folded over the code's graph by address.
+ *
+ * Deliberate limits, each of them the honest answer:
+ *  - A drifted address the code's graph does not hold is **skipped**. It is
+ *    almost always an instance suffix (`x[0]` against a bare `x`), and inventing
+ *    a node for it would put a resource on the diagram nobody wrote.
+ *  - A resource deleted outside Terraform is removed, and the edges that only
+ *    made sense through it go with it.
+ *  - Nothing is added. A resource created outside Terraform is not in the state,
+ *    so a refresh cannot see it; that is the reality snapshot's question
+ *    (GP-208/GP-209), and answering it from here would be a guess.
+ */
+export function realityGraph(code: Graph, plan: unknown): Graph {
+  const raw = (plan as { resource_drift?: unknown } | null)?.resource_drift;
+  const entries = Array.isArray(raw) ? raw : [];
+  if (entries.length === 0) return code;
+
+  // Producer A, run over what the refresh found. `configuration` rides along so
+  // whatever the plan happened to carry is honoured; nothing here depends on it.
+  const observed = parsePlanToGraph({
+    format_version: "1.2",
+    resource_changes: entries,
+    configuration: (plan as { configuration?: unknown }).configuration,
+  });
+  const observedById = new Map(observed.nodes.map((node) => [node.id, node]));
+  const deleted = deletedAddresses(entries);
+
+  const nodes = code.nodes
+    .filter((node) => !deleted.has(node.id))
+    .map((node) => withWorldOf(node, observedById.get(node.id)));
+
+  const present = new Set(nodes.map((node) => node.id));
+  return {
+    ...code,
+    nodes,
+    edges: code.edges.filter((e) => present.has(e.from) && present.has(e.to)),
+  };
+}
+
+/** The addresses the refresh found are simply not there any more. */
+function deletedAddresses(entries: readonly unknown[]): Set<string> {
+  const deleted = new Set<string>();
+  for (const item of entries) {
+    const entry = item as DriftEntry;
+    if (entry.mode === "data") continue;
+    if (actionsOf(entry).includes("delete")) deleted.add(asString(entry.address));
+  }
+  return deleted;
+}
+
+/** One node, with {@link WORLD_FIELDS} taken from what the refresh observed. */
+function withWorldOf(node: GraphNode, world: GraphNode | undefined): GraphNode {
+  if (!world) return node;
+  const merged: GraphNode = { ...node };
+  for (const field of WORLD_FIELDS) {
+    if (world[field] === undefined) delete merged[field];
+    else Object.assign(merged, { [field]: world[field] });
+  }
+  return merged;
 }
 
 /** How many attribute rows a resource shows in the summary before it stops. */
