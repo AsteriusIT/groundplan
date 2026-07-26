@@ -17,6 +17,7 @@ import {
   annotations,
   clusters,
   graphSnapshots,
+  integrationCredentials,
   integrations,
   invitations,
   projects,
@@ -30,6 +31,7 @@ export type ResourceKind =
   | "snapshot"
   | "cluster"
   | "integration"
+  | "connection"
   | "annotation"
   | "shareLink"
   | "invitation";
@@ -41,6 +43,7 @@ export const RESOURCE_BY_SEGMENT: Record<string, ResourceKind> = {
   snapshots: "snapshot",
   clusters: "cluster",
   integrations: "integration",
+  connections: "connection",
   annotations: "annotation",
   "share-links": "shareLink",
   invitations: "invitation",
@@ -89,6 +92,15 @@ export async function resolveResourceOrg(
         .select({ orgId: integrations.organizationId })
         .from(integrations)
         .where(eq(integrations.id, id));
+      return row?.orgId ?? null;
+    }
+    // A provider connection (GP-193): a GitHub App installation, an OAuth
+    // grant. Org-owned like an integration, and 404 from anywhere else.
+    case "connection": {
+      const [row] = await db
+        .select({ orgId: integrationCredentials.organizationId })
+        .from(integrationCredentials)
+        .where(eq(integrationCredentials.id, id));
       return row?.orgId ?? null;
     }
     case "repository": {

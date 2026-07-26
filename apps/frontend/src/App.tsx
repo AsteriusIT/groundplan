@@ -12,6 +12,7 @@ import { DocsPage } from "@/pages/docs-page";
 import { InvitePage } from "@/pages/invite-page";
 import { OnboardingPage } from "@/pages/onboarding-page";
 import { OrgLandingPage } from "@/pages/org-landing-page";
+import { IntegrationCallbackPage } from "@/pages/integration-callback-page";
 import { OrgSettingsPage } from "@/pages/org-settings-page";
 import { PlaygroundPage } from "@/pages/playground-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
@@ -129,6 +130,12 @@ function App() {
         <Route path="/settings" element={<SettingsPage />} />
         {/* Organization settings (GP-188): org-scoped sections, per active org. */}
         <Route path="/orgs/:orgId/settings" element={<OrgSettingsPage />} />
+        {/* Where every provider sends the browser back (GP-193). One page for
+            all of them: the backend decides what the callback means. */}
+        <Route
+          path="/integrations/callback"
+          element={<IntegrationCallbackPage />}
+        />
       </Route>
 
       <Route path="*" element={<Navigate to="/projects" replace />} />

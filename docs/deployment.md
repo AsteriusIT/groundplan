@@ -145,6 +145,43 @@ restart just the frontend
 (`docker compose --env-file .env.prod -f docker-compose.prod.yml up -d frontend`);
 no image rebuild is needed.
 
+### GitHub App (optional, GP-193)
+
+Repositories can authenticate with a **GitHub App installation** instead of a
+personal access token: comments arrive from the app's own bot identity, the
+token minted for each call lives an hour, and access is revoked from GitHub in
+one click. It is entirely optional — without it, GitHub repositories keep using
+PATs, and the Integrations page says the App is not configured on this instance.
+
+1. Register the app from `docs/github-app-manifest.json` (GitHub → Settings →
+   Developer settings → GitHub Apps → New). Replace every
+   `REPLACE-WITH-YOUR-GROUNDPLAN-ORIGIN` with `https://${APP_DOMAIN}` first. The
+   permissions it asks for are the minimum: `contents:read`, `metadata:read`,
+   `pull_requests:write`, `checks:write`.
+1. Generate a private key and put these in `.env.prod`:
+
+| Variable                    | Value                                                   |
+| --------------------------- | ------------------------------------------------------- |
+| `GITHUB_APP_ID`             | The numeric app id from its settings page               |
+| `GITHUB_APP_PRIVATE_KEY`    | The `.pem`, base64-encoded so it fits one line          |
+| `GITHUB_APP_SLUG`           | The app's URL slug (`github.com/apps/<slug>`)           |
+| `GITHUB_APP_WEBHOOK_SECRET` | The webhook secret you set on the app (optional)        |
+
+   ```bash
+   base64 -w0 groundplan.YYYY-MM-DD.private-key.pem
+   ```
+
+1. In Groundplan: **Organization settings → Integrations → Connect GitHub**,
+   which installs the app on your GitHub organization and binds that
+   installation to this Groundplan org. Then switch each repository over from
+   its repository settings. Nothing is lost in the move — pull requests, docs
+   and annotations hang off the repository, not off how it authenticates — and
+   the stored PAT is kept, so the switch is reversible.
+
+`PUBLIC_BASE_URL` must be set for the flow to work: it is where GitHub redirects
+the browser back to. It already is in the compose file (derived from
+`APP_DOMAIN`).
+
 ### Deployment mode: single-org vs SaaS (`SINGLE_ORG`)
 
 The backend runs in one of two tenancy modes, chosen by the `SINGLE_ORG`

@@ -23,6 +23,14 @@ import {
   type ConfluenceClient,
 } from "./services/confluence.js";
 import {
+  realGitHubAppClient,
+  type GitHubAppClient,
+} from "./integrations/adapters/github-app.js";
+import {
+  integrationsConfigFrom,
+  type IntegrationsConfig,
+} from "./integrations/config.js";
+import {
   createProviderRegistry,
   type ProviderRegistry,
 } from "./integrations/registry.js";
@@ -74,6 +82,12 @@ declare module "fastify" {
      * no code outside `src/integrations/adapters` names a concrete provider.
      */
     providers: ProviderRegistry;
+    /** What this deployment configured for integrations (GP-193): apps, OAuth
+     * clients, the public origin providers redirect back to. Empty entries mean
+     * "not configured on this instance", reported as such — never a boot error. */
+    integrations: IntegrationsConfig;
+    /** App-level GitHub calls: installation lookup + token minting (GP-193). */
+    githubApp: GitHubAppClient;
     /** Public origin for absolute PR-comment URLs (GP-38); "" = link-only. */
     publicBaseUrl: string;
     /** The AI layer's model access (GP-62). `model === null` = layer disabled. */
@@ -104,6 +118,8 @@ export type BuildAppOptions = {
   gitlab?: GitLabClient;
   /** Inject an Azure DevOps client (tests). Defaults to the real REST client. */
   azureDevOps?: AzureDevOpsClient;
+  /** Inject the GitHub App client (tests). Defaults to the real REST client. */
+  githubApp?: GitHubAppClient;
   /** Inject an AI provider (tests). Defaults to the real one (off without a key). */
   ai?: AiProvider;
   /** Inject the studio chat model (tests). Defaults to real (null without a key). */
@@ -157,14 +173,19 @@ export async function buildApp(
   app.decorate("github", opts.github ?? realGitHubClient);
   app.decorate("gitlab", opts.gitlab ?? realGitLabClient);
   app.decorate("azureDevOps", opts.azureDevOps ?? realAzureDevOpsClient);
-  // The registry is built from *this app's* clients, so a stubbed GitHub client
-  // in a test reaches the adapter exactly as the real one does in production.
+  app.decorate("githubApp", opts.githubApp ?? realGitHubAppClient);
+  app.decorate("integrations", integrationsConfigFrom(env));
+  // The registry is built from *this app's* clients and configuration, so a
+  // stubbed client in a test reaches the adapter exactly as the real one does in
+  // production — and an instance with no GitHub App offers no install flow.
   app.decorate(
     "providers",
     createProviderRegistry({
       github: app.github,
       gitlab: app.gitlab,
       azureDevOps: app.azureDevOps,
+      githubApp: app.githubApp,
+      config: app.integrations,
     }),
   );
   app.decorate("publicBaseUrl", env.publicBaseUrl);

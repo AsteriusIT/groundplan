@@ -1,0 +1,21 @@
+{
+  "name": "Groundplan",
+  "url": "https://github.com/AsteriusIT/groundplan",
+  "description": "Turns Terraform and Kubernetes changes into reviewable architecture diagrams, posted on the pull request.",
+  "public": false,
+  "default_events": ["push", "pull_request", "delete"],
+  "default_permissions": {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "write",
+    "checks": "write"
+  },
+  "hook_attributes": {
+    "url": "https://REPLACE-WITH-YOUR-GROUNDPLAN-ORIGIN/api/v1/webhooks/git/github",
+    "active": true
+  },
+  "redirect_url": "https://REPLACE-WITH-YOUR-GROUNDPLAN-ORIGIN/integrations/callback",
+  "setup_url": "https://REPLACE-WITH-YOUR-GROUNDPLAN-ORIGIN/integrations/callback",
+  "setup_on_update": true,
+  "request_oauth_on_install": false
+}

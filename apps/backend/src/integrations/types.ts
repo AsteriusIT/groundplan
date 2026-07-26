@@ -177,6 +177,49 @@ export interface RefEventSource {
 }
 
 /**
+ * What a completed connect flow yields, ready to store as an
+ * `integration_credentials` row. `secret` is null for a mode whose only secret
+ * lives in the environment (a GitHub App's private key).
+ */
+export type NewConnection = {
+  /** Display name for the connection list ("acme-corp", "gitlab.com"). */
+  name: string;
+  config: {
+    installationId?: number;
+    account?: string | null;
+    instanceUrl?: string | null;
+    cloudId?: string | null;
+    scope?: string | null;
+  };
+  /** Plaintext refresh token / secret to encrypt at rest, or null. */
+  secret: string | null;
+};
+
+/**
+ * Connecting a provider from the browser (GP-193/195/196/197). Every flow is
+ * the same two steps — send the user somewhere, then finish from what comes
+ * back — so the routes are provider-agnostic and the UI renders whatever the
+ * registry reports. A provider with no flow can only be used with a PAT.
+ *
+ * `carry` is how a flow keeps a secret across the round trip (a PKCE verifier):
+ * the route seals it into the opaque `state` it hands the browser, and returns
+ * it here. The browser never sees its contents.
+ */
+export interface ConnectFlow {
+  readonly mode: CredentialMode;
+  start(args: { redirectUri: string }): {
+    carry: Record<string, string>;
+    authorizeUrl(state: string): string;
+  };
+  complete(args: {
+    /** Query parameters of the provider's callback. */
+    params: Record<string, string>;
+    carry: Record<string, string>;
+    redirectUri: string;
+  }): Promise<NewConnection>;
+}
+
+/**
  * One external system, assembled from the capabilities it supports. The core
  * holds this, never a concrete class: `provider.commenter` is null for a
  * provider that cannot comment, and that is the whole branch.
@@ -193,7 +236,15 @@ export interface IntegrationProvider {
   readonly commenter: PullRequestCommenter | null;
   readonly checks: CheckPublisher | null;
   readonly refEvents: RefEventSource | null;
+  /**
+   * Browser flows this instance can actually run, by mode. Empty when the
+   * deployment configured no app/client for this provider — which is exactly
+   * what "not configured on this instance" means in the UI.
+   */
+  readonly connectFlows: readonly ConnectFlow[];
   /** Does this URL belong to this provider? (`detectProvider` asks each one.) */
   matchesUrl(url: string): boolean;
   supports(capability: Capability): boolean;
+  /** The flow for one mode, or null. */
+  connectFlow(mode: CredentialMode): ConnectFlow | null;
 }

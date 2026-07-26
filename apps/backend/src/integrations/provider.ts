@@ -10,6 +10,7 @@
 import type {
   Capability,
   CheckPublisher,
+  ConnectFlow,
   CredentialMode,
   IntegrationProvider,
   ProviderId,
@@ -26,6 +27,8 @@ export type ProviderDefinition = {
   commenter?: PullRequestCommenter | null;
   checks?: CheckPublisher | null;
   refEvents?: RefEventSource | null;
+  /** Browser connect flows this instance can run (GP-193+); empty = PAT only. */
+  connectFlows?: readonly ConnectFlow[];
   /** Hosts this provider owns, lowercased. A suffix match with a leading dot
    * covers `*.visualstudio.com`; anything else is an exact host match. */
   hosts: readonly string[];
@@ -40,6 +43,7 @@ export function defineProvider(def: ProviderDefinition): IntegrationProvider {
   const commenter = def.commenter ?? null;
   const checks = def.checks ?? null;
   const refEvents = def.refEvents ?? null;
+  const connectFlows = def.connectFlows ?? [];
 
   // Capabilities are *derived*, never declared twice: `repo:read` is the floor
   // (every provider can be cloned with a credential), the rest follow from what
@@ -58,6 +62,7 @@ export function defineProvider(def: ProviderDefinition): IntegrationProvider {
     commenter,
     checks,
     refEvents,
+    connectFlows,
     matchesUrl(url) {
       let host: string;
       try {
@@ -69,6 +74,9 @@ export function defineProvider(def: ProviderDefinition): IntegrationProvider {
     },
     supports(capability) {
       return capabilities.includes(capability);
+    },
+    connectFlow(mode) {
+      return connectFlows.find((flow) => flow.mode === mode) ?? null;
     },
   };
 }

@@ -7,12 +7,15 @@ import {
   parseGitHubRepo,
   type GitHubClient,
 } from "../../services/github.js";
+import type { IntegrationsConfig } from "../config.js";
 import { defineProvider } from "../provider.js";
 import type {
+  ConnectFlow,
   IntegrationProvider,
   PullRequestCommenter,
   RepoReader,
 } from "../types.js";
+import { githubAppConnectFlow, type GitHubAppClient } from "./github-app.js";
 
 /**
  * `x-access-token` for every mode: it is what GitHub documents for a PAT *and*
@@ -57,7 +60,17 @@ export function createGitHubCommenter(client: GitHubClient): PullRequestCommente
   };
 }
 
-export function createGitHubProvider(client: GitHubClient): IntegrationProvider {
+export function createGitHubProvider(
+  client: GitHubClient,
+  config: IntegrationsConfig,
+  appClient: GitHubAppClient,
+): IntegrationProvider {
+  // The App install flow exists only where an App was registered (GP-193);
+  // otherwise the provider honestly offers PAT alone.
+  const flows: ConnectFlow[] = config.githubApp
+    ? [githubAppConnectFlow(config.githubApp, appClient)]
+    : [];
+
   return defineProvider({
     id: "github",
     label: "GitHub",
@@ -67,5 +80,6 @@ export function createGitHubProvider(client: GitHubClient): IntegrationProvider 
     hosts: ["github.com"],
     repo,
     commenter: createGitHubCommenter(client),
+    connectFlows: flows,
   });
 }

@@ -13,6 +13,7 @@ import { createAzureDevOpsProvider } from "./adapters/azure-devops.js";
 import { createGenericProvider } from "./adapters/generic.js";
 import { createGitHubProvider } from "./adapters/github.js";
 import { createGitLabProvider } from "./adapters/gitlab.js";
+import { NO_INTEGRATIONS_CONFIG } from "./config.js";
 import { defineProvider } from "./provider.js";
 import { createProviderRegistry } from "./registry.js";
 import {
@@ -206,7 +207,14 @@ function runProviderContract(
 
 runProviderContract("github", (existing) => {
   const r = recorder(existing);
-  return { provider: createGitHubProvider(r.github as never), calls: r.calls };
+  return {
+    provider: createGitHubProvider(
+      r.github as never,
+      NO_INTEGRATIONS_CONFIG,
+      {} as never,
+    ),
+    calls: r.calls,
+  };
 });
 
 runProviderContract("gitlab", (existing) => {

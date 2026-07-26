@@ -18,7 +18,12 @@ import { realGitLabClient, type GitLabClient } from "../services/gitlab.js";
 import { createAzureDevOpsProvider } from "./adapters/azure-devops.js";
 import { createGenericProvider } from "./adapters/generic.js";
 import { createGitHubProvider } from "./adapters/github.js";
+import {
+  realGitHubAppClient,
+  type GitHubAppClient,
+} from "./adapters/github-app.js";
 import { createGitLabProvider } from "./adapters/gitlab.js";
+import { NO_INTEGRATIONS_CONFIG, type IntegrationsConfig } from "./config.js";
 import type {
   Capability,
   CredentialMode,
@@ -30,6 +35,10 @@ export type ProviderClients = {
   github: GitHubClient;
   gitlab: GitLabClient;
   azureDevOps: AzureDevOpsClient;
+  /** App-level GitHub calls (GP-193); defaults to the real client. */
+  githubApp?: GitHubAppClient;
+  /** What this deployment configured (apps, OAuth clients). Default: nothing. */
+  config?: IntegrationsConfig;
 };
 
 export interface ProviderRegistry {
@@ -43,8 +52,13 @@ export interface ProviderRegistry {
 }
 
 export function createProviderRegistry(clients: ProviderClients): ProviderRegistry {
+  const config = clients.config ?? NO_INTEGRATIONS_CONFIG;
   const providers: IntegrationProvider[] = [
-    createGitHubProvider(clients.github),
+    createGitHubProvider(
+      clients.github,
+      config,
+      clients.githubApp ?? realGitHubAppClient,
+    ),
     createGitLabProvider(clients.gitlab),
     createAzureDevOpsProvider(clients.azureDevOps),
     createGenericProvider(),

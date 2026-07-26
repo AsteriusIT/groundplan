@@ -29,6 +29,77 @@ export type IacType = "terraform" | "kubernetes";
  */
 export type CredentialMode = "pat" | "oauth2" | "installation_app";
 
+/** What a provider can do (GP-192). The UI reads it; it never assumes it. */
+export type IntegrationCapability =
+  | "repo:read"
+  | "pr:comment"
+  | "check:publish"
+  | "ref:events";
+
+/**
+ * One provider as the backend registry describes it (GP-193). `connectableModes`
+ * is the honest per-instance answer: empty means this deployment configured no
+ * app or OAuth client for it, so only a PAT is available.
+ */
+export interface ProviderCatalogEntry {
+  id: Provider;
+  label: string;
+  capabilities: IntegrationCapability[];
+  credentialModes: CredentialMode[];
+  connectableModes: CredentialMode[];
+}
+
+/** A connection's health (GP-192). `reconnect_required` needs a human. */
+export type ConnectionStatusValue = "unverified" | "ok" | "reconnect_required";
+
+/** An org-level provider connection. No secret is ever part of this shape. */
+export interface ProviderConnection {
+  id: string;
+  organizationId: string;
+  provider: Provider;
+  mode: CredentialMode;
+  name: string;
+  config: {
+    installationId?: number;
+    account?: string | null;
+    instanceUrl?: string | null;
+    cloudId?: string | null;
+    scope?: string | null;
+  };
+  status: ConnectionStatusValue;
+  lastError: string | null;
+  createdAt: string;
+}
+
+export interface StartConnectionInput {
+  provider: Provider;
+  mode: CredentialMode;
+}
+
+export interface StartConnectionResult {
+  /** Send the browser here; it comes back to `/integrations/callback`. */
+  authorizeUrl: string;
+  redirectUri: string;
+}
+
+export interface CompleteConnectionInput {
+  /** The opaque state the provider echoed back. */
+  state: string;
+  /** The provider's callback query, verbatim. */
+  params: Record<string, string>;
+}
+
+/** Which repositories a revocation would degrade (GP-198). */
+export interface ConnectionImpact {
+  repositories: { id: string; url: string }[];
+}
+
+export interface RepositoryCredentialResult {
+  id: string;
+  credentialId: string | null;
+  authMode: CredentialMode | null;
+}
+
 export interface Repository {
   id: string;
   projectId: string;

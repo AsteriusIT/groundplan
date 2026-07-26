@@ -11,6 +11,22 @@ function readInt(value: string | undefined, fallback: number): number {
   return Number.isNaN(parsed) ? fallback : parsed;
 }
 
+/**
+ * Read a PEM private key that may have been base64-encoded to fit one env line
+ * (which is how it survives most secret stores and `docker run -e`). A value
+ * already carrying a PEM header is passed through untouched.
+ */
+function readPem(value: string | undefined): string {
+  const raw = (value ?? "").trim();
+  if (raw === "" || raw.includes("-----BEGIN")) return raw;
+  try {
+    const decoded = Buffer.from(raw, "base64").toString("utf8");
+    return decoded.includes("-----BEGIN") ? decoded : raw;
+  } catch {
+    return raw;
+  }
+}
+
 /** Default local Postgres, matching docker-compose.yml. */
 const DEFAULT_DATABASE_URL =
   "postgres://groundplan:groundplan@localhost:5432/groundplan";
@@ -80,6 +96,21 @@ export type AppEnv = {
    * which is what tests do, so they can drive a tick by hand with no clock.
    */
   refPollIntervalMs: number;
+  /**
+   * GitHub App (GP-193). **The app id + private key together are the feature
+   * flag**, the `AI_API_KEY` posture: without them the provider offers `pat`
+   * only, the install route 404s and the UI shows the App as "not configured on
+   * this instance". No dev default — an app is a registration somebody made.
+   *
+   * The private key is the PEM GitHub hands out, optionally base64-encoded so it
+   * survives a single-line env var.
+   */
+  githubAppId: string;
+  githubAppPrivateKey: string;
+  /** The app's URL slug, for the `github.com/apps/{slug}/installations/new` link. */
+  githubAppSlug: string;
+  /** Shared secret GitHub signs its webhook deliveries with (GP-194). */
+  githubAppWebhookSecret: string;
 };
 
 /** Sensible default model for the AI layer; override with `AI_MODEL`. */
@@ -108,5 +139,9 @@ export function loadEnv(): AppEnv {
     aiApiKey: process.env.AI_API_KEY ?? "",
     aiModel: process.env.AI_MODEL ?? DEFAULT_AI_MODEL,
     refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),
+    githubAppId: process.env.GITHUB_APP_ID ?? "",
+    githubAppPrivateKey: readPem(process.env.GITHUB_APP_PRIVATE_KEY),
+    githubAppSlug: process.env.GITHUB_APP_SLUG ?? "",
+    githubAppWebhookSecret: process.env.GITHUB_APP_WEBHOOK_SECRET ?? "",
   };
 }

@@ -30,6 +30,12 @@ x-backend-env: &backend-env
   # AI layer (GP-62) — optional. Unset AI_API_KEY = the AI layer stays off.
   AI_API_KEY: ${AI_API_KEY:-}
   AI_MODEL: ${AI_MODEL:-claude-opus-4-8}
+  # GitHub App (GP-193) — optional. The id + private key together are the flag:
+  # without them GitHub repositories authenticate with a PAT, as before.
+  GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+  GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+  GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+  GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
   # Orgs (GP-112): single-org unless explicitly opted out (SINGLE_ORG=false
   # enables SaaS multi-org mode — org switcher, invites, onboarding).
   SINGLE_ORG: ${SINGLE_ORG:-true}

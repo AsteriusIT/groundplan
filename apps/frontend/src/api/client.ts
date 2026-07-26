@@ -65,6 +65,13 @@ import type {
   CreateIntegrationInput,
   UpdateIntegrationInput,
   IntegrationVerifyResult,
+  CompleteConnectionInput,
+  ConnectionImpact,
+  ProviderCatalogEntry,
+  ProviderConnection,
+  RepositoryCredentialResult,
+  StartConnectionInput,
+  StartConnectionResult,
 } from "./types";
 
 /** API origin from runtime config (`""` = same-origin). Read lazily so the
@@ -364,6 +371,60 @@ export function verifyIntegration(id: string): Promise<IntegrationVerifyResult> 
 /** Delete an org integration; the server answers 409 if a repo still uses it. */
 export function deleteIntegration(id: string): Promise<void> {
   return orgRequest<void>(`/integrations/${encode(id)}`, { method: "DELETE" });
+}
+
+// --- Provider connections (GP-193..GP-198) -----------------------------------
+
+/**
+ * What this instance can connect to, generated from the backend registry — the
+ * UI hardcodes no provider, so a new adapter appears here on its own.
+ */
+export function listProviderCatalog(): Promise<ProviderCatalogEntry[]> {
+  return orgRequest<ProviderCatalogEntry[]>(`/connections/providers`);
+}
+
+export function listConnections(): Promise<ProviderConnection[]> {
+  return orgRequest<ProviderConnection[]>(`/connections`);
+}
+
+/** Begin a connection; send the browser to the URL this returns. */
+export function startConnection(
+  input: StartConnectionInput,
+): Promise<StartConnectionResult> {
+  return orgRequest<StartConnectionResult>(`/connections/start`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** Finish a connection from the provider's callback query. */
+export function completeConnection(
+  input: CompleteConnectionInput,
+): Promise<ProviderConnection> {
+  return orgRequest<ProviderConnection>(`/connections/complete`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** Which repositories a revocation would degrade — shown before confirming. */
+export function connectionImpact(id: string): Promise<ConnectionImpact> {
+  return orgRequest<ConnectionImpact>(`/connections/${encode(id)}/impact`);
+}
+
+export function revokeConnection(id: string): Promise<void> {
+  return orgRequest<void>(`/connections/${encode(id)}`, { method: "DELETE" });
+}
+
+/** Point a repository at an org connection, or back at its own PAT (`null`). */
+export function setRepositoryCredential(
+  repositoryId: string,
+  credentialId: string | null,
+): Promise<RepositoryCredentialResult> {
+  return orgRequest<RepositoryCredentialResult>(
+    `/repositories/${encode(repositoryId)}/credential`,
+    { method: "PUT", body: { credentialId } },
+  );
 }
 
 // --- Confluence export (GP-179..GP-183) --------------------------------------
