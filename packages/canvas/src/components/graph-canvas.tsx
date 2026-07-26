@@ -360,6 +360,7 @@ export function GraphCanvas({
   onExpandGroup,
   highlightIds,
   lint,
+  findingsLabel,
   tour,
 }: Readonly<{
   graph: Graph;
@@ -428,6 +429,12 @@ export function GraphCanvas({
    * "Best practices" section. Absent = the canvas behaves exactly as before.
    */
   lint?: ReadonlyMap<string, LintFinding[]>;
+  /**
+   * What those findings are called here. The badge mechanic is shared: the
+   * studio calls them best practices, the policy engine calls them violations
+   * (GP-202), and the canvas does not care which — it only draws them.
+   */
+  findingsLabel?: string;
   /**
    * GP-79: the tour stop currently being narrated, if one is. The canvas is what a
    * tour *does* — it flies the camera to the stop's anchors and pushes everything
@@ -829,6 +836,7 @@ export function GraphCanvas({
               : undefined,
           // GP-142: the badge wears the node's worst finding.
           lintSeverity: worstLintSeverity(lint?.get(node.id)),
+          ...(findingsLabel ? { findingsLabel } : {}),
         },
       };
     });
@@ -849,6 +857,7 @@ export function GraphCanvas({
     chipToAnchor,
     selectChip,
     lint,
+    findingsLabel,
   ]);
   const flowEdges = useMemo(
     () => [...elements.edges, ...annEdges],
@@ -1326,6 +1335,7 @@ export function GraphCanvas({
           onSelect={flyTo}
           showChange={variant === "plan"}
           lintFindings={lint?.get(selected.id)}
+          {...(findingsLabel ? { findingsLabel } : {})}
           footer={
             annotations !== undefined && (annotate || selectedNotes.length > 0) ? (
               <NotePanel

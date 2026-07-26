@@ -288,6 +288,13 @@
       "when": 1785085327999,
       "tag": "0040_cuddly_apocalypse",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785085829532,
+      "tag": "0041_lovely_gamma_corps",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ChevronLeft, GitPullRequest, TriangleAlert } from "lucide-react";
+import { ChevronLeft, GitPullRequest, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import {
   ApiError,
@@ -30,7 +30,10 @@ import { TourLauncher } from "@/components/tour-launcher";
 import { TourRail } from "@/components/tour-rail";
 import { ViewSwitcher, useGraphView, viewsFor } from "@/components/view-switcher";
 import { WarningsNotice } from "@/components/warnings-notice";
+import { PolicyPanel } from "@/components/policy-panel";
 import { networkProjection } from "@/lib/graph-layout";
+import { findingsByNode, STATUS_CLASS, STATUS_LABEL } from "@/lib/policy";
+import { useSnapshotPolicy } from "@/lib/use-policy";
 import { useTourStyle } from "@/tour/tour-style";
 import { useTourPlayer } from "@/tour/use-tour";
 
@@ -66,12 +69,26 @@ export function PullDetailPage() {
   // GP-49: a node to select on the canvas, set when jumping from the IAM view.
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const { focus } = useFocusMode();
+  // GP-202: the policy verdict on this plan, and whether its rail is open. The
+  // rail is opt-in — the diagram is what this page is for — but the header badge
+  // is not, because a failing check nobody opened is a check nobody ran.
+  const [policyOpen, setPolicyOpen] = useState(false);
 
   // What this pull request is a review *of* decides which lenses it can be seen
   // through, and whether the AI layer has anything grounded to say about it
   // (GP-105): a Kubernetes snapshot gets the diagram, and only the diagram.
   const kubernetes =
     graph.status === "ready" && isKubernetesSource(graph.snapshot.source);
+
+  const policy = useSnapshotPolicy(
+    graph.status === "ready" ? graph.snapshot.id : null,
+  );
+  // Only the violations this change introduced wear a badge on the canvas: the
+  // estate's existing debt is real, and it is not what this review is about.
+  const policyFindings = useMemo(
+    () => findingsByNode(policy?.delta?.added ?? policy?.report.violations ?? []),
+    [policy],
+  );
 
   // Network view (GP-44): project the ready snapshot when ?view=network.
   const { view, setView } = useGraphView(viewsFor("plan", kubernetes));
@@ -206,6 +223,8 @@ export function PullDetailPage() {
           stacks={network?.stacks}
           chips={network?.chips}
           focusNodeId={focusNodeId}
+          lint={policyFindings}
+          findingsLabel="Policy violation"
           tour={tourChrome}
         />
       );
@@ -251,6 +270,25 @@ export function PullDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* GP-202: the verdict on what this change *introduces*. Always
+                  visible when rules ran — a check you have to go looking for is
+                  a check that gets skipped — and it opens the rail. */}
+              {policy && policy.delta && (
+                <button
+                  type="button"
+                  onClick={() => setPolicyOpen((open) => !open)}
+                  aria-pressed={policyOpen}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] leading-none font-medium",
+                    STATUS_CLASS[policy.delta.status],
+                  )}
+                >
+                  <ShieldCheck className="size-3.5" />
+                  Policy: {STATUS_LABEL[policy.delta.status]}
+                  {policy.delta.added.length > 0 &&
+                    ` · ${policy.delta.added.length} new`}
+                </button>
+              )}
               {/* GP-79. Leads the header, as it does on the docs page: on a change
                   you have not read yet, this is the thing to press. */}
               {graph.status === "ready" && !kubernetes && (
@@ -305,6 +343,20 @@ export function PullDetailPage() {
         <div className="relative min-h-0 flex-1">
           {canvasContent}
         </div>
+
+        {/* GP-202: the compliance rail. Clicking a violation flies the camera to
+            its resource, the same move the IAM table makes. */}
+        {policy && policyOpen && !focus && (
+          <PolicyPanel
+            report={policy.report}
+            delta={policy.delta}
+            onSelectAddress={(address) => {
+              setFocusNodeId(address);
+              setView("infra");
+            }}
+            onClose={() => setPolicyOpen(false)}
+          />
+        )}
 
         {/* While a tour runs in guide style, it *is* the rail. The AI summary and
             the change summary are not lost — they are what the rail goes back to

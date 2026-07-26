@@ -159,6 +159,7 @@ export function NodeCard({
   highlightedChipId,
   onSelectChip,
   lintSeverity,
+  findingsLabel = "Best-practices finding",
 }: Readonly<{
   graphNode: GraphNode;
   selected?: boolean;
@@ -201,6 +202,8 @@ export function NodeCard({
   onSelectChip?: (node: GraphNode) => void;
   /** GP-142: worst best-practices finding on this node (studio lint badge). */
   lintSeverity?: LintSeverity;
+  /** What that badge means here — best practices, or a policy violation (GP-202). */
+  findingsLabel?: string;
 }>) {
   const status = statusOf(graphNode.change); // create | update | delete | null
   const impacted = graphNode.impacted === true;
@@ -405,8 +408,8 @@ export function NodeCard({
       {lintSeverity && (
         <span
           role="img"
-          aria-label={`Best-practices finding (${lintSeverity})`}
-          title={`Best-practices finding (${lintSeverity})`}
+          aria-label={`${findingsLabel} (${lintSeverity})`}
+          title={`${findingsLabel} (${lintSeverity})`}
           className={cn(
             "absolute -bottom-2 -left-2 inline-grid size-4 place-items-center rounded-full text-white ring-2 ring-white",
             LINT_BADGE_CLASS[lintSeverity],
@@ -455,6 +458,7 @@ export const ResourceFlowNode = memo(function ResourceFlowNode({
         highlightedChipId={data.highlightedChipId as string | undefined}
         onSelectChip={data.onSelectChip as ((node: GraphNode) => void) | undefined}
         lintSeverity={data.lintSeverity}
+        findingsLabel={data.findingsLabel}
       />
       <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>

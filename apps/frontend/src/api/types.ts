@@ -921,3 +921,63 @@ export interface RepositoryPolicyConfig {
   rules: PolicyConfig;
   catalog: PolicyCatalogEntry[];
 }
+
+/** One thing a rule found, anchored to a resource address (a node id). */
+export interface PolicyViolation {
+  ruleId: string;
+  severity: PolicySeverity;
+  address: string;
+  message: string;
+  /** What to do about it — always present; a finding with no remedy is noise. */
+  hint: string;
+  /** GP-204: set when a waiver suspends this violation. Never hidden, just marked. */
+  waiver?: { id: string; reason: string; expiresAt: string | null };
+}
+
+/** How one rule was configured for the evaluation that produced a report. */
+export interface EffectiveRule {
+  ruleId: string;
+  enabled: boolean;
+  severity: PolicySeverity;
+  applicable: boolean;
+  params?: Record<string, unknown>;
+}
+
+/** The evaluation of one snapshot: what was checked, and what it found. */
+export interface PolicyReport {
+  version: 1 | 2;
+  target: PolicyTarget;
+  status: PolicyStatus;
+  counts: {
+    error: number;
+    warning: number;
+    info: number;
+    waived: number;
+    total: number;
+  };
+  violations: PolicyViolation[];
+  /** Every catalogue rule with the configuration it ran under — including the
+   * ones that were off or not applicable, so "not checked" stays visible. */
+  rules: EffectiveRule[];
+}
+
+/** How a pull request's violations compare with the documentation of main. */
+export interface PolicyDelta {
+  version: 1;
+  added: PolicyViolation[];
+  resolved: PolicyViolation[];
+  preexisting: PolicyViolation[];
+  /** The verdict on the **new** violations only. Informative in v1. */
+  status: PolicyStatus;
+  /** Null when there was no documentation of main to compare against. */
+  baseSnapshotId: string | null;
+}
+
+/** What `GET /snapshots/:id/policy` answers with. */
+export interface SnapshotPolicy {
+  snapshotId: string;
+  report: PolicyReport;
+  /** Null for a report *of* main — it has nothing to be compared against. */
+  delta: PolicyDelta | null;
+  summaryMd: string;
+}

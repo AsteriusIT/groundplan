@@ -12,8 +12,10 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 
 import { repositories, type GraphSnapshotRow } from "../db/schema.js";
+import { summarizePolicyDelta } from "../graph/policy/diff.js";
 import { repositoryAccessToken } from "../integrations/credentials.js";
 import { CredentialRevokedError } from "../integrations/types.js";
+import { getPolicyReport } from "./policy.js";
 import { repoLabel } from "./snapshot-export.js";
 import { ensureSnapshotShareLink } from "./share-links.js";
 
@@ -27,6 +29,12 @@ export interface CommentBodyInput {
   ref: string;
   commitSha: string;
   summaryMd: string;
+  /**
+   * The deterministic Policy section (GP-202), or null when the engine had
+   * nothing to say. Placed under the change summary: what the change *is* comes
+   * before what is wrong with it.
+   */
+  policyMd?: string | null;
   /** Public image URL (PNG) to embed, or null for a stats-only comment. */
   imageUrl: string | null;
   /** Public "view interactive diagram" link, or null. */
@@ -43,6 +51,9 @@ export function buildCommentBody(input: CommentBodyInput): string {
     "",
     input.summaryMd,
   ];
+  if (input.policyMd) {
+    lines.push("", "---", "", input.policyMd);
+  }
   if (input.imageUrl) {
     lines.push("", `![Infrastructure change diagram](${input.imageUrl})`);
   }
@@ -124,11 +135,19 @@ export async function postPrComment(
     viewUrl = `${app.publicBaseUrl}/share/${shareToken}`;
   }
 
+  // GP-202: the policy verdict, if this snapshot has been judged. Read rather
+  // than computed — the comment and the review view must say the same thing,
+  // and only the stored verdict guarantees that once main has moved on.
+  const stored = await getPolicyReport(app.db, snapshot.id);
+  const policyMd =
+    stored?.delta ? summarizePolicyDelta(stored.delta, stored.report) : null;
+
   const body = buildCommentBody({
     repoLabel: repoLabel(repo.url),
     ref: snapshot.ref,
     commitSha: snapshot.commitSha,
     summaryMd: snapshot.summaryMd,
+    policyMd,
     imageUrl,
     viewUrl,
   });

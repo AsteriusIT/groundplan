@@ -18,10 +18,19 @@ import {
   type GraphSnapshotRow,
   type PolicyReportRow,
 } from "../db/schema.js";
+import { diffPolicyReports, type PolicyDelta } from "../graph/policy/diff.js";
 import { evaluatePolicy } from "../graph/policy/engine.js";
 import { summarizePolicyReport } from "../graph/policy/summarize.js";
-import type { PolicyConfig, PolicyTarget } from "../graph/policy/types.js";
-import { DOCS_SOURCES, type SnapshotSource } from "./graph-snapshots.js";
+import type {
+  PolicyConfig,
+  PolicyReport,
+  PolicyTarget,
+} from "../graph/policy/types.js";
+import {
+  DOCS_SOURCES,
+  PR_SOURCES,
+  type SnapshotSource,
+} from "./graph-snapshots.js";
 import { resolvePolicyConfig } from "./policy-config.js";
 
 /**
@@ -38,8 +47,21 @@ export type EvaluateSnapshotOptions = {
 };
 
 /**
+ * Is this snapshot a review of a change, rather than documentation of a branch?
+ * A pull-request snapshot is the one that gets compared with main (GP-202).
+ */
+function isPullRequestSnapshot(snapshot: GraphSnapshotRow): boolean {
+  return PR_SOURCES.includes(snapshot.source);
+}
+
+/**
  * Evaluate a snapshot and store the verdict beside it, replacing any previous
  * verdict for that snapshot. Returns the stored row.
+ *
+ * A pull-request snapshot is also compared with the documentation of main as it
+ * stands now, and the comparison is stored with it — so the comment posted to
+ * the provider and the panel in the review view say the same thing even after
+ * main has moved on.
  */
 export async function evaluateSnapshotPolicy(
   db: NodePgDatabase,
@@ -52,21 +74,77 @@ export async function evaluateSnapshotPolicy(
   });
   const summaryMd = summarizePolicyReport(report);
 
+  let delta: PolicyDelta | null = null;
+  if (isPullRequestSnapshot(snapshot) && snapshot.repositoryId) {
+    delta = diffPolicyReports(report, await baselineFor(db, snapshot.repositoryId));
+  }
+
   const [row] = await db
     .insert(policyReports)
     .values({
       snapshotId: snapshot.id,
       repositoryId: snapshot.repositoryId,
       report,
+      delta,
       summaryMd,
     })
     .onConflictDoUpdate({
       target: policyReports.snapshotId,
-      set: { report, summaryMd, updatedAt: new Date() },
+      set: { report, delta, summaryMd, updatedAt: new Date() },
     })
     .returning();
 
   return row as PolicyReportRow;
+}
+
+/**
+ * The report of the repository's current documentation of main, or null when
+ * there is none to compare against. A repository whose main has never been
+ * documented — its very first pull request, a chart we cannot read — compares
+ * against nothing, and the delta records that rather than pretending to a clean
+ * baseline (the same posture `changesFromBase` takes, GP-103).
+ */
+async function baselineFor(
+  db: NodePgDatabase,
+  repositoryId: string,
+): Promise<{ report: PolicyReport; snapshotId: string } | null> {
+  const docs = await latestDocsSnapshot(db, repositoryId);
+  if (!docs) return null;
+  const stored = await getPolicyReport(db, docs.id);
+  if (!stored) return null;
+  return { report: stored.report, snapshotId: docs.id };
+}
+
+/**
+ * The verdict for a snapshot, computing and storing it if it was never judged.
+ * Old snapshots predate the engine, and a reader who opens one should get an
+ * answer rather than an absence — the evaluation is deterministic, so producing
+ * it now yields exactly what producing it then would have.
+ */
+export async function ensurePolicyReport(
+  db: NodePgDatabase,
+  snapshot: GraphSnapshotRow,
+): Promise<PolicyReportRow> {
+  const existing = await getPolicyReport(db, snapshot.id);
+  if (existing) return existing;
+  const config = snapshot.repositoryId
+    ? await resolvePolicyConfig(db, snapshot.repositoryId)
+    : {};
+  return evaluateSnapshotPolicy(db, snapshot, { config });
+}
+
+/**
+ * Judge a freshly-stored snapshot under its repository's configuration. The one
+ * call every producer makes; it swallows nothing, so a caller that must not fail
+ * (the CI webhook) runs it in the background.
+ */
+export async function evaluateRepositorySnapshot(
+  db: NodePgDatabase,
+  snapshot: GraphSnapshotRow,
+): Promise<PolicyReportRow | null> {
+  if (!snapshot.repositoryId) return null;
+  const config = await resolvePolicyConfig(db, snapshot.repositoryId);
+  return evaluateSnapshotPolicy(db, snapshot, { config });
 }
 
 /** The stored verdict for a snapshot, or null when it was never evaluated. */

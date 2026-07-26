@@ -70,6 +70,7 @@ export function NodeDetailsPanel({
   onSelect,
   showChange = true,
   lintFindings,
+  findingsLabel = "Best practices",
   footer,
 }: Readonly<{
   graph: Graph;
@@ -80,6 +81,12 @@ export function NodeDetailsPanel({
   showChange?: boolean;
   /** GP-142: the studio lint findings anchored to this node, if any. */
   lintFindings?: LintFinding[];
+  /**
+   * What those findings *are*, in the reader's language. The mechanic is shared
+   * (GP-200): the same badge and the same section carry the studio's best
+   * practices and the policy engine's violations, and only the word differs.
+   */
+  findingsLabel?: string;
   /** Optional action bar pinned below the scrolling body (e.g. cross-view jump). */
   footer?: ReactNode;
 }>) {
@@ -261,7 +268,7 @@ export function NodeDetailsPanel({
         {/* GP-142: what the deterministic lint pass found here — the node
             badge's long form, with the fix in hand. */}
         {lintFindings && lintFindings.length > 0 && (
-          <SidePanelSection label="Best practices">
+          <SidePanelSection label={findingsLabel}>
             <ul className="space-y-2">
               {lintFindings.map((finding) => (
                 <li

@@ -20,6 +20,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { Graph, GraphStats } from "../graph/graph.js";
+import type { PolicyDelta } from "../graph/policy/diff.js";
 import type { PolicyConfig, PolicyReport } from "../graph/policy/types.js";
 
 export const repositoryProvider = pgEnum("repository_provider", [
@@ -1266,6 +1267,15 @@ export const policyReports = pgTable(
       onDelete: "cascade",
     }),
     report: jsonb("report").$type<PolicyReport>().notNull(),
+    /**
+     * How this snapshot's violations compare with the documentation of main at
+     * the moment it was judged (GP-202) — new, resolved, pre-existing. Null for
+     * a report *of* main, which has nothing to be compared against.
+     *
+     * Stored rather than derived on read: the pull-request comment and the
+     * review view must say the same thing, and main moves under both of them.
+     */
+    delta: jsonb("delta").$type<PolicyDelta>(),
     /** Deterministic Markdown of the report, rendered on write (GP-200). */
     summaryMd: text("summary_md").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })

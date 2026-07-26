@@ -157,6 +157,8 @@ export type GraphNodeData = {
   chips?: GraphNode[];
   /** GP-142: worst lint severity on this node — drives the badge. */
   lintSeverity?: LintSeverity;
+  /** What that badge means here: best practices, or a policy violation (GP-202). */
+  findingsLabel?: string;
   [key: string]: unknown;
 };
 

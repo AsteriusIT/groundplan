@@ -27,6 +27,8 @@ import {
   validatePolicyConfig,
 } from "../services/policy-config.js";
 import {
+  ensurePolicyReport,
+  loadSnapshot,
   organizationRepositoryIds,
   reevaluateDocsPolicy,
   targetForSource,
@@ -71,6 +73,33 @@ const configBodySchema = {
 };
 
 export const policyRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * The policy verdict on one snapshot (GP-202/GP-203): the report, and — for a
+   * pull request — how it compares with the documentation of main. Judged on
+   * demand if it never was: the evaluation is deterministic, so producing it now
+   * yields what producing it then would have.
+   */
+  app.get(
+    "/snapshots/:id/policy",
+    { schema: { params: idParamsSchema } },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const snapshot = await loadSnapshot(app.db, id);
+      if (!snapshot) {
+        return reply
+          .code(404)
+          .send({ error: "Not Found", message: "snapshot not found" });
+      }
+      const row = await ensurePolicyReport(app.db, snapshot);
+      return {
+        snapshotId: row.snapshotId,
+        report: row.report,
+        delta: row.delta,
+        summaryMd: row.summaryMd,
+      };
+    },
+  );
+
   /** The organization's configuration, as the whole catalogue. */
   app.get("/policy-config", async (request) => {
     const orgId = orgIdOf(request);

@@ -40,6 +40,7 @@ import type {
   PolicyConfig,
   RepositoryPolicyConfig,
   Role,
+  SnapshotPolicy,
   UpdatePlaygroundDraftInput,
   UpdateClusterInput,
   Project,
@@ -992,6 +993,15 @@ export function deletePlaygroundDraft(id: string): Promise<void> {
   return request<void>(`/playground/drafts/${encode(id)}`, {
     method: "DELETE",
   });
+}
+
+/**
+ * The policy verdict on one snapshot (GP-202/GP-203): the report, and — for a
+ * pull request — how it compares with the documentation of main. Judged on
+ * demand server-side if it never was; the evaluation is deterministic.
+ */
+export function getSnapshotPolicy(snapshotId: string): Promise<SnapshotPolicy> {
+  return orgRequest<SnapshotPolicy>(`/snapshots/${encode(snapshotId)}/policy`);
 }
 
 // --- Policy configuration (GP-201) ------------------------------------------

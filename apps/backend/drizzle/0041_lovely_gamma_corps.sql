@@ -1,0 +1,1 @@
+ALTER TABLE "policy_reports" ADD COLUMN "delta" jsonb;
