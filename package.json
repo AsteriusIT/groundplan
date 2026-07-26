@@ -14,6 +14,7 @@
     "build": "pnpm -r run build",
     "start": "pnpm --filter @groundplan/backend run start",
     "keycloak:build": "pnpm --filter @groundplan/keycloak-theme run build-keycloak-theme",
+    "seed:examples": "pnpm --filter @groundplan/backend run seed:examples",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "clean": "pnpm -r run clean"

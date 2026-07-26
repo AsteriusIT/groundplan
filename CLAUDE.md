@@ -108,6 +108,9 @@ groundplan/
 │                       #   deployment.md, install-kubernetes.md, drawio-export.md,
 │                       #   vscode-publishing.md, azurerm-connection-catalog.{md,json},
 │                       #   adr/, superpowers/{specs,plans}/
+├── examples/terraform/ # 8 hand-verified example stacks (azure/aws/gcp, network & IAM
+│                       #   lenses, policies pass/fail twins, monorepo, parser edge cases)
+│                       #   — `pnpm seed:examples` attaches them locally over file://
 ├── docker-compose.yml  # local Postgres + (auth profile) Keycloak with theme jar
 ├── docker-compose.prod.yml  # full self-host stack behind Caddy
 └── package.json        # workspace root scripts (pnpm v10, Node >= 22)
@@ -124,6 +127,7 @@ Run from the repo root. Package manager is **pnpm** (v10). Node **>= 22**
 | `pnpm install` / `pnpm dev` / `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm clean` | Workspace-wide |
 | `pnpm dev:backend` / `pnpm dev:frontend` | One app (ports 3000 / 5173) |
 | `pnpm keycloak:build` | Build the Keycloak theme provider jar |
+| `pnpm seed:examples` | Attach `examples/terraform/*` to the local instance (dev only) |
 | `pnpm --filter @groundplan/backend test\|migrate\|db:generate` | Backend tests / migrations |
 | `pnpm --filter @groundplan/backend drawio:icons\|drawio:library` | Regenerate draw.io assets (`:check` variants gate CI) |
 | `pnpm --filter groundplan-vscode package` | Build the `.vsix` |

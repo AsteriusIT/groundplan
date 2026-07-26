@@ -19,7 +19,45 @@ the code and guessing.
 | [`multi-module-monorepo`](multi-module-monorepo) | azurerm | Two stacks, three modules, one nested inside another — the example for `terraform_path` |
 | [`parser-edge-cases`](parser-edge-cases) | azurerm | Diagnostics: a file that does not parse, dangling references, heredocs, `dynamic`, `count` vs `for_each` |
 
-## Loading one
+## Seeding all of them into your local instance
+
+```bash
+docker compose up -d          # Postgres
+pnpm seed:examples            # publish, attach, document
+```
+
+Each example is published as a real bare git repository under `.local/example-repos/`
+and attached to a project in the `default` organization over a `file://` remote.
+The app then clones and parses it exactly as it would clone GitHub — no network,
+no credentials, no shortcut into the database — so what you see is what the
+product produces. Expect:
+
+```
+✔ azure-hub-spoke — 41 nodes, 71 edges, policy failing
+✔ azure-iam — 16 nodes, 20 edges, policy passing
+✔ azure-policy-clean — 19 nodes, 28 edges, policy passing
+✔ azure-policy-violations — 20 nodes, 28 edges, policy failing
+✔ aws-three-tier — 42 nodes, 64 edges, policy passing
+✔ gcp-landing-zone — 40 nodes, 49 edges, policy passing
+✔ multi-module-monorepo @ stacks/platform — 16 nodes, 25 edges, policy passing
+✔ multi-module-monorepo @ stacks/sandbox — 7 nodes, 10 edges, policy passing
+✔ parser-edge-cases — 12 nodes, 15 edges, policy passing, 1 warning(s)
+```
+
+Notes:
+
+- **Idempotent.** Re-running reuses the repositories, projects and snapshots it
+  already made — commits are stamped with a fixed identity and date, so
+  unchanged content keeps the same sha. `--force` rebuilds them.
+- **Log in once first**, so there is a user to make a member of the organization.
+  With `SINGLE_ORG=true` (the default) a later first login joins automatically.
+- The seeder adds every existing user to the target org, so the examples are
+  visible in either deployment mode. `--org <slug>` sends them somewhere else.
+- `--only azure-iam,aws-three-tier` seeds a subset; `--help` lists everything.
+- Because the repositories are bare, you can clone one, branch, push, and drive
+  the pull-request flow against it locally.
+
+## Loading one by hand
 
 **Playground** (fastest, no Git). Paste the files at `/playground` — it accepts
 `.tf`, `.tfvars`, `.yaml` and `.yml`, up to 50 files and 1 MB total. Every

@@ -31,6 +31,10 @@ pnpm-debug.log*
 # Test / coverage
 coverage/
 
+# Local-only scratch: the git repositories `pnpm seed:examples` publishes the
+# examples into, so the app can clone them over file://.
+.local/
+
 # superpowers brainstorming companion
 .superpowers/
 
