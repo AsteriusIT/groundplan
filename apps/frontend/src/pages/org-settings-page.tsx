@@ -12,7 +12,6 @@ import {
   IntegrationsCard,
   InvitesCard,
   MembersCard,
-  PolicyCard,
   SettingsRail,
   SettingsSections,
   type SectionGroup,
@@ -89,7 +88,6 @@ export function OrgSettingsPage() {
     {
       label: "Workspace",
       sections: [
-        { id: "policy", label: "Policy", element: <PolicyCard /> },
         {
           id: "ci-token",
           label: "CI ingestion token",

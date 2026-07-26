@@ -145,7 +145,6 @@ it("shows a member the roster and integrations, but no invites or danger zone", 
     "Members",
     "Connections",
     "Integrations",
-    "Policy",
     "CI ingestion token",
     "AI",
   ]);
@@ -162,7 +161,6 @@ it("adds invitations for an admin, still no danger zone", () => {
     "Connections",
     "Integrations",
     "Invitations",
-    "Policy",
     "CI ingestion token",
     "AI",
   ]);
@@ -178,7 +176,6 @@ it("adds invitations and the danger zone for an owner", () => {
     "Connections",
     "Integrations",
     "Invitations",
-    "Policy",
     "CI ingestion token",
     "AI",
     "Danger zone",
@@ -194,7 +191,6 @@ it("works in single-org mode: sections render, invites/danger hidden", () => {
     "Members",
     "Connections",
     "Integrations",
-    "Policy",
     "CI ingestion token",
     "AI",
   ]);

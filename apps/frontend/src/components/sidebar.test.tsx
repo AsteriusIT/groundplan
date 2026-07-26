@@ -73,10 +73,19 @@ it("puts Clusters beside Projects — a cluster is not inside one", () => {
   expect(clusters).toHaveAttribute("href", "/clusters");
   expect(clusters).toHaveAttribute("aria-current", "page");
 
-  // Settings left NAV for the user-card menu (GP-186): four top-level places.
+  // Settings left NAV for the user-card menu (GP-186); Policies joined it as a
+  // place of its own rather than a settings section (GP-201).
   expect(
     screen.getAllByRole("link").map((a) => a.textContent),
-  ).toEqual(["Dashboard", "Projects", "Clusters", "Playground"]);
+  ).toEqual(["Dashboard", "Projects", "Clusters", "Policies", "Playground"]);
+});
+
+it("gives Policies a place of its own, out of Settings", () => {
+  renderSidebar({}, "/policies");
+
+  const policies = screen.getByRole("link", { name: "Policies" });
+  expect(policies).toHaveAttribute("href", "/policies");
+  expect(policies).toHaveAttribute("aria-current", "page");
 });
 
 it("no longer carries a Settings entry in the primary nav (GP-186)", () => {

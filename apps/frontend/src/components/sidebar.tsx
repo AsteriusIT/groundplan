@@ -1,6 +1,12 @@
 import type { ComponentType } from "react";
 import { NavLink } from "react-router-dom";
-import { Boxes, FlaskConical, LayoutDashboard, Sparkles } from "lucide-react";
+import {
+  Boxes,
+  FlaskConical,
+  LayoutDashboard,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 
 import { useAiStatus } from "@/lib/use-ai-status";
 import { cn } from "@/lib/utils";
@@ -23,11 +29,15 @@ type NavEntry = {
  * review — repositories, their pull requests, the main branch we document. A live
  * cluster is a running thing you read; it has no PR and no commit, and it never
  * belonged under a project (see pages/clusters-page).
+ *
+ * Policies sits with them rather than in Settings: it is the standard the whole
+ * estate is graded against, not a knob for configuring the workspace.
  */
 const NAV: NavEntry[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/projects", label: "Projects", icon: Boxes },
   { to: "/clusters", label: "Clusters", icon: KubernetesMark },
+  { to: "/policies", label: "Policies", icon: ShieldCheck },
   { to: "/playground", label: "Playground", icon: FlaskConical },
 ];
 

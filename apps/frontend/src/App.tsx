@@ -15,6 +15,7 @@ import { OrgLandingPage } from "@/pages/org-landing-page";
 import { IntegrationCallbackPage } from "@/pages/integration-callback-page";
 import { OrgSettingsPage } from "@/pages/org-settings-page";
 import { PlaygroundPage } from "@/pages/playground-page";
+import { PoliciesPage } from "@/pages/policies-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
 import { PullDetailPage } from "@/pages/pull-detail-page";
@@ -125,6 +126,10 @@ function App() {
         <Route path="/clusters" element={<ClustersPage />} />
         <Route path="/clusters/:id" element={<ClusterPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        {/* Policies are a place, not a settings section (GP-201): the standard
+            the estate is graded against, read by people who never open
+            Settings. */}
+        <Route path="/policies" element={<PoliciesPage />} />
         <Route path="/playground" element={<PlaygroundPage />} />
         {/* Personal settings (GP-187): Account + Appearance, every user. */}
         <Route path="/settings" element={<SettingsPage />} />

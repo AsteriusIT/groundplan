@@ -186,7 +186,11 @@ Run from the repo root. Package manager is **pnpm** (v10). Node **>= 22**
   (no `/login` page). New protected pages just render inside the guarded
   layout — don't re-check auth per page.
 - App shell: `AppLayout` sidebar + flat `<Outlet>`; nav is Dashboard /
-  Projects / **Clusters** / Playground / Settings. `.blueprint-grid` paper is
+  Projects / **Clusters** / **Policies** / Playground. Settings left the nav
+  for the user-card menu (GP-186). `/policies` is the rule catalogue — a place,
+  not a settings section: it is the standard the estate is graded against, read
+  by people who never open Settings. Where each repository *stands* is the
+  dashboard's, so compliance keeps one home. `.blueprint-grid` paper is
   opt-in per diagram view. Theme picker lives in Settings **only**.
 - Renderer principles: diff-only colour (structure stays neutral), per-view
   camera (`planCamera`), view pills ≠ tool toggles, legend owns bottom-left,
