@@ -50,6 +50,7 @@ import { orgScopePlugin } from "./plugins/org-scope.js";
 // Global (not org-scoped) route plugins.
 import { aiStatusRoutes } from "./routes/ai.js";
 import { aiStudioRoutes } from "./routes/ai-studio.js";
+import { gitWebhookRoutes } from "./routes/git-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
@@ -224,6 +225,10 @@ export async function buildApp(
   await app.register(orgRoutes, { prefix: "/api/v1" });
   await app.register(invitationAcceptRoutes, { prefix: "/api/v1" });
   await app.register(ingestionRoutes, { prefix: "/api/v1" });
+  // Provider webhooks (GP-194): auth-exempt like the CI one — a provider has
+  // no bearer token, it proves it knows a secret. Registered in its own scope
+  // so its raw-body parser touches nothing else.
+  await app.register(gitWebhookRoutes, { prefix: "/api/v1" });
   await app.register(settingsRoutes, { prefix: "/api/v1" });
   await app.register(sharePublicRoutes, { prefix: "/api/v1" });
   await app.register(aiStatusRoutes, { prefix: "/api/v1" });

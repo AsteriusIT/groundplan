@@ -15,6 +15,7 @@ import type {
   PullRequestCommenter,
   RepoReader,
 } from "../types.js";
+import { githubRefEvents } from "../webhooks.js";
 import { githubAppConnectFlow, type GitHubAppClient } from "./github-app.js";
 
 /**
@@ -80,6 +81,9 @@ export function createGitHubProvider(
     hosts: ["github.com"],
     repo,
     commenter: createGitHubCommenter(client),
+    // Push/PR deliveries (GP-194). The App provides them natively; a PAT-only
+    // repository can still have a webhook configured by hand.
+    refEvents: githubRefEvents,
     connectFlows: flows,
   });
 }

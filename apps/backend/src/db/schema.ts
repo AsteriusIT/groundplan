@@ -249,12 +249,54 @@ export const repositories = pgTable("repositories", {
   // let a transient network blip overwrite a deliberate verification result.
   lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
   pollError: text("poll_error"),
+  // GP-194: when this repository last delivered a webhook we accepted. It makes
+  // the poller a *safety net* rather than the only source: a repository hearing
+  // from its provider is polled rarely instead of every minute. Null (every
+  // existing row) means nothing changes — the poller stays its only source.
+  webhookSeenAt: timestamp("webhook_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
 
 export type RepositoryRow = typeof repositories.$inferSelect;
+
+/**
+ * One ref event we have already acted on (GP-194) — the deduplication key that
+ * makes "webhook *and* poller" safe. A push arriving twice (the webhook, then
+ * the poller's next tick) inserts once; the second insert conflicts and the
+ * handler stops there.
+ *
+ * The key is what identifies the *fact*, not the delivery: repository + kind +
+ * branch + sha. Two different deliveries describing the same fact are the same
+ * row on purpose — that is the whole point.
+ */
+export const refEventDeliveries = pgTable(
+  "ref_event_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** `push` | `branch_deleted` | `pull_request` — the normalized event kind. */
+    kind: text("kind").notNull(),
+    branch: text("branch").notNull(),
+    sha: text("sha").notNull(),
+    /** Which source got here first: `webhook` or `poller`. Diagnostics only. */
+    source: text("source").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("ref_event_deliveries_fact").on(
+      table.repositoryId,
+      table.kind,
+      table.branch,
+      table.sha,
+    ),
+  ],
+);
 
 export type PublicRepository = {
   id: string;

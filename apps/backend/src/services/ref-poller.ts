@@ -3,9 +3,9 @@ import { and, eq } from "drizzle-orm";
 
 import { remoteRefs, repositories, type RepositoryRow } from "../db/schema.js";
 import { repositoryAccessToken } from "../integrations/credentials.js";
+import type { RefEvent } from "../integrations/types.js";
 import { listRemoteHeads } from "./repo-files.js";
-import { regenerateDocsForSha } from "./repo-docs.js";
-import { closePullRequestsForBranch } from "./pull-requests.js";
+import { handleRefEvent } from "./ref-events.js";
 
 /**
  * The three git facts the poller reports (GP-107). `MainUpdated` is the default
@@ -166,13 +166,39 @@ export async function pollRepository(
 }
 
 /**
+ * How long a webhook delivery keeps a repository "live" (GP-194). Inside this
+ * window the poller is a safety net rather than the source: it still runs, but
+ * rarely, so a lost delivery is caught within the window instead of never.
+ */
+const WEBHOOK_QUIET_MS = 15 * 60 * 1000;
+
+/**
+ * Should this tick skip a repository? Only when its provider is delivering
+ * webhooks *and* we polled it recently — so the very first tick after a quiet
+ * period always runs, and a repository whose webhook silently stopped is back
+ * to full polling within one window.
+ */
+export function shouldSkipPoll(repo: RepositoryRow, nowMs: number): boolean {
+  if (!repo.webhookSeenAt) return false; // no webhooks here — poll as always
+  if (nowMs - repo.webhookSeenAt.getTime() > WEBHOOK_QUIET_MS) return false;
+  const lastPolled = repo.lastPolledAt?.getTime();
+  return lastPolled !== undefined && nowMs - lastPolled < WEBHOOK_QUIET_MS;
+}
+
+/**
  * Poll every repository, sequentially (ADR #7 — no queue, no workers), and
  * dispatch each event to its handler. One repository's failure never stops the
  * others: it is logged and the loop moves on.
+ *
+ * A repository hearing from its provider (GP-194) is polled at the safety-net
+ * cadence instead of every tick — and the events it does find go through the
+ * same deduplicating handler the webhook uses, so nothing is done twice.
  */
 export async function pollAllRepositories(app: FastifyInstance): Promise<void> {
   const repos = await app.db.select().from(repositories);
+  const now = Date.now();
   for (const repo of repos) {
+    if (shouldSkipPoll(repo, now)) continue;
     try {
       const events = await pollRepository(app, repo);
       for (const event of events) await dispatchGitEvent(app, repo, event);
@@ -200,18 +226,24 @@ export async function dispatchGitEvent(
   repo: RepositoryRow,
   event: GitEvent,
 ): Promise<void> {
-  app.log.info(
-    { repositoryId: repo.id, event: event.type, branch: event.branch },
-    "git event",
-  );
-  switch (event.type) {
-    case "MainUpdated":
-      await regenerateDocsForSha(app, repo, event.sha);
-      break;
-    case "BranchUpdated":
-      break;
-    case "BranchDeleted":
-      await closePullRequestsForBranch(app, repo, event.branch);
-      break;
+  // Through the shared handler (GP-194), so a fact the webhook already acted on
+  // is not acted on again when the poller happens to see it too.
+  await handleRefEvent(app, repo, toRefEvent(event), "poller");
+}
+
+/**
+ * The poller's vocabulary in the shared one. `BranchUpdated` maps to a `push`
+ * like `MainUpdated` does — what makes main special is the *handler*, which
+ * compares the branch to the repository's default, not the event name.
+ */
+function toRefEvent(event: GitEvent): RefEvent {
+  if (event.type === "BranchDeleted") {
+    return {
+      kind: "branch_deleted",
+      branch: event.branch,
+      sha: event.sha,
+      remoteUrl: null,
+    };
   }
+  return { kind: "push", branch: event.branch, sha: event.sha, remoteUrl: null };
 }

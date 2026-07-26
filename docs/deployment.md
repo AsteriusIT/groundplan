@@ -182,6 +182,33 @@ PATs, and the Integrations page says the App is not configured on this instance.
 the browser back to. It already is in the compose file (derived from
 `APP_DOMAIN`).
 
+### Provider webhooks (optional, GP-194)
+
+The ref poller (`git ls-remote` every 60s) works everywhere and needs nothing
+inbound — it is the only mechanism a private network install can use, and it
+stays the default. Where the provider *can* reach you, a webhook makes a merge
+regenerate the documentation in seconds instead of within a minute, and the
+poller drops back to a safety-net pass (once every 15 minutes) for that
+repository.
+
+Point the provider at `https://${APP_DOMAIN}/api/v1/webhooks/git/<provider>`:
+
+| Provider     | Secret it must send                                                |
+| ------------ | ------------------------------------------------------------------ |
+| GitHub       | HMAC signature from `GITHUB_APP_WEBHOOK_SECRET` (the App wires it)  |
+| GitLab       | The repository's webhook token, in `X-Gitlab-Token`                 |
+| Azure DevOps | The repository's webhook token, in `X-Groundplan-Token`             |
+
+The repository's webhook token is the one already shown when it is attached (and
+rotatable from its settings) — the same secret CI uses to push plans. Events
+useful to send: push, pull request opened/updated/merged, branch deleted;
+anything else is accepted and ignored.
+
+A delivery that fails verification is `401` and does nothing. A delivery that
+arrives twice — a provider retry, or the poller finding the same commit — is
+processed once: events are deduplicated on the fact (repository, kind, branch,
+sha), not the delivery.
+
 ### Deployment mode: single-org vs SaaS (`SINGLE_ORG`)
 
 The backend runs in one of two tenancy modes, chosen by the `SINGLE_ORG`

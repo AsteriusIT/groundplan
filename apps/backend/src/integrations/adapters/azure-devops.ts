@@ -7,6 +7,7 @@ import {
   type AzureDevOpsClient,
 } from "../../services/azure-devops.js";
 import { defineProvider } from "../provider.js";
+import { azureDevOpsRefEvents } from "../webhooks.js";
 import type {
   IntegrationProvider,
   PullRequestCommenter,
@@ -79,5 +80,6 @@ export function createAzureDevOpsProvider(
     hosts: ["dev.azure.com", ".visualstudio.com"],
     repo,
     commenter: createAzureDevOpsCommenter(client),
+    refEvents: azureDevOpsRefEvents,
   });
 }

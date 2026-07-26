@@ -8,6 +8,7 @@
  */
 import { parseGitLabRepo, type GitLabClient } from "../../services/gitlab.js";
 import { defineProvider } from "../provider.js";
+import { gitlabRefEvents } from "../webhooks.js";
 import type {
   IntegrationProvider,
   PullRequestCommenter,
@@ -61,5 +62,6 @@ export function createGitLabProvider(client: GitLabClient): IntegrationProvider 
     hosts: ["gitlab.com"],
     repo,
     commenter: createGitLabCommenter(client),
+    refEvents: gitlabRefEvents,
   });
 }
