@@ -153,11 +153,11 @@ token minted for each call lives an hour, and access is revoked from GitHub in
 one click. It is entirely optional — without it, GitHub repositories keep using
 PATs, and the Integrations page says the App is not configured on this instance.
 
-1. Register the app from `docs/github-app-manifest.json` (GitHub → Settings →
-   Developer settings → GitHub Apps → New). Replace every
-   `REPLACE-WITH-YOUR-GROUNDPLAN-ORIGIN` with `https://${APP_DOMAIN}` first. The
-   permissions it asks for are the minimum: `contents:read`, `metadata:read`,
-   `pull_requests:write`, `checks:write`.
+1. Register the app — [github-app-setup.md](github-app-setup.md) walks through
+   it field by field, and `docs/github-app-manifest.json` is the same values as
+   data. Replace every `REPLACE-WITH-YOUR-GROUNDPLAN-ORIGIN` with
+   `https://${APP_DOMAIN}` first. The permissions it asks for are the minimum:
+   `contents:read`, `metadata:read`, `pull_requests:write`, `checks:write`.
 1. Generate a private key and put these in `.env.prod`:
 
 | Variable                    | Value                                                   |
