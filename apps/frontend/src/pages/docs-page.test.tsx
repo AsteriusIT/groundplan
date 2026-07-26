@@ -77,6 +77,8 @@ const repo: Repository = {
   url: "https://github.com/acme/infra",
   defaultBranch: "main",
   accessToken: null,
+  credentialId: null,
+  authMode: null,
   connectionStatus: "ok",
   verifiedAt: null,
   prCommentsEnabled: false,

@@ -25,6 +25,8 @@ const created: CreatedRepository = {
   url: "https://gitlab.com/acme/infra",
   defaultBranch: "main",
   accessToken: null,
+  credentialId: null,
+  authMode: null,
   connectionStatus: "ok",
   verifiedAt: null,
   prCommentsEnabled: false,

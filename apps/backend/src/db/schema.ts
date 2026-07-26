@@ -45,6 +45,127 @@ export const repositoryIacType = pgEnum("repository_iac_type", [
   "kubernetes",
 ]);
 
+/**
+ * How a credential is obtained (GP-192) — the pluggable half of the integration
+ * abstraction. `pat` is the long-lived token a human pasted (and the only mode a
+ * self-hosted/air-gapped install can rely on); `oauth2` is an authorization-code
+ * grant whose refresh token we renew; `installation_app` is an app installed on
+ * an organization, minting short-lived tokens from a private key. Mirrors
+ * `CredentialMode` in `integrations/types.ts`; enum values are forever.
+ */
+export const credentialMode = pgEnum("credential_mode", [
+  "pat",
+  "oauth2",
+  "installation_app",
+]);
+
+/**
+ * A connection's health (GP-192). `reconnect_required` is the one state that
+ * needs a human: the provider refused the credential and no retry will fix it
+ * (revoked installation, refresh token rejected). Anything transient stays `ok`
+ * with the error recorded — the poller must not flip a live connection because
+ * of one bad night on the network.
+ */
+export const credentialStatus = pgEnum("credential_status", [
+  "unverified",
+  "ok",
+  "reconnect_required",
+]);
+
+/**
+ * The non-secret half of a credential, discriminated in practice by the row's
+ * `provider` + `mode`. Deliberately flat and all-optional, like the graph
+ * schema: a new mode populates new fields and old rows stay byte-identical.
+ * The secret is NOT here — it lives in its own encrypted column, so it can
+ * never leak through a config read.
+ */
+export type IntegrationCredentialConfig = {
+  /** GitHub App installation id (`installation_app`). */
+  installationId?: number;
+  /** Login of the account (org or user) the installation/connection covers. */
+  account?: string | null;
+  /** Instance origin: self-managed GitLab, an ADO organization, an Atlassian site. */
+  instanceUrl?: string | null;
+  /** Atlassian cloud id — the `/ex/confluence/{cloudId}` path segment (GP-197). */
+  cloudId?: string | null;
+  /** Scopes the provider actually granted, verbatim from the token response. */
+  scope?: string | null;
+};
+
+/**
+ * An organization-level credential for a git/collaboration provider (GP-192):
+ * one GitHub App installation, one GitLab OAuth connection, one Entra ID
+ * consent — attachable by N repositories, exactly like the Confluence
+ * Integration of GP-183.
+ *
+ * The `secret` follows the uniform secret rules (PATs, kubeconfigs, Confluence
+ * credentials): AES-256-GCM encrypted at rest, WRITE-ONLY, never logged. It is
+ * null for `installation_app`, whose only secret is the app private key in the
+ * environment — nothing per-installation is worth storing.
+ *
+ * Repository PATs deliberately stay in `repositories.access_token`: that column
+ * *is* the `pat` strategy's payload, it is already encrypted under the same
+ * rules, and moving it would be a data migration that buys no behaviour. The
+ * strategy layer reads both and the rest of the code sees neither.
+ */
+export const integrationCredentials = pgTable("integration_credentials", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  provider: repositoryProvider("provider").notNull(),
+  mode: credentialMode("mode").notNull(),
+  /** Display name for the connection list ("acme-corp", "GitLab · gitlab.com"). */
+  name: text("name").notNull(),
+  config: jsonb("config")
+    .$type<IntegrationCredentialConfig>()
+    .notNull()
+    .default({}),
+  /** AES-256-GCM ciphertext of the refresh token / PAT; null for an App install. */
+  secret: text("secret"),
+  status: credentialStatus("status").notNull().default("unverified"),
+  /** Why the connection last failed, cleared on the next success. Never a token. */
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type IntegrationCredentialRow = typeof integrationCredentials.$inferSelect;
+
+export type PublicIntegrationCredential = {
+  id: string;
+  organizationId: string;
+  provider: (typeof repositoryProvider.enumValues)[number];
+  mode: (typeof credentialMode.enumValues)[number];
+  name: string;
+  config: IntegrationCredentialConfig;
+  status: (typeof credentialStatus.enumValues)[number];
+  lastError: string | null;
+  createdAt: Date;
+};
+
+/** Map a credential row to its API shape. The secret has no masked form here —
+ * it is simply absent: nothing outside the strategy layer has any use for it. */
+export function toPublicIntegrationCredential(
+  row: IntegrationCredentialRow,
+): PublicIntegrationCredential {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    provider: row.provider,
+    mode: row.mode,
+    name: row.name,
+    config: row.config,
+    status: row.status,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+  };
+}
+
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   // The organization that owns this project (GP-113). Every project belongs to
@@ -79,7 +200,18 @@ export const repositories = pgTable("repositories", {
   // Personal access token for cloning private repos. Stored ENCRYPTED at rest
   // (AES-256-GCM ciphertext, see lib/encryption). Write-only: set via the API,
   // never returned — responses mask it as "***" (see toPublicRepository).
+  //
+  // GP-192: this is the `pat` credential strategy's payload. When
+  // `credentialId` is set, an org connection authenticates instead and this
+  // column is left alone — so switching to a GitHub App and back is reversible.
   accessToken: text("access_token"),
+  // The org-level connection that authenticates this repository (GP-192), or
+  // null for the PAT above. `set null` on delete: revoking a connection must
+  // degrade the repository honestly, never delete it.
+  credentialId: uuid("credential_id").references(
+    () => integrationCredentials.id,
+    { onDelete: "set null" },
+  ),
   // Result of the last `git ls-remote` connection check (GP-11).
   connectionStatus: repositoryConnectionStatus("connection_status")
     .notNull()
@@ -134,6 +266,10 @@ export type PublicRepository = {
   defaultBranch: string;
   /** "***" when a PAT is stored, otherwise null. Never the token value. */
   accessToken: "***" | null;
+  /** GP-192: the org connection authenticating this repo, or null for the PAT. */
+  credentialId: string | null;
+  /** GP-192: which credential strategy is actually in force, for the UI. */
+  authMode: (typeof credentialMode.enumValues)[number] | null;
   connectionStatus: (typeof repositoryConnectionStatus.enumValues)[number];
   verifiedAt: Date | null;
   /** GP-38: whether PR plan snapshots post a GitHub comment. */
@@ -147,11 +283,28 @@ export type PublicRepository = {
   createdAt: Date;
 };
 
+/** Which credential strategy actually authenticates this repository (GP-192). */
+function repositoryAuthMode(
+  row: RepositoryRow,
+  connectionMode?: (typeof credentialMode.enumValues)[number] | null,
+): (typeof credentialMode.enumValues)[number] | null {
+  if (row.credentialId) return connectionMode ?? null;
+  return row.accessToken ? "pat" : null;
+}
+
 /**
  * Map a repository row to its API shape. The PAT is masked (never the value),
  * and the webhook token is omitted (it is shown once at creation only).
+ *
+ * `connectionMode` is the mode of the org connection the row points at, when
+ * the caller has it joined (GP-192). Omitting it on a repository that *has* a
+ * connection reports `authMode: null` rather than guessing "pat" — an unknown
+ * answer beats a wrong one.
  */
-export function toPublicRepository(row: RepositoryRow): PublicRepository {
+export function toPublicRepository(
+  row: RepositoryRow,
+  connectionMode?: (typeof credentialMode.enumValues)[number] | null,
+): PublicRepository {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -160,6 +313,8 @@ export function toPublicRepository(row: RepositoryRow): PublicRepository {
     url: row.url,
     defaultBranch: row.defaultBranch,
     accessToken: row.accessToken ? "***" : null,
+    credentialId: row.credentialId,
+    authMode: repositoryAuthMode(row, connectionMode),
     connectionStatus: row.connectionStatus,
     verifiedAt: row.verifiedAt,
     prCommentsEnabled: row.prCommentsEnabled,

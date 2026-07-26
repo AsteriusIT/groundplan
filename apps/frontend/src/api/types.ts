@@ -22,6 +22,13 @@ export interface Project {
 /** What a repository holds (GP-101). Set when it is attached; immutable after. */
 export type IacType = "terraform" | "kubernetes";
 
+/**
+ * How a credential is obtained (GP-192). Mirrors the backend's `CredentialMode`:
+ * a pasted token, an OAuth connection we refresh, or an app installed on an
+ * organization that mints short-lived tokens.
+ */
+export type CredentialMode = "pat" | "oauth2" | "installation_app";
+
 export interface Repository {
   id: string;
   projectId: string;
@@ -32,6 +39,10 @@ export interface Repository {
   defaultBranch: string;
   /** "***" when a PAT is stored, else null. Never the token value. */
   accessToken: "***" | null;
+  /** GP-192: the org connection authenticating this repo, or null for the PAT. */
+  credentialId: string | null;
+  /** GP-192: which credential strategy is actually in force, or null for none. */
+  authMode: CredentialMode | null;
   connectionStatus: ConnectionStatus;
   verifiedAt: string | null;
   /** GP-38: whether PR plan snapshots post a GitHub comment. */

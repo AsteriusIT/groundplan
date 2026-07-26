@@ -6,7 +6,9 @@ import { promisify } from "node:util";
 
 import mime from "mime-types";
 
-import { cloneUsername, type Provider } from "./providers.js";
+import { cloneUsername } from "../integrations/registry.js";
+import type { CredentialMode } from "../integrations/types.js";
+import type { Provider } from "./providers.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -21,6 +23,12 @@ export type RepoSource = {
   ref: string;
   /** Optional token for private repos. Never logged, never returned. */
   accessToken?: string | null;
+  /**
+   * Which credential strategy produced `accessToken` (GP-192). It only ever
+   * decides the *username* half of the clone URL, which some providers vary by
+   * mode; defaults to `pat`, what every repository used before this existed.
+   */
+  credentialMode?: CredentialMode;
 };
 
 export type FileContent = { content: Buffer; contentType: string };
@@ -38,6 +46,7 @@ export function buildAuthenticatedUrl(
   rawUrl: string,
   provider: Provider,
   accessToken?: string | null,
+  credentialMode: CredentialMode = "pat",
 ): string {
   if (!accessToken) return rawUrl;
   let u: URL;
@@ -47,9 +56,9 @@ export function buildAuthenticatedUrl(
     return rawUrl;
   }
   if (u.protocol !== "https:") return rawUrl;
-  // One uniform credential form per provider (GP-51): the PAT is the password,
-  // the username comes from the provider's clone-username table.
-  u.username = cloneUsername(provider);
+  // One uniform credential form per provider (GP-51): the token is the password,
+  // the username comes from the provider's adapter (GP-192).
+  u.username = cloneUsername(provider, credentialMode);
   u.password = accessToken;
   return u.toString();
 }
@@ -89,6 +98,7 @@ async function cloneRepo(source: RepoSource, destDir: string): Promise<void> {
     source.url,
     source.provider,
     source.accessToken,
+    source.credentialMode,
   );
   try {
     await execFileAsync(
@@ -217,7 +227,10 @@ export async function getFile(
 }
 
 /** The remote data the ref poller needs: no ref to check out, just credentials. */
-export type RemoteSource = Pick<RepoSource, "url" | "provider" | "accessToken">;
+export type RemoteSource = Pick<
+  RepoSource,
+  "url" | "provider" | "accessToken" | "credentialMode"
+>;
 
 /**
  * List every `refs/heads/*` on the remote and its sha (GP-107), via
@@ -232,7 +245,12 @@ export type RemoteSource = Pick<RepoSource, "url" | "provider" | "accessToken">;
 export async function listRemoteHeads(
   source: RemoteSource,
 ): Promise<Map<string, string>> {
-  const url = buildAuthenticatedUrl(source.url, source.provider, source.accessToken);
+  const url = buildAuthenticatedUrl(
+    source.url,
+    source.provider,
+    source.accessToken,
+    source.credentialMode,
+  );
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync("git", ["ls-remote", "--heads", url], {
@@ -289,7 +307,12 @@ export function classifyGitError(text: string): VerifyErrorKind {
  * to git), so it cannot be interpreted as a flag.
  */
 export async function verifyConnection(source: RepoSource): Promise<VerifyResult> {
-  const url = buildAuthenticatedUrl(source.url, source.provider, source.accessToken);
+  const url = buildAuthenticatedUrl(
+    source.url,
+    source.provider,
+    source.accessToken,
+    source.credentialMode,
+  );
   try {
     const { stdout } = await execFileAsync("git", ["ls-remote", "--heads", url], {
       timeout: CLONE_TIMEOUT_MS,

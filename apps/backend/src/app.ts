@@ -22,6 +22,10 @@ import {
   realConfluenceClient,
   type ConfluenceClient,
 } from "./services/confluence.js";
+import {
+  createProviderRegistry,
+  type ProviderRegistry,
+} from "./integrations/registry.js";
 import { realK8sReader, type K8sReader } from "./services/k8s-reader.js";
 import { realK8sVerify, type K8sVerify } from "./services/k8s-verify.js";
 import { authPlugin } from "./plugins/auth.js";
@@ -64,6 +68,12 @@ declare module "fastify" {
     gitlab: GitLabClient;
     /** Azure DevOps REST client for PR-thread comments (GP-54); injectable in tests. */
     azureDevOps: AzureDevOpsClient;
+    /**
+     * The integration provider registry (GP-192): the only place that knows
+     * which providers exist. Ask it for a provider, then talk to the ports —
+     * no code outside `src/integrations/adapters` names a concrete provider.
+     */
+    providers: ProviderRegistry;
     /** Public origin for absolute PR-comment URLs (GP-38); "" = link-only. */
     publicBaseUrl: string;
     /** The AI layer's model access (GP-62). `model === null` = layer disabled. */
@@ -147,6 +157,16 @@ export async function buildApp(
   app.decorate("github", opts.github ?? realGitHubClient);
   app.decorate("gitlab", opts.gitlab ?? realGitLabClient);
   app.decorate("azureDevOps", opts.azureDevOps ?? realAzureDevOpsClient);
+  // The registry is built from *this app's* clients, so a stubbed GitHub client
+  // in a test reaches the adapter exactly as the real one does in production.
+  app.decorate(
+    "providers",
+    createProviderRegistry({
+      github: app.github,
+      gitlab: app.gitlab,
+      azureDevOps: app.azureDevOps,
+    }),
+  );
   app.decorate("publicBaseUrl", env.publicBaseUrl);
   app.decorate("confluence", opts.confluence ?? realConfluenceClient);
   // AI layer (GP-62). Without AI_API_KEY the real provider reports model: null,

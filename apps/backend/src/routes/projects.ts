@@ -4,6 +4,7 @@ import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import {
   graphSnapshots,
   ingestionEvents,
+  integrationCredentials,
   projects,
   pullRequests,
   repositories,
@@ -198,12 +199,23 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           .code(404)
           .send({ error: "Not Found", message: "project not found" });
       }
+      // Left join so a repository authenticating through an org connection
+      // reports which mode is in force (GP-192) without a query per row.
       const rows = await app.db
-        .select()
+        .select({
+          repository: repositories,
+          connectionMode: integrationCredentials.mode,
+        })
         .from(repositories)
+        .leftJoin(
+          integrationCredentials,
+          eq(repositories.credentialId, integrationCredentials.id),
+        )
         .where(eq(repositories.projectId, id))
         .orderBy(desc(repositories.createdAt));
-      return rows.map(toPublicRepository);
+      return rows.map((row) =>
+        toPublicRepository(row.repository, row.connectionMode),
+      );
     },
   );
 

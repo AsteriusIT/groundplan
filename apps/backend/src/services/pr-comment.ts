@@ -12,13 +12,8 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 
 import { repositories, type GraphSnapshotRow } from "../db/schema.js";
-import type { Provider } from "./providers.js";
-import {
-  createAzureDevOpsPort,
-  createGitHubPort,
-  createGitLabPort,
-  type PrCommentPort,
-} from "./pr-comment-port.js";
+import { repositoryAccessToken } from "../integrations/credentials.js";
+import { CredentialRevokedError } from "../integrations/types.js";
 import { repoLabel } from "./snapshot-export.js";
 import { ensureSnapshotShareLink } from "./share-links.js";
 
@@ -57,23 +52,6 @@ export function buildCommentBody(input: CommentBodyInput): string {
   return lines.join("\n");
 }
 
-/**
- * Pick the PR-comment adapter for a repository's provider, or null when the
- * provider has no comment support (generic hosts; Azure DevOps until GP-54).
- */
-function resolvePort(app: FastifyInstance, provider: Provider): PrCommentPort | null {
-  switch (provider) {
-    case "github":
-      return createGitHubPort(app.github);
-    case "gitlab":
-      return createGitLabPort(app.gitlab);
-    case "azure_devops":
-      return createAzureDevOpsPort(app.azureDevOps);
-    default:
-      return null;
-  }
-}
-
 /** Persist (or clear) the repository's last PR-comment error. */
 async function setLastCommentError(
   app: FastifyInstance,
@@ -103,27 +81,36 @@ export async function postPrComment(
     .where(eq(repositories.id, snapshot.repositoryId));
   if (!repo?.prCommentsEnabled) return; // flag off → zero provider calls
 
-  const port = resolvePort(app, repo.provider);
-  if (!port) {
+  // Feature detection, not a provider check (GP-192): a provider that declares
+  // no `pr:comment` capability has no commenter, and that is the whole branch.
+  const provider = app.providers.get(repo.provider);
+  const commenter = provider.commenter;
+  if (!commenter) {
     // generic / self-hosted-only host: surface it instead of failing silently.
     await setLastCommentError(
       app,
       repo.id,
-      `PR comments are not available for ${repo.provider} repositories`,
+      `PR comments are not available for ${provider.label} repositories`,
     );
     return;
   }
 
-  if (!repo.accessToken) {
-    await setLastCommentError(app, repo.id, "no access token configured");
-    return;
-  }
-
+  // Whatever authenticates this repository — a pasted PAT, an App installation,
+  // an OAuth connection — arrives here as a token and nothing else (GP-192).
   let token: string;
   try {
-    token = app.encryptor.decrypt(repo.accessToken);
-  } catch {
-    await setLastCommentError(app, repo.id, "could not decrypt access token");
+    const credential = await repositoryAccessToken(app, repo);
+    if (!credential) {
+      await setLastCommentError(app, repo.id, "no access token configured");
+      return;
+    }
+    token = credential.token;
+  } catch (err) {
+    const message =
+      err instanceof CredentialRevokedError
+        ? `${err.message} — reconnect this integration`
+        : "could not obtain an access token for this repository";
+    await setLastCommentError(app, repo.id, message);
     return;
   }
 
@@ -147,7 +134,7 @@ export async function postPrComment(
   });
 
   try {
-    await port.upsertComment({
+    await commenter.upsertComment({
       repoUrl: repo.url,
       prNumber: snapshot.prNumber,
       marker: COMMENT_MARKER,

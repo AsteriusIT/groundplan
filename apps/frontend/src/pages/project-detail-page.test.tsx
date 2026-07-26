@@ -75,6 +75,8 @@ function repo(over: Partial<Repository> = {}): Repository {
     url: "https://github.com/acme/infra",
     defaultBranch: "main",
     accessToken: null,
+    credentialId: null,
+    authMode: null,
     connectionStatus: "ok",
     verifiedAt: "2026-01-03T00:00:00.000Z",
     prCommentsEnabled: false,

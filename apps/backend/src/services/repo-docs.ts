@@ -9,6 +9,7 @@ import {
 } from "../db/schema.js";
 import { parseHclRepo } from "@groundplan/graph-parser";
 
+import { repositoryAccessToken } from "../integrations/credentials.js";
 import type { Graph, UnresolvedReference } from "../graph/graph.js";
 import { mapK8sObjects } from "../graph/k8s-mapper.js";
 import { isManifestPath, parseManifests } from "../graph/manifest-parser.js";
@@ -122,18 +123,20 @@ export async function generateDocsSnapshot(
   if (generating.has(repo.id)) throw new DocsGenerationInProgressError();
   generating.add(repo.id);
   try {
-    let accessToken: string | null = null;
-    if (repo.accessToken) {
-      try {
-        accessToken = app.encryptor.decrypt(repo.accessToken);
-      } catch (err) {
-        app.log.warn({ err, repositoryId: repo.id }, "could not decrypt stored PAT");
-      }
-    }
+    // Whatever authenticates this repository arrives as a token (GP-192); a
+    // credential that cannot produce one fails the generation with its own
+    // message, which is what the caller already renders.
+    const credential = await repositoryAccessToken(app, repo);
 
     const kubernetes = repo.iacType === "kubernetes";
     const { files, headSha } = await readRepoTextFiles(
-      { url: repo.url, provider: repo.provider, ref: repo.defaultBranch, accessToken },
+      {
+        url: repo.url,
+        provider: repo.provider,
+        ref: repo.defaultBranch,
+        accessToken: credential?.token ?? null,
+        credentialMode: credential?.mode,
+      },
       kubernetes ? isManifestPath : (path) => path.endsWith(".tf"),
       opts.commitSha,
     );

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, eq } from "drizzle-orm";
 
 import { remoteRefs, repositories, type RepositoryRow } from "../db/schema.js";
+import { repositoryAccessToken } from "../integrations/credentials.js";
 import { listRemoteHeads } from "./repo-files.js";
 import { regenerateDocsForSha } from "./repo-docs.js";
 import { closePullRequestsForBranch } from "./pull-requests.js";
@@ -55,14 +56,23 @@ export function diffRefs(
   return events;
 }
 
-/** Decrypt a repository's stored PAT, or null when there is none / it is bad. */
-function decryptPat(app: FastifyInstance, repo: RepositoryRow): string | null {
-  if (!repo.accessToken) return null;
+/**
+ * The token that authenticates this repository, or null (GP-192). Whether it
+ * came from a pasted PAT, a GitHub App installation or an OAuth connection is
+ * the strategy layer's business; a revoked connection is reported as a poll
+ * error, exactly like an unreachable host — the poller degrades, never crashes.
+ */
+async function pollToken(
+  app: FastifyInstance,
+  repo: RepositoryRow,
+): Promise<{ token: string | null; error: string | null }> {
   try {
-    return app.encryptor.decrypt(repo.accessToken);
+    const credential = await repositoryAccessToken(app, repo);
+    return { token: credential?.token ?? null, error: null };
   } catch (err) {
-    app.log.warn({ err, repositoryId: repo.id }, "could not decrypt stored PAT");
-    return null;
+    const message = err instanceof Error ? err.message : String(err);
+    app.log.warn({ err, repositoryId: repo.id }, "could not obtain a repository token");
+    return { token: null, error: message };
   }
 }
 
@@ -111,7 +121,16 @@ export async function pollRepository(
   app: FastifyInstance,
   repo: RepositoryRow,
 ): Promise<GitEvent[]> {
-  const accessToken = decryptPat(app, repo);
+  const { token: accessToken, error: credentialError } = await pollToken(app, repo);
+  if (credentialError) {
+    // A credential we cannot use is not "no branches": record it and stop, the
+    // same shape as a failed fetch, so no `BranchDeleted` is ever manufactured.
+    await app.db
+      .update(repositories)
+      .set({ pollError: credentialError, lastPolledAt: new Date() })
+      .where(eq(repositories.id, repo.id));
+    return [];
+  }
 
   let remote: Map<string, string>;
   try {

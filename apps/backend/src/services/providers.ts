@@ -1,50 +1,15 @@
 /**
- * Git provider detection and per-provider credential embedding (GP-51).
+ * Git provider identity (GP-51) — now a thin re-export of the integration
+ * registry (GP-192).
  *
- * Groundplan supports four providers behind one clone/verify code path. The
- * provider is auto-detected from the repository URL on attach (a user override
- * wins and is persisted). Anything we don't recognise falls back to `generic`,
- * which still clones with a valid PAT — just with no provider-specific features.
- *
- * The `Provider` union here mirrors the `repository_provider` Postgres enum in
- * `db/schema.ts`; keep the two in sync.
+ * The knowledge that used to live here (which hosts belong to which provider,
+ * which username pairs with the token in a clone URL) moved into the adapters,
+ * where a provider's every fact sits together. This module survives as the
+ * stable import path for the rest of the backend and as the place the
+ * `repository_provider` Postgres enum is mirrored.
  */
-export const PROVIDERS = ["github", "gitlab", "azure_devops", "generic"] as const;
+export { cloneUsername, detectProvider } from "../integrations/registry.js";
 
-export type Provider = (typeof PROVIDERS)[number];
-
-/**
- * Best-effort provider detection from a repository URL. Known SaaS hosts map to
- * their provider; everything else (including self-hosted GitLab / Azure DevOps
- * Server) is `generic` until the user overrides it.
- */
-export function detectProvider(url: string): Provider {
-  let host: string;
-  try {
-    host = new URL(url).hostname.toLowerCase();
-  } catch {
-    return "generic";
-  }
-  if (host === "github.com") return "github";
-  if (host === "gitlab.com") return "gitlab";
-  if (host === "dev.azure.com" || host.endsWith(".visualstudio.com")) {
-    return "azure_devops";
-  }
-  return "generic";
-}
-
-/**
- * Username embedded in an authenticated https clone URL, per provider. The PAT
- * is always the password, so the credential form is uniform:
- * `https://{cloneUsername}:{PAT}@host/...`.
- */
-const CLONE_USERNAME: Record<Provider, string> = {
-  github: "x-access-token",
-  gitlab: "oauth2",
-  azure_devops: "pat",
-  generic: "git",
-};
-
-export function cloneUsername(provider: Provider): string {
-  return CLONE_USERNAME[provider];
-}
+/** `PROVIDERS` mirrors the `repository_provider` Postgres enum; keep in sync. */
+export { PROVIDER_IDS as PROVIDERS } from "../integrations/types.js";
+export type { ProviderId as Provider } from "../integrations/types.js";

@@ -6,6 +6,7 @@ import type {
 import { eq } from "drizzle-orm";
 
 import { repositories } from "../db/schema.js";
+import { repositoryAccessToken } from "../integrations/credentials.js";
 import {
   getFile,
   listFiles,
@@ -34,12 +35,12 @@ type RepoRow = typeof repositories.$inferSelect;
  * Sends the appropriate error response and returns null when unusable.
  */
 async function resolveSource(
-  db: FastifyInstance["db"],
+  app: FastifyInstance,
   id: string,
   ref: string | undefined,
   reply: FastifyReply,
 ): Promise<RepoSource | null> {
-  const [repo]: RepoRow[] = await db
+  const [repo]: RepoRow[] = await app.db
     .select()
     .from(repositories)
     .where(eq(repositories.id, id));
@@ -63,11 +64,18 @@ async function resolveSource(
     return null;
   }
 
+  // Through the credential strategy (GP-192), so a repository authenticating
+  // with a GitHub App installation or an OAuth connection reads exactly like one
+  // with a PAT — and the token is the decrypted one, which the stored ciphertext
+  // never was.
+  const credential = await repositoryAccessToken(app, repo);
+
   return {
     url: repo.url,
     provider: repo.provider,
     ref: ref ?? repo.defaultBranch,
-    accessToken: repo.accessToken,
+    accessToken: credential?.token ?? null,
+    credentialMode: credential?.mode,
   };
 }
 
@@ -79,7 +87,7 @@ export const repositoryFileRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params as { id: string };
       const { ref } = request.query as { ref?: string };
 
-      const source = await resolveSource(app.db, id, ref, reply);
+      const source = await resolveSource(app, id, ref, reply);
       if (!source) return reply;
 
       try {
@@ -102,7 +110,7 @@ export const repositoryFileRoutes: FastifyPluginAsync = async (app) => {
       const filePath = (request.params as Record<string, string>)["*"] ?? "";
       const { ref } = request.query as { ref?: string };
 
-      const source = await resolveSource(app.db, id, ref, reply);
+      const source = await resolveSource(app, id, ref, reply);
       if (!source) return reply;
 
       try {
