@@ -46,9 +46,14 @@ values never fetched). **Never introduce cloud SDK credentials or state access.*
   (chat → HCL → live diagram + lint + zip). `AI_API_KEY` is the flag.
 - **Kubernetes**: manifests repos (`iac_type`) reviewed like Terraform via
   graph-vs-graph diff; live clusters (top-level, read-only) drawn per namespace.
+- **Policy engine**: built-in deterministic rules over the GraphSnapshot,
+  configured per org with per-repo override, evaluated on PRs (new violations
+  vs main, in the PR comment) and on docs of main (badges, per-repo compliance
+  state, version-to-version violation diff); waivers with a mandatory reason,
+  an author, an expiry and a trail. No AI, no cloud access.
 - **Exports & sharing**: server-rendered SVG/PNG (cached), editable draw.io
   export (with a generated shape library), Confluence publish (idempotent page
-  per repo), public revocable share links.
+  per repo), public revocable share links (compliance excluded unless opted in).
 - **Tenancy**: organizations + RBAC (owner/admin/member), invitations,
   `SINGLE_ORG` self-host mode, OIDC resource-server auth, branded Keycloak.
 - **Developer experience**: `@asteriusit/cli` (`groundplan push-plan`, published
@@ -288,6 +293,27 @@ frontend change. Webhooks (`/webhooks/git/:provider`) and the poller are both
 cadence instead of every tick. Never add a provider branch outside
 `src/integrations/adapters/`.
 
+**Policy engine (GP-199..204).** `src/graph/policy/` — pure, deterministic,
+no AI and no cloud access, like the parsers and the differ. A `PolicyRule` has
+a stable id, a default severity, the graph kinds it can judge and a pure
+`evaluate`; `catalog.ts` is the only place that knows which rules exist (the
+`registry.ts` posture). The twelve studio lint rules (GP-139) are **wrapped,
+not copied** — `hcl-lint.ts` exposes them as `LINT_RULES` — so `Exposed`
+is `nsg-open-to-internet` and a playground rule is enforced on a PR. A rule
+that cannot judge a graph reports itself **not applicable**: "not checked" is
+never "passed". `PolicyReport` is versioned in place (v1; v2 adds a violation's
+waiver) and carries the effective config it ran under, so a stored verdict
+stays readable after the config moves on. Reports live in `policy_reports`,
+beside the snapshot and never inside it (ADR #4), one row per snapshot;
+`policy_configs` holds one document per scope (org, or a repo override) folded
+per *field*. On a PR, `diffPolicyReports` separates new / resolved /
+pre-existing against main and the delta is **stored** so the PR comment and the
+review panel cannot disagree; no baseline is recorded as such, never assumed
+clean. Waivers (`policy_waivers` + an append-only `policy_waiver_events` trail)
+mark a violation, never hide it, and reconcile exactly like annotations —
+orphaned on a status flip, never deleted. Adding a rule = implement
+`PolicyRule` + list it in the catalogue; the engine never changes.
+
 **Exports & integrations.** SVG/PNG server-rendered and cached (GP-37);
 draw.io export (GP-173..177) embeds vendored icons and mirrors canvas edge
 semantics — regenerate assets with the `drawio:*` scripts (CI checks them);
@@ -345,7 +371,9 @@ done; GP-166 legal gate **in progress**) · GP-167 Helm chart · GP-173
 draw.io export · GP-178 Confluence export (GP-179..184 done; page quality +
 org-level Atlassian integration) · GP-191 integrations OAuth/Apps (GP-192..198:
 ports & adapters, GitHub App, git webhooks, GitLab OAuth, Entra ID for Azure
-DevOps, Atlassian 3LO, connections UI).
+DevOps, Atlassian 3LO, connections UI) · GP-199 policy engine v1 (GP-200..204:
+engine & catalogue, org/repo configuration, PR evaluation, compliance on main,
+waivers).
 
 **Open:**
 
@@ -357,7 +385,3 @@ DevOps, Atlassian 3LO, connections UI).
 - **GP-131 Visual Builder** (GP-132..135, To Do): compose visually →
   generate deterministic HCL into the playground (one-way scaffolding).
 - **GP-166** naming clearance (see "Naming").
-- **GP-199 Policy engine v1** (To Do): built-in rules over the GraphSnapshot,
-  evaluated on PRs and on docs of main. Deterministic, explainable, no AI, no
-  cloud access; waivers tracked. `CheckPublisher` (GP-192) is the port its
-  future native CI gate will use.
