@@ -265,6 +265,29 @@ a body we cannot read is a 422 that stores nothing. Secret *values* never
 reach a graph. K8s snapshots get the diagram and the deterministic summary
 only — `viewsFor()` is the one place that decides; no annotate/AI/tours/share.
 
+**Integrations (GP-191..198).** One seam for every external system:
+`src/integrations/`. `CredentialStrategy` (`pat` | `oauth2` | `installation_app`)
+hands out a token and hides where it came from; capabilities are separate
+interfaces (`RepoReader`, `PullRequestCommenter`, `CheckPublisher`,
+`RefEventSource`, `ConnectFlow`) and a provider declares only what it
+implements — the core does feature detection, never `if provider === "github"`.
+`registry.ts` is the only place that knows providers exist; `contract.test.ts`
+runs one spec against all four adapters plus a fictitious one. Credentials:
+org-owned `integration_credentials` (+ `repositories.credential_id`); a repo PAT
+stays in its own column because that column *is* the `pat` payload. Modes:
+GitHub App installations (short-lived tokens, bot identity), GitLab OAuth,
+Entra ID for Azure DevOps, Atlassian 3LO for Confluence — all optional, each
+gated by its own env pair (the `AI_API_KEY` posture) and all sharing one PKCE
+authorization-code engine (`oauth2.ts`) that assumes refresh-token rotation.
+`invalid_grant` is the only failure that flips a connection to
+`reconnect_required`. Connect flows are provider-agnostic at the route level
+(`/connections/...` + one callback page), so a new provider adds no route and no
+frontend change. Webhooks (`/webhooks/git/:provider`) and the poller are both
+`RefEventSource`s funnelling through `handleRefEvent`, deduplicated on the fact
+(repo+kind+branch+sha); a repo hearing webhooks is polled at a safety-net
+cadence instead of every tick. Never add a provider branch outside
+`src/integrations/adapters/`.
+
 **Exports & integrations.** SVG/PNG server-rendered and cached (GP-37);
 draw.io export (GP-173..177) embeds vendored icons and mirrors canvas edge
 semantics — regenerate assets with the `drawio:*` scripts (CI checks them);
@@ -320,7 +343,9 @@ GP-119 HCL source in docs · GP-122 playground · GP-136 AI Studio · GP-144
 VS Code extension · GP-151 VS Code diff mode · GP-157 website (stories
 done; GP-166 legal gate **in progress**) · GP-167 Helm chart · GP-173
 draw.io export · GP-178 Confluence export (GP-179..184 done; page quality +
-org-level Atlassian integration).
+org-level Atlassian integration) · GP-191 integrations OAuth/Apps (GP-192..198:
+ports & adapters, GitHub App, git webhooks, GitLab OAuth, Entra ID for Azure
+DevOps, Atlassian 3LO, connections UI).
 
 **Open:**
 
@@ -332,3 +357,7 @@ org-level Atlassian integration).
 - **GP-131 Visual Builder** (GP-132..135, To Do): compose visually →
   generate deterministic HCL into the playground (one-way scaffolding).
 - **GP-166** naming clearance (see "Naming").
+- **GP-199 Policy engine v1** (To Do): built-in rules over the GraphSnapshot,
+  evaluated on PRs and on docs of main. Deterministic, explainable, no AI, no
+  cloud access; waivers tracked. `CheckPublisher` (GP-192) is the port its
+  future native CI gate will use.
