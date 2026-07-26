@@ -36,6 +36,9 @@ import type {
   PlaygroundDraftSummary,
   PlaygroundFile,
   PlaygroundSnapshot,
+  OrgPolicyConfig,
+  PolicyConfig,
+  RepositoryPolicyConfig,
   Role,
   UpdatePlaygroundDraftInput,
   UpdateClusterInput,
@@ -987,6 +990,47 @@ export function updatePlaygroundDraft(
 
 export function deletePlaygroundDraft(id: string): Promise<void> {
   return request<void>(`/playground/drafts/${encode(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// --- Policy configuration (GP-201) ------------------------------------------
+
+/** The organization's rule configuration, with the whole catalogue beside it. */
+export function getOrgPolicyConfig(): Promise<OrgPolicyConfig> {
+  return orgRequest<OrgPolicyConfig>("/policy-config");
+}
+
+/** Replace the organization's document (a configuration is written whole). */
+export function saveOrgPolicyConfig(rules: PolicyConfig): Promise<OrgPolicyConfig> {
+  return orgRequest<OrgPolicyConfig>("/policy-config", {
+    method: "PUT",
+    body: { rules },
+  });
+}
+
+/** What a repository inherits, what it overrides, and what it runs under. */
+export function getRepositoryPolicyConfig(
+  repositoryId: string,
+): Promise<RepositoryPolicyConfig> {
+  return orgRequest<RepositoryPolicyConfig>(
+    `/repositories/${encode(repositoryId)}/policy-config`,
+  );
+}
+
+export function saveRepositoryPolicyConfig(
+  repositoryId: string,
+  rules: PolicyConfig,
+): Promise<RepositoryPolicyConfig> {
+  return orgRequest<RepositoryPolicyConfig>(
+    `/repositories/${encode(repositoryId)}/policy-config`,
+    { method: "PUT", body: { rules } },
+  );
+}
+
+/** Drop the override — the repository goes back to the organization's config. */
+export function deleteRepositoryPolicyConfig(repositoryId: string): Promise<void> {
+  return orgRequest<void>(`/repositories/${encode(repositoryId)}/policy-config`, {
     method: "DELETE",
   });
 }

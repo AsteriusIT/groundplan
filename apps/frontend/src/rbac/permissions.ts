@@ -19,6 +19,7 @@ export const PERMISSIONS = [
   "org:read",
   "project:manage",
   "integration:manage",
+  "policy:manage",
   "member:manage",
   "org:manage",
   "org:delete",
@@ -32,6 +33,9 @@ export const PERMISSION_MIN_ROLE: Record<Permission, Role> = {
   // GP-183: manage org-level integrations (Confluence credentials shared across
   // repos). Members may read the list to pick one at repo level.
   "integration:manage": "admin",
+  // GP-201: configure the policy rules (on/off, severity, parameters) for the
+  // org and override them per repository. Members read, admins write.
+  "policy:manage": "admin",
   "member:manage": "admin",
   "org:manage": "admin",
   "org:delete": "owner",

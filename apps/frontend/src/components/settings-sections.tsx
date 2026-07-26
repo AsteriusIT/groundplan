@@ -12,6 +12,7 @@ import {
   Mail,
   Palette,
   Plug,
+  ShieldCheck,
   Sparkles,
   UserRound,
   Users,
@@ -29,6 +30,7 @@ import { OrgConnections } from "@/components/org-connections";
 import { OrgIntegrations } from "@/components/org-integrations";
 import { OrgInvites } from "@/components/org-invites";
 import { OrgMembers } from "@/components/org-members";
+import { OrgPolicy } from "@/components/org-policy";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import {
@@ -371,6 +373,23 @@ export function IntegrationsCard() {
       description="External services your repositories connect to, configured once per organization."
     >
       <OrgIntegrations />
+    </Section>
+  );
+}
+
+/**
+ * The policy rule catalogue (GP-201): which built-in rules this organization
+ * enforces, how loudly, and with what parameters. Read by every member, edited
+ * by admins — the component gates itself, as the API does.
+ */
+export function PolicyCard() {
+  return (
+    <Section
+      icon={<ShieldCheck className="size-4" />}
+      title="Policy"
+      description="The rules every pull request and every diagram of main is checked against."
+    >
+      <OrgPolicy />
     </Section>
   );
 }

@@ -8,18 +8,21 @@
  * of accumulating verdicts.
  */
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import {
   graphSnapshots,
   policyReports,
+  projects,
+  repositories,
   type GraphSnapshotRow,
   type PolicyReportRow,
 } from "../db/schema.js";
 import { evaluatePolicy } from "../graph/policy/engine.js";
 import { summarizePolicyReport } from "../graph/policy/summarize.js";
 import type { PolicyConfig, PolicyTarget } from "../graph/policy/types.js";
-import type { SnapshotSource } from "./graph-snapshots.js";
+import { DOCS_SOURCES, type SnapshotSource } from "./graph-snapshots.js";
+import { resolvePolicyConfig } from "./policy-config.js";
 
 /**
  * Which kind of graph a snapshot holds. Stated once here rather than re-derived
@@ -101,4 +104,60 @@ export async function loadSnapshot(
     .from(graphSnapshots)
     .where(eq(graphSnapshots.id, id));
   return row ?? null;
+}
+
+/**
+ * The newest snapshot documenting a repository's default branch — the one a
+ * compliance state is *about*, whichever producer wrote it (GP-102).
+ */
+export async function latestDocsSnapshot(
+  db: NodePgDatabase,
+  repositoryId: string,
+): Promise<GraphSnapshotRow | null> {
+  const [row] = await db
+    .select()
+    .from(graphSnapshots)
+    .where(
+      and(
+        eq(graphSnapshots.repositoryId, repositoryId),
+        inArray(graphSnapshots.source, DOCS_SOURCES),
+      ),
+    )
+    .orderBy(desc(graphSnapshots.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Re-judge the documentation of main for the given repositories under the
+ * configuration as it stands now (GP-201).
+ *
+ * Only the *current* documentation is re-evaluated. A historical report is not
+ * refreshed: it recorded what the estate looked like under the configuration
+ * that judged it, which is the whole reason the configuration travels inside it
+ * — rewriting it would make the timeline lie about the past.
+ */
+export async function reevaluateDocsPolicy(
+  db: NodePgDatabase,
+  repositoryIds: string[],
+): Promise<void> {
+  for (const repositoryId of repositoryIds) {
+    const snapshot = await latestDocsSnapshot(db, repositoryId);
+    if (!snapshot) continue;
+    const config = await resolvePolicyConfig(db, repositoryId);
+    await evaluateSnapshotPolicy(db, snapshot, { config });
+  }
+}
+
+/** Every repository of an organization — the blast radius of an org-level change. */
+export async function organizationRepositoryIds(
+  db: NodePgDatabase,
+  organizationId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: repositories.id })
+    .from(repositories)
+    .innerJoin(projects, eq(repositories.projectId, projects.id))
+    .where(eq(projects.organizationId, organizationId));
+  return rows.map((row) => row.id);
 }

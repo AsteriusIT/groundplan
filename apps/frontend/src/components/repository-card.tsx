@@ -11,6 +11,7 @@ import {
   Plug,
   RefreshCw,
   Settings2,
+  ShieldCheck,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
@@ -43,6 +44,7 @@ import {
 } from "@/components/connection-status";
 import { ConfluenceSettingsDialog } from "@/components/confluence-settings-dialog";
 import { DeleteRepositoryDialog } from "@/components/delete-repository-dialog";
+import { RepositoryPolicyDialog } from "@/components/repository-policy-dialog";
 import { RepositorySettingsDialog } from "@/components/repository-settings-dialog";
 
 /**
@@ -73,6 +75,7 @@ export function RepositoryCard({
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confluenceOpen, setConfluenceOpen] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // A freshly rotated token, shown once inside the CI block; null until rotated.
   const [freshToken, setFreshToken] = useState<string | null>(null);
@@ -190,6 +193,12 @@ export function RepositoryCard({
                 <Settings2 className="size-3.5" />
                 Repository settings
               </DropdownMenuItem>
+              {/* GP-201: what this repository is checked against — inherited
+                  from the org until a rule is overridden here. */}
+              <DropdownMenuItem onSelect={() => setPolicyOpen(true)}>
+                <ShieldCheck className="size-3.5" />
+                Policy
+              </DropdownMenuItem>
               {/* GP-181: where this repository's docs page publishes to. */}
               <DropdownMenuItem onSelect={() => setConfluenceOpen(true)}>
                 <BookUp className="size-3.5" />
@@ -270,6 +279,11 @@ export function RepositoryCard({
         repository={repo}
         open={confluenceOpen}
         onOpenChange={setConfluenceOpen}
+      />
+      <RepositoryPolicyDialog
+        repository={repo}
+        open={policyOpen}
+        onOpenChange={setPolicyOpen}
       />
       <DeleteRepositoryDialog
         name={repoName(repo.url)}

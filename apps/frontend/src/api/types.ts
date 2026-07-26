@@ -855,3 +855,69 @@ export interface TourResponse {
   /** Stops the backend threw away because they pointed at nothing. */
   dropped?: number;
 }
+
+// --- Policy engine (GP-199..GP-204) -----------------------------------------
+
+/**
+ * How loudly a rule speaks. Not the studio lint's `info | warn | high`: a policy
+ * is a decision an organization made, so its levels are the ones a decision is
+ * expressed in.
+ */
+export type PolicySeverity = "error" | "warning" | "info";
+
+/** What a rule can judge. A rule outside its target is *not applicable*, never a pass. */
+export type PolicyTarget = "terraform" | "kubernetes";
+
+/** The verdict of a report, from the worst violation nobody has waived. */
+export type PolicyStatus = "passing" | "warnings" | "failing";
+
+/** One rule's configuration, as a scope chose to state it. Every field optional. */
+export interface PolicyRuleOverride {
+  enabled?: boolean;
+  severity?: PolicySeverity;
+  params?: Record<string, unknown>;
+}
+
+/** A configuration document: rule id → what that scope changes about the rule. */
+export type PolicyConfig = Record<string, PolicyRuleOverride>;
+
+/**
+ * A catalogue rule with the configuration it would run under in this scope.
+ * `configured` is what makes an inherited value and a deliberate override
+ * distinguishable on screen — without it, "same as the org" and "set to the
+ * same thing as the org" look identical, and only one of them survives an org
+ * change.
+ */
+export interface PolicyCatalogEntry {
+  ruleId: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  severity: PolicySeverity;
+  /** False when the rule cannot judge this repository's kind of graph. */
+  applicable: boolean;
+  params?: Record<string, unknown>;
+  defaultSeverity: PolicySeverity;
+  defaultEnabled: boolean;
+  appliesTo: PolicyTarget[];
+  configured: boolean;
+}
+
+/** What `GET|PUT /policy-config` answers with (organization scope). */
+export interface OrgPolicyConfig {
+  scope: "organization";
+  rules: PolicyConfig;
+  catalog: PolicyCatalogEntry[];
+}
+
+/** What `GET|PUT /repositories/:id/policy-config` answers with. */
+export interface RepositoryPolicyConfig {
+  scope: "repository";
+  /** The organization's document — what this repository inherits. */
+  inherited: PolicyConfig;
+  /** This repository's own document, or null when it inherits everything. */
+  override: PolicyConfig | null;
+  /** The two folded together — what it is actually evaluated under. */
+  rules: PolicyConfig;
+  catalog: PolicyCatalogEntry[];
+}

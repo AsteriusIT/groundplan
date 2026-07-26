@@ -14,12 +14,13 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 import type { Graph, GraphStats } from "../graph/graph.js";
-import type { PolicyReport } from "../graph/policy/types.js";
+import type { PolicyConfig, PolicyReport } from "../graph/policy/types.js";
 
 export const repositoryProvider = pgEnum("repository_provider", [
   "github",
@@ -1186,6 +1187,59 @@ export function toPublicAnnotation(row: AnnotationRow): PublicAnnotation {
     updatedAt: row.updatedAt,
   };
 }
+
+/**
+ * How an organization configured the built-in rules (GP-201), and how one
+ * repository overrides that. One document per scope rather than a row per rule:
+ * a configuration is read whole (every evaluation needs all of it) and written
+ * whole, so a table of rows would only add joins and a partial-write race.
+ *
+ * `repository_id` null = the organization's document; set = that repository's
+ * override, which is **partial** and merged per rule over the org's. Resolution
+ * is always catalogue defaults → organization → repository, and the result
+ * travels inside the report it produced (GP-200), so a stored verdict stays
+ * readable after the configuration moves on.
+ *
+ * A rule id that no longer exists in the catalogue is simply ignored at
+ * resolution — configuration must never be able to break an evaluation.
+ */
+export const policyConfigs = pgTable(
+  "policy_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Null for the org-wide document; set for a repository's override. */
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    /** rule id → what this scope changes about that rule (all fields optional). */
+    rules: jsonb("rules")
+      .$type<PolicyConfig>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    updatedBy: uuid("updated_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Postgres treats NULLs as distinct in a unique constraint, so this pins one
+    // override per repository while leaving the org documents to the index below.
+    unique("policy_configs_repository_unique").on(t.repositoryId),
+    uniqueIndex("policy_configs_org_unique")
+      .on(t.organizationId)
+      .where(sql`${t.repositoryId} is null`),
+  ],
+);
+
+export type PolicyConfigRow = typeof policyConfigs.$inferSelect;
 
 /**
  * The policy engine's verdict on one snapshot (GP-200), stored **beside** the
