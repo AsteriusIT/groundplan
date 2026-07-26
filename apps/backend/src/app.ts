@@ -31,6 +31,10 @@ import {
   type IntegrationsConfig,
 } from "./integrations/config.js";
 import {
+  realOAuth2Http,
+  type OAuth2Http,
+} from "./integrations/oauth2.js";
+import {
   createProviderRegistry,
   type ProviderRegistry,
 } from "./integrations/registry.js";
@@ -89,6 +93,8 @@ declare module "fastify" {
     integrations: IntegrationsConfig;
     /** App-level GitHub calls: installation lookup + token minting (GP-193). */
     githubApp: GitHubAppClient;
+    /** Token exchange + refresh for every OAuth provider (GP-195); injectable. */
+    oauth2Http: OAuth2Http;
     /** Public origin for absolute PR-comment URLs (GP-38); "" = link-only. */
     publicBaseUrl: string;
     /** The AI layer's model access (GP-62). `model === null` = layer disabled. */
@@ -121,6 +127,8 @@ export type BuildAppOptions = {
   azureDevOps?: AzureDevOpsClient;
   /** Inject the GitHub App client (tests). Defaults to the real REST client. */
   githubApp?: GitHubAppClient;
+  /** Inject the OAuth2 HTTP client (tests). Defaults to the real one. */
+  oauth2Http?: OAuth2Http;
   /** Inject an AI provider (tests). Defaults to the real one (off without a key). */
   ai?: AiProvider;
   /** Inject the studio chat model (tests). Defaults to real (null without a key). */
@@ -175,6 +183,7 @@ export async function buildApp(
   app.decorate("gitlab", opts.gitlab ?? realGitLabClient);
   app.decorate("azureDevOps", opts.azureDevOps ?? realAzureDevOpsClient);
   app.decorate("githubApp", opts.githubApp ?? realGitHubAppClient);
+  app.decorate("oauth2Http", opts.oauth2Http ?? realOAuth2Http);
   app.decorate("integrations", integrationsConfigFrom(env));
   // The registry is built from *this app's* clients and configuration, so a
   // stubbed client in a test reaches the adapter exactly as the real one does in
@@ -186,6 +195,7 @@ export async function buildApp(
       gitlab: app.gitlab,
       azureDevOps: app.azureDevOps,
       githubApp: app.githubApp,
+      oauth2Http: app.oauth2Http,
       config: app.integrations,
     }),
   );

@@ -22,8 +22,21 @@ export type GitHubAppConfig = {
   webhookSecret: string;
 };
 
+/**
+ * A registered OAuth 2.0 application (GP-195/196/197). One per provider per
+ * deployment; empty client credentials mean "not configured on this instance".
+ */
+export type OAuth2AppConfig = {
+  clientId: string;
+  clientSecret: string;
+};
+
+/** GitLab OAuth, plus the instance the application is registered on (GP-195). */
+export type GitLabOAuthConfig = OAuth2AppConfig & { instanceUrl: string };
+
 export type IntegrationsConfig = {
   githubApp: GitHubAppConfig | null;
+  gitlabOAuth: GitLabOAuthConfig | null;
   /** Public origin the provider redirects back to; "" = flows unavailable. */
   publicBaseUrl: string;
 };
@@ -39,12 +52,27 @@ export function githubAppFrom(env: AppEnv): GitHubAppConfig | null {
   };
 }
 
+/** GitLab OAuth is on only when both halves of the client credential are set. */
+export function gitlabOAuthFrom(env: AppEnv): GitLabOAuthConfig | null {
+  if (!env.gitlabOauthClientId || !env.gitlabOauthClientSecret) return null;
+  return {
+    clientId: env.gitlabOauthClientId,
+    clientSecret: env.gitlabOauthClientSecret,
+    instanceUrl: env.gitlabUrl,
+  };
+}
+
 export function integrationsConfigFrom(env: AppEnv): IntegrationsConfig {
-  return { githubApp: githubAppFrom(env), publicBaseUrl: env.publicBaseUrl };
+  return {
+    githubApp: githubAppFrom(env),
+    gitlabOAuth: gitlabOAuthFrom(env),
+    publicBaseUrl: env.publicBaseUrl,
+  };
 }
 
 /** Nothing configured — the default every existing deployment already has. */
 export const NO_INTEGRATIONS_CONFIG: IntegrationsConfig = {
   githubApp: null,
+  gitlabOAuth: null,
   publicBaseUrl: "",
 };

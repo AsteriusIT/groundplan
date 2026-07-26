@@ -111,6 +111,15 @@ export type AppEnv = {
   githubAppSlug: string;
   /** Shared secret GitHub signs its webhook deliveries with (GP-194). */
   githubAppWebhookSecret: string;
+  /**
+   * GitLab OAuth application (GP-195). The client id + secret together are the
+   * flag; without them GitLab repositories keep using PATs. `GITLAB_URL` names
+   * the instance the application is registered on — `gitlab.com` by default,
+   * a self-managed origin otherwise.
+   */
+  gitlabOauthClientId: string;
+  gitlabOauthClientSecret: string;
+  gitlabUrl: string;
 };
 
 /** Sensible default model for the AI layer; override with `AI_MODEL`. */
@@ -143,5 +152,11 @@ export function loadEnv(): AppEnv {
     githubAppPrivateKey: readPem(process.env.GITHUB_APP_PRIVATE_KEY),
     githubAppSlug: process.env.GITHUB_APP_SLUG ?? "",
     githubAppWebhookSecret: process.env.GITHUB_APP_WEBHOOK_SECRET ?? "",
+    gitlabOauthClientId: process.env.GITLAB_OAUTH_CLIENT_ID ?? "",
+    gitlabOauthClientSecret: process.env.GITLAB_OAUTH_CLIENT_SECRET ?? "",
+    gitlabUrl: (process.env.GITLAB_URL ?? "https://gitlab.com").replace(
+      /(?=(\/+))\1$/,
+      "",
+    ),
   };
 }

@@ -36,6 +36,11 @@ x-backend-env: &backend-env
   GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
   GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
   GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
+  # GitLab OAuth (GP-195) — optional. The client id + secret together are the
+  # flag; GITLAB_URL names the instance the application is registered on.
+  GITLAB_OAUTH_CLIENT_ID: ${GITLAB_OAUTH_CLIENT_ID:-}
+  GITLAB_OAUTH_CLIENT_SECRET: ${GITLAB_OAUTH_CLIENT_SECRET:-}
+  GITLAB_URL: ${GITLAB_URL:-https://gitlab.com}
   # Orgs (GP-112): single-org unless explicitly opted out (SINGLE_ORG=false
   # enables SaaS multi-org mode — org switcher, invites, onboarding).
   SINGLE_ORG: ${SINGLE_ORG:-true}

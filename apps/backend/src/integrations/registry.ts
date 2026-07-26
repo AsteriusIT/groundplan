@@ -23,6 +23,7 @@ import {
   type GitHubAppClient,
 } from "./adapters/github-app.js";
 import { createGitLabProvider } from "./adapters/gitlab.js";
+import { realOAuth2Http, type OAuth2Http } from "./oauth2.js";
 import { NO_INTEGRATIONS_CONFIG, type IntegrationsConfig } from "./config.js";
 import type {
   Capability,
@@ -37,6 +38,8 @@ export type ProviderClients = {
   azureDevOps: AzureDevOpsClient;
   /** App-level GitHub calls (GP-193); defaults to the real client. */
   githubApp?: GitHubAppClient;
+  /** Token exchange + refresh for the OAuth providers (GP-195). */
+  oauth2Http?: OAuth2Http;
   /** What this deployment configured (apps, OAuth clients). Default: nothing. */
   config?: IntegrationsConfig;
 };
@@ -53,13 +56,14 @@ export interface ProviderRegistry {
 
 export function createProviderRegistry(clients: ProviderClients): ProviderRegistry {
   const config = clients.config ?? NO_INTEGRATIONS_CONFIG;
+  const oauth2Http = clients.oauth2Http ?? realOAuth2Http;
   const providers: IntegrationProvider[] = [
     createGitHubProvider(
       clients.github,
       config,
       clients.githubApp ?? realGitHubAppClient,
     ),
-    createGitLabProvider(clients.gitlab),
+    createGitLabProvider(clients.gitlab, config, oauth2Http),
     createAzureDevOpsProvider(clients.azureDevOps),
     createGenericProvider(),
   ];

@@ -7,13 +7,17 @@
  * (or connects a GitLab OAuth app, GP-195, which names its instance).
  */
 import { parseGitLabRepo, type GitLabClient } from "../../services/gitlab.js";
+import type { IntegrationsConfig } from "../config.js";
+import type { OAuth2Http } from "../oauth2.js";
 import { defineProvider } from "../provider.js";
 import { gitlabRefEvents } from "../webhooks.js";
 import type {
+  ConnectFlow,
   IntegrationProvider,
   PullRequestCommenter,
   RepoReader,
 } from "../types.js";
+import { gitlabConnectFlow } from "./gitlab-oauth.js";
 
 /** `oauth2` is GitLab's documented username for both a PAT and an OAuth token. */
 const repo: RepoReader = {
@@ -54,7 +58,17 @@ export function createGitLabCommenter(client: GitLabClient): PullRequestCommente
   };
 }
 
-export function createGitLabProvider(client: GitLabClient): IntegrationProvider {
+export function createGitLabProvider(
+  client: GitLabClient,
+  config: IntegrationsConfig,
+  oauth2Http: OAuth2Http,
+): IntegrationProvider {
+  // Only where an OAuth application was registered (GP-195); otherwise GitLab
+  // honestly offers PAT alone.
+  const flows: ConnectFlow[] = config.gitlabOAuth
+    ? [gitlabConnectFlow(config.gitlabOAuth, oauth2Http)]
+    : [];
+
   return defineProvider({
     id: "gitlab",
     label: "GitLab",
@@ -63,5 +77,6 @@ export function createGitLabProvider(client: GitLabClient): IntegrationProvider 
     repo,
     commenter: createGitLabCommenter(client),
     refEvents: gitlabRefEvents,
+    connectFlows: flows,
   });
 }

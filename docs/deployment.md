@@ -182,6 +182,28 @@ PATs, and the Integrations page says the App is not configured on this instance.
 the browser back to. It already is in the compose file (derived from
 `APP_DOMAIN`).
 
+### GitLab OAuth (optional, GP-195)
+
+The same idea as the GitHub App, in GitLab's shape: an OAuth application whose
+refresh token we renew, so nobody pastes a long-lived personal token. Works on
+`gitlab.com` and on a self-managed instance — an OAuth application belongs to an
+instance, so a self-managed install registers its own and points `GITLAB_URL` at
+it. Group access tokens remain a fine alternative, and PATs keep working.
+
+Register the application (GitLab → Settings → Applications) with the scopes
+`api` and `read_repository`, confidential, redirect URI
+`https://${APP_DOMAIN}/integrations/callback`. Then:
+
+| Variable                     | Value                                       |
+| ---------------------------- | ------------------------------------------- |
+| `GITLAB_OAUTH_CLIENT_ID`     | The application id                          |
+| `GITLAB_OAUTH_CLIENT_SECRET` | The application secret                      |
+| `GITLAB_URL`                 | Instance origin (default `https://gitlab.com`) |
+
+Connect it from **Organization settings → Integrations**. If GitLab later
+revokes the authorization, the connection shows **Reconnect required** rather
+than failing quietly.
+
 ### Provider webhooks (optional, GP-194)
 
 The ref poller (`git ls-remote` every 60s) works everywhere and needs nothing
