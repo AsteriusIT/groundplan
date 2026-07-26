@@ -204,6 +204,28 @@ Connect it from **Organization settings → Integrations**. If GitLab later
 revokes the authorization, the connection shows **Reconnect required** rather
 than failing quietly.
 
+### Azure DevOps via Microsoft Entra ID (optional, GP-196)
+
+Azure DevOps' own OAuth apps are deprecated, so access goes through an **Entra
+ID app registration** asking for the Azure DevOps resource scope. The customer's
+Microsoft tenant grants it, their conditional-access policies apply, and they
+revoke it from their own admin centre — which is usually the first question
+their security team asks.
+
+Register a multi-tenant app (Entra admin centre → App registrations) with
+redirect URI `https://${APP_DOMAIN}/integrations/callback` and a client secret,
+then delegate permission to *Azure DevOps*. Admin consent is required in each
+customer tenant.
+
+| Variable                 | Value                                                    |
+| ------------------------ | -------------------------------------------------------- |
+| `ADO_ENTRA_CLIENT_ID`    | Application (client) id                                  |
+| `ADO_ENTRA_CLIENT_SECRET`| Client secret                                            |
+| `ADO_ENTRA_TENANT`       | `organizations` (default) or a tenant id for single-tenant |
+
+Azure DevOps **Server** (on-premises) has no Entra tenant; it keeps using a PAT,
+which is why the mode is offered beside `pat` and never instead of it.
+
 ### Provider webhooks (optional, GP-194)
 
 The ref poller (`git ls-remote` every 60s) works everywhere and needs nothing

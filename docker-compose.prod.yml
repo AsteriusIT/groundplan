@@ -41,6 +41,10 @@ x-backend-env: &backend-env
   GITLAB_OAUTH_CLIENT_ID: ${GITLAB_OAUTH_CLIENT_ID:-}
   GITLAB_OAUTH_CLIENT_SECRET: ${GITLAB_OAUTH_CLIENT_SECRET:-}
   GITLAB_URL: ${GITLAB_URL:-https://gitlab.com}
+  # Azure DevOps via Microsoft Entra ID (GP-196) — optional, same flag rule.
+  ADO_ENTRA_CLIENT_ID: ${ADO_ENTRA_CLIENT_ID:-}
+  ADO_ENTRA_CLIENT_SECRET: ${ADO_ENTRA_CLIENT_SECRET:-}
+  ADO_ENTRA_TENANT: ${ADO_ENTRA_TENANT:-organizations}
   # Orgs (GP-112): single-org unless explicitly opted out (SINGLE_ORG=false
   # enables SaaS multi-org mode — org switcher, invites, onboarding).
   SINGLE_ORG: ${SINGLE_ORG:-true}

@@ -120,6 +120,15 @@ export type AppEnv = {
   gitlabOauthClientId: string;
   gitlabOauthClientSecret: string;
   gitlabUrl: string;
+  /**
+   * Microsoft Entra ID app registration for Azure DevOps (GP-196). Same flag
+   * rule: without a client id + secret, Azure DevOps repositories keep using
+   * PATs. `ADO_ENTRA_TENANT` is the login-URL segment — `organizations` (any
+   * work or school account) by default, a tenant id for single-tenant apps.
+   */
+  adoEntraClientId: string;
+  adoEntraClientSecret: string;
+  adoEntraTenant: string;
 };
 
 /** Sensible default model for the AI layer; override with `AI_MODEL`. */
@@ -158,5 +167,8 @@ export function loadEnv(): AppEnv {
       /(?=(\/+))\1$/,
       "",
     ),
+    adoEntraClientId: process.env.ADO_ENTRA_CLIENT_ID ?? "",
+    adoEntraClientSecret: process.env.ADO_ENTRA_CLIENT_SECRET ?? "",
+    adoEntraTenant: process.env.ADO_ENTRA_TENANT ?? "organizations",
   };
 }

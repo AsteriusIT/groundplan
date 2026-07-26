@@ -232,7 +232,11 @@ runProviderContract("gitlab", (existing) => {
 runProviderContract("azure_devops", (existing) => {
   const r = recorder(existing);
   return {
-    provider: createAzureDevOpsProvider(r.azureDevOps as never),
+    provider: createAzureDevOpsProvider(
+      r.azureDevOps as never,
+      NO_INTEGRATIONS_CONFIG,
+      {} as never,
+    ),
     calls: r.calls,
   };
 });

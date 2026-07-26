@@ -34,9 +34,17 @@ export type OAuth2AppConfig = {
 /** GitLab OAuth, plus the instance the application is registered on (GP-195). */
 export type GitLabOAuthConfig = OAuth2AppConfig & { instanceUrl: string };
 
+/**
+ * Microsoft Entra ID for Azure DevOps (GP-196). `tenant` is the segment of the
+ * login URL: `organizations` for any work/school account (the default), or a
+ * tenant id for a single-tenant registration.
+ */
+export type EntraOAuthConfig = OAuth2AppConfig & { tenant: string };
+
 export type IntegrationsConfig = {
   githubApp: GitHubAppConfig | null;
   gitlabOAuth: GitLabOAuthConfig | null;
+  entraOAuth: EntraOAuthConfig | null;
   /** Public origin the provider redirects back to; "" = flows unavailable. */
   publicBaseUrl: string;
 };
@@ -62,10 +70,21 @@ export function gitlabOAuthFrom(env: AppEnv): GitLabOAuthConfig | null {
   };
 }
 
+/** Entra OAuth is on only when both halves of the client credential are set. */
+export function entraOAuthFrom(env: AppEnv): EntraOAuthConfig | null {
+  if (!env.adoEntraClientId || !env.adoEntraClientSecret) return null;
+  return {
+    clientId: env.adoEntraClientId,
+    clientSecret: env.adoEntraClientSecret,
+    tenant: env.adoEntraTenant,
+  };
+}
+
 export function integrationsConfigFrom(env: AppEnv): IntegrationsConfig {
   return {
     githubApp: githubAppFrom(env),
     gitlabOAuth: gitlabOAuthFrom(env),
+    entraOAuth: entraOAuthFrom(env),
     publicBaseUrl: env.publicBaseUrl,
   };
 }
@@ -74,5 +93,6 @@ export function integrationsConfigFrom(env: AppEnv): IntegrationsConfig {
 export const NO_INTEGRATIONS_CONFIG: IntegrationsConfig = {
   githubApp: null,
   gitlabOAuth: null,
+  entraOAuth: null,
   publicBaseUrl: "",
 };

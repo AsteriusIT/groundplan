@@ -6,13 +6,17 @@ import {
   parseAzureDevOpsRepo,
   type AzureDevOpsClient,
 } from "../../services/azure-devops.js";
+import type { IntegrationsConfig } from "../config.js";
+import type { OAuth2Http } from "../oauth2.js";
 import { defineProvider } from "../provider.js";
 import { azureDevOpsRefEvents } from "../webhooks.js";
 import type {
+  ConnectFlow,
   IntegrationProvider,
   PullRequestCommenter,
   RepoReader,
 } from "../types.js";
+import { azureDevOpsConnectFlow } from "./azure-devops-oauth.js";
 
 /**
  * Azure DevOps ignores the username on an https clone and reads the password —
@@ -72,7 +76,15 @@ export function createAzureDevOpsCommenter(
 
 export function createAzureDevOpsProvider(
   client: AzureDevOpsClient,
+  config: IntegrationsConfig,
+  oauth2Http: OAuth2Http,
 ): IntegrationProvider {
+  // Only where an Entra ID registration exists (GP-196). Azure DevOps Server
+  // (on-premises) has no Entra tenant and keeps using a PAT.
+  const flows: ConnectFlow[] = config.entraOAuth
+    ? [azureDevOpsConnectFlow(config.entraOAuth, oauth2Http)]
+    : [];
+
   return defineProvider({
     id: "azure_devops",
     label: "Azure DevOps",
@@ -81,5 +93,6 @@ export function createAzureDevOpsProvider(
     repo,
     commenter: createAzureDevOpsCommenter(client),
     refEvents: azureDevOpsRefEvents,
+    connectFlows: flows,
   });
 }

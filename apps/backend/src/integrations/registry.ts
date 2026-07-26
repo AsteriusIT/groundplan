@@ -64,7 +64,7 @@ export function createProviderRegistry(clients: ProviderClients): ProviderRegist
       clients.githubApp ?? realGitHubAppClient,
     ),
     createGitLabProvider(clients.gitlab, config, oauth2Http),
-    createAzureDevOpsProvider(clients.azureDevOps),
+    createAzureDevOpsProvider(clients.azureDevOps, config, oauth2Http),
     createGenericProvider(),
   ];
   const byId = new Map(providers.map((p) => [p.id, p]));

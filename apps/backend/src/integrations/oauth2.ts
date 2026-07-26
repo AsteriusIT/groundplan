@@ -141,6 +141,12 @@ export type OAuth2Config = {
   scope: string;
   /** Provider-specific authorize parameters (Atlassian's `audience`, `prompt`). */
   extraAuthorizeParams?: Record<string, string>;
+  /**
+   * Extra form fields on the **refresh** request. Entra ID wants the scope
+   * repeated; most providers want nothing. Kept explicit rather than always
+   * sending the scope, because GitLab rejects a refresh that narrows it.
+   */
+  refreshParams?: Record<string, string>;
 };
 
 /**
@@ -284,6 +290,7 @@ export function oauth2Strategy(
           refresh_token: refreshToken,
           client_id: config.clientId,
           client_secret: config.clientSecret,
+          ...config.refreshParams,
         });
       } catch (err) {
         accessTokens.delete(row.id);
