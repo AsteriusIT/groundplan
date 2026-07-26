@@ -25,6 +25,7 @@ import { useScrollSpy } from "@/lib/use-scroll-spy";
 import { cn } from "@/lib/utils";
 import { useOrg } from "@/org/use-org";
 import { AppIngestionSettings } from "@/components/app-ingestion-settings";
+import { OrgConnections } from "@/components/org-connections";
 import { OrgIntegrations } from "@/components/org-integrations";
 import { OrgInvites } from "@/components/org-invites";
 import { OrgMembers } from "@/components/org-members";
@@ -336,6 +337,23 @@ export function MembersCard() {
       }
     >
       <OrgMembers />
+    </Section>
+  );
+}
+
+/**
+ * Provider connections (GP-198): how this org authenticates to GitHub, GitLab
+ * and Azure DevOps. The list is generated from the backend registry, so a new
+ * provider appears with no frontend change.
+ */
+export function ConnectionsCard() {
+  return (
+    <Section
+      icon={<Plug className="size-4" />}
+      title="Connections"
+      description="How this organization authenticates to its code hosts. Connect once instead of pasting a token per repository."
+    >
+      <OrgConnections />
     </Section>
   );
 }

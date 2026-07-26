@@ -143,6 +143,7 @@ it("shows a member the roster and integrations, but no invites or danger zone", 
   renderPage({ activeOrg: active("member") });
   expect(railLinks()).toEqual([
     "Members",
+    "Connections",
     "Integrations",
     "CI ingestion token",
     "AI",
@@ -157,6 +158,7 @@ it("adds invitations for an admin, still no danger zone", () => {
   renderPage({ activeOrg: active("admin") });
   expect(railLinks()).toEqual([
     "Members",
+    "Connections",
     "Integrations",
     "Invitations",
     "CI ingestion token",
@@ -171,6 +173,7 @@ it("adds invitations and the danger zone for an owner", () => {
   renderPage({ activeOrg: active("owner") });
   expect(railLinks()).toEqual([
     "Members",
+    "Connections",
     "Integrations",
     "Invitations",
     "CI ingestion token",
@@ -186,6 +189,7 @@ it("works in single-org mode: sections render, invites/danger hidden", () => {
   renderPage({ singleOrg: true, activeOrg: active("owner") });
   expect(railLinks()).toEqual([
     "Members",
+    "Connections",
     "Integrations",
     "CI ingestion token",
     "AI",

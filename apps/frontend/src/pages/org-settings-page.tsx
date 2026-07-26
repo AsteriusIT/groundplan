@@ -6,6 +6,7 @@ import { useCan } from "@/rbac/use-can";
 import { PageHeader } from "@/components/page-header";
 import {
   AiCard,
+  ConnectionsCard,
   DangerCard,
   IngestionCard,
   IntegrationsCard,
@@ -63,6 +64,11 @@ export function OrgSettingsPage() {
       label: "Organization",
       sections: [
         { id: "members", label: "Members", element: <MembersCard /> },
+        {
+          id: "connections",
+          label: "Connections",
+          element: <ConnectionsCard />,
+        },
         {
           id: "integrations",
           label: "Integrations",

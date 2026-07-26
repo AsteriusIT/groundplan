@@ -1,8 +1,18 @@
 import { type SubmitEvent, useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 
-import { ApiError, updateRepository } from "@/api/client";
-import type { Repository, UpdateRepositoryInput } from "@/api/types";
+import {
+  ApiError,
+  listConnections,
+  setRepositoryCredential,
+  updateRepository,
+} from "@/api/client";
+import type {
+  CredentialMode,
+  ProviderConnection,
+  Repository,
+  UpdateRepositoryInput,
+} from "@/api/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +25,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { IAC_PATH_LABELS } from "@/lib/iac-type";
+
+/** How the repository's active credential mode reads to a person (GP-198). */
+const AUTH_MODE_LABEL: Record<CredentialMode | "none", string> = {
+  pat: "This repository's own access token.",
+  oauth2: "An organization OAuth connection.",
+  installation_app: "An organization app installation — no token stored here.",
+  none: "No credential — only public repositories can be read.",
+};
 
 /**
  * One home for a repository's set-once configuration: the access token, the
@@ -41,6 +59,11 @@ export function RepositorySettingsDialog({
 }>) {
   const [pat, setPat] = useState("");
   const [branch, setBranch] = useState(repository.defaultBranch);
+  // Org connections this repository *could* use — same provider only (GP-198).
+  const [connections, setConnections] = useState<ProviderConnection[]>([]);
+  const [credentialId, setCredentialId] = useState(repository.credentialId);
+  const [authMode, setAuthMode] = useState(repository.authMode);
+  const [switching, setSwitching] = useState(false);
   const [tfPath, setTfPath] = useState(repository.terraformPath);
   const [prComments, setPrComments] = useState(repository.prCommentsEnabled);
   const [submitting, setSubmitting] = useState(false);
@@ -48,8 +71,19 @@ export function RepositorySettingsDialog({
 
   // Re-seed the form each time it opens: the repo may have changed since the
   // last time (a verify, a token edit) and a stale draft would silently undo it.
+  // The connections list is only useful while the dialog is open, and it is
+  // one call per opening rather than one per repository row behind it.
+  useEffect(() => {
+    if (!open) return;
+    listConnections()
+      .then((all) => setConnections(all.filter((c) => c.provider === repository.provider)))
+      .catch(() => setConnections([]));
+  }, [open, repository.provider]);
+
   useEffect(() => {
     if (open) {
+      setCredentialId(repository.credentialId);
+      setAuthMode(repository.authMode);
       setBranch(repository.defaultBranch);
       setTfPath(repository.terraformPath);
       setPrComments(repository.prCommentsEnabled);
@@ -59,7 +93,31 @@ export function RepositorySettingsDialog({
     repository.defaultBranch,
     repository.terraformPath,
     repository.prCommentsEnabled,
+    repository.credentialId,
+    repository.authMode,
   ]);
+
+  /**
+   * Move this repository onto an org connection, or back to its own token.
+   * It saves immediately rather than joining the form's patch: it is a
+   * different kind of change — one that can degrade the repository — and
+   * folding it into "Save changes" would hide that.
+   */
+  async function handleCredential(next: string | null) {
+    setSwitching(true);
+    setError(null);
+    try {
+      const result = await setRepositoryCredential(repository.id, next);
+      setCredentialId(result.credentialId);
+      setAuthMode(result.authMode);
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Could not change how this repository authenticates.",
+      );
+    } finally {
+      setSwitching(false);
+    }
+  }
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
@@ -118,6 +176,42 @@ export function RepositorySettingsDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-5">
+          {/* GP-198: which credential is actually in force, and the one-click
+              move onto an org connection that covers this repository. */}
+          <div className="space-y-2">
+            <p className="text-sm leading-none font-medium">Authentication</p>
+            <p className="text-muted-foreground text-xs">
+              {AUTH_MODE_LABEL[authMode ?? "none"]}
+            </p>
+            {connections.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {connections.map((connection) => (
+                  <Button
+                    key={connection.id}
+                    type="button"
+                    size="sm"
+                    variant={credentialId === connection.id ? "default" : "outline"}
+                    aria-pressed={credentialId === connection.id}
+                    disabled={switching}
+                    onClick={() => void handleCredential(connection.id)}
+                  >
+                    {connection.name}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={credentialId === null ? "default" : "outline"}
+                  aria-pressed={credentialId === null}
+                  disabled={switching}
+                  onClick={() => void handleCredential(null)}
+                >
+                  Use this repository's token
+                </Button>
+              </div>
+            )}
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="repo-settings-pat">
               {repository.accessToken ? "Replace access token" : "Access token"}
