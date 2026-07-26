@@ -73,6 +73,7 @@ function dashboard(over: Partial<Dashboard> = {}): Dashboard {
     recentPrs: [pull()],
     recentDocsSnapshots: [docs()],
     orphanRepositories: [],
+    compliance: [],
     ...over,
   };
 }
@@ -196,12 +197,49 @@ it("lists a recent docs snapshot with its sha and trigger, linking to the docs v
   expect(row).toHaveTextContent(/auto/i);
 });
 
+// GP-203: the compliance section. It is what has actually been judged — a
+// repository whose main was never documented is absent, not passing.
+it("lists each repository's compliance state, linking to its documentation", async () => {
+  getDashboardMock.mockResolvedValue(
+    dashboard({
+      compliance: [
+        {
+          repositoryId: "r1",
+          repositoryUrl: "https://github.com/acme/infra",
+          projectId: "p1",
+          snapshotId: "d1",
+          commitSha: "abcdef1234567890",
+          status: "failing",
+          counts: { error: 2, warning: 1, info: 0, waived: 1, total: 4 },
+          checkedRules: 14,
+          evaluatedAt: "2026-07-11T09:00:00.000Z",
+        },
+      ],
+    }),
+  );
+  renderPage();
+
+  const row = await screen.findByRole("link", { name: /failing/i });
+  expect(row).toHaveAttribute("href", "/projects/p1/repos/r1/docs");
+  expect(row).toHaveTextContent("2 errors");
+  expect(row).toHaveTextContent("1 warning");
+  expect(row).toHaveTextContent("1 waived");
+});
+
+it("hides the compliance section entirely when nothing has been judged", async () => {
+  getDashboardMock.mockResolvedValue(dashboard({ compliance: [] }));
+  renderPage();
+  await screen.findByText("Recent pull requests");
+  expect(screen.queryByText("Compliance")).not.toBeInTheDocument();
+});
+
 it("greets a fresh user with one call to action instead of empty tables", async () => {
   getDashboardMock.mockResolvedValue({
     stats: { projects: 0, repositories: 0, openPrs: 0, orphanedAnnotations: 0 },
     recentPrs: [],
     recentDocsSnapshots: [],
     orphanRepositories: [],
+    compliance: [],
   });
   renderPage();
 
@@ -220,6 +258,7 @@ it("keeps the lists (with their own empty notes) once a repository exists", asyn
     recentPrs: [],
     recentDocsSnapshots: [],
     orphanRepositories: [],
+    compliance: [],
   });
   renderPage();
 

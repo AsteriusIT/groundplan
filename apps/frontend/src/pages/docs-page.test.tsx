@@ -322,6 +322,14 @@ it("compares two docs snapshots (GP-40)", async () => {
     removed: [],
     moved: [],
     unchangedCount: 1,
+    policy: {
+      version: 1,
+      added: [],
+      resolved: [],
+      preexisting: [],
+      status: "passing",
+      baseSnapshotId: "s1",
+    },
   };
   diffSnapshotsMock.mockResolvedValue(diff);
 

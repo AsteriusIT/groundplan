@@ -11,9 +11,11 @@ import { Loader2, LinkIcon, TriangleAlert } from "lucide-react";
 import { ApiError, getPublicSnapshot } from "@/api/client";
 import type { PublicSnapshotView } from "@/api/types";
 import { formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { ContextSection } from "@/components/context-section";
+import { findingsByNode, STATUS_CLASS, STATUS_LABEL } from "@/lib/policy";
 
 type State =
   | { status: "loading" }
@@ -73,10 +75,22 @@ export function SharePage() {
             </div>
           )}
         </div>
-        <span className="text-muted-foreground hidden items-center gap-1.5 text-xs sm:inline-flex">
-          <LinkIcon className="size-3.5" />
-          Read-only shared view
-        </span>
+        <div className="flex items-center gap-3">
+          {state.status === "ready" && state.view.policy && (
+            <span
+              className={cn(
+                "rounded-full border px-2 py-0.5 font-mono text-[11px] leading-none font-medium",
+                STATUS_CLASS[state.view.policy.status],
+              )}
+            >
+              Policy: {STATUS_LABEL[state.view.policy.status]}
+            </span>
+          )}
+          <span className="text-muted-foreground hidden items-center gap-1.5 text-xs sm:inline-flex">
+            <LinkIcon className="size-3.5" />
+            Read-only shared view
+          </span>
+        </div>
       </header>
 
       <div className="blueprint-grid relative min-h-0 flex-1">
@@ -103,6 +117,10 @@ export function SharePage() {
             graph={state.view.snapshot.graph}
             variant="docs"
             annotations={state.view.annotations}
+            // GP-203: badges only when the link's creator chose to publish the
+            // compliance state; an ordinary link carries the diagram alone.
+            lint={findingsByNode(state.view.policy?.violations ?? [])}
+            findingsLabel="Policy violation"
           />
         )}
       </div>

@@ -9,10 +9,12 @@ import {
 } from "../db/schema.js";
 import { collapseToGroups, projectAdapted } from "../graph/adapted.js";
 import { diffGraphs } from "../graph/diff.js";
+import { diffPolicyReports } from "../graph/policy/diff.js";
 import { computeGraphStats } from "../graph/graph.js";
 import { resolveResourceOrg } from "../rbac/ownership.js";
 import { orgIdOf } from "../rbac/request.js";
 import { DOCS_SOURCES, type SnapshotSource } from "../services/graph-snapshots.js";
+import { ensurePolicyReport } from "../services/policy.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -232,10 +234,24 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
+      // GP-203: what changed about *compliance* between the two versions, from
+      // the reports stored beside them — the same comparison a pull request
+      // makes, so "resolved since last month" and "resolved by this PR" are the
+      // same fact computed the same way. Absent when either version was never
+      // judged: an unjudged past is not a compliant one.
+      const [baseReport, targetReport] = await Promise.all([
+        ensurePolicyReport(app.db, base),
+        ensurePolicyReport(app.db, target),
+      ]);
+
       return {
         base: { id: base.id, commitSha: base.commitSha, createdAt: base.createdAt },
         target: { id: target.id, commitSha: target.commitSha, createdAt: target.createdAt },
         ...diffGraphs(base.graph, target.graph),
+        policy: diffPolicyReports(targetReport.report, {
+          report: baseReport.report,
+          snapshotId: base.id,
+        }),
       };
     },
   );

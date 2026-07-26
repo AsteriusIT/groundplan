@@ -638,6 +638,12 @@ export interface SnapshotDiff {
   removed: DiffNode[];
   moved: MovedNode[];
   unchangedCount: number;
+  /**
+   * GP-203: what changed about compliance between the two versions — the same
+   * comparison a pull request makes, so "resolved since last month" and
+   * "resolved by this PR" are the same fact computed the same way.
+   */
+  policy: PolicyDelta;
 }
 
 /** The latest snapshot summary attached to a pull request (no graph). */
@@ -725,6 +731,33 @@ export interface Dashboard {
   recentDocsSnapshots: DashboardDocsSnapshot[];
   /** Worst first, so the orphan card can link to the repository to fix. */
   orphanRepositories: DashboardOrphanRepo[];
+  /**
+   * GP-203: where each repository stands against the policy, worst first. A
+   * repository whose main was never documented is *absent* rather than passing —
+   * this list says what is known.
+   */
+  compliance: DashboardCompliance[];
+}
+
+/** One repository's compliance state, from its current documentation of main. */
+export interface DashboardCompliance {
+  repositoryId: string;
+  repositoryUrl: string;
+  projectId: string;
+  /** The documentation snapshot the verdict is about. */
+  snapshotId: string;
+  commitSha: string;
+  status: PolicyStatus;
+  counts: {
+    error: number;
+    warning: number;
+    info: number;
+    waived: number;
+    total: number;
+  };
+  /** How many rules actually produced a verdict — 0 means nothing was checked. */
+  checkedRules: number;
+  evaluatedAt: string;
 }
 
 // --- Public share links (GP-39) --------------------------------------------
@@ -738,6 +771,8 @@ export interface ShareLink {
   kind: ShareKind;
   /** Set for a pinned (`snapshot`) link; null for `docs_latest`. */
   snapshotId: string | null;
+  /** GP-203: whether this link publishes the compliance state. Off by default. */
+  includePolicy: boolean;
   createdAt: string;
 }
 
@@ -745,11 +780,18 @@ export interface CreateShareLinkInput {
   kind: ShareKind;
   /** Required when kind = "snapshot". */
   snapshotId?: string;
+  /** GP-203: publish the compliance state on this link. Off unless asked. */
+  includePolicy?: boolean;
 }
 
 /** The credential-free snapshot payload served on public routes. */
 export interface PublicSnapshotView {
   kind: ShareKind;
+  /**
+   * GP-203: the compliance state, and only when the link's creator opted in —
+   * null otherwise, the same posture AI content takes on a public link.
+   */
+  policy: PolicyReport | null;
   /** GP-60: `context` is the repository's read-only markdown context. */
   repository: { name: string; provider: Provider; context: string | null };
   /** GP-58: renderable annotations shown read-only on the shared diagram. */

@@ -24,6 +24,7 @@ const link: ShareLink = {
   token: "tok123456789012",
   kind: "docs_latest",
   snapshotId: null,
+  includePolicy: false,
   createdAt: "2026-07-11T00:00:00.000Z",
 };
 
@@ -46,7 +47,7 @@ it("creates an always-latest link and lists it", async () => {
   fireEvent.click(screen.getByRole("button", { name: /always latest/i }));
 
   await waitFor(() =>
-    expect(createMock).toHaveBeenCalledWith("r1", { kind: "docs_latest", snapshotId: undefined }),
+    expect(createMock).toHaveBeenCalledWith("r1", { kind: "docs_latest", snapshotId: undefined, includePolicy: false }),
   );
   // The freshly created link's URL shows up (built from its token).
   expect(await screen.findByText(/\/share\/tok123456789012/)).toBeInTheDocument();
@@ -57,7 +58,7 @@ it("pins the current snapshot when asked", async () => {
   await screen.findByText(/No active share links yet/);
   fireEvent.click(screen.getByRole("button", { name: /pin this version/i }));
   await waitFor(() =>
-    expect(createMock).toHaveBeenCalledWith("r1", { kind: "snapshot", snapshotId: "s1" }),
+    expect(createMock).toHaveBeenCalledWith("r1", { kind: "snapshot", snapshotId: "s1", includePolicy: false }),
   );
 });
 

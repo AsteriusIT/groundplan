@@ -66,7 +66,7 @@ async function ingestManifests(
   // truth. It also gives its pull requests something to be compared against.
   if (body.event === "push") {
     await replaceSnapshot(app, repo.id, "k8s_manifest", null, body.commit_sha);
-    await insertGraphSnapshot(app.db, {
+    const documented = await insertGraphSnapshot(app.db, {
       repositoryId: repo.id,
       source: "k8s_manifest",
       ref: repo.defaultBranch,
@@ -80,6 +80,9 @@ async function ingestManifests(
         ...unresolvedStats,
       },
     });
+    // GP-203: documentation of main, judged as it lands — a CI-rendered main is
+    // documentation like any other, and gets the same compliance state.
+    await evaluateRepositorySnapshot(app.db, documented);
     return;
   }
 

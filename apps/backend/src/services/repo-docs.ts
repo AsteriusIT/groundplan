@@ -16,6 +16,7 @@ import { isManifestPath, parseManifests } from "../graph/manifest-parser.js";
 import { reconcileRepositoryAnnotations } from "./annotation-reconcile.js";
 import { autoPublishDocsSnapshot } from "./confluence-publish.js";
 import { docsSourceFor, insertGraphSnapshot } from "./graph-snapshots.js";
+import { evaluateRepositorySnapshot } from "./policy.js";
 import { readRepoTextFiles, type RepoTextFile } from "./repo-files.js";
 
 /** Thrown when a docs generation is already running for a repository. */
@@ -162,6 +163,12 @@ export async function generateDocsSnapshot(
     // there is nothing to reconcile them against — and reconciling anyway would
     // quietly orphan a repository's Terraform annotations against a YAML graph.
     if (!kubernetes) await reconcileRepositoryAnnotations(app.db, repo.id, graph);
+
+    // GP-203: fresh documentation of main is re-judged in the same pass, so the
+    // diagram and its compliance state are never out of step — which is the
+    // whole claim of "the documentation is the guarantor of the rules". Also
+    // deterministic and synchronous, for the same reason reconciliation is.
+    await evaluateRepositorySnapshot(app.db, snapshot);
 
     return snapshot;
   } finally {

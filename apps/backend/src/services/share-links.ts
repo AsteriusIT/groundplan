@@ -12,6 +12,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   annotations,
   graphSnapshots,
+  policyReports,
   repositories,
   shareTokens,
   toPublicAnnotation,
@@ -19,6 +20,7 @@ import {
   type GraphSnapshotRow,
   type ShareTokenRow,
 } from "../db/schema.js";
+import type { PolicyReport } from "../graph/policy/types.js";
 import { generateToken } from "../lib/tokens.js";
 import { repoLabel } from "./snapshot-export.js";
 
@@ -30,6 +32,8 @@ export interface PublicShareLink {
   token: string;
   kind: ShareKind;
   snapshotId: string | null;
+  /** GP-203: whether this link carries the compliance state. Off by default. */
+  includePolicy: boolean;
   createdAt: Date;
 }
 
@@ -39,6 +43,7 @@ export function toPublicShareLink(row: ShareTokenRow): PublicShareLink {
     token: row.token,
     kind: row.kind,
     snapshotId: row.snapshotId,
+    includePolicy: row.includePolicy,
     createdAt: row.createdAt,
   };
 }
@@ -50,6 +55,8 @@ export async function createShareLink(
     repositoryId: string;
     kind: ShareKind;
     snapshotId?: string | null;
+    /** GP-203: opt in to publishing the compliance state on this link. */
+    includePolicy?: boolean;
     createdBy?: string | null;
   },
 ): Promise<ShareTokenRow> {
@@ -60,6 +67,7 @@ export async function createShareLink(
       repositoryId: input.repositoryId,
       kind: input.kind,
       snapshotId: input.kind === "snapshot" ? (input.snapshotId ?? null) : null,
+      includePolicy: input.includePolicy ?? false,
       createdBy: input.createdBy ?? null,
     })
     .returning();
@@ -161,6 +169,12 @@ export interface ResolvedShare {
   repoProvider: string;
   /** GP-60: the repository's long-form context, shown read-only in the view. */
   repoContextMd: string | null;
+  /**
+   * GP-203: the compliance state, and only when the link's creator asked for it
+   * — null otherwise, so a public viewer of an ordinary link cannot learn what
+   * is wrong with an estate they were shown a picture of.
+   */
+  policy: PolicyReport | null;
   /** The repository's annotation layer (GP-58); filtered to renderable ones on
    * output, so public viewers see notes/links/groups but never orphans. */
   annotations: AnnotationRow[];
@@ -217,12 +231,24 @@ export async function resolveShareToken(
     .from(annotations)
     .where(eq(annotations.repositoryId, share.repositoryId));
 
+  // Read only when the link opted in — the query is skipped otherwise, so the
+  // report cannot reach the payload by accident (GP-203).
+  let policy: PolicyReport | null = null;
+  if (share.includePolicy) {
+    const [row] = await db
+      .select({ report: policyReports.report })
+      .from(policyReports)
+      .where(eq(policyReports.snapshotId, snapshot.id));
+    policy = row?.report ?? null;
+  }
+
   return {
     token: share,
     snapshot,
     repoUrl: repo.url,
     repoProvider: repo.provider,
     repoContextMd: repo.contextMd,
+    policy,
     annotations: repoAnnotations,
   };
 }
@@ -253,6 +279,8 @@ export function toPublicSnapshotView(resolved: ResolvedShare) {
     .map(toPublicAnnotation);
   return {
     kind: resolved.token.kind,
+    // Null unless the link was created asking for it (GP-203).
+    policy: resolved.policy,
     repository: {
       name: repoLabel(resolved.repoUrl),
       provider: resolved.repoProvider,

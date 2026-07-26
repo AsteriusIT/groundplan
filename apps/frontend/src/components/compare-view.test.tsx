@@ -49,6 +49,14 @@ const diff: SnapshotDiff = {
   removed: [{ id: "azurerm_subnet.old", name: "old", type: "azurerm_subnet", module_path: [] }],
   moved: [],
   unchangedCount: 1,
+  policy: {
+    version: 1,
+    added: [],
+    resolved: [],
+    preexisting: [],
+    status: "passing",
+    baseSnapshotId: "s0",
+  },
 };
 
 beforeEach(() => {

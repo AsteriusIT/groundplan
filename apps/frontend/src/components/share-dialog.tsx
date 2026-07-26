@@ -38,6 +38,12 @@ export function ShareDialog({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * GP-203: whether the next link publishes the compliance state. Off by
+   * default and decided *before* creating the link, because a link's audience
+   * is fixed the moment you send it — there is no taking a disclosure back.
+   */
+  const [includePolicy, setIncludePolicy] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -61,6 +67,7 @@ export function ShareDialog({
       await createShareLink(repositoryId, {
         kind,
         snapshotId: kind === "snapshot" ? currentSnapshotId ?? undefined : undefined,
+        includePolicy,
       });
       load();
     } catch (err) {
@@ -94,6 +101,7 @@ export function ShareDialog({
               <p className="truncate font-mono text-xs">{shareUrl(link.token)}</p>
               <p className="text-muted-foreground text-[11px]">
                 {link.kind === "docs_latest" ? "Always latest" : "Pinned snapshot"}
+                {link.includePolicy && " · includes compliance"}
               </p>
             </div>
             <CopyButton value={shareUrl(link.token)} label="Copy" className="shrink-0" />
@@ -143,6 +151,22 @@ export function ShareDialog({
             Pin this version
           </Button>
         </div>
+
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+          <input
+            type="checkbox"
+            className="accent-primary mt-0.5 size-4"
+            checked={includePolicy}
+            onChange={(e) => setIncludePolicy(e.target.checked)}
+          />
+          <span>
+            Include the compliance state{/* */}
+            <span className="text-muted-foreground block text-xs">
+              Off by default. Without it the link shows the diagram and nothing
+              about what is wrong with it.
+            </span>
+          </span>
+        </label>
 
         {error && (
           <p role="alert" className="text-destructive text-sm">

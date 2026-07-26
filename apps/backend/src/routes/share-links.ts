@@ -53,6 +53,8 @@ const createBodySchema = {
   properties: {
     kind: { type: "string", enum: ["docs_latest", "snapshot"] },
     snapshotId: { type: "string", pattern: UUID_PATTERN },
+    /** GP-203: publish the compliance state on this link. Off unless asked. */
+    includePolicy: { type: "boolean" },
   },
   allOf: [
     {
@@ -77,7 +79,11 @@ export const shareRoutes: FastifyPluginAsync = async (app) => {
     { schema: { params: idParamsSchema, body: createBodySchema } },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const body = request.body as { kind: "docs_latest" | "snapshot"; snapshotId?: string };
+      const body = request.body as {
+        kind: "docs_latest" | "snapshot";
+        snapshotId?: string;
+        includePolicy?: boolean;
+      };
       if (!(await repoExists(app, id))) {
         return reply
           .code(404)
@@ -107,6 +113,7 @@ export const shareRoutes: FastifyPluginAsync = async (app) => {
         repositoryId: id,
         kind: body.kind,
         snapshotId: body.snapshotId ?? null,
+        includePolicy: body.includePolicy ?? false,
         createdBy: request.authUser?.id ?? null,
       });
       return reply.code(201).send(toPublicShareLink(row));

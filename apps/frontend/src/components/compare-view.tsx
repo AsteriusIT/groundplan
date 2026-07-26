@@ -104,12 +104,18 @@ function CompareSummary({
   onExit: () => void;
 }>) {
   const empty = diffIsEmpty(diff);
+  // GP-203: what changed about compliance between the two versions. Counted
+  // beside the structural change, because "we removed three subnets" and "we
+  // fixed two violations" are the two things a reader of history came for.
+  const policy = diff.policy;
+  const policyMoved =
+    policy.added.length > 0 || policy.resolved.length > 0;
   return (
     <div className="bg-card z-10 border-b border-border px-6 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {empty ? (
+        {empty && !policyMoved ? (
           <span className="text-muted-foreground text-sm">No differences between these snapshots.</span>
-        ) : (
+        ) : empty ? null : (
           <>
             <span className="text-create inline-flex items-center gap-1 font-mono text-sm font-medium">
               +{diff.added.length} added
@@ -123,6 +129,21 @@ function CompareSummary({
               </span>
             )}
           </>
+        )}
+        {policyMoved && (
+          <span className="inline-flex items-center gap-2 font-mono text-sm font-medium">
+            {policy.added.length > 0 && (
+              <span className="text-delete">
+                +{policy.added.length} violation
+                {policy.added.length === 1 ? "" : "s"}
+              </span>
+            )}
+            {policy.resolved.length > 0 && (
+              <span className="text-create">
+                −{policy.resolved.length} resolved
+              </span>
+            )}
+          </span>
         )}
         <span className="text-muted-foreground inline-flex items-center gap-1.5 font-mono text-xs">
           {shortSha(diff.base.commitSha)} ({formatDate(diff.base.createdAt)})
@@ -139,7 +160,7 @@ function CompareSummary({
         </button>
       </div>
 
-      {!empty && (
+      {(!empty || policyMoved) && (
         <div className="mt-2 flex flex-wrap gap-4">
           {diff.added.length > 0 && (
             <DiffList title="Added" tone="create">
@@ -161,6 +182,35 @@ function CompareSummary({
               {diff.removed.map((n) => (
                 <li key={n.id} className="text-muted-foreground truncate font-mono text-[11px]">
                   {n.id}
+                </li>
+              ))}
+            </DiffList>
+          )}
+          {policy.added.length > 0 && (
+            <DiffList title="New violations" tone="delete">
+              {policy.added.map((v) => (
+                <li key={`${v.ruleId} ${v.address}`}>
+                  <button
+                    type="button"
+                    onClick={() => onFocus(v.address)}
+                    className="hover:text-foreground text-muted-foreground truncate text-left font-mono text-[11px]"
+                    title={v.message}
+                  >
+                    {v.address} · {v.ruleId}
+                  </button>
+                </li>
+              ))}
+            </DiffList>
+          )}
+          {policy.resolved.length > 0 && (
+            <DiffList title="Violations resolved" tone="create">
+              {policy.resolved.map((v) => (
+                <li
+                  key={`${v.ruleId} ${v.address}`}
+                  className="text-muted-foreground truncate font-mono text-[11px]"
+                  title={v.message}
+                >
+                  {v.address} · {v.ruleId}
                 </li>
               ))}
             </DiffList>

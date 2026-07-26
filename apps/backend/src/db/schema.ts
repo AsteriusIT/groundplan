@@ -992,6 +992,14 @@ export const shareTokens = pgTable("share_tokens", {
   createdBy: uuid("created_by").references(() => users.id, {
     onDelete: "set null",
   }),
+  /**
+   * Whether this public link carries the repository's compliance state (GP-203).
+   * Off by default and chosen at creation, the same posture AI content takes: a
+   * diagram of the estate is what the reader decided to share; the list of what
+   * is wrong with it is a separate decision, and the safe answer to a decision
+   * nobody made is no.
+   */
+  includePolicy: boolean("include_policy").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

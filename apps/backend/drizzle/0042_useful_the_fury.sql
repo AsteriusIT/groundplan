@@ -1,0 +1,1 @@
+ALTER TABLE "share_tokens" ADD COLUMN "include_policy" boolean DEFAULT false NOT NULL;

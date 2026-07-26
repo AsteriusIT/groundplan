@@ -4,11 +4,13 @@ import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   annotations,
   graphSnapshots,
+  policyReports,
   projects,
   pullRequests,
   repositories,
 } from "../db/schema.js";
 import type { GraphStats } from "../graph/graph.js";
+import type { PolicyStatus } from "../graph/policy/types.js";
 import { orgIdOf } from "../rbac/request.js";
 import { DOCS_SOURCES, PR_SOURCES } from "../services/graph-snapshots.js";
 
@@ -32,6 +34,13 @@ function anyNodeHas(flag: "internet_exposed" | "privileged") {
   ])}::jsonb`;
 }
 
+/** Worst compliance state first — the dashboard opens on what needs answering. */
+const STATUS_ORDER: Record<PolicyStatus, number> = {
+  failing: 0,
+  warnings: 1,
+  passing: 2,
+};
+
 /** `${repositoryId}#${prNumber}` — the identity of a pull request across repos. */
 function prKey(repositoryId: string, number: number): string {
   return `${repositoryId}#${number}`;
@@ -48,13 +57,20 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get("/dashboard", async (request) => {
     const orgId = orgIdOf(request);
-    const [stats, prs, docs, orphanRepositories] = await Promise.all([
+    const [stats, prs, docs, orphanRepositories, compliance] = await Promise.all([
       loadStats(orgId),
       loadRecentPrs(orgId),
       loadRecentDocs(orgId),
       loadOrphanRepositories(orgId),
+      loadCompliance(orgId),
     ]);
-    return { stats, recentPrs: prs, recentDocsSnapshots: docs, orphanRepositories };
+    return {
+      stats,
+      recentPrs: prs,
+      recentDocsSnapshots: docs,
+      orphanRepositories,
+      compliance,
+    };
   });
 
   async function loadStats(orgId: string) {
@@ -226,6 +242,61 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       ...row,
       trigger: stats.trigger === "auto" ? "auto" : "manual",
     }));
+  }
+
+  /**
+   * Where each repository stands against the policy (GP-203): the verdict on its
+   * current documentation of main, with the counts behind it.
+   *
+   * Read from the stored report rather than re-evaluated — the engine is
+   * deterministic, so a dashboard that re-ran it would spend the estate's CPU to
+   * learn what is already written down. A repository whose main has never been
+   * documented, or never judged, is simply absent: this list says what is known,
+   * and inventing a `passing` for an unread repository would be a lie the whole
+   * epic exists to avoid.
+   *
+   * Worst first, so the list opens on what needs answering.
+   */
+  async function loadCompliance(orgId: string) {
+    const rows = await app.db
+      .selectDistinctOn([graphSnapshots.repositoryId], {
+        repositoryId: repositories.id,
+        repositoryUrl: repositories.url,
+        projectId: repositories.projectId,
+        snapshotId: graphSnapshots.id,
+        commitSha: graphSnapshots.commitSha,
+        report: policyReports.report,
+        evaluatedAt: policyReports.updatedAt,
+      })
+      .from(graphSnapshots)
+      .innerJoin(policyReports, eq(policyReports.snapshotId, graphSnapshots.id))
+      .innerJoin(repositories, eq(graphSnapshots.repositoryId, repositories.id))
+      .innerJoin(projects, eq(repositories.projectId, projects.id))
+      .where(
+        and(
+          inArray(graphSnapshots.source, DOCS_SOURCES),
+          eq(projects.organizationId, orgId),
+        ),
+      )
+      .orderBy(
+        graphSnapshots.repositoryId,
+        desc(graphSnapshots.createdAt),
+      );
+
+    return rows
+      .map(({ report, ...row }) => ({
+        ...row,
+        status: report.status,
+        counts: report.counts,
+        checkedRules: report.rules.filter((r) => r.enabled && r.applicable).length,
+      }))
+      .sort(
+        (a, b) =>
+          STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+          b.counts.error - a.counts.error ||
+          b.counts.warning - a.counts.warning ||
+          a.repositoryUrl.localeCompare(b.repositoryUrl),
+      );
   }
 
   /**

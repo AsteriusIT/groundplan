@@ -7,6 +7,7 @@ import {
   Globe,
   GitPullRequest,
   ShieldAlert,
+  ShieldCheck,
   TriangleAlert,
   Unlink,
   type LucideIcon,
@@ -15,6 +16,7 @@ import {
 import { ApiError, getDashboard } from "@/api/client";
 import type {
   Dashboard,
+  DashboardCompliance,
   DashboardDocsSnapshot,
   DashboardPull,
 } from "@/api/types";
@@ -23,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { ChangeChips } from "@/components/change-chips";
 import { PageHeader } from "@/components/page-header";
 import { Chip } from "@/components/ui/chip";
+import { STATUS_CLASS, STATUS_LABEL } from "@/lib/policy";
 
 type LoadState =
   | { status: "loading" }
@@ -85,7 +88,8 @@ export function DashboardPage() {
 }
 
 function Estate({ data }: Readonly<{ data: Dashboard }>) {
-  const { stats, recentPrs, recentDocsSnapshots, orphanRepositories } = data;
+  const { stats, recentPrs, recentDocsSnapshots, orphanRepositories, compliance } =
+    data;
   // Worst-hit repository first (GP-67), so the card lands on the review that
   // matters most when several repositories have drifted.
   const worstOrphans = orphanRepositories[0];
@@ -137,6 +141,20 @@ function Estate({ data }: Readonly<{ data: Dashboard }>) {
         ))}
       </Section>
 
+      {/* GP-203: where each repository stands against the policy, worst first.
+          The list is what has actually been judged — a repository whose main was
+          never documented is absent, not passing. */}
+      {compliance.length > 0 && (
+        <Section
+          title="Compliance"
+          description="The verdict on each repository's current documentation of main."
+        >
+          {compliance.map((row) => (
+            <ComplianceRow key={row.repositoryId} row={row} />
+          ))}
+        </Section>
+      )}
+
       <Section
         title="Recent documentation updates"
         description="Docs regenerate on every merge to the default branch."
@@ -151,6 +169,43 @@ function Estate({ data }: Readonly<{ data: Dashboard }>) {
         ))}
       </Section>
     </div>
+  );
+}
+
+function ComplianceRow({ row }: Readonly<{ row: DashboardCompliance }>) {
+  const counts: [string, number][] = [
+    ["errors", row.counts.error],
+    ["warnings", row.counts.warning],
+    ["notes", row.counts.info],
+    ["waived", row.counts.waived],
+  ];
+  return (
+    <Link
+      to={`/projects/${row.projectId}/repos/${row.repositoryId}/docs`}
+      className="hover:bg-accent flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors"
+    >
+      <ShieldCheck className="text-muted-foreground size-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {repoName(row.repositoryUrl)}
+      </span>
+      <span
+        className={cn(
+          "rounded-full border px-2 py-0.5 font-mono text-[11px] leading-none font-medium",
+          STATUS_CLASS[row.status],
+        )}
+      >
+        {STATUS_LABEL[row.status]}
+      </span>
+      <span className="text-muted-foreground font-mono text-[11px]">
+        {counts
+          .filter(([, n]) => n > 0)
+          .map(([label, n]) => `${n} ${label}`)
+          .join(" · ") || `${row.checkedRules} rules checked`}
+      </span>
+      <span className="text-muted-foreground font-mono text-[11px]">
+        {shortSha(row.commitSha)}
+      </span>
+    </Link>
   );
 }
 

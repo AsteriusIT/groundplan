@@ -9,6 +9,7 @@ import {
   Loader2,
   PencilLine,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
   TriangleAlert,
   Wand2,
@@ -60,6 +61,7 @@ import { AiPanel } from "@/components/ai-panel";
 import { ContextRail } from "@/components/context-section";
 import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { OrphanReview } from "@/components/orphan-review";
+import { PolicyPanel } from "@/components/policy-panel";
 import { ProposalInbox } from "@/components/proposal-inbox";
 import { orphanedAnnotations } from "@/lib/annotations";
 import { IamTable } from "@/components/iam-table";
@@ -69,6 +71,8 @@ import { SnapshotSelect } from "@/components/snapshot-select";
 import { TourLauncher } from "@/components/tour-launcher";
 import { TourRail } from "@/components/tour-rail";
 import { useAiStatus } from "@/lib/use-ai-status";
+import { findingsByNode } from "@/lib/policy";
+import { useSnapshotPolicy } from "@/lib/use-policy";
 import { networkProjection } from "@/lib/graph-layout";
 import { useTourStyle } from "@/tour/tour-style";
 import { useTourPlayer } from "@/tour/use-tour";
@@ -117,6 +121,10 @@ export function DocsPage() {
   const [contextOpen, setContextOpen] = useState(false);
   // GP-65: the "Explain this infrastructure" rail.
   const [explainOpen, setExplainOpen] = useState(false);
+  // GP-203: the compliance rail. The documentation of main carries the verdict
+  // the engine gave it, and the badges ride every lens — a rule about a resource
+  // is about that resource whichever way you are looking at it.
+  const [policyOpen, setPolicyOpen] = useState(false);
   const aiStatus = useAiStatus();
   const { focus } = useFocusMode();
 
@@ -351,6 +359,12 @@ export function DocsPage() {
           )
         : [],
     [annotations, current],
+  );
+
+  const policy = useSnapshotPolicy(current?.id ?? null);
+  const policyFindings = useMemo(
+    () => findingsByNode(policy?.report.violations ?? []),
+    [policy],
   );
 
   const { view, setView } = useGraphView(viewsFor("docs", kubernetes));
@@ -602,6 +616,20 @@ export function DocsPage() {
                         )}
                       </DropdownMenuCheckboxItem>
                     )}
+                    {policy && (
+                      <DropdownMenuCheckboxItem
+                        checked={policyOpen}
+                        onCheckedChange={(v) => setPolicyOpen(Boolean(v))}
+                      >
+                        <ShieldCheck className="size-3.5" />
+                        Compliance
+                        {policy.report.counts.total > 0 && (
+                          <span className="bg-primary text-primary-foreground ml-auto rounded-full px-1.5 text-[10px]">
+                            {policy.report.counts.total}
+                          </span>
+                        )}
+                      </DropdownMenuCheckboxItem>
+                    )}
                     {repo && (
                       <DropdownMenuCheckboxItem
                         checked={contextOpen}
@@ -785,6 +813,8 @@ export function DocsPage() {
                       : undefined
                   }
                   highlightIds={previewIds ?? undefined}
+                  lint={policyFindings}
+                  findingsLabel="Policy violation"
                   tour={tourChrome}
                 />
               )}
@@ -838,6 +868,20 @@ export function DocsPage() {
               setPreviewIds(anchors ? new Set(anchors) : null)
             }
             onClose={() => setProposalsOpen(false)}
+          />
+        )}
+
+        {/* GP-203: the compliance rail — the violations on this version of main,
+            each one flying the camera to its resource. */}
+        {policy && policyOpen && !focus && !touring && (
+          <PolicyPanel
+            report={policy.report}
+            delta={policy.delta}
+            onSelectAddress={(address) => {
+              setFocusNodeId(address);
+              setView("infra");
+            }}
+            onClose={() => setPolicyOpen(false)}
           />
         )}
 
