@@ -1,0 +1,205 @@
+/*
+ * Documentation identity (GP-213).
+ *
+ * Design tokens are copied VALUES from the app's "carbon" dark theme
+ * (apps/frontend/src/index.css: `.dark` composed with
+ * `.dark[data-theme="carbon"]`), the same choice the marketing site made in
+ * GP-158 — a shared token package would couple three builds for eleven
+ * colours. Keep the copies in sync by hand; `identity.test.ts` pins the ones
+ * that carry the identity.
+ *
+ * Starlight is themed by overriding its own custom properties rather than by
+ * fighting its stylesheet: everything below maps a product token onto the
+ * variable Starlight already reads.
+ */
+
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+:root {
+  /* — product tokens (carbon) — */
+  --gp-background: #0c0d10;
+  --gp-canvas: #111317;
+  --gp-card: #17191f;
+  --gp-foreground: #e8eaed;
+  --gp-muted-foreground: #9aa0aa;
+  --gp-faint: #6b7079;
+  --gp-primary: #4c8dff;
+  --gp-primary-foreground: #06122b;
+  --gp-accent-soft: #1b2431;
+  --gp-border: #23262d;
+  --gp-border-strong: #333842;
+
+  --gp-create: #2ec77e;
+  --gp-update: #e0a020;
+  --gp-delete: #f0604d;
+  --gp-impacted: #a887f5;
+  --gp-exposed: #f06a30;
+  --gp-warning: #e8b64a;
+
+  --sl-font: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --sl-font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", monospace;
+  --gp-font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
+
+  /* Crisp, technical, not rounded — the app's 3px radius. */
+  --sl-border-radius: 0.1875rem;
+}
+
+/*
+ * Single-theme: carbon. Starlight writes `data-theme="light"` when a visitor
+ * asks for light mode, so both selectors resolve to the same palette — the
+ * product ships one identity and the screenshots on these pages are all carbon.
+ */
+:root,
+:root[data-theme="dark"],
+:root[data-theme="light"] {
+  color-scheme: dark;
+
+  --sl-color-accent-low: var(--gp-accent-soft);
+  --sl-color-accent: var(--gp-primary);
+  --sl-color-accent-high: #a9c7ff;
+
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: var(--gp-foreground);
+  --sl-color-gray-2: #c8cdd5;
+  --sl-color-gray-3: var(--gp-muted-foreground);
+  --sl-color-gray-4: var(--gp-faint);
+  --sl-color-gray-5: var(--gp-border-strong);
+  --sl-color-gray-6: var(--gp-border);
+  --sl-color-gray-7: #1b1d24;
+  --sl-color-black: var(--gp-background);
+
+  --sl-color-text: var(--gp-foreground);
+  --sl-color-text-accent: var(--gp-primary);
+  --sl-color-bg: var(--gp-background);
+  --sl-color-bg-nav: var(--gp-card);
+  --sl-color-bg-sidebar: var(--gp-card);
+  --sl-color-bg-inline-code: var(--gp-canvas);
+  --sl-color-hairline: var(--gp-border);
+  --sl-color-hairline-light: var(--gp-border);
+  --sl-color-hairline-shade: var(--gp-border);
+
+  --sl-color-backdrop-overlay: rgb(12 13 16 / 0.85);
+
+  /* Asides carry the product's status hues, so a warning here is the same
+     amber a warning is on a diagram. */
+  --sl-color-green: var(--gp-create);
+  --sl-color-green-low: #0e3b28;
+  --sl-color-green-high: #7ce0b0;
+  --sl-color-orange: var(--gp-warning);
+  --sl-color-orange-low: #3a2e12;
+  --sl-color-orange-high: #f2d38c;
+  --sl-color-red: var(--gp-delete);
+  --sl-color-red-low: #3d1a16;
+  --sl-color-red-high: #ff9d8f;
+  --sl-color-purple: var(--gp-impacted);
+  --sl-color-purple-low: #241a44;
+  --sl-color-purple-high: #cfbcff;
+  --sl-color-blue: var(--gp-primary);
+  --sl-color-blue-low: var(--gp-accent-soft);
+  --sl-color-blue-high: #a9c7ff;
+}
+
+/* Headings are the display face, as everywhere else in the product. */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4,
+h1.content-panel-title,
+.site-title {
+  font-family: var(--gp-font-display);
+  letter-spacing: -0.01em;
+}
+
+/* Tables carry a lot of this site (env vars, values, symptom → cause). */
+.sl-markdown-content table {
+  font-size: var(--sl-text-sm);
+}
+.sl-markdown-content th {
+  font-family: var(--sl-font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gp-muted-foreground);
+  font-weight: 500;
+}
+
+/* Screenshots are UI, not illustration: give them the app's own frame. */
+.sl-markdown-content img {
+  border: 1px solid var(--gp-border);
+  border-radius: var(--sl-border-radius);
+  background: var(--gp-canvas);
+}
+
+/* The home page's three doors (GP-214). */
+.gp-doors {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin-top: 1.5rem;
+}
+.gp-door {
+  display: block;
+  padding: 1.25rem;
+  border: 1px solid var(--gp-border);
+  border-radius: var(--sl-border-radius);
+  background: var(--gp-card);
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.gp-door:hover {
+  border-color: var(--gp-primary);
+  background: var(--gp-accent-soft);
+}
+.gp-door strong {
+  display: block;
+  font-family: var(--gp-font-display);
+  font-size: 1.05rem;
+  margin-bottom: 0.35rem;
+  color: var(--gp-foreground);
+}
+.gp-door span {
+  color: var(--gp-muted-foreground);
+  font-size: var(--sl-text-sm);
+  line-height: 1.5;
+}
+.gp-door em {
+  display: block;
+  margin-top: 0.6rem;
+  font-family: var(--sl-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-style: normal;
+  color: var(--gp-primary);
+}
+
+/* The legend swatches used on the pull-request page. */
+.gp-swatch {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 2px;
+  margin-right: 0.35em;
+  vertical-align: baseline;
+}
+.gp-swatch-create {
+  background: var(--gp-create);
+}
+.gp-swatch-update {
+  background: var(--gp-update);
+}
+.gp-swatch-delete {
+  background: var(--gp-delete);
+}
+.gp-swatch-impacted {
+  background: var(--gp-impacted);
+}
+.gp-swatch-exposed {
+  background: var(--gp-exposed);
+}

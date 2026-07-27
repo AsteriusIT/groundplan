@@ -1,0 +1,34 @@
+{
+  "name": "@groundplan/docs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Product documentation site — install it, use it (GP-212 epic)",
+  "type": "module",
+  "scripts": {
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "astro build && vitest run",
+    "test:watch": "vitest",
+    "lint:md": "markdownlint-cli2 \"src/content/**/*.{md,mdx}\"",
+    "typecheck": "astro check",
+    "clean": "rm -rf dist .astro"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "^7.2.1",
+    "@astrojs/starlight": "^0.41.4",
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/space-grotesk": "^5.2.10",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "astro": "^7.1.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@types/node": "^22.13.1",
+    "jsdom": "^26.0.0",
+    "markdownlint-cli2": "^0.23.2",
+    "typescript": "^5.7.3",
+    "unist-util-visit": "^5.0.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,23 @@
+---
+title: Welcome
+description: Install %PRODUCT% and use it — the two questions this documentation answers.
+tableOfContents: false
+---
+
+This site answers two questions, and deliberately no others: **how do I install
+%PRODUCT%**, and **how do I use it**. If you are still deciding whether you want
+it at all, the product site is the better read — it has the pitch, and this one
+has the procedures.
+
+%PRODUCT% turns Terraform and Kubernetes into living, interactive architecture
+diagrams: pull requests are reviewed as pictures, and the documentation of your
+default branch redraws itself on every merge.
+
+## What it never asks for
+
+The whole design follows from one rule: **we ingest data, not access.**
+%PRODUCT% reads the plan JSON and the rendered manifests your own pipeline
+already produces. It holds no cloud credentials, reads no Terraform state
+backend, and runs neither `terraform`, `helm` nor `kustomize` anywhere in its
+codebase. Adoption is one pipeline step, and there is nothing to revoke
+afterwards.

@@ -67,6 +67,9 @@ services:
       # Marketing site (GP-158). Defaults to the staging domain so existing
       # .env.prod files keep working; noindex until GP-166 clears.
       WWW_DOMAIN: ${WWW_DOMAIN:-www.groundplan.qcs.ovh}
+      # Documentation site (GP-213). Same posture as the marketing site: its
+      # own subdomain, its own image, noindex until GP-166 clears.
+      DOCS_DOMAIN: ${DOCS_DOMAIN:-doc.asteriusit.fr}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
@@ -83,6 +86,11 @@ services:
   # --- Website: static marketing site (nginx) ------------------------------
   website:
     image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-website:${WEBSITE_IMAGE_TAG:-latest}
+    restart: unless-stopped
+
+  # --- Docs: static documentation site (nginx, GP-213) ---------------------
+  docs:
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-docs:${DOCS_IMAGE_TAG:-latest}
     restart: unless-stopped
 
   # --- Frontend: static SPA (nginx) ---------------------------------------

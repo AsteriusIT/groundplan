@@ -93,7 +93,9 @@ groundplan/
 │   ├── frontend/       # @groundplan/frontend — React 19 + Vite + Tailwind v4 + shadcn/ui
 │   │   └── src/        # pages/, components/, api/, auth/, org/, rbac/, studio/, tour/, icons/
 │   ├── vscode/         # groundplan-vscode — offline live Terraform preview + diff mode
-│   └── website/        # @groundplan/website — Astro marketing site (copy pinned by tests)
+│   ├── website/        # @groundplan/website — Astro marketing site (copy pinned by tests)
+│   └── docs/           # @groundplan/docs — Astro Starlight documentation site
+│                       #   (install & use; honesty + env-coverage tests gate CI)
 ├── packages/
 │   ├── graph-parser/   # @groundplan/graph-parser — HCL → GraphSnapshot (Producer B)
 │   │                   #   + THE graph types/validator, schema v1..v8, no server deps
@@ -130,6 +132,7 @@ Run from the repo root. Package manager is **pnpm** (v10). Node **>= 22**
 | `pnpm seed:examples` | Attach `examples/terraform/*` to the local instance (dev only) |
 | `pnpm --filter @groundplan/backend test\|migrate\|db:generate` | Backend tests / migrations |
 | `pnpm --filter @groundplan/backend drawio:icons\|drawio:library` | Regenerate draw.io assets (`:check` variants gate CI) |
+| `pnpm --filter @groundplan/docs start\|build\|test\|lint:md` | Documentation site (`test` builds first, then runs the honesty/link/env-coverage guards) |
 | `pnpm --filter groundplan-vscode package` | Build the `.vsix` |
 | `deploy/chart/tests/run.sh --update` | Refresh Helm golden files after any chart edit |
 

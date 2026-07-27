@@ -1,0 +1,26 @@
+{
+  // Markdown lint for the documentation content (GP-213). Deliberately small:
+  // the rules that keep a multi-author docs site consistent, and nothing that
+  // argues about prose.
+  "config": {
+    "default": true,
+    // Prose wraps at 88 in this repo, but tables and URLs cannot be wrapped and
+    // a hard line limit would push writers into worse sentences.
+    "MD013": false,
+    // Starlight renders the frontmatter `title` as the h1, so pages start at h2.
+    "MD041": false,
+    "MD025": { "front_matter_title": "" },
+    // Duplicate headings are fine across sections of a long reference page.
+    "MD024": { "siblings_only": true },
+    // Bare URLs are caught by the link checker, not by style.
+    "MD034": false,
+    // MDX components are HTML to the linter.
+    "MD033": false,
+    "MD004": { "style": "dash" },
+    "MD048": { "style": "backtick" },
+    "MD049": { "style": "underscore" },
+    "MD050": { "style": "asterisk" }
+  },
+  "globs": ["src/content/**/*.md", "src/content/**/*.mdx"],
+  "ignores": ["**/node_modules/**", "dist/**"]
+}

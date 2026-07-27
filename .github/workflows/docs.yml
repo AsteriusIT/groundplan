@@ -1,0 +1,160 @@
+# Documentation site (GP-213): guard it on every change, publish it on merge.
+#
+# The guards exist because a doc rots quietly. `check` runs on pull requests and
+# on main; the image is built and pushed only from main, exactly like the
+# marketing site (website.yml) — a merge that touches apps/docs publishes
+# groundplan-docs:latest, and the deploy host picks it up on its next pull.
+# The site stays behind a noindex robots policy until the trademark gate
+# (GP-166) clears.
+#
+# Requires the same repository secret as website.yml:
+#   SCW_SECRET_KEY  Scaleway API secret key with Container Registry write.
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/docs/**"
+      - "apps/backend/src/config/env.ts"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "apps/docs/**"
+      - "apps/backend/src/config/env.ts"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: rg.fr-par.scw.cloud/eidos
+
+jobs:
+  # Build + the four gates that keep the docs honest and alive.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @groundplan/docs...
+
+      - name: Lint Markdown
+        run: pnpm --filter @groundplan/docs lint:md
+
+      # Builds the site, then asserts on the built output: honesty rules, the
+      # env-var coverage of the configuration reference, internal dead links.
+      - name: Build & test
+        run: pnpm --filter @groundplan/docs test
+
+      - name: Typecheck
+        run: pnpm --filter @groundplan/docs typecheck
+
+      # The internal half of the link check runs in the suite above (offline,
+      # deterministic). This is the external half — the half that needs a
+      # network, and the half that catches a vendor moving a page.
+      - name: Check external links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --max-retries 3
+            --accept 200,206,429
+            --exclude-path apps/docs/dist/pagefind
+            --exclude '^https?://(localhost|127\.0\.0\.1|.*\.example\.com|.*\.internal\..*|.*nip\.io)'
+            --exclude 'groundplan\.qcs\.ovh|doc\.asteriusit\.fr'
+            'apps/docs/dist/**/*.html'
+          fail: true
+
+      - name: Upload the built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-dist
+          path: apps/docs/dist
+          retention-days: 1
+
+  # A documentation page that takes three seconds to paint is a page people
+  # stop opening mid-incident. Asserted, not assumed.
+  lighthouse:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-dist
+          path: apps/docs/dist
+      - name: Audit a content page
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          configPath: apps/docs/lighthouserc.json
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+  publish:
+    needs: [check, lighthouse]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Scaleway registry
+        uses: docker/login-action@v3
+        with:
+          registry: rg.fr-par.scw.cloud
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Derive tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/groundplan-docs
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      # Build once and load it so Trivy scans the exact image before publish,
+      # same gate as the product images.
+      - name: Build image (load for scanning)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/docs/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=docs
+          cache-to: type=gha,mode=max,scope=docs
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/docs/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=docs

@@ -36,6 +36,14 @@
 	reverse_proxy website:80
 }
 
+# --- Docs: static documentation site (GP-213) ------------------------------
+# A separate build and a separate subdomain on purpose: the marketing site
+# sells, the documentation explains, and they ship on different rhythms.
+{$DOCS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy docs:80
+}
+
 # --- Auth: Keycloak --------------------------------------------------------
 {$AUTH_DOMAIN} {
 	encode zstd gzip

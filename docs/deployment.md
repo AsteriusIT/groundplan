@@ -10,12 +10,14 @@ external managed services are required.
 
 ## Topology
 
-```
+```text
                  Caddy  (:80 / :443, automatic HTTPS)
-                 ├── app.groundplan.qcs.ovh
+                 ├── ${APP_DOMAIN}
                  │     ├── /api/*  → backend:3000
                  │     └── /*      → frontend:80   (nginx, static SPA)
-                 └── auth.groundplan.qcs.ovh → keycloak:8080
+                 ├── ${WWW_DOMAIN}  → website:80   (nginx, marketing site)
+                 ├── ${DOCS_DOMAIN} → docs:80      (nginx, documentation site)
+                 └── ${AUTH_DOMAIN} → keycloak:8080
                                                      │
    backend:3000 ── app-postgres:5432                └── kc-postgres:5432
    (migrate one-shot applies the schema before backend starts)
@@ -28,6 +30,8 @@ internal Docker network and is never exposed to the host.
 | -------------- | --------------------------------- | -------------------------------------- |
 | `caddy`        | `caddy:2-alpine`                  | TLS termination + reverse proxy        |
 | `frontend`     | `…/eidos/groundplan-frontend`     | Static Vite SPA served by nginx        |
+| `website`      | `…/eidos/groundplan-website`      | Static marketing site (`WWW_DOMAIN`)   |
+| `docs`         | `…/eidos/groundplan-docs`         | Static documentation site (`DOCS_DOMAIN`) |
 | `backend`      | `…/eidos/groundplan-backend`      | Fastify API (`node dist/index.js`)     |
 | `migrate`      | `…/eidos/groundplan-backend`      | Applies Drizzle migrations, then exits |
 | `app-postgres` | `postgres:17-alpine`              | Application database                   |
@@ -36,8 +40,8 @@ internal Docker network and is never exposed to the host.
 
 ## Prerequisites
 
-1. **DNS** — `A`/`AAAA` records for both `APP_DOMAIN` and `AUTH_DOMAIN`
-   pointing at the host's public IP.
+1. **DNS** — `A`/`AAAA` records for `APP_DOMAIN` and `AUTH_DOMAIN` (and, if you
+   serve them, `WWW_DOMAIN` and `DOCS_DOMAIN`) pointing at the host's public IP.
 2. **Firewall** — inbound `80` and `443` (TCP; `443/udp` too for HTTP/3) open,
    so Caddy can complete the ACME challenge and serve traffic.
 3. **Docker** with the Compose plugin.
