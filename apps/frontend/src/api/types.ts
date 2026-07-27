@@ -32,6 +32,10 @@ export type CredentialMode = "pat" | "oauth2" | "installation_app";
 /** What a provider can do (GP-192). The UI reads it; it never assumes it. */
 export type IntegrationCapability =
   | "repo:read"
+  /** Can list what a connection reaches (GP-227) — the import screen's gate. */
+  | "repo:discover"
+  /** Can read a repository's tree without cloning it (GP-228). */
+  | "repo:tree"
   | "pr:comment"
   | "check:publish"
   | "ref:events";
@@ -93,6 +97,104 @@ export interface CompleteConnectionInput {
 export interface ConnectionImpact {
   repositories: { id: string; url: string }[];
 }
+
+/* --- Repository discovery & import (GP-227..229) --------------------------- */
+
+/**
+ * Why discovery could not answer. Never an empty list: "your installation was
+ * revoked" and "your installation covers nothing" send a user looking in very
+ * different places, so each code carries its own message and remediation.
+ */
+export type DiscoveryErrorCode =
+  | "installation_revoked"
+  | "installation_not_linked"
+  | "multiple_connections"
+  | "insufficient_permissions"
+  | "unavailable";
+
+/** How this repository is already attached in this org (empty = never). */
+export interface RepoAttachment {
+  repoId: string;
+  projectId: string;
+  kind: IacType;
+  path: string;
+}
+
+/** A repository as the provider describes it, plus what we already know of it. */
+export interface DiscoveredRepository {
+  externalId: string;
+  fullName: string;
+  owner: string;
+  name: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  private: boolean;
+  archived: boolean;
+  updatedAt: string | null;
+  /**
+   * Non-empty does **not** mean "cannot be imported": a monorepo is legitimately
+   * attached once per kind (GP-100).
+   */
+  attachments: RepoAttachment[];
+}
+
+export interface DiscoveryPage {
+  /** Which connection answered — echoed so a picker can stay in sync. */
+  credentialId: string;
+  repositories: DiscoveredRepository[];
+  /** Opaque; pass it back verbatim. Null on the last page. */
+  nextCursor: string | null;
+  /** How many match the current search, across every page. */
+  total: number;
+}
+
+/** What a repository holds, as detection reports it (GP-228). */
+export interface RepoKindDetection {
+  fullName: string;
+  /** Null when we will not guess — including the monorepo case. */
+  kind: IacType | null;
+  /** `high` only when one family of signals was found in a whole tree. */
+  confidence: "high" | "low";
+  /** Paths that decided it, shown to the user verbatim. */
+  evidence: string[];
+  /** A directory to pre-fill the path field with, or null. */
+  suggestedPath: string | null;
+  /** The provider truncated the tree, so nothing here is certain. */
+  truncated: boolean;
+}
+
+/** One repository to attach. `kind` is required — it is immutable afterwards. */
+export interface ImportItem {
+  fullName?: string;
+  cloneUrl?: string;
+  kind: IacType;
+  path?: string;
+  defaultBranch?: string;
+}
+
+export interface ImportRepositoriesInput {
+  projectId: string;
+  credentialId?: string;
+  installationId?: number;
+  items: ImportItem[];
+}
+
+/**
+ * Partial success is the contract (GP-229): every item is accounted for, and a
+ * duplicate is `skipped` rather than reported as an error.
+ */
+export interface ImportResult {
+  imported: CreatedRepository[];
+  skipped: { item: ImportItem; reason: string }[];
+  failed: { item: ImportItem; error: string; code: AttachErrorCode }[];
+}
+
+/** Why a repository could not be attached — one message, one remediation. */
+export type AttachErrorCode =
+  | "no_credential_resolved"
+  | "installation_does_not_cover_repo"
+  | "insufficient_permissions"
+  | "unreachable";
 
 export interface RepositoryCredentialResult {
   id: string;
@@ -166,6 +268,10 @@ export interface RepositoryActivity {
 export interface UpdateRepositoryInput {
   /** New PAT (write-only). Replaces the stored one and re-verifies. */
   accessToken?: string;
+  /** Switch onto an org connection; `null` goes back to the PAT (GP-229). */
+  credentialId?: string | null;
+  /** A GitHub App installation id, the form the connect flows speak. */
+  installationId?: number;
   defaultBranch?: string;
   /** GP-38: toggle GitHub PR comments for this repository. */
   prCommentsEnabled?: boolean;
@@ -846,6 +952,13 @@ export interface CreateRepositoryInput {
   iacType?: IacType;
   /** Optional token for cloning private repos (write-only server-side). */
   accessToken?: string;
+  /**
+   * GP-229: the same credential vocabulary the update path has. When an
+   * installation covers the repository neither of these is needed — the server
+   * resolves it from the owner — but naming one removes the ambiguity.
+   */
+  credentialId?: string | null;
+  installationId?: number;
   /** Subdirectory the IaC lives in; omitted/"" is the repository root. */
   terraformPath?: string;
 }

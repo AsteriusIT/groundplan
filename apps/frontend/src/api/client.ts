@@ -78,6 +78,11 @@ import type {
   IntegrationType,
   CompleteConnectionInput,
   ConnectionImpact,
+  DiscoveryPage,
+  ImportRepositoriesInput,
+  ImportResult,
+  Provider,
+  RepoKindDetection,
   ProviderCatalogEntry,
   ProviderConnection,
   RepositoryCredentialResult,
@@ -103,11 +108,23 @@ export class ApiError extends Error {
   readonly status: number;
   /** Per-field details when the server sent them (validation 422s). */
   readonly fields?: ApiFieldError[];
-  constructor(status: number, message: string, fields?: ApiFieldError[]) {
+  /**
+   * The machine-readable reason, when the server named one (GP-227/229):
+   * `installation_revoked`, `no_credential_resolved`, … It is what lets a form
+   * offer the right remediation instead of repeating a sentence.
+   */
+  readonly code?: string;
+  constructor(
+    status: number,
+    message: string,
+    fields?: ApiFieldError[],
+    code?: string,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     if (fields) this.fields = fields;
+    if (code) this.code = code;
   }
 }
 
@@ -196,11 +213,16 @@ async function apiErrorFrom(response: Response): Promise<ApiError> {
   let message =
     response.statusText || `Request failed with status ${response.status}`;
   let fields: ApiFieldError[] | undefined;
+  let code: string | undefined;
   try {
     const data: unknown = await response.json();
     if (data && typeof data === "object") {
       if (typeof (data as { message?: unknown }).message === "string") {
         message = (data as { message: string }).message;
+      }
+      // A typed reason the caller can switch a remediation on (GP-227/229).
+      if (typeof (data as { code?: unknown }).code === "string") {
+        code = (data as { code: string }).code;
       }
       // Validation 422s carry per-field details; keep them for the callers
       // that can point at the offender (e.g. the playground file panel).
@@ -218,7 +240,7 @@ async function apiErrorFrom(response: Response): Promise<ApiError> {
   } catch {
     // Non-JSON body — fall back to the status text.
   }
-  return new ApiError(response.status, message, fields);
+  return new ApiError(response.status, message, fields, code);
 }
 
 const encode = encodeURIComponent;
@@ -440,6 +462,57 @@ export function completeConnection(
 }
 
 /** Which repositories a revocation would degrade — shown before confirming. */
+// --- Repository discovery & import (GP-227..229) -----------------------------
+
+/**
+ * The repositories one of this org's connections can reach. `cursor` is opaque
+ * — hand back exactly what the previous page returned — and `search` is
+ * answered server-side over the *whole* installation, not the page in hand.
+ */
+export function discoverRepositories(
+  provider: Provider,
+  params: { cursor?: string; search?: string; limit?: number; credentialId?: string } = {},
+): Promise<DiscoveryPage> {
+  const query = new URLSearchParams();
+  if (params.cursor) query.set("cursor", params.cursor);
+  if (params.search) query.set("search", params.search);
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.credentialId) query.set("credentialId", params.credentialId);
+  const suffix = query.toString() ? `?${query}` : "";
+  return orgRequest<DiscoveryPage>(
+    `/integrations/${encode(provider)}/repositories${suffix}`,
+  );
+}
+
+/**
+ * What each of these repositories holds (GP-228) — asked for the page in view,
+ * never for a whole installation. The answer pre-selects a type; it never sets
+ * one.
+ */
+export function detectRepositoryKinds(
+  provider: Provider,
+  repositories: { owner: string; name: string; ref?: string; path?: string }[],
+  credentialId?: string,
+): Promise<{ detections: RepoKindDetection[] }> {
+  return orgRequest<{ detections: RepoKindDetection[] }>(
+    `/integrations/${encode(provider)}/repositories/detect`,
+    {
+      method: "POST",
+      body: { repositories, ...(credentialId ? { credentialId } : {}) },
+    },
+  );
+}
+
+/** Attach several repositories at once. Partial success is normal (GP-229). */
+export function importRepositories(
+  input: ImportRepositoriesInput,
+): Promise<ImportResult> {
+  return orgRequest<ImportResult>(`/repositories/import`, {
+    method: "POST",
+    body: input,
+  });
+}
+
 export function connectionImpact(id: string): Promise<ConnectionImpact> {
   return orgRequest<ConnectionImpact>(`/connections/${encode(id)}/impact`);
 }

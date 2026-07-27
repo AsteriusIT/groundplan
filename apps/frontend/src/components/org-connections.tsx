@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Link2, Link2Off, TriangleAlert } from "lucide-react";
 
 import {
@@ -118,6 +119,15 @@ export function OrgConnections() {
               </div>
 
               <ConnectionStatus connection={connection} connectable={!!connectable} />
+
+              {/* The "and then what?" a connected installation used to lack
+                  (GP-230): it can list its repositories, so offer to import
+                  them right here rather than making someone find the screen. */}
+              {canManage && connection && provider.capabilities.includes("repo:discover") && (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/import">Import repositories</Link>
+                </Button>
+              )}
 
               {canManage && connectable && (
                 <div className="flex items-center gap-1">

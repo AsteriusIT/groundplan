@@ -9,6 +9,7 @@ import { ClusterPage } from "@/pages/cluster-page";
 import { ClustersPage } from "@/pages/clusters-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { DocsPage } from "@/pages/docs-page";
+import { ImportRepositoriesPage } from "@/pages/import-repositories-page";
 import { InvitePage } from "@/pages/invite-page";
 import { OnboardingPage } from "@/pages/onboarding-page";
 import { OrgLandingPage } from "@/pages/org-landing-page";
@@ -108,6 +109,10 @@ function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        {/* Attaching by selection rather than by typing (GP-230). Not under a
+            project: it is reached from a project's repository list *and* from
+            the connection that makes it possible, and it asks which project. */}
+        <Route path="/import" element={<ImportRepositoriesPage />} />
         <Route
           path="/projects/:id/repos/:repoId/pulls"
           element={<PullsPage />}
