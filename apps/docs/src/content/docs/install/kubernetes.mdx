@@ -1,0 +1,185 @@
+---
+title: Install on Kubernetes
+description: The Helm chart — external database and identity provider for production, an embedded pair for evaluation only.
+---
+
+import { Steps, Aside, Tabs, TabItem } from "@astrojs/starlight/components";
+
+This page is for a platform engineer putting %PRODUCT% on an existing cluster.
+The chart deploys the API, the frontend and an ingress; the two production
+prerequisites — **a Postgres database and an OIDC identity provider** — are
+yours to bring. It can run both itself, for evaluation only.
+
+The topology is deliberately flat: two Deployments, one Job. No worker, no
+queue, no operator, no CRD, and nothing to reconcile — which is why upgrading is
+`helm upgrade` and nothing else.
+
+Requirements: Kubernetes ≥ 1.27, Helm 3, an ingress controller of any class, and
+DNS for the host you choose.
+
+<Tabs>
+  <TabItem label="Production">
+    External Postgres, external OIDC, pinned image tag. This is the only shape
+    to run for real.
+  </TabItem>
+  <TabItem label="Evaluation">
+    `postgresql.enabled` and `keycloak.enabled` run an in-cluster database and a
+    preconfigured identity provider. **Single replica, no backups, and the
+    identity provider's state dies with its pod.** For a laptop cluster and a
+    demo — never for production, and the chart will not stop you, so this
+    paragraph has to.
+  </TabItem>
+</Tabs>
+
+## Production install
+
+<Steps>
+
+1. **Get the chart.**
+
+   The chart is installed from a repository checkout — it is not published to a
+   chart registry yet. The images it references are public on
+   `ghcr.io/asteriusit`.
+
+   ```sh
+   git clone https://github.com/AsteriusIT/groundplan && cd groundplan
+   ```
+
+2. **Create the secrets.**
+
+   ```sh
+   kubectl create namespace groundplan
+
+   kubectl -n groundplan create secret generic groundplan-api \
+     --from-literal=ENCRYPTION_KEY="$(openssl rand -base64 32)"
+
+   kubectl -n groundplan create secret generic groundplan-db \
+     --from-literal=password='<database password>'
+   ```
+
+   Each secret the chart needs accepts exactly one of three sources: an inline
+   value (evaluation and CI), an `existingSecret` you create yourself, or an
+   **External Secrets Operator** reference, in which case the chart renders the
+   `ExternalSecret` and no secret material lives in the release. Setting two
+   sources for the same secret fails `helm template` with a sentence explaining
+   which to remove.
+
+3. **Point it at your identity provider.**
+
+   Any OIDC provider. It needs a **public client** for the SPA (Authorization
+   Code + PKCE) whose redirect URI is `https://<your host>/callback`, and access
+   tokens carrying the audience the API expects. Details and provider-specific
+   notes: [OIDC & single sign-on](/reference/oidc/).
+
+4. **Write the values and install.**
+
+   ```yaml title="values-prod.yaml"
+   image:
+     tag: "1.0.0" # pin a release — "latest" moves under you
+
+   ingress:
+     host: groundplan.example.com
+     className: nginx
+     tls:
+       enabled: true
+       secretName: groundplan-tls # or a cert-manager annotation
+
+   api:
+     existingSecret: groundplan-api
+
+   externalDatabase:
+     host: postgres.internal.example.com
+     database: groundplan
+     username: groundplan
+     existingSecret: groundplan-db
+     sslMode: require
+
+   oidc:
+     issuerUrl: https://login.example.com/realms/groundplan
+   ```
+
+   ```sh
+   helm install groundplan deploy/chart/groundplan \
+     -n groundplan -f values-prod.yaml --wait
+   ```
+
+5. **Verify.**
+
+   ```sh
+   kubectl -n groundplan get pods
+   kubectl -n groundplan logs job/groundplan-migrate
+   kubectl -n groundplan port-forward svc/groundplan-api 3000:3000 &
+   curl -fsS localhost:3000/readyz
+   ```
+
+   Then open `https://groundplan.example.com`, log in, and
+   [attach your first repository](/quickstart/#then-your-own-repository).
+
+</Steps>
+
+The full knob-by-knob list is [Helm values](/install/helm-values/); anything
+without a dedicated value (`AI_MODEL`, for instance) goes through
+`api.extraEnv`.
+
+## The migration hook
+
+Schema migrations run as a **Helm hook Job**, not as an init container and not
+on API startup:
+
+- **When.** Before the install when the database and its secret already exist,
+  and on **every upgrade, before the new pods roll**. So the schema is never
+  behind the code that reads it.
+- **How it fails.** The Job's pod carries the error; the release fails and the
+  old pods keep serving. `kubectl logs job/groundplan-migrate` is the whole
+  diagnosis.
+- **What to do next.** Fix the cause (usually database connectivity or
+  privileges) and re-run the same `helm upgrade`. Migrations are applied under a
+  Postgres advisory lock and are idempotent, so a retry is safe and two
+  simultaneous releases cannot both apply them.
+
+In the all-in-one evaluation mode the database is created by the same release,
+so the Job necessarily runs *after* install — which is why a fresh evaluation
+install can answer `500` for a few seconds while it finishes.
+
+## Evaluation on kind
+
+```sh
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+helm install groundplan deploy/chart/groundplan -n groundplan --create-namespace \
+  --set api.encryptionKey="$(openssl rand -base64 32)" \
+  --set ingress.host=groundplan.$NODE_IP.nip.io \
+  --set postgresql.enabled=true \
+  --set keycloak.enabled=true \
+  --set keycloak.host=auth.$NODE_IP.nip.io \
+  --wait --timeout 10m
+```
+
+Open `http://groundplan.<node ip>.nip.io` and log in as `dev` / `dev`.
+
+Where the node IP is not reachable from your browser (Docker Desktop, WSL2),
+skip the ingress and drive the API the way CI does —
+`deploy/chart/tests/smoke.sh` installs without an ingress, logs in over a
+port-forward and pushes a plan through the webhook. It doubles as a runnable
+example of the whole loop.
+
+## Upgrade and roll back
+
+```sh
+helm upgrade groundplan deploy/chart/groundplan -n groundplan -f values-prod.yaml --wait
+```
+
+Bump `image.tag` and re-run. The migration Job goes first, then the Deployments
+roll.
+
+`helm rollback groundplan <revision>` restores the previous manifests — but **not
+the database schema**: migrations move forward only. Rolling back to an image
+older than the schema it now runs against is unsupported. Take a database backup
+before an upgrade, and treat that backup as the rollback plan.
+
+<Aside type="note" title="What the chart does not do">
+No autoscaling, no service mesh, no chart for a third-party identity provider,
+and no GitOps machinery for installing %PRODUCT% itself. There is also no
+operator and no CRD — the product is two stateless Deployments in front of a
+database, and the chart says so rather than inventing ceremony.
+</Aside>
