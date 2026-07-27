@@ -50,6 +50,7 @@ import { realityRoutes } from "../routes/reality.js";
 import { reconciliationRoutes } from "../routes/reconciliation.js";
 import { pullRoutes } from "../routes/pulls.js";
 import { repositoryFileRoutes } from "../routes/repository-files.js";
+import { repositoryImportRoutes } from "../routes/repository-import.js";
 import { repositoryRoutes } from "../routes/repositories.js";
 import { shareRoutes } from "../routes/share-links.js";
 import { snapshotRoutes } from "../routes/snapshots.js";
@@ -121,6 +122,7 @@ export const orgScopePlugin: FastifyPluginAsync = async (app) => {
 
   await app.register(projectRoutes);
   await app.register(repositoryRoutes);
+  await app.register(repositoryImportRoutes);
   await app.register(repositoryFileRoutes);
   await app.register(repositoryEventsRoutes);
   await app.register(snapshotRoutes);

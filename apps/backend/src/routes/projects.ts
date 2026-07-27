@@ -16,7 +16,12 @@ import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.j
 import { generateToken } from "../lib/tokens.js";
 import { orgIdOf, requirePermission } from "../rbac/request.js";
 import { detectProvider, PROVIDERS, type Provider } from "../services/providers.js";
-import { verifyAndStore } from "../services/repository-verification.js";
+import {
+  attachFailure,
+  credentialRequestFrom,
+  prepareCredential,
+} from "../services/repository-credential-resolution.js";
+import { credentialProperties } from "./repository-credential-schema.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -71,8 +76,10 @@ const createRepositorySchema = {
     // written before Kubernetes existed keeps working unchanged. Set once: there
     // is no PATCH for it (GP-100 — a repo is one kind, not both).
     iacType: { type: "string", enum: [...repositoryIacType.enumValues] },
-    // Write-only: accepted here, never echoed back in any response.
-    accessToken: { type: "string", minLength: 1, maxLength: 500 },
+    // GP-229: the same credential fields the update path has always had. They
+    // are defined once and shared, which is what closes the asymmetry that made
+    // "create a broken repository, then edit it" the only way to use an App.
+    ...credentialProperties(),
     // Subdirectory the IaC lives in; omitted/"" is the repository root. Shape is
     // checked here, meaning (no escaping the repo) in normalizeTerraformPath.
     terraformPath: { type: "string", maxLength: 500 },
@@ -304,6 +311,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         defaultBranch?: string;
         iacType?: (typeof repositoryIacType.enumValues)[number];
         accessToken?: string;
+        credentialId?: string | null;
+        installationId?: number;
         terraformPath?: string;
       };
 
@@ -333,11 +342,20 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
       // Provider override wins; otherwise auto-detect from the URL (GP-51).
       const provider = body.provider ?? detectProvider(body.url);
+      const defaultBranch = body.defaultBranch ?? "main";
 
-      // PAT is stored ENCRYPTED at rest, never in plaintext.
-      const encryptedPat = body.accessToken
-        ? app.encryptor.encrypt(body.accessToken)
-        : null;
+      // GP-229: resolve the credential and *prove the repository is reachable*
+      // before writing anything. A repository created in a state it cannot be
+      // cloned from is one whose every later feature fails quietly.
+      const prepared = await prepareCredential(app, {
+        orgId: orgIdOf(request),
+        provider,
+        url: body.url,
+        ref: defaultBranch,
+        request: credentialRequestFrom(body),
+      });
+      if (!prepared.ok) return attachFailure(reply, prepared.error);
+      const resolved = prepared.resolved;
 
       const [inserted] = await app.db
         .insert(repositories)
@@ -347,23 +365,25 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           // Omitted -> DB default ("terraform"): the kind every repo was before.
           iacType: body.iacType,
           url: body.url,
-          // Omitted -> DB default ("main").
-          defaultBranch: body.defaultBranch,
-          accessToken: encryptedPat,
+          defaultBranch,
+          // PAT is stored ENCRYPTED at rest, never in plaintext.
+          accessToken: resolved.encryptedPat ?? null,
+          credentialId: resolved.credentialId,
           terraformPath,
           webhookToken: generateToken(),
+          // Reachability was just proven; recording it here rather than with a
+          // second `ls-remote` keeps one network call per attach.
+          connectionStatus: "ok",
+          verifiedAt: new Date(),
         })
         .returning();
 
-      // Auto-verify the connection when credentials were supplied.
-      let row = inserted!;
-      if (encryptedPat) {
-        row = (await verifyAndStore(app, row)).repository;
-      }
-
+      const row = inserted!;
       // webhook_token is shown ONCE here; PAT is masked; excluded from lists.
+      // `authMode` comes from the strategy that was just proven to work, so the
+      // response says how the repository authenticates without a second read.
       return reply.code(201).send({
-        ...toPublicRepository(row),
+        ...toPublicRepository(row, resolved.strategy?.mode ?? null),
         webhookToken: row.webhookToken,
       });
     },

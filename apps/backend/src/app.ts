@@ -46,6 +46,7 @@ import { dbPlugin } from "./plugins/db.js";
 import { refPollerPlugin } from "./plugins/ref-poller.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import {
+  offlineVerifyConnection,
   verifyConnection as realVerifyConnection,
   type RepoSource,
   type VerifyResult,
@@ -179,7 +180,16 @@ export async function buildApp(
   // Credential encryption (throws in prod if ENCRYPTION_KEY is unset) and the
   // repository connection verifier (overridable in tests to avoid the network).
   app.decorate("encryptor", createEncryptor(env.encryptionKey));
-  app.decorate("verifyConnection", opts.verifyConnection ?? realVerifyConnection);
+  app.decorate(
+    "verifyConnection",
+    opts.verifyConnection ??
+      // Attaching a repository proves it is reachable before persisting it
+      // (GP-229), so under test the default must not be a `git ls-remote`
+      // against a fixture URL — the same reason the poller's clock is zero
+      // here. A test that cares about a *failed* check injects its own; the
+      // real classifier is covered directly in `repo-files.test.ts`.
+      (env.nodeEnv === "test" ? offlineVerifyConnection : realVerifyConnection),
+  );
   app.decorate("exportCacheDir", env.exportCacheDir);
   app.decorate("github", opts.github ?? realGitHubClient);
   app.decorate("gitlab", opts.gitlab ?? realGitLabClient);

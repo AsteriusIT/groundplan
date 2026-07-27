@@ -4,8 +4,14 @@ import { eq } from "drizzle-orm";
 import { repositories, toPublicRepository, type RepositoryRow } from "../db/schema.js";
 import { InvalidRepoPathError, normalizeTerraformPath } from "../lib/repo-path.js";
 import { generateToken } from "../lib/tokens.js";
-import { requirePermission } from "../rbac/request.js";
+import { orgIdOf, requirePermission } from "../rbac/request.js";
+import {
+  attachFailure,
+  credentialRequestFrom,
+  prepareCredential,
+} from "../services/repository-credential-resolution.js";
 import { verifyAndStore } from "../services/repository-verification.js";
+import { credentialProperties } from "./repository-credential-schema.js";
 
 const UUID_PATTERN =
   "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
@@ -29,7 +35,10 @@ const updateRepositorySchema = {
   additionalProperties: false,
   minProperties: 1,
   properties: {
-    accessToken: { type: "string", minLength: 1, maxLength: 500 },
+    // GP-229: derived from the create shape, not restated. Both handlers accept
+    // the same credential vocabulary and resolve it through the same function,
+    // so neither can grow a mode the other lacks.
+    ...credentialProperties(),
     defaultBranch: { type: "string", minLength: 1, maxLength: 200 },
     prCommentsEnabled: { type: "boolean" },
     // GP-60: long-form markdown context; editing it never re-verifies.
@@ -75,6 +84,8 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params as { id: string };
       const body = request.body as {
         accessToken?: string;
+        credentialId?: string | null;
+        installationId?: number;
         defaultBranch?: string;
         prCommentsEnabled?: boolean;
         contextMd?: string | null;
@@ -116,14 +127,37 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
         throw err;
       }
 
-      const changingCredentials = body.accessToken !== undefined;
+      const changingCredentials =
+        body.accessToken !== undefined ||
+        body.credentialId !== undefined ||
+        body.installationId !== undefined;
       const changingBranch = body.defaultBranch !== undefined;
+      const defaultBranch = body.defaultBranch ?? existing.defaultBranch;
+
+      // GP-229: the same resolver the create path uses, so a repository cannot
+      // be *edited* into a credential state creation would have refused — nor
+      // the reverse, which was the original bug.
+      let resolved;
+      if (changingCredentials || changingBranch) {
+        const prepared = await prepareCredential(app, {
+          orgId: orgIdOf(request),
+          provider: existing.provider,
+          url: existing.url,
+          ref: defaultBranch,
+          request: credentialRequestFrom(body),
+          existing,
+        });
+        if (!prepared.ok) return attachFailure(reply, prepared.error);
+        resolved = prepared.resolved;
+      }
+
       const [updated] = await app.db
         .update(repositories)
         .set({
-          ...(changingCredentials
-            ? { accessToken: app.encryptor.encrypt(body.accessToken as string) }
+          ...(resolved?.encryptedPat !== undefined
+            ? { accessToken: resolved.encryptedPat }
             : {}),
+          ...(resolved ? { credentialId: resolved.credentialId } : {}),
           ...(changingBranch ? { defaultBranch: body.defaultBranch } : {}),
           ...(body.prCommentsEnabled !== undefined
             ? { prCommentsEnabled: body.prCommentsEnabled }
@@ -132,17 +166,19 @@ export const repositoryRoutes: FastifyPluginAsync = async (app) => {
           // Moving the Terraform root changes what the next docs snapshot sees;
           // it says nothing about reachability, so it never re-verifies.
           ...(terraformPath !== undefined ? { terraformPath } : {}),
+          // Reachability was just proven above; a second `ls-remote` would only
+          // ask the same question twice.
+          ...(resolved
+            ? { connectionStatus: "ok" as const, verifiedAt: new Date() }
+            : {}),
         })
         .where(eq(repositories.id, id))
         .returning();
 
-      let row = updated ?? existing;
-      // Re-verify only when credentials or the checked branch changed — toggling
-      // a flag like PR comments should not trigger a network `git ls-remote`.
-      if (changingCredentials || changingBranch) {
-        row = (await verifyAndStore(app, row)).repository;
-      }
-      return toPublicRepository(row);
+      return toPublicRepository(
+        updated ?? existing,
+        resolved?.strategy?.mode ?? null,
+      );
     },
   );
 

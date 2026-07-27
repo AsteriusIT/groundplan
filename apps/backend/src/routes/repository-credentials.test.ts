@@ -11,10 +11,21 @@ import { buildApp } from "../app.js";
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories } from "../db/schema.js";
+import { verifyConnection as realVerifyConnection } from "../services/repo-files.js";
 import { seedOrg } from "../test-support.js";
 
 const exec = promisify(execFile);
 const env = loadEnv();
+
+/**
+ * This file is the one that exercises the *real* verifier — against a local
+ * `file://` fixture, so it is offline without being fake. Everywhere else the
+ * test environment defaults to an offline stub (see `buildApp`), because since
+ * GP-229 attaching a repository proves it is reachable before persisting it and
+ * fixture URLs would otherwise all shell out to git.
+ */
+const buildFixtureApp = () =>
+  buildApp(env, { verifyConnection: realVerifyConnection });
 
 let fixtureUrl: string;
 let fixtureDir: string;
@@ -69,7 +80,7 @@ async function createRepo(
 }
 
 test("create with a PAT stores it encrypted, masks it, and auto-verifies", async () => {
-  const app = await buildApp(env); // real verifier against the local fixture
+  const app = await buildFixtureApp();
   const orgId = await seedOrg(app);
   const secret = "ghp_secretTokenValue_1234567890";
   try {
@@ -99,7 +110,7 @@ test("create with a PAT stores it encrypted, masks it, and auto-verifies", async
 });
 
 test("connection_status is visible in GET /repositories/:id and the list", async () => {
-  const app = await buildApp(env);
+  const app = await buildFixtureApp();
   const orgId = await seedOrg(app);
   try {
     const projectId = await createProject(app, orgId);
@@ -110,14 +121,17 @@ test("connection_status is visible in GET /repositories/:id and the list", async
       url: `/api/v1/orgs/${orgId}/repositories/${repo.id}`,
     });
     assert.equal(got.statusCode, 200);
-    assert.equal(got.json().connectionStatus, "unverified");
+    // GP-229: a repository is proven reachable before it is persisted, so an
+    // attached repository is never `unverified` — the state now only describes
+    // rows that predate the check.
+    assert.equal(got.json().connectionStatus, "ok");
     assert.equal(got.json().accessToken, null);
 
     const list = await app.inject({
       method: "GET",
       url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
     });
-    assert.equal(list.json()[0].connectionStatus, "unverified");
+    assert.equal(list.json()[0].connectionStatus, "ok");
 
     await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
   } finally {
@@ -126,7 +140,7 @@ test("connection_status is visible in GET /repositories/:id and the list", async
 });
 
 test("POST /repositories/:id/verify verifies against the fixture", async () => {
-  const app = await buildApp(env);
+  const app = await buildFixtureApp();
   const orgId = await seedOrg(app);
   try {
     const projectId = await createProject(app, orgId);
@@ -152,8 +166,11 @@ test("POST /repositories/:id/verify verifies against the fixture", async () => {
   }
 });
 
-test("verify returns a structured error for an unreachable repo", async () => {
-  const app = await buildApp(env);
+test("an unreachable repository is refused at the door, and nothing is stored", async () => {
+  // GP-229 turns this around: a repository that cannot be read used to be
+  // created and then reported as `failed`. It is now not created at all — every
+  // feature hanging off a repository we cannot clone would fail quietly.
+  const app = await buildFixtureApp();
   const orgId = await seedOrg(app);
   try {
     const projectId = await createProject(app, orgId);
@@ -165,7 +182,41 @@ test("verify returns a structured error for an unreachable repo", async () => {
         url: "file:///tmp/groundplan-nope-does-not-exist",
       },
     });
-    const repo = res.json();
+    assert.equal(res.statusCode, 422, res.body);
+    const body = res.json() as { code: string; message: string };
+    assert.ok(
+      ["no_credential_resolved", "unreachable", "insufficient_permissions"].includes(
+        body.code,
+      ),
+      `unexpected code: ${body.code}`,
+    );
+    assert.ok(body.message.length > 0, "the refusal names a remediation");
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/orgs/${orgId}/projects/${projectId}/repositories`,
+    });
+    assert.deepEqual(list.json(), [], "nothing was persisted");
+
+    await app.inject({ method: "DELETE", url: `/api/v1/orgs/${orgId}/projects/${projectId}` });
+  } finally {
+    await app.close();
+  }
+});
+
+test("verify still reports a structured error when a remote goes away later", async () => {
+  const app = await buildFixtureApp();
+  const orgId = await seedOrg(app);
+  try {
+    const projectId = await createProject(app, orgId);
+    const repo = (await createRepo(app, orgId, projectId, {})).json();
+
+    // The repository was reachable when attached; the remote is gone now. That
+    // is what `verify` is for, and it must still classify honestly.
+    await app.db
+      .update(repositories)
+      .set({ url: "file:///tmp/groundplan-nope-does-not-exist" })
+      .where(eq(repositories.id, repo.id));
 
     const verified = await app.inject({
       method: "POST",
@@ -189,12 +240,12 @@ test("verify returns a structured error for an unreachable repo", async () => {
 });
 
 test("PATCH /repositories/:id updates the PAT and re-verifies", async () => {
-  const app = await buildApp(env);
+  const app = await buildFixtureApp();
   const orgId = await seedOrg(app);
   try {
     const projectId = await createProject(app, orgId);
     const repo = (await createRepo(app, orgId, projectId, {})).json();
-    assert.equal(repo.connectionStatus, "unverified");
+    assert.equal(repo.connectionStatus, "ok", "proven reachable at attach");
 
     const patched = await app.inject({
       method: "PATCH",

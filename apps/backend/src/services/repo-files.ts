@@ -281,6 +281,21 @@ export type VerifyResult =
   | { ok: true; defaultBranchFound: boolean }
   | { ok: false; error: VerifyErrorKind };
 
+/**
+ * The verifier the test environment uses by default (wired in `buildApp`).
+ *
+ * Attaching a repository now proves it is reachable *before* persisting it
+ * (GP-229), which would otherwise make every fixture repository in the suite
+ * shell out to `git ls-remote` against a URL that does not exist. It answers
+ * "reachable" because that is the uninteresting case; a test about a failed
+ * check injects its own verifier, and the real classification of a git failure
+ * is covered against real `git` in `repo-files.test.ts`.
+ */
+export const offlineVerifyConnection = async (): Promise<VerifyResult> => ({
+  ok: true,
+  defaultBranchFound: true,
+});
+
 /** Classify a `git` failure into a caller-friendly reason. */
 export function classifyGitError(text: string): VerifyErrorKind {
   const t = text.toLowerCase();
