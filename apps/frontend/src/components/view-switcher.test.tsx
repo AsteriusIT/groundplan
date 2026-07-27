@@ -81,3 +81,30 @@ it("playground offers Global/Network/IAM for Terraform, diagram only for Kuberne
   expect(viewsFor("playground", false)).toEqual(["infra", "network", "iam"]);
   expect(viewsFor("playground", true)).toEqual(["infra"]);
 });
+
+// --- Reality vs Code (GP-209) ------------------------------------------------
+
+it("offers the reality lens on docs only when a reality snapshot exists", () => {
+  expect(viewsFor("docs", false)).not.toContain("reality");
+  expect(viewsFor("docs", false, { reality: true })).toContain("reality");
+});
+
+it("puts reality last — it is the lens you reach for, not the one you land on", () => {
+  expect(viewsFor("docs", false, { reality: true })).toEqual([
+    "infra",
+    "adapted",
+    "c4",
+    "network",
+    "iam",
+    "reality",
+  ]);
+});
+
+it("never offers reality on a Kubernetes repository — a cluster is its own view", () => {
+  expect(viewsFor("docs", true, { reality: true })).toEqual(["infra"]);
+});
+
+it("never offers reality on a pull request or in the playground", () => {
+  expect(viewsFor("plan", false, { reality: true })).not.toContain("reality");
+  expect(viewsFor("playground", false, { reality: true })).not.toContain("reality");
+});

@@ -71,6 +71,31 @@ parser does not have. A reality graph says *what exists and what depends on what
 — and says nothing it cannot honestly derive, rather than filling the network
 lens with a guess.
 
+## The view
+
+Once a state has been pushed, the repository's documentation page grows a
+**Reality vs code** lens. It compares the documentation of your default branch
+with the reality snapshot and reports three things:
+
+| Finding | Meaning |
+| --- | --- |
+| **Not managed by this repository** | In the cloud, absent from the code. Somebody made it by hand: nobody reviewed it, and destroying this workspace would leave it behind. |
+| **Declared but not found** | In the code, absent from the state. Never applied, or removed underneath it. |
+| **Disagreeing** | Present on both sides, with an attribute the two record differently. |
+
+Only attributes **both** sides recorded are compared. The two producers keep
+different bags, and reading "the code did not record this" as "the cloud changed
+it" would mark an entire estate divergent for the crime of being described by two
+different parsers.
+
+The lens is absent until a state has been pushed. A comparison with nothing on
+the other side would report your whole estate as never applied, which is a
+confident lie shaped like a finding.
+
+**Neither side is live.** The banner always names the commit the code came from
+and how long ago the state was read, because a comparison whose age you cannot
+see is one a reader assumes is current.
+
 ## An example job
 
 Reality, like drift, is a schedule rather than an event.

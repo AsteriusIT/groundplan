@@ -8,6 +8,7 @@
  * canvas stays clean.
  */
 import type { AttributeDiffRow, DriftState, PolicyStatus } from "@/api/types";
+import { relativeTime } from "./relative-time";
 
 /** Is this measurement about the diagram currently on screen? */
 function usable(drift: DriftState | null): drift is DriftState {
@@ -90,7 +91,7 @@ const short = (sha: string): string => sha.slice(0, 7);
  * against code that has already changed.
  */
 export function driftFreshness(drift: DriftState): DriftFreshness {
-  const when = relative(drift.measuredAt);
+  const when = relativeTime(drift.measuredAt);
   if (drift.stale && drift.baseCommitSha) {
     return {
       tone: "stale",
@@ -109,31 +110,4 @@ export function driftFreshness(drift: DriftState): DriftFreshness {
     tone: "fresh",
     text: `Measured ${when} against ${short(drift.commitSha)}.`,
   };
-}
-
-/** How long a unit lasts in seconds, and how long it stays the right one. */
-const AGO_UNITS: { noun: string; seconds: number; until: number }[] = [
-  { noun: "second", seconds: 1, until: 60 },
-  { noun: "minute", seconds: 60, until: 3600 },
-  { noun: "hour", seconds: 3600, until: 86400 },
-  { noun: "day", seconds: 86400, until: 2592000 },
-];
-
-/**
- * "3 hours ago", in the coarsest unit that is still true. Past a month it stops
- * counting: the exact age of a very old measurement is not the point — that
- * nobody has re-run it is.
- */
-function relative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "at an unknown time";
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-
-  for (const unit of AGO_UNITS) {
-    if (seconds >= unit.until) continue;
-    const value = Math.floor(seconds / unit.seconds);
-    if (value <= 0) return "just now";
-    return `${value} ${unit.noun}${value === 1 ? "" : "s"} ago`;
-  }
-  return "over a month ago";
 }

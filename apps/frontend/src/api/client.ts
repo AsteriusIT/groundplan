@@ -27,6 +27,7 @@ import type {
   CreatedInvitation,
   Dashboard,
   DriftState,
+  Reconciliation,
   IngestionEvent,
   IacType,
   Invitation,
@@ -1130,6 +1131,24 @@ export async function getRepositoryDrift(
   try {
     return await orgRequest<DriftState>(
       `/repositories/${encode(repositoryId)}/drift`,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * The cloud compared with the code (GP-209), or null when either side is
+ * missing. Absent is the honest answer: a comparison built from one graph and
+ * nothing would report a whole estate as unmanaged.
+ */
+export async function getReconciliation(
+  repositoryId: string,
+): Promise<Reconciliation | null> {
+  try {
+    return await orgRequest<Reconciliation>(
+      `/repositories/${encode(repositoryId)}/reconciliation`,
     );
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;

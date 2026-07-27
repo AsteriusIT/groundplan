@@ -9,11 +9,18 @@ import { cn } from "@/lib/utils";
  *   `c4`       the adapted graph collapsed to one node per group (GP-77)
  *   `network`  the vnet/subnet containment view (GP-44)
  *   `iam`      the role-assignment table (GP-48)
+ *   `reality`  the cloud compared with the code (GP-209)
  *
  * `adapted` and `c4` are documentation views: they answer "what is this system",
  * which is a question about the repository, not about a pull request.
  */
-export type GraphView = "infra" | "adapted" | "c4" | "network" | "iam";
+export type GraphView =
+  | "infra"
+  | "adapted"
+  | "c4"
+  | "network"
+  | "iam"
+  | "reality";
 
 const VIEWS: ReadonlySet<GraphView> = new Set<GraphView>([
   "infra",
@@ -21,6 +28,7 @@ const VIEWS: ReadonlySet<GraphView> = new Set<GraphView>([
   "c4",
   "network",
   "iam",
+  "reality",
 ]);
 
 /**
@@ -67,6 +75,7 @@ const LABELS: Record<Exclude<GraphView, "infra">, string> = {
   c4: "C4",
   network: "Network",
   iam: "IAM",
+  reality: "Reality vs code",
 };
 
 /**
@@ -92,9 +101,19 @@ const LABELS: Record<Exclude<GraphView, "infra">, string> = {
 export function viewsFor(
   variant: ViewSwitcherVariant,
   kubernetes: boolean,
+  available: { reality?: boolean } = {},
 ): GraphView[] {
   if (kubernetes) return ["infra"];
-  if (variant === "docs") return ["infra", "adapted", "c4", "network", "iam"];
+  if (variant === "docs") {
+    const docs: GraphView[] = ["infra", "adapted", "c4", "network", "iam"];
+    // GP-209: offered only when a reality snapshot exists. Every other lens is
+    // a projection of the graph already on screen and can always be drawn; this
+    // one needs a second graph somebody's pipeline has to push. With no snapshot
+    // it would report the whole estate as never applied — a confident lie, and
+    // an empty state that looks exactly like a finding. So: no snapshot, no pill.
+    if (available.reality) docs.push("reality");
+    return docs;
+  }
   // "plan" and "playground" share the set for different reasons: a diff should
   // not be reviewed through the annotation lens; the playground has no lens.
   return ["infra", "network", "iam"];
@@ -109,11 +128,14 @@ export function viewsFor(
 export function ViewSwitcher({
   variant = "plan",
   kubernetes = false,
+  reality = false,
 }: Readonly<{
   variant?: ViewSwitcherVariant;
   kubernetes?: boolean;
+  /** GP-209: a reality snapshot exists, so the comparison can be offered. */
+  reality?: boolean;
 }>) {
-  const keys = viewsFor(variant, kubernetes);
+  const keys = viewsFor(variant, kubernetes, { reality });
   const { view, setView } = useGraphView(keys);
   if (keys.length < 2) return null;
 

@@ -1156,3 +1156,44 @@ export interface DashboardDrift {
   outsideIac: number;
   measuredAt: string;
 }
+
+// --- Reality vs Code (GP-208 / GP-209) ---------------------------------------
+
+export interface ReconcileCounts {
+  /** In the cloud, not in the code — nobody wrote these down. */
+  unmanaged: number;
+  /** In the code, not in the cloud. */
+  notApplied: number;
+  /** In both, disagreeing on an attribute they both recorded. */
+  divergent: number;
+  matching: number;
+}
+
+/** Which snapshot each side of the comparison came from, and how old it is. */
+export interface ReconcileSide {
+  snapshotId: string;
+  ref: string;
+  commitSha: string;
+}
+
+/**
+ * The cloud compared with the code (GP-209). Both sides are always named: a
+ * comparison whose age you cannot see is one a reader assumes is live, and this
+ * one is exactly as old as the last `push-state`.
+ */
+export interface Reconciliation {
+  version: 1;
+  /** Coloured for the canvas; the labels a human reads are the panel's. */
+  graph: Graph;
+  counts: ReconcileCounts;
+  unmanaged: string[];
+  notApplied: string[];
+  divergent: string[];
+  summaryMd: string;
+  code: ReconcileSide & { createdAt: string };
+  reality: ReconcileSide & {
+    /** When the state was read — the age of everything on the cloud side. */
+    observedAt: string;
+    terraformVersion: string | null;
+  };
+}

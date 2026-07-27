@@ -61,6 +61,7 @@ import { AnnotateToggle, useAnnotateMode } from "@/components/annotate-toolbar";
 import { AiPanel } from "@/components/ai-panel";
 import { ContextRail } from "@/components/context-section";
 import { DriftPanel } from "@/components/drift-panel";
+import { RealityPanel } from "@/components/reality-panel";
 import { FocusToggle, useFocusMode } from "@/components/focus-mode";
 import { OrphanReview } from "@/components/orphan-review";
 import { PolicyPanel } from "@/components/policy-panel";
@@ -76,6 +77,7 @@ import { useAiStatus } from "@/lib/use-ai-status";
 import { findingsByNode } from "@/lib/policy";
 import { driftLabels, driftRowsByNode } from "@/lib/drift";
 import { useRepositoryDrift } from "@/lib/use-drift";
+import { useReconciliation } from "@/lib/use-reality";
 import { useSnapshotPolicy } from "@/lib/use-policy";
 import { networkProjection } from "@/lib/graph-layout";
 import { useTourStyle } from "@/tour/tour-style";
@@ -389,7 +391,14 @@ export function DocsPage() {
     [drift, showDrift],
   );
 
-  const { view, setView } = useGraphView(viewsFor("docs", kubernetes));
+  // GP-209: the cloud, compared with this code. Null until somebody's pipeline
+  // pushes a state, and the lens is not offered until then — a comparison with
+  // nothing on the other side would report the whole estate as never applied.
+  const { reconciliation } = useReconciliation(kubernetes ? undefined : repoId);
+  const { view, setView } = useGraphView(
+    viewsFor("docs", kubernetes, { reality: reconciliation !== null }),
+  );
+  const realityView = view === "reality" && reconciliation !== null;
 
   // GP-79: the guided tour of this estate. It plays on the lens it was written
   // against — `adapted` when the repo has groups, so the tour can stop at "the
@@ -705,7 +714,11 @@ export function DocsPage() {
                 mid-tour would strand the camera on a diagram the narration is not
                 about. So the switcher steps aside while one runs. */}
             {current && !compareMode && !touring && (
-              <ViewSwitcher variant="docs" kubernetes={kubernetes} />
+              <ViewSwitcher
+                variant="docs"
+                kubernetes={kubernetes}
+                reality={reconciliation !== null}
+              />
             )}
           </div>
           <div className="flex items-center gap-4">
@@ -814,7 +827,7 @@ export function DocsPage() {
                 </Centered>
               )}
 
-              {view === "iam" && current && (
+              {!realityView && view === "iam" && current && (
                 <IamTable
                   graph={current.graph}
                   variant="docs"
@@ -824,11 +837,27 @@ export function DocsPage() {
 
               {/* C4 with nothing to collapse is not a broken graph — it is a
                   system nobody has grouped yet, and it should say so (GP-77). */}
-              {view === "c4" && shown && !hasGroups(shown.graph) && (
+              {!realityView && view === "c4" && shown && !hasGroups(shown.graph) && (
                 <NoGroupsState onAnnotate={() => setView("infra")} />
               )}
 
-              {view !== "iam" && shown && !(view === "c4" && !hasGroups(shown.graph)) && (
+              {realityView && (
+                <GraphCanvas
+                  key="reality"
+                  // The comparison is already a coloured graph: the same
+                  // graph-vs-graph machinery a Kubernetes pull request uses,
+                  // pointed at code-versus-cloud. Only the words differ, and
+                  // those live in the rail.
+                  graph={reconciliation.graph}
+                  variant="plan"
+                  diffEmphasis
+                  focusNodeId={focusNodeId}
+                  lint={policyFindings}
+                  findingsLabel="Policy violation"
+                />
+              )}
+
+              {!realityView && view !== "iam" && shown && !(view === "c4" && !hasGroups(shown.graph)) && (
                 <GraphCanvas
                   // Each view keeps its own camera (GP-156): a fresh instance
                   // per lens fits once; refreshes preserve the viewport.
@@ -909,6 +938,16 @@ export function DocsPage() {
               setPreviewIds(anchors ? new Set(anchors) : null)
             }
             onClose={() => setProposalsOpen(false)}
+          />
+        )}
+
+        {/* GP-209: the reality rail. It rides with its lens rather than a
+            toggle — the comparison and its vocabulary are one thing. */}
+        {realityView && !focus && !touring && (
+          <RealityPanel
+            result={reconciliation}
+            onSelectAddress={setFocusNodeId}
+            onClose={() => setView("infra")}
           />
         )}
 
