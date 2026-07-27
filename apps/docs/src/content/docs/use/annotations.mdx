@@ -1,0 +1,80 @@
+---
+title: Annotations
+description: Five ways to say what a diagram cannot know — note, link, group, hide, rename — and what happens when the resource behind one disappears.
+---
+
+import { Image } from "astro:assets";
+import annotations from "../../../assets/screens/annotations.png";
+
+For the person who knows why that storage account is still there. A generated
+diagram knows what exists; only your team knows what it *means*. Annotations are
+where that knowledge goes — beside the generated model, never inside it.
+
+<Image src={annotations} alt="The documentation view with annotations applied: two groups drawn as labelled containers, a renamed node, a logical link labelled 'serves traffic for', and a banner reporting one annotation that lost its anchor." />
+
+## The five types
+
+| Type | What it does |
+| --- | --- |
+| **Note** | A paragraph pinned to a resource — why it exists, what breaks without it, the ticket it came from |
+| **Link** | A logical connection the code does not express, with your own label |
+| **Group** | Several resources declared to be one system, drawn as a container |
+| **Hide** | Take the noise out of the picture — the diagnostic settings nobody is reading |
+| **Rename** | Human language over `azurerm_linux_web_app.api` |
+
+Each one is anchored to a **Terraform address**, which is what makes it survive
+regeneration: the address is stable across a re-parse in a way that a position on
+a canvas never could be.
+
+## Where they show up
+
+Annotate on the **raw** view — the generated graph, unmodified, so you always
+know what you are annotating. Their effect appears on the
+[**Adapted** view](/use/lenses/), and the **C4** view is the same projection
+collapsed to one node per group.
+
+The projection is a pure fold that produces an ordinary graph, which is why
+every renderer, export and share link handles it with no special case.
+
+## When a resource disappears
+
+Somebody deletes the resource an annotation was anchored to. The annotation is
+**flagged, never deleted**: it flips to *orphaned*, a banner appears on the
+documentation page, and a review tray offers three choices — re-anchor it to a
+different address, keep it as it is, or delete it deliberately.
+
+If the resource comes back — a reverted branch, a module renamed back — the flip
+**reverses itself**. Reconciliation is a function of the current snapshot, not a
+one-way event, so a temporary absence does not cost you a paragraph somebody
+wrote.
+
+That rule is general in this product: nothing you wrote disappears because
+something we generated changed.
+
+## AI proposals, if the AI layer is on
+
+With [the AI layer](/ai/) enabled, %PRODUCT% can propose annotations — usually
+groups and renames — from the deterministic brief it builds of your estate. They
+arrive in a **review inbox**, never on the canvas, each with a one-sentence
+reason.
+
+A human accepts, edits or dismisses every single one. Nothing proposed is ever
+applied by itself, and **provenance is permanent**: an annotation created by a
+model is marked as such for the rest of its life, including after you edit it.
+Six months later, "did a person decide this?" is a question with an answer.
+
+## Context
+
+Beside annotations, a project and each repository carry a long-form Markdown
+**context** — what this estate is for, who owns it, the constraints it lives
+under. It is the page a new joiner reads, and it is also what grounds the AI
+layer's summaries when that layer is on.
+
+## What annotations do not do
+
+- They never change the generated graph, so they cannot make a diagram lie about
+  what your code says.
+- They are not on Kubernetes snapshots — see
+  [the limits](/ci/kubernetes/#what-a-kubernetes-snapshot-does-not-get).
+- They are not on pull-request views: reviewing a diff through a lens that hides
+  and renames things is the wrong instrument.

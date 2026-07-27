@@ -1,0 +1,107 @@
+---
+title: Lenses
+description: Six ways to look at one graph — Global, Adapted, C4, Network, IAM and Reality vs code — and which questions each answers.
+---
+
+import { Image } from "astro:assets";
+import { Aside } from "@astrojs/starlight/components";
+import network from "../../../assets/screens/network-lens.png";
+
+For anybody staring at a diagram that is technically correct and not what they
+wanted. A lens is a **projection of the same snapshot**: switching one fetches
+nothing, changes nothing, and cannot show you a resource the graph does not
+have. Pick the one that matches your question.
+
+| Lens | The question it answers | Where |
+| --- | --- | --- |
+| **Global** / **Plan impact** | What is here? What does this change do? | Everywhere |
+| **Adapted** | What does this look like in our own vocabulary? | Documentation |
+| **C4** | What are our systems, and how do they talk? | Documentation |
+| **Network** | What can reach what? | Documentation, pull requests, playground |
+| **IAM** | Who can do what, and where? | Documentation, pull requests, playground |
+| **Reality vs code** | What exists that we did not write down? | Documentation, once a state has been pushed |
+
+Each lens is in the URL (`?view=network`), so a link you paste in a review opens
+on the view you were looking at.
+
+## Global / Plan impact
+
+The graph as generated: resources, modules, dependencies. On a pull request the
+same tab is called **Plan impact**, because there it is coloured by the change
+and carries the blast radius — the view is the same, the question is not.
+
+## Adapted
+
+The same graph seen through your accepted [annotations](/use/annotations/):
+groups become containers, renames apply, hidden nodes are gone, and the logical
+links you drew are edges. It is a pure projection — nothing is written back into
+the generated model, so a regeneration cannot lose it and it cannot corrupt what
+was generated.
+
+Documentation only. A pull request asks what a change does, and reviewing a diff
+through a lens that hides and renames things is the wrong instrument.
+
+## C4
+
+The Adapted view collapsed to **one node per group**, with edge counts
+aggregated between them — the system-context picture, without maintaining a
+second diagram. Click into a group to drop back down.
+
+It is only as good as your groups, which is the honest trade: the product knows
+what exists, and your team knows what it means.
+
+## Network
+
+<Image src={network} alt="The Network view: a virtual network containing two subnets, resources placed inside them, and one subnet outlined orange as internet-reachable." />
+
+Real containment — virtual network ⊃ subnet ⊃ resource — with security-group
+rules readable on the boundaries and internet-reachable elements outlined. Hub
+resources that everything depends on are tamed so they stop dominating the
+layout.
+
+<Aside type="caution" title="Azure-first semantics">
+Network containment and exposure analysis are derived from `azurerm` resources
+and their association resources. A Terraform repository targeting AWS or GCP
+gets nodes, dependencies, modules, the full attribute diff and its vendor icons
+— but this lens is not offered for it, because a network view that cannot see
+security groups would be a diagram of nothing, presented as a diagram of your
+network.
+</Aside>
+
+## IAM
+
+Principal → role → scope, as a table you can read rather than a hairball you
+cannot: who holds which role, over what, and which of those assignments are
+privileged at a broad scope. Drill through any row to the resource that granted
+it.
+
+Same Azure-first caveat as the Network view, for the same reason.
+
+## Reality vs code
+
+Present only once a [state graph has been pushed](/use/drift-and-reality/): the
+cloud beside the code, reporting what is unmanaged, what was never applied, and
+what the two sides record differently. It is absent rather than empty when
+nothing has been pushed — a comparison against nothing would report your entire
+estate as never applied, which is a confident lie shaped like a finding.
+
+## Getting around
+
+The tools are the same in every lens, because they are about the canvas rather
+than the question:
+
+- **Search** (`/`) flies to a resource by name, type or address.
+- **Filters** narrow by change, category or module.
+- **Focus mode** folds away every panel, for a screen share or a wall display.
+- **Themes** — light (drafting paper), blueprint (cyanotype), carbon (graphite,
+  the default) — from Settings.
+- Your **viewport is preserved** across a refresh, and each lens keeps its own
+  camera, so switching back does not lose where you were looking.
+
+## A lens that is missing
+
+Not a bug. A lens with nothing honest to draw is **not offered** rather than
+drawn empty: Kubernetes graphs get the diagram only, the playground and pull
+requests have no annotation layer to fold, and the reality lens waits for a
+state. An empty lens tells a reader their system has no network and no
+permissions, which is worse than telling them nothing.

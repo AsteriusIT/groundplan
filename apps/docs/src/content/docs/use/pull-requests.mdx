@@ -1,0 +1,113 @@
+---
+title: Review a pull request
+description: Read the diagram — the colour code, the blast radius, the attribute diff, the risk badges and the pull-request comment.
+---
+
+import { Image } from "astro:assets";
+import { Aside } from "@astrojs/starlight/components";
+import review from "../../../assets/screens/pull-request-review.png";
+
+For the reviewer. This page explains everything the diagram is telling you, in
+the order you will look at it.
+
+<Image src={review} alt="A pull request diagram: three created resources outlined green, one updated amber, one destroyed red and struck through, one unchanged dependent outlined violet, with the deterministic change summary beside it." />
+
+## The colour code
+
+Colour means **change, and only change**. Structure — modules, containment,
+categories — stays neutral, so the change is the only thing competing for your
+attention, and the unchanged estate is ghosted behind it.
+
+| | Meaning |
+| --- | --- |
+| <span class="gp-swatch gp-swatch-create"></span> Green | Created |
+| <span class="gp-swatch gp-swatch-update"></span> Amber | Updated in place |
+| <span class="gp-swatch gp-swatch-delete"></span> Red, dashed, struck through | Destroyed |
+| <span class="gp-swatch gp-swatch-impacted"></span> Violet | **Impacted**: unchanged, but depends on something that changed |
+| <span class="gp-swatch gp-swatch-exposed"></span> Orange outline | Reachable from the internet |
+
+A replacement — destroy then create — reads as both, because that is what it is.
+
+The legend is on the canvas, bottom-left, on every diagram. You are not expected
+to memorise this page.
+
+## The blast radius
+
+Violet is the reason to look at a picture rather than at the plan text. A plan
+lists what it will change; it says nothing about what *else* depends on those
+resources. %PRODUCT% propagates impact along the graph's edges — including
+dependencies inferred from expressions, not just declared with `depends_on` —
+and marks each affected resource with its **distance in hops**.
+
+One hop is a neighbour you probably thought about. Three hops is the question
+worth asking in the review.
+
+## The change summary
+
+Beside the canvas, in words: counts, then deletions first, then updates, then
+creations. It is produced by a rule, not a model — the same plan always yields
+the same summary, character for character, which is what makes it safe to paste
+into a comment or a ticket.
+
+The [optional AI summary](/ai/) is an addition above this one, never a
+replacement. With no key configured it does not exist, and this summary is
+still there.
+
+## The attribute diff
+
+Click a node for its before → after, attribute by attribute. Values Terraform
+marked sensitive are **masked** — they are not rendered, not in the comment, not
+in an export.
+
+For a created resource there is no "before", and for a destroyed one no "after";
+the panel says so rather than inventing an empty string.
+
+## Risk badges
+
+Two badges, computed deterministically from the graph, shown on nodes, on the
+pull-request list and on the dashboard:
+
+- **Exposed** — reachable from the internet, derived from network security group
+  rules.
+- **Privileged** — a high-privilege role assignment at a broad scope.
+
+Both read **Azure-first** semantics (`azurerm` network and role-assignment
+resources). On other providers a diagram still shows resources, dependencies,
+modules and the full diff; it does not claim an exposure analysis it cannot
+perform. Same rule as the Network view and the IAM view — see
+[Lenses](/use/lenses/).
+
+The [policy engine](/use/policies/) is the configurable version of this idea:
+the same judgement, graded against rules your organization chose.
+
+## The pull-request comment
+
+One comment per plan, on GitHub, GitLab and Azure DevOps, **updated in place**
+rather than appended: a pull request that gets ten pushes gets one comment, not
+ten. It carries the counts, the deterministic summary, an embedded changes-only
+image, a link to the interactive diagram — and, when policy is configured, the
+violations this change **introduces** relative to main.
+
+The comment needs a credential that can write on the provider. A read-only token
+draws the diagram fine and never comments; the repository's integration page
+says so rather than failing invisibly.
+
+## The life of a pull request
+
+Fed by whatever your pipeline sends — a new push replaces the plan, and the
+diagram follows. When the **branch is deleted**, the pull request is soft-closed:
+it leaves the active list and keeps its history, its diagrams and its comments.
+Nothing about a review is deleted because a branch was.
+
+<Aside type="tip" title="It is reproducible">
+Same plan in, same diagram out — same layout, same summary, same exported SVG,
+byte for byte. That is what makes a diagram usable as a review artefact: two
+reviewers looking at the same change are looking at the same picture.
+</Aside>
+
+## Next
+
+- The other ways to look at the same graph: [Lenses](/use/lenses/)
+- The diagram of main, and its history: [Living documentation](/use/living-documentation/)
+- Grade the change against rules: [Policies](/use/policies/)
+- Get the picture out: [Exports & sharing](/use/exports/)
