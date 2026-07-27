@@ -301,6 +301,29 @@ frontend change. Webhooks (`/webhooks/git/:provider`) and the poller are both
 cadence instead of every tick. Never add a provider branch outside
 `src/integrations/adapters/`.
 
+**Reconciliation with reality (GP-205..210).** Two producers, one posture: the
+party that already holds the cloud access does the reading, and we ingest the
+artefact — as with plan.json instead of `terraform`, and CI-rendered manifests
+instead of `helm`. **Drift** (GP-206/207) is a `terraform plan -refresh-only`,
+read from `resource_drift` (what Terraform *found*) and never
+`resource_changes` (what it would *do*); a plan that proposes anything is
+refused at ingestion. A `DriftReport` lives in `drift_reports` beside the
+documentation of main, and **staleness is derived** from the measured sha
+rather than stored, so a merge invalidates a measurement by simply happening.
+`realityGraph` folds what the refresh observed over the code's graph — world
+fields from the refresh, `source` from the repository — so the policy delta's
+`added` is exactly "introduced outside IaC"; it is computed at ingestion, while
+the raw plan is in hand, and stored. **Reality** (GP-208/209) is Producer D:
+the state is parsed and sanitised **in the CLI**, and only the derived graph is
+sent — `source: "state"`, in neither `DOCS_SOURCES` nor `PR_SOURCES`, one per
+repository, replaced on push. The server refuses a raw state outright. The
+`reconcile` comparison reuses `changesFromBase` for colour but never its
+vocabulary: unmanaged / not applied / disagreeing, and only attributes *both*
+sides recorded are compared. Every surface dates both sides — a snapshot read
+as live is this epic's one real failure mode. Docs: `docs/drift.md`,
+`docs/reality.md`. Never add a cloud credential; GP-210's ADR records why the
+inventory route stays client-side too.
+
 **Policy engine (GP-199..204).** `src/graph/policy/` — pure, deterministic,
 no AI and no cloud access, like the parsers and the differ. A `PolicyRule` has
 a stable id, a default severity, the graph kinds it can judge and a pure
@@ -381,7 +404,9 @@ org-level Atlassian integration) · GP-191 integrations OAuth/Apps (GP-192..198:
 ports & adapters, GitHub App, git webhooks, GitLab OAuth, Entra ID for Azure
 DevOps, Atlassian 3LO, connections UI) · GP-199 policy engine v1 (GP-200..204:
 engine & catalogue, org/repo configuration, PR evaluation, compliance on main,
-waivers).
+waivers) · GP-205 reconciliation with reality (GP-206..210: drift ingestion,
+drift visualisation + policy cross-check, `push-state`, reality vs code, and
+the third-party-inventory ADR).
 
 **Open:**
 
