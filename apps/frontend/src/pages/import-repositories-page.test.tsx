@@ -277,6 +277,9 @@ it("sends the chosen type and path for every selected row", async () => {
   await waitFor(() => expect(importMock).toHaveBeenCalled());
   expect(importMock).toHaveBeenCalledWith({
     projectId: "p1",
+    // The connection that listed the repository is the one that should
+    // authenticate the clone — no re-deriving it from the URL.
+    credentialId: "c1",
     items: [
       {
         cloneUrl: "https://github.com/acme/infra.git",

@@ -112,6 +112,13 @@ export function ImportRepositoriesPage() {
   );
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  /**
+   * The connection that answered discovery. Sent back with the import so the
+   * server authenticates with *the connection that listed the repository*
+   * rather than re-deriving one from the URL — which is guesswork we do not
+   * need to do here, and got wrong for GitLab.
+   */
+  const [credentialId, setCredentialId] = useState<string | null>(null);
   const [repos, setRepos] = useState<DiscoveredRepository[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
@@ -164,6 +171,7 @@ export function ImportRepositoriesPage() {
     setState({ status: "loading" });
     try {
       const page = await discoverRepositories(from, { search: term });
+      setCredentialId(page.credentialId);
       setRepos(page.repositories);
       setCursor(page.nextCursor);
       setTotal(page.total);
@@ -358,6 +366,7 @@ export function ImportRepositoriesPage() {
     try {
       const outcome = await importRepositories({
         projectId,
+        ...(credentialId ? { credentialId } : {}),
         items: batch.map((row) => ({
           cloneUrl: row.cloneUrl,
           kind: row.kind as IacType,

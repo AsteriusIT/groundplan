@@ -42,6 +42,37 @@ export type CredentialResolution =
   /** Nothing covers it: the token path, exactly as before (GP-51/52). */
   | { kind: "token" };
 
+/** Do these two URLs live on the same host? */
+function sameHost(a: string, b: string): boolean {
+  try {
+    return new URL(a).host.toLowerCase() === new URL(b).host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Would this connection authenticate this URL? A connection says what it is
+ * bound to by what it stores, so this reads the connection instead of naming
+ * providers:
+ *
+ *  - an **account-bound** connection (a GitHub App installation) covers
+ *    repositories owned by that account;
+ *  - an **instance-bound** one (GitLab, Entra) is a *user's* authorization on an
+ *    instance, and that user routinely belongs to namespaces they do not own —
+ *    so it covers its instance, and the server settles the rest by actually
+ *    trying to read the repository before storing anything.
+ */
+function covers(
+  connection: ProviderConnection,
+  url: string,
+  owner: string,
+): boolean {
+  const { account, instanceUrl } = connection.config;
+  if (instanceUrl && sameHost(instanceUrl, url)) return true;
+  return account?.toLowerCase() === owner;
+}
+
 /** Which of this org's connections would authenticate `url`. */
 export function resolveCredential(
   url: string,
@@ -53,8 +84,7 @@ export function resolveCredential(
 
   const candidates = connections.filter(
     (connection) =>
-      connection.provider === provider &&
-      connection.config.account?.toLowerCase() === owner,
+      connection.provider === provider && covers(connection, url, owner),
   );
   if (candidates.length === 1) return { kind: "covered", connection: candidates[0]! };
   if (candidates.length > 1) return { kind: "ambiguous", candidates };

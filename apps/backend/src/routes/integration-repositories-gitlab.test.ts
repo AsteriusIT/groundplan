@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { loadEnv, type AppEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
-import { integrationCredentials } from "../db/schema.js";
+import { integrationCredentials, projects } from "../db/schema.js";
 import {
   GitLabApiError,
   type GitLabClient,
@@ -343,6 +343,118 @@ test("kind detection reads a GitLab tree, and a paged tree is never confident", 
     const huge = byName.get("acme/huge")!;
     assert.equal(huge.truncated, true, "we stopped before the end, and say so");
     assert.equal(huge.confidence, "low", "a partial tree is never confident");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a GitLab project outside the authorizing user's namespace still imports", async () => {
+  // The bug this pins: `config.account` for a GitLab OAuth connection is the
+  // *user* who authorized (`tintin92350`), not the namespace of the project
+  // (`helix-saas`). Matching them refused every group project the user could
+  // perfectly well read, with "this repository is private".
+  const { client } = fakeGitLab([
+    project(1, {
+      path_with_namespace: "helix-saas/infra-terraform",
+      path: "infra-terraform",
+      namespace: { full_path: "helix-saas" },
+      http_url_to_repo: "https://gitlab.com/helix-saas/infra-terraform.git",
+    }),
+  ]);
+  const verified: (string | null | undefined)[] = [];
+  const app = await buildApp(oauthEnv(), {
+    gitlab: client,
+    oauth2Http: offlineOAuth,
+    verifyConnection: async (source) => {
+      verified.push(source.accessToken);
+      // A private project is unreadable without a credential — which is what
+      // made the old behaviour fail rather than merely mis-authenticate.
+      return source.accessToken
+        ? { ok: true, defaultBranchFound: true }
+        : { ok: false, error: "auth_failed" };
+    },
+  });
+  const orgId = await seedOrg(app);
+  invalidateDiscoveryCache();
+  try {
+    await seedGitLabConnection(app, orgId);
+    const [project] = await app.db
+      .insert(projects)
+      .values({
+        organizationId: orgId,
+        name: "Platform",
+        slug: `platform-${Date.now()}`,
+      })
+      .returning({ id: projects.id });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/orgs/${orgId}/repositories/import`,
+      payload: {
+        projectId: project!.id,
+        items: [
+          {
+            cloneUrl: "https://gitlab.com/helix-saas/infra-terraform.git",
+            kind: "terraform",
+          },
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 207, res.body);
+    const body = res.json() as {
+      imported: { url: string }[];
+      failed: { error: string }[];
+    };
+    assert.deepEqual(body.failed, [], "nothing to fail: the connection covers it");
+    assert.equal(body.imported.length, 1);
+    assert.equal(
+      verified.at(-1),
+      "gl-access-token",
+      "the check ran with the connection's own token, not anonymously",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("a connection on another instance does not cover this one", async () => {
+  const { client } = fakeGitLab([project(1)]);
+  const app = await buildApp(oauthEnv(), {
+    gitlab: client,
+    oauth2Http: offlineOAuth,
+    verifyConnection: async (source) =>
+      source.accessToken
+        ? { ok: true, defaultBranchFound: true }
+        : { ok: false, error: "auth_failed" },
+  });
+  const orgId = await seedOrg(app);
+  invalidateDiscoveryCache();
+  try {
+    // Connected to a self-managed instance; the URL is gitlab.com.
+    await seedGitLabConnection(app, orgId, "https://git.acme.internal");
+    const [project] = await app.db
+      .insert(projects)
+      .values({
+        organizationId: orgId,
+        name: "Platform",
+        slug: `platform-other-${Date.now()}`,
+      })
+      .returning({ id: projects.id });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/orgs/${orgId}/repositories/import`,
+      payload: {
+        projectId: project!.id,
+        items: [
+          { cloneUrl: "https://gitlab.com/acme/infra.git", kind: "terraform" },
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 207, res.body);
+    const body = res.json() as { imported: unknown[]; failed: unknown[] };
+    assert.deepEqual(body.imported, [], "an instance-bound connection stays there");
+    assert.equal(body.failed.length, 1);
   } finally {
     await app.close();
   }

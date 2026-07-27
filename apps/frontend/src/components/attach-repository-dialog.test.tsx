@@ -337,3 +337,38 @@ it("never asks which Groundplan organization — that comes from the route", asy
   await typeUrl("https://github.com/acme/infra");
   expect(screen.queryByLabelText(/organization/i)).not.toBeInTheDocument();
 });
+
+it("an instance connection covers its instance, not just its own namespace", async () => {
+  // A GitLab OAuth connection is a *user's* authorization: `tintin92350` may
+  // read `helix-saas/infra` perfectly well. Matching the account against the
+  // namespace demanded a token for every group project.
+  connectionsMock.mockResolvedValue([
+    connection({
+      provider: "gitlab",
+      mode: "oauth2",
+      name: "GitLab · tintin92350",
+      config: { account: "tintin92350", instanceUrl: "https://gitlab.com" },
+    }),
+  ]);
+  open();
+
+  await typeUrl("https://gitlab.com/helix-saas/infra-terraform.git");
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument(),
+  );
+  expect(screen.getByText(/Access via GitLab · tintin92350/i)).toBeInTheDocument();
+});
+
+it("an instance connection does not cover a different instance", async () => {
+  connectionsMock.mockResolvedValue([
+    connection({
+      provider: "gitlab",
+      mode: "oauth2",
+      config: { account: "someone", instanceUrl: "https://git.acme.internal" },
+    }),
+  ]);
+  open();
+
+  await typeUrl("https://gitlab.com/helix-saas/infra.git");
+  expect(await screen.findByLabelText("Access token")).toBeInTheDocument();
+});

@@ -113,20 +113,47 @@ async function connectionsFor(
 }
 
 /**
- * Does this connection cover this repository? A GitHub App installation is
- * bound to an account, and `acme` / `Acme` are the same account — logins are
- * case-insensitive — while `acme/infra` and `acme/Infra` are two repositories.
- * Hence: the owner is compared case-insensitively, and nothing else is assumed.
+ * Does this connection cover this repository?
+ *
+ * A connection is bound to one of two things, and it says which by what it
+ * stores — so this reads the connection rather than naming providers:
+ *
+ *  - **Account-bound** (`account`, no instance): a GitHub App installation, tied
+ *    to the org or user the app was installed on. It covers repositories whose
+ *    owner *is* that account. Logins are case-insensitive, so the owner is
+ *    compared case-insensitively — but `acme/infra` and `acme/Infra` are two
+ *    different repositories, so nothing else is folded.
+ *  - **Instance-bound** (`instanceUrl`): a GitLab or Entra OAuth connection. It
+ *    is a *user's* authorization on an instance, and that user may well belong
+ *    to namespaces they do not own — `helix-saas/infra` reached by an account
+ *    called `tintin92350` is the normal case, not the exception. So it covers
+ *    the instance it names, and whether it can truly read a given project is
+ *    settled by the reachability check we run before persisting anything.
+ *
+ * Getting this wrong was a real bug: the account rule alone refused every
+ * GitLab project outside the authorizing user's own namespace.
  */
 export function connectionCoversUrl(
   connection: IntegrationCredentialRow,
   url: string,
 ): boolean {
-  const account = connection.config.account;
+  const { account, instanceUrl } = connection.config;
+
+  if (instanceUrl && sameHost(instanceUrl, url)) return true;
+
   if (!account) return false;
   const parsed = parseOwnerRepo(url);
   if (!parsed) return false;
   return parsed.owner === account.toLowerCase();
+}
+
+/** Do these two URLs live on the same host? */
+function sameHost(a: string, b: string): boolean {
+  try {
+    return new URL(a).host.toLowerCase() === new URL(b).host.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 /**
