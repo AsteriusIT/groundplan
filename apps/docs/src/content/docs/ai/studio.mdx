@@ -1,0 +1,59 @@
+---
+title: AI Studio
+description: Experimental, Azure-only — describe infrastructure in English, watch the Terraform and the diagram appear, download a zip.
+---
+
+import { Image } from "astro:assets";
+import { Aside } from "@astrojs/starlight/components";
+import studio from "../../../assets/screens/ai-studio.png";
+
+<Aside type="caution" title="Experimental — Azure only">
+The AI Studio is an experiment, labelled as such in the product, and its
+generation targets **Azure** resources. It is not a supported path to
+production infrastructure, its behaviour may change between releases, and
+nothing it produces should reach a cloud without you reading it first.
+</Aside>
+
+For somebody exploring a shape before committing to it: describe what you want
+in plain English and watch a Terraform project being written, with the
+architecture appearing on a canvas node by node as it goes.
+
+<Image src={studio} alt="The AI Studio: a chat describing infrastructure on the left, the generated Terraform project and its diagram on the right." />
+
+## How it works
+
+Each turn regenerates a **whole** Terraform project rather than patching the
+last one, which is why the diagram beside it always matches the code beside it.
+The project is parsed as it streams, so nodes appear progressively; you can open
+any resource's generated HCL and navigate between the diagram and the files.
+
+The session is **ephemeral**. Nothing is stored: no project, no conversation, no
+snapshot. Closing the tab ends it. The way out is the **zip download** — take it,
+read it, and run `terraform plan` yourself, because you stay in control of what
+reaches your cloud.
+
+Availability follows the rest of the AI layer: with no `AI_API_KEY` configured,
+the Studio does not exist. See [The AI layer](/ai/).
+
+## The lint pass is deterministic
+
+Generated HCL is checked by the **same twelve in-house rules** the
+[policy engine](/use/policies/) and the [playground](/use/playground/) use —
+open security-group rules, exposed SSH/RDP, hardcoded secrets, public storage,
+weak TLS, password authentication on Linux VMs, and so on — shown as severity
+badges beside the code.
+
+Those findings come from rules, not from the model grading its own homework. A
+model asked whether its output is safe is not evidence; a rule is. Equally, a
+clean lint pass means those twelve rules found nothing — it is not a security
+review.
+
+## What it is not
+
+- Not a replacement for writing Terraform. It is a sketching tool with a
+  download button.
+- Not multi-cloud. Its knowledge and its lint rules are Azure-shaped.
+- Not connected to your repositories, your state or your cloud. It generates
+  text; it applies nothing.
+- Not stable. It is marked Experimental in the interface for the same reason it
+  is marked Experimental here.
