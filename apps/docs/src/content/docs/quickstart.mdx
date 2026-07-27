@@ -1,0 +1,171 @@
+---
+title: Quickstart
+description: From nothing to a diagram of your own pull request, in about fifteen minutes.
+---
+
+import { Image } from "astro:assets";
+import { Steps, Aside } from "@astrojs/starlight/components";
+import review from "../../assets/screens/pull-request-review.png";
+
+This page is for somebody who has never used %PRODUCT% and wants to see it work
+on their own code. Follow it top to bottom without thinking; it ends with a
+diagram of your pull request and a comment on it.
+
+It assumes you already have an instance to log into. If you do not, install one
+first — [Docker Compose](/install/docker-compose/) takes about ten minutes — and
+come back here.
+
+## First, 30 seconds with no setup at all
+
+Open **Playground** in the sidebar, paste some HCL (or Kubernetes YAML), and you
+have a diagram. Nothing is stored against a repository, nothing is pushed
+anywhere, and it is the fastest way to see whether the drawing is worth the rest
+of this page.
+
+```hcl
+resource "azurerm_resource_group" "main" {
+  name     = "demo"
+  location = "westeurope"
+}
+
+resource "azurerm_virtual_network" "main" {
+  name                = "demo-vnet"
+  address_space       = ["10.20.0.0/16"]
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+}
+
+resource "azurerm_subnet" "web" {
+  name                 = "web"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.20.1.0/24"]
+}
+```
+
+The `resource_group_name` reference above is never written as a `depends_on`, and
+the diagram draws the edge anyway: dependencies are inferred from expressions,
+not just from what you declared.
+
+## Then, your own repository
+
+<Steps>
+
+1. **Create a project and attach the repository.**
+
+   **Projects → New project**, then **Attach repository**. A project is a
+   grouping of repositories that belong together; the repository is the thing
+   that gets reviewed and documented.
+
+   You need the repository's HTTPS clone URL and a credential that can read it —
+   a personal access token is enough to start, and
+   [an App or OAuth connection](/admin/integrations/) is the better long-term
+   answer. The credential is encrypted immediately and never readable again, by
+   anyone, including you.
+
+   Choose the **type** — `terraform` or `kubernetes` — carefully: it is fixed for
+   the life of the repository, because every producer branches on it. If your
+   repository holds both, attach it twice with two different paths.
+
+2. **Copy the two values from the CI setup panel.**
+
+   The repository page shows a webhook URL and a token. The token is displayed
+   **once**; store it now as a CI secret.
+
+   ```sh
+   GROUNDPLAN_URL    # the repository's webhook URL
+   GROUNDPLAN_TOKEN  # the repository's webhook secret, shown once
+   ```
+
+   Lost it later? Regenerate it from the repository's settings — the old one
+   stops working the moment you do.
+
+3. **Add the pipeline step.**
+
+   This is the whole integration. Your pipeline produces the plan — %PRODUCT%
+   never runs `terraform` itself — and the CLI posts it.
+
+   ```yaml title=".github/workflows/groundplan.yml"
+   name: Groundplan
+   on:
+     pull_request:
+     push:
+       branches: [main]
+
+   jobs:
+     plan:
+       if: github.event_name == 'pull_request'
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v4
+         - uses: hashicorp/setup-terraform@v3
+         - run: terraform init
+         - run: terraform plan -out=tfplan
+         - run: terraform show -json tfplan > plan.json
+         - name: Send the plan
+           env:
+             GROUNDPLAN_URL: ${{ secrets.GROUNDPLAN_URL }}
+             GROUNDPLAN_TOKEN: ${{ secrets.GROUNDPLAN_TOKEN }}
+           run: npx --yes @asteriusit/cli push-plan --file plan.json
+   ```
+
+   GitLab CI and Azure DevOps are the same command with a different wrapper —
+   [CI integration](/ci/) has both, written out.
+
+4. **Open a pull request that changes something.**
+
+   Anything real: add a resource, change a SKU, delete something. The job runs,
+   the CLI detects the branch, the commit sha and the pull-request number by
+   itself, and the plan arrives.
+
+   Expected result: the repository's **Pull requests** tab lists it within
+   seconds of the job finishing, and the provider shows a comment with the
+   change counts and a changes-only image.
+
+5. **Read the diagram.**
+
+   Open the pull request in %PRODUCT%.
+
+   <Image src={review} alt="A pull request rendered as a diagram: created resources outlined green, one destroyed in red and struck through, one unchanged dependent outlined violet, with a deterministic change summary in the side panel." />
+
+   Green is created, amber updated, red struck through is destroyed, and violet
+   is the part nobody asked about: unchanged resources that depend on what you
+   touched. The summary beside it is generated by a rule, not a model — the same
+   plan always produces the same words.
+
+6. **Merge it.**
+
+   Expected result: within a minute, the repository's **Documentation** tab shows
+   a redrawn diagram of main, with a new entry in its history. Nothing triggered
+   it by hand — the default branch moved, and the documentation followed.
+
+</Steps>
+
+<Aside type="note" title="What you never had to give it">
+No cloud credentials. No subscription id, no IAM role, no access key. No state
+backend, no state file, no `terraform` execution on our side. The only thing
+that crossed the wire is a plan JSON your own pipeline had already produced and
+a read-only credential for your repository.
+</Aside>
+
+## If nothing appeared
+
+Work down this list in order; it is ordered by how often each one is the answer.
+
+| Check | How |
+| --- | --- |
+| Did the job actually run? | A pull request from a fork does not get repository secrets on GitHub. |
+| Is the token right? | A wrong token is a `401` from the CLI, and a red step. |
+| Is the branch the pull request's head? | The CLI prints what it detected; override with `--branch` / `--sha` / `--pr`. |
+| Is the plan under 10 MB? | The ingestion endpoint caps a body at 10 MB and says so. |
+| Is it the right repository? | The URL contains the repository id — a copied snippet from another repository fails quietly in exactly this way. |
+
+The longer list, with the actual error messages, is on
+[Troubleshooting](/help/troubleshooting/).
+
+## Where to go next
+
+- Everything the review diagram is telling you: [Review a pull request](/use/pull-requests/)
+- Wire the other two CI providers, or the raw webhook: [CI integration](/ci/)
+- Grade every merge against your own rules: [Policies](/use/policies/)
+- Give the diagram your team's vocabulary: [Annotations](/use/annotations/)
