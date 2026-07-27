@@ -23,10 +23,14 @@ import type { GitHubAppConfig } from "../config.js";
 import { registerStrategy } from "../credentials.js";
 import {
   CredentialRevokedError,
+  DiscoveryError,
+  toDiscoveryError,
   type AccessToken,
   type ConnectFlow,
   type CredentialStrategy,
+  type DiscoveredRepo,
   type NewConnection,
+  type RepoDiscoverer,
 } from "../types.js";
 
 const API = "https://api.github.com";
@@ -37,6 +41,8 @@ const APP_JWT_TTL_SECONDS = 540;
 const APP_JWT_BACKDATE_SECONDS = 60;
 /** Renew an installation token this long before it expires. */
 const RENEW_MARGIN_MS = 60_000;
+/** GitHub's maximum page size — fewer round trips for a large installation. */
+const PER_PAGE = 100;
 
 const b64url = (input: Buffer | string): string =>
   Buffer.from(input).toString("base64url");
@@ -74,9 +80,27 @@ export type GitHubInstallation = {
 
 export type InstallationToken = { token: string; expiresAt: Date };
 
+/** One repository as `GET /installation/repositories` reports it. */
+export type InstallationRepo = {
+  id: number;
+  full_name: string;
+  name: string;
+  owner: { login: string } | null;
+  clone_url: string;
+  default_branch: string | null;
+  private: boolean;
+  archived: boolean;
+  updated_at: string | null;
+};
+
 /**
- * The two app-level calls we make. Injectable (like every REST client here) so
- * the epic is testable without a registered app or a network.
+ * The app-level calls we make. Injectable (like every REST client here) so the
+ * epic is testable without a registered app or a network.
+ *
+ * `listInstallationRepositories` is the odd one out: it authenticates with the
+ * *installation* token rather than the app JWT, because the scope it reports is
+ * the installation's, not the app's. It lives here anyway — an installation's
+ * repository list is a GitHub App concept and belongs beside the rest of them.
  */
 export interface GitHubAppClient {
   getInstallation(
@@ -87,6 +111,10 @@ export interface GitHubAppClient {
     installationId: number,
     appJwt: string,
   ): Promise<InstallationToken>;
+  listInstallationRepositories(
+    token: string,
+    page: number,
+  ): Promise<{ repositories: InstallationRepo[]; totalCount: number }>;
 }
 
 /** Thrown for a non-2xx app-level response; the message is safe to store. */
@@ -150,6 +178,29 @@ export const realGitHubAppClient: GitHubAppClient = {
       expiresAt: body.expires_at ? new Date(body.expires_at) : new Date(Date.now() + 3_600_000),
     };
   },
+
+  async listInstallationRepositories(token, page) {
+    const res = await fetch(
+      `${API}/installation/repositories?per_page=${PER_PAGE}&page=${page}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "groundplan",
+        },
+      },
+    );
+    if (!res.ok) throw await appError(res);
+    const body = (await res.json()) as {
+      total_count?: number;
+      repositories?: InstallationRepo[];
+    };
+    return {
+      repositories: body.repositories ?? [],
+      totalCount: body.total_count ?? body.repositories?.length ?? 0,
+    };
+  },
 };
 
 /**
@@ -211,6 +262,104 @@ export function installationStrategy(
     mode: "installation_app",
     getToken: () => installationToken(config, client, installationId),
   };
+}
+
+/**
+ * Discovery for a GitHub App installation (GP-227): the exact set of
+ * repositories the installation was granted, whether that is an entire
+ * organization or the three someone ticked in "Only select repositories".
+ *
+ * The cursor is our own page number, stringified — deliberately not GitHub's
+ * `Link` header URL. A caller that could round-trip a provider URL back to us
+ * would be choosing what we fetch, and one day that URL would point somewhere
+ * else entirely.
+ */
+export function githubAppDiscoverer(client: GitHubAppClient): RepoDiscoverer {
+  return {
+    async listRepositories(connection, cursor) {
+      if (!connection.config.installationId) {
+        throw new DiscoveryError(
+          "installation_not_linked",
+          "this connection is not a GitHub App installation, so it has no repository list",
+        );
+      }
+      const page = parseCursor(cursor);
+
+      let token: string;
+      try {
+        ({ token } = await connection.credential.getToken());
+      } catch (err) {
+        // A revoked installation is the one failure a human must act on; it is
+        // already typed by the strategy, so only the vocabulary changes here.
+        if (err instanceof CredentialRevokedError) {
+          throw new DiscoveryError("installation_revoked", err.message);
+        }
+        throw err;
+      }
+
+      let result;
+      try {
+        result = await client.listInstallationRepositories(token, page);
+      } catch (err) {
+        throw asDiscoveryError(err);
+      }
+
+      const repos = result.repositories.map(toDiscoveredRepo);
+      // GitHub reports the total, so "is there another page?" is arithmetic
+      // rather than a guess from a short page — a full last page would otherwise
+      // cost one extra empty request every time.
+      const seen = (page - 1) * PER_PAGE + repos.length;
+      const more = repos.length > 0 && seen < result.totalCount;
+      return { repos, nextCursor: more ? String(page + 1) : null };
+    },
+  };
+}
+
+/** A cursor we did not issue restarts at page 1 rather than throwing. */
+function parseCursor(cursor: string | null | undefined): number {
+  const page = Number.parseInt(cursor ?? "1", 10);
+  return Number.isSafeInteger(page) && page > 0 ? page : 1;
+}
+
+function toDiscoveredRepo(repo: InstallationRepo): DiscoveredRepo {
+  const [ownerFromFullName] = repo.full_name.split("/");
+  return {
+    externalId: String(repo.id),
+    fullName: repo.full_name,
+    owner: repo.owner?.login ?? ownerFromFullName ?? "",
+    name: repo.name,
+    cloneUrl: repo.clone_url,
+    // GitHub always reports one; the fallback keeps a malformed payload from
+    // producing a repository we would then try to clone at `refs/heads/null`.
+    defaultBranch: repo.default_branch ?? "main",
+    private: repo.private,
+    archived: repo.archived,
+    updatedAt: repo.updated_at ? new Date(repo.updated_at) : null,
+  };
+}
+
+/**
+ * Map a GitHub failure onto the vocabulary the onboarding UI speaks. Every
+ * status GitHub answers with means something different to the person waiting:
+ * 404 and 401 are "this installation is gone", 403 is "it is there but may not
+ * do this". Anything else stays `unavailable` — an outage is not a revocation.
+ */
+function asDiscoveryError(err: unknown): DiscoveryError {
+  if (err instanceof GitHubAppError) {
+    if (err.status === 401 || err.status === 404) {
+      return new DiscoveryError(
+        "installation_revoked",
+        "the GitHub App installation is no longer available (it may have been uninstalled or its access revoked)",
+      );
+    }
+    if (err.status === 403) {
+      return new DiscoveryError(
+        "insufficient_permissions",
+        "the GitHub App installation is not allowed to list its repositories — review the app's permissions",
+      );
+    }
+  }
+  return toDiscoveryError(err);
 }
 
 /**

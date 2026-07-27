@@ -83,6 +83,7 @@ export interface CredentialStrategy {
 /** The capabilities a provider may declare. Feature detection, not `instanceof`. */
 export const CAPABILITIES = [
   "repo:read",
+  "repo:discover",
   "pr:comment",
   "check:publish",
   "ref:events",
@@ -98,6 +99,114 @@ export interface RepoReader {
    * way), which is exactly why it belongs to the adapter.
    */
   cloneUsername(mode: CredentialMode): string;
+}
+
+/**
+ * Why a discovery call could not answer (GP-227). Discovery is the one place a
+ * user is *waiting on an external system while onboarding*, so a failure has to
+ * name itself: an empty list would read as "this installation covers nothing",
+ * which is a different — and much more discouraging — fact than "your
+ * installation was revoked". Every code here maps to one sentence and one
+ * remediation in the UI.
+ */
+export const DISCOVERY_ERROR_CODES = [
+  "installation_revoked",
+  "installation_not_linked",
+  "multiple_connections",
+  "insufficient_permissions",
+  "unavailable",
+] as const;
+export type DiscoveryErrorCode = (typeof DISCOVERY_ERROR_CODES)[number];
+
+/** A discovery failure a human can act on. Never thrown for an empty result. */
+export class DiscoveryError extends Error {
+  readonly code: DiscoveryErrorCode;
+  constructor(code: DiscoveryErrorCode, message: string) {
+    super(message);
+    this.name = "DiscoveryError";
+    this.code = code;
+  }
+}
+
+/**
+ * Anything that escaped an adapter, as a discovery failure. Adapters are
+ * expected to type their own failures — this is the floor, so a route never has
+ * to know what a given provider's client throws.
+ */
+export function toDiscoveryError(err: unknown): DiscoveryError {
+  if (err instanceof DiscoveryError) return err;
+  if (err instanceof CredentialRevokedError) {
+    return new DiscoveryError("installation_revoked", err.message);
+  }
+  return new DiscoveryError(
+    "unavailable",
+    err instanceof Error ? err.message : String(err),
+  );
+}
+
+/**
+ * What the core hands a discoverer: a token source and the connection's
+ * non-secret config. Deliberately not the database row — the port must stay
+ * ignorant of Drizzle, and an adapter that only needs a token should not be able
+ * to read a secret column by accident.
+ */
+export type DiscoveryConnection = {
+  /** The credential this connection authenticates with (GP-192). */
+  credential: CredentialStrategy;
+  config: {
+    /** GitHub App installation id (`installation_app`). */
+    installationId?: number;
+    /** Login of the account the installation covers. */
+    account?: string | null;
+    /** Instance origin: self-managed GitLab, an ADO organization. */
+    instanceUrl?: string | null;
+  };
+};
+
+/**
+ * A repository as the *provider* describes it — not as we store it. It carries
+ * no Groundplan identity: attachment status is added by the service, because
+ * whether we already import a repository is our fact, not GitHub's.
+ */
+export type DiscoveredRepo = {
+  /** The provider's own id, stable across renames. */
+  externalId: string;
+  /** `owner/name`, the form a human recognises and searches by. */
+  fullName: string;
+  owner: string;
+  name: string;
+  /** https clone URL, exactly as it would be attached. */
+  cloneUrl: string;
+  defaultBranch: string;
+  private: boolean;
+  /**
+   * Archived repositories are returned with the flag set, never filtered here:
+   * hiding them is a display choice, and a team documenting a frozen estate has
+   * every reason to import one.
+   */
+  archived: boolean;
+  /** Provider's last-update instant, or null when it does not report one. */
+  updatedAt: Date | null;
+};
+
+/** One page of discovery. `nextCursor` is null on the last page. */
+export type DiscoveredRepoPage = {
+  repos: DiscoveredRepo[];
+  /** Opaque to the caller — an adapter's own bookmark, never a provider URL. */
+  nextCursor: string | null;
+};
+
+/**
+ * Listing the repositories a connection can reach (GP-227). The GitHub App
+ * installation already knows this set exactly; the port exists so GitLab and
+ * Azure DevOps can answer the same question later without the core — or the
+ * frontend — learning that a provider changed.
+ */
+export interface RepoDiscoverer {
+  listRepositories(
+    connection: DiscoveryConnection,
+    cursor?: string | null,
+  ): Promise<DiscoveredRepoPage>;
 }
 
 export interface UpsertCommentArgs {
@@ -233,6 +342,12 @@ export interface IntegrationProvider {
   /** What this provider can do. Consulted through `supports()`. */
   readonly capabilities: readonly Capability[];
   readonly repo: RepoReader;
+  /**
+   * Listing what a connection can reach (GP-227), or null when this provider
+   * cannot be asked. Null is the honest answer for a deployment with no GitHub
+   * App: there is no installation whose scope could be listed.
+   */
+  readonly discoverer: RepoDiscoverer | null;
   readonly commenter: PullRequestCommenter | null;
   readonly checks: CheckPublisher | null;
   readonly refEvents: RefEventSource | null;

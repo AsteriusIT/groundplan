@@ -13,12 +13,17 @@ import { createAzureDevOpsProvider } from "./adapters/azure-devops.js";
 import { createGenericProvider } from "./adapters/generic.js";
 import { createGitHubProvider } from "./adapters/github.js";
 import { createGitLabProvider } from "./adapters/gitlab.js";
-import { NO_INTEGRATIONS_CONFIG } from "./config.js";
+import type { GitHubAppClient } from "./adapters/github-app.js";
+import { NO_INTEGRATIONS_CONFIG, type IntegrationsConfig } from "./config.js";
 import { defineProvider } from "./provider.js";
 import { createProviderRegistry } from "./registry.js";
 import {
   CAPABILITIES,
   CREDENTIAL_MODES,
+  CredentialRevokedError,
+  DiscoveryError,
+  toDiscoveryError,
+  type DiscoveryConnection,
   type IntegrationProvider,
   type UpsertCommentArgs,
 } from "./types.js";
@@ -89,6 +94,17 @@ const SAMPLE_URL: Record<string, string> = {
 
 const MARKER = "<!-- groundplan:comment -->";
 
+/** A connection any discoverer can be asked with: a live token, a real scope. */
+function discoveryConnection(): DiscoveryConnection {
+  return {
+    credential: {
+      mode: "installation_app",
+      getToken: async () => ({ token: "token-value", expiresAt: null }),
+    },
+    config: { installationId: 42, account: "acme" },
+  };
+}
+
 function commentArgs(provider: IntegrationProvider): UpsertCommentArgs {
   return {
     repoUrl: SAMPLE_URL[provider.id] ?? "https://example.com/a/b",
@@ -147,10 +163,61 @@ function runProviderContract(
       assert.ok(provider.supports(capability));
     }
     assert.ok(provider.supports("repo:read"), "every provider can be read");
+    assert.equal(provider.supports("repo:discover"), provider.discoverer !== null);
     assert.equal(provider.supports("pr:comment"), provider.commenter !== null);
     assert.equal(provider.supports("check:publish"), provider.checks !== null);
     assert.equal(provider.supports("ref:events"), provider.refEvents !== null);
   });
+
+  if (provider.discoverer) {
+    test(`${label}: pages discovery without losing or duplicating a repository`, async () => {
+      const { provider: p } = build(null);
+      const seen: string[] = [];
+      let cursor: string | null | undefined = undefined;
+      // Bounded: a discoverer that never ends its own pagination is a bug we
+      // want to fail on, not hang on.
+      for (let page = 0; page < 20; page += 1) {
+        const result = await p.discoverer!.listRepositories(
+          discoveryConnection(),
+          cursor,
+        );
+        for (const repo of result.repos) {
+          assert.ok(repo.fullName.includes("/"), "a repo is named owner/name");
+          assert.ok(repo.cloneUrl.startsWith("http"), "a repo is cloneable");
+          assert.ok(repo.defaultBranch.length > 0, "a repo has a default branch");
+          seen.push(repo.externalId);
+        }
+        cursor = result.nextCursor;
+        if (!cursor) break;
+      }
+      assert.equal(
+        new Set(seen).size,
+        seen.length,
+        "the same repository must never come back twice",
+      );
+      assert.ok(seen.length > 0, "a discoverer with a scope returns it");
+    });
+
+    test(`${label}: a revoked credential is a typed refusal, not an empty list`, async () => {
+      const { provider: p } = build(null);
+      await assert.rejects(
+        () =>
+          p.discoverer!.listRepositories({
+            credential: {
+              mode: "installation_app",
+              getToken: () =>
+                Promise.reject(new CredentialRevokedError("gone")),
+            },
+            config: discoveryConnection().config,
+          }),
+        (err: unknown) => {
+          assert.ok(err instanceof DiscoveryError);
+          assert.equal(err.code, "installation_revoked");
+          return true;
+        },
+      );
+    });
+  }
 
   test(`${label}: never claims a URL it cannot parse`, () => {
     assert.equal(provider.matchesUrl("not a url"), false);
@@ -246,6 +313,67 @@ runProviderContract("generic", () => ({
   calls: [],
 }));
 
+/**
+ * GitHub again, this time on an instance that registered an App — which is the
+ * only configuration in which discovery (GP-227) exists at all. 250 repositories
+ * over three pages is the case the acceptance criteria name: pagination has to
+ * be transparent, and nothing may be lost or repeated.
+ */
+const APP_CONFIG: IntegrationsConfig = {
+  ...NO_INTEGRATIONS_CONFIG,
+  githubApp: {
+    appId: "1",
+    // Nothing in this suite signs: the stub client answers before a JWT is
+    // needed, which is precisely what makes the port testable offline.
+    privateKey: "",
+    slug: "groundplan",
+    webhookSecret: "",
+  },
+};
+
+function pagingAppClient(total: number): GitHubAppClient {
+  return {
+    getInstallation: async (id) => ({ id, account: "acme" }),
+    createInstallationToken: async () => ({
+      token: "ghs_x",
+      expiresAt: new Date(Date.now() + 3_600_000),
+    }),
+    listInstallationRepositories: async (_token, page) => {
+      const start = (page - 1) * 100;
+      const repositories = Array.from(
+        { length: Math.max(0, Math.min(100, total - start)) },
+        (_, i) => {
+          const n = start + i;
+          return {
+            id: n,
+            full_name: `acme/repo-${n}`,
+            name: `repo-${n}`,
+            owner: { login: "acme" },
+            clone_url: `https://github.com/acme/repo-${n}.git`,
+            default_branch: "main",
+            private: n % 2 === 0,
+            archived: false,
+            updated_at: "2026-07-01T00:00:00Z",
+          };
+        },
+      );
+      return { repositories, totalCount: total };
+    },
+  };
+}
+
+runProviderContract("github (app installed)", (existing) => {
+  const r = recorder(existing);
+  return {
+    provider: createGitHubProvider(
+      r.github as never,
+      APP_CONFIG,
+      pagingAppClient(250),
+    ),
+    calls: r.calls,
+  };
+});
+
 /* -------------------------------------------------------------------------- */
 /* A provider that does not exist, to prove extension costs only interfaces.   */
 /* -------------------------------------------------------------------------- */
@@ -259,6 +387,37 @@ runProviderContract("fictitious", (existing) => {
     credentialModes: ["oauth2", "pat"],
     hosts: ["fake.example"],
     repo: { cloneUsername: (mode) => (mode === "oauth2" ? "oauth2" : "forge") },
+    // A discoverer written from the port alone, with no GitHub anywhere near
+    // it: two pages, a token it must ask the credential for, and a cursor of
+    // its own invention.
+    discoverer: {
+      async listRepositories(connection, cursor) {
+        // The whole cost of honest degradation for a new adapter: one wrap.
+        try {
+          await connection.credential.getToken();
+        } catch (err) {
+          throw toDiscoveryError(err);
+        }
+        const page = cursor === "second" ? 1 : 0;
+        return {
+          repos: [0, 1].map((i) => {
+            const n = page * 2 + i;
+            return {
+              externalId: `forge-${n}`,
+              fullName: `acme/forge-${n}`,
+              owner: "acme",
+              name: `forge-${n}`,
+              cloneUrl: `https://fake.example/acme/forge-${n}`,
+              defaultBranch: "trunk",
+              private: false,
+              archived: n === 3,
+              updatedAt: null,
+            };
+          }),
+          nextCursor: page === 0 ? "second" : null,
+        };
+      },
+    },
     commenter: {
       async upsertComment(args) {
         calls.push({ name: "list", args: [args.repoUrl] });

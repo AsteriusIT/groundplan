@@ -55,6 +55,10 @@ function stubGitHubApp(account: string | null = "acme-corp"): GitHubAppClient {
       token: "ghs_x",
       expiresAt: new Date(Date.now() + 3_600_000),
     }),
+    listInstallationRepositories: async () => ({
+      repositories: [],
+      totalCount: 0,
+    }),
   };
 }
 
@@ -258,6 +262,9 @@ test("an installation we cannot read is reported, never stored", async () => {
       throw new GitHubAppError(404, "GitHub App API 404: Not Found");
     },
     createInstallationToken: async () => {
+      throw new GitHubAppError(404, "GitHub App API 404: Not Found");
+    },
+    listInstallationRepositories: async () => {
       throw new GitHubAppError(404, "GitHub App API 404: Not Found");
     },
   };

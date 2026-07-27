@@ -16,7 +16,11 @@ import type {
   RepoReader,
 } from "../types.js";
 import { githubRefEvents } from "../webhooks.js";
-import { githubAppConnectFlow, type GitHubAppClient } from "./github-app.js";
+import {
+  githubAppConnectFlow,
+  githubAppDiscoverer,
+  type GitHubAppClient,
+} from "./github-app.js";
 
 /**
  * `x-access-token` for every mode: it is what GitHub documents for a PAT *and*
@@ -80,6 +84,10 @@ export function createGitHubProvider(
     credentialModes: ["installation_app", "pat"],
     hosts: ["github.com"],
     repo,
+    // Discovery (GP-227) rides on an installation, so it exists exactly where
+    // the App does: without one there is no scope to list, and the provider says
+    // so rather than offering an import screen that could only ever be empty.
+    discoverer: config.githubApp ? githubAppDiscoverer(appClient) : null,
     commenter: createGitHubCommenter(client),
     // Push/PR deliveries (GP-194). The App provides them natively; a PAT-only
     // repository can still have a webhook configured by hand.

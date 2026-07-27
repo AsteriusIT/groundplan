@@ -55,6 +55,10 @@ function stubClient(
         expiresAt: new Date(NOW + (script.expiresInMs ?? 3_600_000)),
       };
     },
+    listInstallationRepositories: async () => ({
+      repositories: [],
+      totalCount: 0,
+    }),
   };
   return stub;
 }

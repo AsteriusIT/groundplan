@@ -16,6 +16,7 @@ import type {
   ProviderId,
   PullRequestCommenter,
   RefEventSource,
+  RepoDiscoverer,
   RepoReader,
 } from "./types.js";
 
@@ -24,6 +25,8 @@ export type ProviderDefinition = {
   label: string;
   credentialModes: readonly CredentialMode[];
   repo: RepoReader;
+  /** Listing a connection's repositories (GP-227); omitted = cannot be asked. */
+  discoverer?: RepoDiscoverer | null;
   commenter?: PullRequestCommenter | null;
   checks?: CheckPublisher | null;
   refEvents?: RefEventSource | null;
@@ -40,6 +43,7 @@ function hostMatches(host: string, pattern: string): boolean {
 }
 
 export function defineProvider(def: ProviderDefinition): IntegrationProvider {
+  const discoverer = def.discoverer ?? null;
   const commenter = def.commenter ?? null;
   const checks = def.checks ?? null;
   const refEvents = def.refEvents ?? null;
@@ -49,6 +53,7 @@ export function defineProvider(def: ProviderDefinition): IntegrationProvider {
   // (every provider can be cloned with a credential), the rest follow from what
   // was supplied.
   const capabilities: Capability[] = ["repo:read"];
+  if (discoverer) capabilities.push("repo:discover");
   if (commenter) capabilities.push("pr:comment");
   if (checks) capabilities.push("check:publish");
   if (refEvents) capabilities.push("ref:events");
@@ -59,6 +64,7 @@ export function defineProvider(def: ProviderDefinition): IntegrationProvider {
     credentialModes: def.credentialModes,
     capabilities,
     repo: def.repo,
+    discoverer,
     commenter,
     checks,
     refEvents,
