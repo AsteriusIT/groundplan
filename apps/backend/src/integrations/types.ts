@@ -84,6 +84,7 @@ export interface CredentialStrategy {
 export const CAPABILITIES = [
   "repo:read",
   "repo:discover",
+  "repo:tree",
   "pr:comment",
   "check:publish",
   "ref:events",
@@ -207,6 +208,42 @@ export interface RepoDiscoverer {
     connection: DiscoveryConnection,
     cursor?: string | null,
   ): Promise<DiscoveredRepoPage>;
+}
+
+/** One repository this port is being asked about. */
+export type RepoTarget = { owner: string; name: string; ref: string };
+
+/** A repository's file listing. `path` is repository-relative, posix. */
+export type RepoTreeEntry = { path: string; type: "file" | "dir" };
+
+/**
+ * A repository tree. `truncated` is the provider saying "there was more" — it
+ * is carried, never swallowed: a detection made on a partial tree is a
+ * detection that may be wrong, and the caller has to know which it holds.
+ */
+export type RepoTree = { entries: RepoTreeEntry[]; truncated: boolean };
+
+/**
+ * Reading a repository's shape without cloning it (GP-228).
+ *
+ * Discovery must stay cheap: the import screen may be looking at forty
+ * repositories, and cloning forty repositories to answer "Terraform or
+ * Kubernetes?" would be absurd. One tree call per repository, plus the first
+ * bytes of a couple of candidate YAML files — because no file *name* will ever
+ * tell you whether `deployment.yaml` is a Kubernetes object or a CI config.
+ */
+export interface RepoTreeReader {
+  readTree(connection: DiscoveryConnection, target: RepoTarget): Promise<RepoTree>;
+  /**
+   * The first bytes of one file, or null when it is missing or unreadable.
+   * Null rather than a throw: a file we cannot read is a signal we do not have,
+   * not a failure of the whole detection.
+   */
+  readFileHead(
+    connection: DiscoveryConnection,
+    target: RepoTarget,
+    path: string,
+  ): Promise<string | null>;
 }
 
 export interface UpsertCommentArgs {
@@ -348,6 +385,8 @@ export interface IntegrationProvider {
    * App: there is no installation whose scope could be listed.
    */
   readonly discoverer: RepoDiscoverer | null;
+  /** Reading a repository's file tree without cloning (GP-228), or null. */
+  readonly trees: RepoTreeReader | null;
   readonly commenter: PullRequestCommenter | null;
   readonly checks: CheckPublisher | null;
   readonly refEvents: RefEventSource | null;

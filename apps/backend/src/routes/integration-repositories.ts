@@ -14,10 +14,12 @@
  */
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 
+import { strategyForCredential } from "../integrations/credentials.js";
 import {
   DiscoveryError,
   PROVIDER_IDS,
   toDiscoveryError,
+  type DiscoveryConnection,
   type ProviderId,
 } from "../integrations/types.js";
 import { orgIdOf } from "../rbac/request.js";
@@ -26,12 +28,48 @@ import {
   discoverRepositories,
   resolveDiscoveryConnection,
 } from "../services/repo-discovery.js";
+import { detectRepositoryKind } from "../services/repo-kind-detect.js";
 
 const providerParamsSchema = {
   type: "object",
   required: ["provider"],
   additionalProperties: false,
   properties: { provider: { type: "string", enum: [...PROVIDER_IDS] } },
+};
+
+/**
+ * What the import screen asks about the page it is currently showing (GP-228).
+ * A POST because it is a batch of targets, not an addressable resource: nothing
+ * is created, and the answer is a pre-selection, never a decision.
+ */
+const detectSchema = {
+  type: "object",
+  required: ["repositories"],
+  additionalProperties: false,
+  properties: {
+    credentialId: { type: "string", maxLength: 64 },
+    repositories: {
+      type: "array",
+      minItems: 1,
+      // One page of the import screen, not the whole installation: detection is
+      // lazy on purpose (GP-228) — an org with 400 repositories must not fire
+      // 400 tree calls because someone opened a screen.
+      maxItems: 50,
+      items: {
+        type: "object",
+        required: ["owner", "name"],
+        additionalProperties: false,
+        properties: {
+          owner: { type: "string", minLength: 1, maxLength: 200 },
+          name: { type: "string", minLength: 1, maxLength: 200 },
+          /** Omitted → the repository's default branch as discovery reported it. */
+          ref: { type: "string", minLength: 1, maxLength: 200 },
+          /** Detect inside a subdirectory rather than the whole repository. */
+          path: { type: "string", maxLength: 500 },
+        },
+      },
+    },
+  },
 };
 
 const querySchema = {
@@ -125,6 +163,87 @@ export const integrationRepositoryRoutes: FastifyPluginAsync = async (app) => {
         );
         return discoveryFailure(reply, failure);
       }
+    },
+  );
+
+  /**
+   * What each of these repositories holds (GP-228) — a pre-selection for the
+   * import screen, computed for the page in view and never for the whole
+   * installation.
+   *
+   * A repository that could not be read comes back `kind: null`, like an
+   * ambiguous one: the screen already knows how to ask, and one unreadable
+   * repository must not blank the page.
+   */
+  app.post(
+    "/integrations/:provider/repositories/detect",
+    { schema: { params: providerParamsSchema, body: detectSchema } },
+    async (request, reply) => {
+      const { provider: providerId } = request.params as { provider: ProviderId };
+      const body = request.body as {
+        credentialId?: string;
+        repositories: { owner: string; name: string; ref?: string; path?: string }[];
+      };
+      const orgId = orgIdOf(request);
+
+      const trees = app.providers.get(providerId).trees;
+      if (!trees) {
+        return discoveryFailure(
+          reply,
+          new DiscoveryError(
+            "unavailable",
+            `${app.providers.get(providerId).label} cannot be inspected without cloning — choose the type yourself`,
+          ),
+        );
+      }
+
+      const connections = await connectionsForProvider(app, orgId, providerId);
+      const resolved = resolveDiscoveryConnection({
+        provider: providerId,
+        ...(body.credentialId !== undefined
+          ? { credentialId: body.credentialId }
+          : {}),
+        connections,
+      });
+      if (!resolved.ok) {
+        return discoveryFailure(reply, resolved.error, {
+          connections: resolved.candidates.map((row) => ({
+            id: row.id,
+            name: row.name,
+          })),
+        });
+      }
+
+      const connection: DiscoveryConnection = {
+        credential: strategyForCredential(app, resolved.connection),
+        config: resolved.connection.config,
+      };
+
+      const detections = await Promise.all(
+        body.repositories.map(async (target) => {
+          const detection = await detectRepositoryKind(app, {
+            orgId,
+            connection,
+            trees,
+            target: {
+              owner: target.owner,
+              name: target.name,
+              ref: target.ref ?? "HEAD",
+            },
+            ...(target.path !== undefined ? { path: target.path } : {}),
+          });
+          return {
+            fullName: `${target.owner}/${target.name}`,
+            kind: detection.kind,
+            confidence: detection.confidence,
+            evidence: detection.evidence,
+            suggestedPath: detection.suggestedPath,
+            truncated: detection.truncated,
+          };
+        }),
+      );
+
+      return { detections };
     },
   );
 };

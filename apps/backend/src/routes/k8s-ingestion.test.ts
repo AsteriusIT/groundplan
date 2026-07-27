@@ -10,7 +10,7 @@ import { parseManifestStream } from "../graph/manifest-parser.js";
 import { insertGraphSnapshot } from "../services/graph-snapshots.js";
 import { COMMENT_MARKER } from "../services/pr-comment.js";
 import type { GitHubClient, GitHubComment } from "../services/github.js";
-import { seedOrg } from "../test-support.js";
+import { noRepoReads, seedOrg } from "../test-support.js";
 
 /**
  * The Kubernetes pull-request flow (GP-103): the user's CI renders the head and
@@ -89,6 +89,7 @@ function fakeGitHub() {
   const calls = { list: 0, create: 0, update: 0 };
   let nextId = 500;
   const client: GitHubClient = {
+    ...noRepoReads,
     async listIssueComments(_o, _r, issue) {
       calls.list += 1;
       return [...(comments.get(issue) ?? [])];

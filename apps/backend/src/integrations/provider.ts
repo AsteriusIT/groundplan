@@ -18,6 +18,7 @@ import type {
   RefEventSource,
   RepoDiscoverer,
   RepoReader,
+  RepoTreeReader,
 } from "./types.js";
 
 export type ProviderDefinition = {
@@ -27,6 +28,8 @@ export type ProviderDefinition = {
   repo: RepoReader;
   /** Listing a connection's repositories (GP-227); omitted = cannot be asked. */
   discoverer?: RepoDiscoverer | null;
+  /** Reading a repository's tree without cloning it (GP-228). */
+  trees?: RepoTreeReader | null;
   commenter?: PullRequestCommenter | null;
   checks?: CheckPublisher | null;
   refEvents?: RefEventSource | null;
@@ -44,6 +47,7 @@ function hostMatches(host: string, pattern: string): boolean {
 
 export function defineProvider(def: ProviderDefinition): IntegrationProvider {
   const discoverer = def.discoverer ?? null;
+  const trees = def.trees ?? null;
   const commenter = def.commenter ?? null;
   const checks = def.checks ?? null;
   const refEvents = def.refEvents ?? null;
@@ -54,6 +58,7 @@ export function defineProvider(def: ProviderDefinition): IntegrationProvider {
   // was supplied.
   const capabilities: Capability[] = ["repo:read"];
   if (discoverer) capabilities.push("repo:discover");
+  if (trees) capabilities.push("repo:tree");
   if (commenter) capabilities.push("pr:comment");
   if (checks) capabilities.push("check:publish");
   if (refEvents) capabilities.push("ref:events");
@@ -65,6 +70,7 @@ export function defineProvider(def: ProviderDefinition): IntegrationProvider {
     capabilities,
     repo: def.repo,
     discoverer,
+    trees,
     commenter,
     checks,
     refEvents,

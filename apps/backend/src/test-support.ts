@@ -19,6 +19,22 @@ import { buildApp, type BuildAppOptions } from "./app.js";
 import { loadEnv, type AppEnv } from "./config/env.js";
 import { memberships, organizations } from "./db/schema.js";
 import type { Role } from "./rbac/permissions.js";
+import type { GitHubClient } from "./services/github.js";
+
+/**
+ * The file-reading half of `GitHubClient` (GP-228), for stubs that only care
+ * about PR comments. Spread it in rather than restating two methods no comment
+ * test will ever call — and throw rather than answer, so a test that *does*
+ * reach them is told to stub them properly instead of quietly reading nothing.
+ */
+export const noRepoReads: Pick<GitHubClient, "getTree" | "getFileHead"> = {
+  getTree: () => {
+    throw new Error("this stub reads no repository trees — stub getTree");
+  },
+  getFileHead: () => {
+    throw new Error("this stub reads no repository files — stub getFileHead");
+  },
+};
 
 export const TEST_ISSUER = "https://issuer.test.groundplan.local";
 export const TEST_AUDIENCE = "groundplan-test";

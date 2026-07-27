@@ -10,6 +10,16 @@ export interface GitHubComment {
   body: string;
 }
 
+/** A repository tree as `GET /repos/{owner}/{repo}/git/trees/{ref}` reports it. */
+export type GitHubTree = {
+  tree: { path: string; type: string }[];
+  /**
+   * GitHub's own "there was more than I would send" flag. Carried through to
+   * detection, which then refuses to be confident (GP-228).
+   */
+  truncated: boolean;
+};
+
 export interface GitHubClient {
   listIssueComments(
     owner: string,
@@ -17,6 +27,27 @@ export interface GitHubClient {
     issueNumber: number,
     token: string,
   ): Promise<GitHubComment[]>;
+  /**
+   * The whole tree of a ref in one recursive call (GP-228) — the alternative to
+   * cloning a repository just to see whether it holds `.tf` files.
+   */
+  getTree(
+    owner: string,
+    repo: string,
+    ref: string,
+    token: string,
+  ): Promise<GitHubTree>;
+  /**
+   * The first bytes of one file, or null when it is absent. Used only to read
+   * the head keys of a candidate YAML — never to parse a file.
+   */
+  getFileHead(
+    owner: string,
+    repo: string,
+    ref: string,
+    path: string,
+    token: string,
+  ): Promise<string | null>;
   createIssueComment(
     owner: string,
     repo: string,
@@ -106,4 +137,49 @@ export const realGitHubClient: GitHubClient = {
     if (!res.ok) throw await toError(res);
     return (await res.json()) as GitHubComment;
   },
+
+  async getTree(owner, repo, ref, token) {
+    // `recursive=1`: one call for the whole tree. GitHub caps the response and
+    // says so with `truncated`, which we pass on rather than hide.
+    const res = await fetch(
+      `${API}/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+      { headers: headers(token) },
+    );
+    if (!res.ok) throw await toError(res);
+    const body = (await res.json()) as {
+      tree?: { path?: string; type?: string }[];
+      truncated?: boolean;
+    };
+    return {
+      tree: (body.tree ?? [])
+        .filter((entry): entry is { path: string; type: string } =>
+          typeof entry.path === "string" && typeof entry.type === "string",
+        )
+        .map((entry) => ({ path: entry.path, type: entry.type })),
+      truncated: body.truncated === true,
+    };
+  },
+
+  async getFileHead(owner, repo, ref, path, token) {
+    const res = await fetch(
+      `${API}/repos/${owner}/${repo}/contents/${path
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}?ref=${encodeURIComponent(ref)}`,
+      { headers: { ...headers(token), Accept: "application/vnd.github.raw" } },
+    );
+    // A file we cannot read is a signal we do not have, not a failure: the
+    // detection simply stays uncertain, which is a state it already models.
+    if (res.status === 404) return null;
+    if (!res.ok) throw await toError(res);
+    const text = await res.text();
+    return text.slice(0, FILE_HEAD_BYTES);
+  },
 };
+
+/**
+ * How much of a candidate YAML we look at. `apiVersion` and `kind` sit in the
+ * first lines of a manifest by convention and by the shape of the format; this
+ * is a peek, not a parse (GP-228 explicitly excludes parsing file content).
+ */
+const FILE_HEAD_BYTES = 2048;

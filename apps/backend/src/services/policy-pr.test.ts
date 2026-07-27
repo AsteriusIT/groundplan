@@ -15,7 +15,7 @@ import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories } from "../db/schema.js";
 import type { Graph, GraphNode } from "../graph/graph.js";
-import { seedOrg } from "../test-support.js";
+import { noRepoReads, seedOrg } from "../test-support.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
 import { buildCommentBody, COMMENT_MARKER, postPrComment } from "./pr-comment.js";
 import {
@@ -29,6 +29,7 @@ import type { GitHubClient, GitHubComment } from "./github.js";
 function fakeGitHub() {
   const posted: string[] = [];
   const client: GitHubClient = {
+    ...noRepoReads,
     async listIssueComments(): Promise<GitHubComment[]> {
       return [];
     },

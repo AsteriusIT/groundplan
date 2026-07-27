@@ -7,7 +7,7 @@ import { loadEnv, type AppEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
 import { repositories, type GraphSnapshotRow } from "../db/schema.js";
 import type { Graph } from "../graph/graph.js";
-import { seedOrg } from "../test-support.js";
+import { noRepoReads, seedOrg } from "../test-support.js";
 import { insertGraphSnapshot } from "./graph-snapshots.js";
 import { buildCommentBody, COMMENT_MARKER, postPrComment } from "./pr-comment.js";
 import { parseGitHubRepo, type GitHubClient, type GitHubComment } from "./github.js";
@@ -74,6 +74,7 @@ function fakeGitHub() {
   const calls = { list: 0, create: 0, update: 0 };
   let nextId = 1000;
   const client: GitHubClient = {
+    ...noRepoReads,
     async listIssueComments(_o, _r, issue) {
       calls.list += 1;
       return [...(comments.get(issue) ?? [])];
@@ -297,6 +298,7 @@ test("missing PAT → clear error on the repo, no GitHub calls", async () => {
 
 test("a GitHub API failure is recorded and never breaks ingestion", async () => {
   const failing: GitHubClient = {
+    ...noRepoReads,
     async listIssueComments() {
       return [];
     },

@@ -14,6 +14,7 @@ import type {
   IntegrationProvider,
   PullRequestCommenter,
   RepoReader,
+  RepoTreeReader,
 } from "../types.js";
 import { githubRefEvents } from "../webhooks.js";
 import {
@@ -65,6 +66,45 @@ export function createGitHubCommenter(client: GitHubClient): PullRequestCommente
   };
 }
 
+/**
+ * Reading a repository's shape without cloning it (GP-228). Unlike discovery,
+ * this needs no App: a PAT reads a tree just as well, so the capability is
+ * always present and it is the *credential* that decides what can be seen.
+ */
+export function createGitHubTreeReader(client: GitHubClient): RepoTreeReader {
+  return {
+    async readTree(connection, target) {
+      const { token } = await connection.credential.getToken();
+      const tree = await client.getTree(
+        target.owner,
+        target.name,
+        target.ref,
+        token,
+      );
+      return {
+        entries: tree.tree.map((entry) => ({
+          path: entry.path,
+          // GitHub says `blob` / `tree` / `commit` (a submodule). Only files can
+          // carry a signal, so anything that is not a blob is a directory here.
+          type: entry.type === "blob" ? ("file" as const) : ("dir" as const),
+        })),
+        truncated: tree.truncated,
+      };
+    },
+
+    async readFileHead(connection, target, path) {
+      const { token } = await connection.credential.getToken();
+      return client.getFileHead(
+        target.owner,
+        target.name,
+        target.ref,
+        path,
+        token,
+      );
+    },
+  };
+}
+
 export function createGitHubProvider(
   client: GitHubClient,
   config: IntegrationsConfig,
@@ -88,6 +128,7 @@ export function createGitHubProvider(
     // the App does: without one there is no scope to list, and the provider says
     // so rather than offering an import screen that could only ever be empty.
     discoverer: config.githubApp ? githubAppDiscoverer(appClient) : null,
+    trees: createGitHubTreeReader(client),
     commenter: createGitHubCommenter(client),
     // Push/PR deliveries (GP-194). The App provides them natively; a PAT-only
     // repository can still have a webhook configured by hand.
