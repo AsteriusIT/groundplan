@@ -1,0 +1,15 @@
+---
+/**
+ * Starlight's theme picker, removed (GP-213).
+ *
+ * This site is deliberately single-theme: carbon, the identity the product
+ * ships in, so that a screenshot on a page and the page around it are the same
+ * product. With the palette forced for both `data-theme` values and the code
+ * blocks pinned to one theme, the picker had nothing left to change — and an
+ * inert control is worse than a missing one, because a reader who uses it
+ * concludes the site is broken rather than opinionated.
+ *
+ * Rendering nothing (rather than deleting the slot) is how Starlight expects an
+ * override to opt out: the header keeps its layout and its other controls.
+ */
+---

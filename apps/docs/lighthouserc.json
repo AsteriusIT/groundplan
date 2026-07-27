@@ -1,7 +1,8 @@
 {
   "ci": {
     "collect": {
-      "staticDistDir": "./dist",
+      "//": "staticDistDir is resolved against the CURRENT WORKING DIRECTORY, not against this file (lhci collect.js: path.resolve(process.cwd(), staticDistDir)). CI runs from the repository root, so this path is written from there — './dist' silently serves nothing and every page 404s.",
+      "staticDistDir": "apps/docs/dist",
       "url": [
         "http://localhost/index.html",
         "http://localhost/quickstart/index.html"

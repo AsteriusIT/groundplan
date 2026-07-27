@@ -1,0 +1,24 @@
+---
+/**
+ * Starlight's theme provider, pinned to dark (GP-213).
+ *
+ * Upstream this reads `localStorage` and `prefers-color-scheme` and writes the
+ * result to `data-theme`. This site has one theme — carbon, the identity the
+ * product ships in — so it writes `dark` unconditionally.
+ *
+ * This is not cosmetic. Starlight's own components key off `data-theme`, and so
+ * does Expressive Code, which emits **two** colours per syntax token and picks
+ * between them with a `[data-theme='light']` rule. Left to the visitor's OS,
+ * somebody in light mode read light-theme tokens on our permanently dark code
+ * blocks. Pinning the attribute makes every one of those rules agree with the
+ * palette instead of fighting it.
+ *
+ * The script is inline and runs before paint, so there is no flash — and the
+ * attribute is also set on the server-rendered `<html>` element, so a visitor
+ * with JavaScript off gets the same page.
+ */
+---
+
+<script is:inline>
+  document.documentElement.dataset.theme = "dark";
+</script>

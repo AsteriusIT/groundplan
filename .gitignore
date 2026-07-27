@@ -40,3 +40,6 @@ coverage/
 
 # Astro build cache (apps/website)
 .astro/
+
+# Lighthouse CI run artifacts (local runs of apps/docs/lighthouserc.json)
+.lighthouseci/
