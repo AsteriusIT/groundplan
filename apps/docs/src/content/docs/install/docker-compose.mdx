@@ -1,0 +1,212 @@
+---
+title: Install with Docker Compose
+description: The reference installation — one compose file, automatic HTTPS, a bundled identity provider, and a first user logged in.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+
+This is the reference installation, for anybody putting %PRODUCT% on a single
+host. One compose file brings up the whole platform — a TLS edge, the API, the
+frontend, Postgres, and an identity provider — with no managed service and no
+external dependency. Budget about ten minutes, plus DNS propagation.
+
+Running Kubernetes instead? Use [the Helm chart](/install/kubernetes/).
+
+## Prerequisites
+
+- **Docker** with the Compose plugin, on a host you control.
+- **DNS**: an `A`/`AAAA` record for the application and one for the identity
+  provider, both pointing at that host. Two names, because the browser must
+  reach the login pages on their own origin.
+- **Ports 80 and 443 open inbound** (`443/udp` too for HTTP/3). The certificate
+  is issued over the ACME HTTP challenge; a host that cannot be reached on 80
+  cannot get one.
+- Roughly 2 GB of RAM and 10 GB of disk to start.
+
+## Install
+
+<Steps>
+
+1. **Fetch the compose file and its environment template.**
+
+   The deploy host needs no source checkout and no build toolchain: images are
+   pulled from the registry.
+
+   ```sh
+   mkdir groundplan && cd groundplan
+   curl -O https://raw.githubusercontent.com/AsteriusIT/groundplan/main/docker-compose.prod.yml
+   curl -O https://raw.githubusercontent.com/AsteriusIT/groundplan/main/frontend-config.json.example
+   ```
+
+2. **Write `.env.prod`.**
+
+   Five values are mandatory; everything else has a working default. Generate
+   the secrets rather than inventing them:
+
+   ```sh
+   openssl rand -base64 32   # ENCRYPTION_KEY  (32 bytes, base64)
+   openssl rand -base64 24   # POSTGRES_PASSWORD
+   openssl rand -base64 24   # KC_DB_PASSWORD
+   openssl rand -base64 24   # KEYCLOAK_ADMIN_PASSWORD
+   ```
+
+   ```ini title=".env.prod"
+   APP_DOMAIN=groundplan.example.com
+   AUTH_DOMAIN=auth.example.com
+   ACME_EMAIL=platform@example.com
+
+   ENCRYPTION_KEY=<openssl rand -base64 32>
+   POSTGRES_PASSWORD=<openssl rand -base64 24>
+   KC_DB_PASSWORD=<openssl rand -base64 24>
+   KEYCLOAK_ADMIN_PASSWORD=<openssl rand -base64 24>
+   ```
+
+   Keep `ENCRYPTION_KEY` somewhere you will still have it in two years — it is
+   what every stored credential is encrypted with, and
+   [losing it means re-entering all of them](/reference/encryption-key/). The
+   full list of variables, with defaults and consequences, is the
+   [configuration reference](/reference/configuration/).
+
+3. **Create the frontend's runtime config.**
+
+   The frontend image is environment-agnostic: it reads `/config.json` at
+   startup, and the compose file mounts yours over the baked-in default.
+
+   ```json title="frontend-config.json"
+   {
+     "apiUrl": "",
+     "oidcIssuer": "https://auth.example.com/realms/groundplan",
+     "oidcClientId": "groundplan-frontend"
+   }
+   ```
+
+   `apiUrl` stays empty — the browser calls `/api` on its own origin and the edge
+   routes it. Create this file **before** the first `up`: a missing bind source
+   makes Docker create a directory in its place, which breaks the frontend.
+
+4. **Start it.**
+
+   ```sh
+   docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+   ```
+
+   Startup order is handled for you: each database becomes healthy, a one-shot
+   `migrate` container applies the schema and exits, the API boots, and the edge
+   starts routing.
+
+5. **Check that it came up.**
+
+   ```sh
+   docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+   curl -fsS https://groundplan.example.com/api/healthz   # process alive
+   curl -fsS https://groundplan.example.com/api/readyz    # database reachable
+   ```
+
+   `/readyz` answering `503` means the API is up but Postgres is not reachable;
+   that is the intended split, so an orchestrator restarts the right thing.
+
+6. **Log in and take ownership.**
+
+   Open `https://groundplan.example.com`. You are redirected to the identity
+   provider — there is no login page in the app itself. Register or sign in.
+
+   The **first user ever** to log in becomes the `owner` of the organization;
+   everyone after auto-joins it as a `member`. That is `SINGLE_ORG` mode, the
+   self-hosting default. To host several independent tenants instead, set
+   `SINGLE_ORG=false` **before the first login** and read
+   [Organizations & roles](/admin/organizations/).
+
+</Steps>
+
+Now [attach a repository](/quickstart/#then-your-own-repository).
+
+<Aside type="caution" title="It refuses to boot — that is the feature">
+In production the API **fails closed**: with no OIDC configuration or no
+`ENCRYPTION_KEY` it refuses to start rather than running with authentication
+off or with credentials it cannot protect. The startup error names the missing
+variable, so the error message is the instruction. A container that exits
+immediately after `up` is almost always this — read its logs before anything
+else.
+</Aside>
+
+## Bring your own identity provider
+
+The bundled Keycloak is an included option, not a dependency. Any OIDC provider
+works — Entra ID, Auth0, an existing Keycloak, Okta — and swapping it is
+configuration, not surgery:
+
+1. Register a **public client** for the SPA (Authorization Code + PKCE) with the
+   redirect URI `https://<APP_DOMAIN>/callback`.
+2. Make its access tokens carry the audience the API expects (`groundplan-api`
+   by default).
+3. Point `OIDC_ISSUER_URL` / `OIDC_AUDIENCE` at it, set the same issuer in
+   `frontend-config.json`, and remove the `keycloak` and `kc-postgres` services
+   from the compose file.
+
+[OIDC & single sign-on](/reference/oidc/) walks through it with a third-party
+provider rather than with the bundled one.
+
+## Back up and restore
+
+Two things are worth backing up: the database and `ENCRYPTION_KEY`. One without
+the other is useless — the backup carries encrypted credentials, and the key is
+what opens them.
+
+```sh
+# Back up
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T app-postgres \
+  pg_dump -U groundplan groundplan > groundplan-$(date +%F).sql
+
+# Restore into an empty database
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T app-postgres \
+  psql -U groundplan groundplan < groundplan-2026-07-27.sql
+```
+
+State that must survive a restart lives in named volumes: `app_pgdata` and
+`kc_pgdata` (the databases) and `caddy_data` (the issued certificates — keep it,
+or a redeploy loop will hit the certificate authority's rate limits).
+
+Nothing else is stateful. Rendered exports are a cache and rebuild themselves.
+
+## Upgrade
+
+```sh
+docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+```
+
+That is the whole procedure. Migrations run automatically on every `up`, from a
+one-shot container that finishes before the API starts, under an advisory lock
+so two hosts starting at once cannot both apply them. Back up first; a schema
+migration is not reversible by re-pulling the old tag.
+
+Watch it land:
+
+```sh
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs migrate backend
+```
+
+## Uninstall
+
+```sh
+docker compose --env-file .env.prod -f docker-compose.prod.yml down          # keeps the data
+docker compose --env-file .env.prod -f docker-compose.prod.yml down -v       # deletes it too
+```
+
+`down -v` removes the databases and the issued certificates. Nothing was ever
+written outside those volumes, and nothing was ever created in your cloud
+account, so there is nothing else to clean up.
+
+## When it does not start
+
+| Symptom | Cause |
+| --- | --- |
+| `backend` exits immediately | Fail-closed boot: `ENCRYPTION_KEY` or the OIDC configuration is missing. The log names it. |
+| No certificate is issued | Port 80 unreachable from the internet, or DNS not yet pointing here. Caddy retries; its log says which. |
+| Login redirects in a loop | The issuer in `frontend-config.json` does not exactly match `OIDC_ISSUER_URL`, or the redirect URI is not registered. |
+| `/readyz` is `503` | Postgres unreachable from the API container. |
+| The frontend serves a directory listing | `frontend-config.json` did not exist at first `up`, so Docker made a directory. Remove it, create the file, `up -d` again. |
+
+Every one of these, with the exact message and the fix, is on
+[Troubleshooting](/help/troubleshooting/).
