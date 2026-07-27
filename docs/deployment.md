@@ -35,7 +35,7 @@ internal Docker network and is never exposed to the host.
 | `backend`      | `…/asteriusit/groundplan-backend`  | Fastify API (`node dist/index.js`)        |
 | `migrate`      | `…/asteriusit/groundplan-backend`  | Applies Drizzle migrations, then exits    |
 | `app-postgres` | `postgres:17-alpine`               | Application database                      |
-| `keycloak`     | `quay.io/keycloak/keycloak:26.1`   | OIDC identity provider                    |
+| `keycloak`     | `…/asteriusit/groundplan-keycloak` | OIDC identity provider (pre-built)        |
 | `kc-postgres`  | `postgres:17-alpine`               | Keycloak's own database                   |
 
 ## Prerequisites
@@ -306,6 +306,30 @@ the callback `https://app.groundplan.qcs.ovh/callback`.
 - `--import-realm` only imports when the realm doesn't yet exist. To re-apply
   edits after first boot, change it in the admin console or reset the
   `kc-postgres` volume.
+
+### Optimized image
+
+`groundplan-keycloak` is an [optimized Keycloak
+image](https://www.keycloak.org/server/containers): `keycloak/Dockerfile` runs
+`kc.sh build --db=postgres --health-enabled=true` with the carbon theme already
+in `providers/`, so the Quarkus augmentation that stock Keycloak performs on
+every boot is done once, at image build time (~10.9s → ~3.2s to
+`/health/ready`). That is why the service runs `start --optimized`.
+
+Two consequences:
+
+- **The command and the image are a pair.** `start --optimized` against a stock
+  Keycloak — or an image tag predating this — fails immediately with *"the
+  '--optimized' flag was used for first ever server start"*. Pull the matching
+  tag when you change one.
+- **Build options are fixed in the image.** The database *vendor* and
+  `KC_HEALTH_ENABLED` are baked in; editing them in `docker-compose.prod.yml`
+  has no effect under `--optimized`. Connection URL, credentials, hostname,
+  proxy headers and cache mode remain ordinary runtime settings.
+
+`start-dev` ignores the pre-built configuration and re-augments itself onto the
+embedded file database, so the same image still serves the dev compose profile
+and the eval-only Keycloak in the Helm chart unchanged.
 
 ## Operations
 

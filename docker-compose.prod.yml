@@ -160,8 +160,17 @@ services:
   keycloak:
     image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-keycloak:${IMAGE_TAG:-latest}
     restart: unless-stopped
-    command: ["start", "--import-realm"]
+    # --optimized skips Quarkus augmentation at boot: the image is pre-built
+    # (keycloak/Dockerfile runs `kc.sh build`), so there is nothing left to
+    # compute here. Requires an image built from that Dockerfile — pointed at a
+    # stock Keycloak, or an image tag older than this change, it exits with
+    # "the '--optimized' flag was used for first ever server start".
+    command: ["start", "--optimized", "--import-realm"]
     environment:
+      # KC_DB and KC_HEALTH_ENABLED are *build* options, already baked into the
+      # image; they are repeated here so this file still states what it runs on.
+      # Under --optimized a changed value is ignored, not applied — switching
+      # database vendor means rebuilding the image, not editing this line.
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://kc-postgres:5432/${KC_DB_NAME:-keycloak}
       KC_DB_USERNAME: ${KC_DB_USERNAME:-keycloak}

@@ -41,9 +41,26 @@ RUN --mount=type=cache,id=keycloak-m2,target=/root/.m2 \
 # (26.2-and-above) in vite.config.ts.
 FROM quay.io/keycloak/keycloak:26.7.0 AS runtime
 
-# Theme provider jar — loaded from /opt/keycloak/providers/ at startup. Kept out
-# of `kc.sh build` so the image stays flexible across dev (start-dev) and prod
-# (start): a theme jar needs no build-time optimization to be served.
+# Theme provider jar. It must land in providers/ *before* `kc.sh build` below,
+# which is what bakes the provider into the augmented distribution.
 COPY --from=build \
     /repo/keycloak/dist_keycloak/keycloak-theme-groundplan.jar \
     /opt/keycloak/providers/keycloak-theme-groundplan.jar
+
+# Pre-augment the server ("optimized image", see
+# https://www.keycloak.org/server/containers). Without this, Keycloak re-runs
+# Quarkus augmentation on *every* container start to pick up the provider jar
+# and the build options — measured at ~10.9s to /health/ready, against ~3.2s for
+# `start --optimized` here. Costs ~180 MB of image for a ~70% faster start, which
+# is the right trade for a restart-on-deploy production service.
+#
+# Passed as flags rather than ENV on purpose: ENV would persist into the running
+# container, and `KC_DB=postgres` leaking into the environment would break the
+# two consumers that run start-dev on the embedded file database (the dev
+# compose profile and the eval-only Keycloak in the Helm chart). As flags, the
+# values are persisted only in the augmented image — start-dev still re-augments
+# itself to dev-file exactly as it does today.
+#
+# Only build-time options belong here; the database URL/credentials, hostname,
+# proxy headers and cache mode stay runtime options (docker-compose.prod.yml).
+RUN /opt/keycloak/bin/kc.sh build --db=postgres --health-enabled=true
