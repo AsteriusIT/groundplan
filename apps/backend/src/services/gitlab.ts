@@ -14,6 +14,25 @@ export interface GitLabNote {
   body: string;
 }
 
+/** A project as `GET /projects` reports it. */
+export type GitLabProject = {
+  id: number;
+  /** `group/subgroup/project` — the name a human recognises. */
+  path_with_namespace: string;
+  name: string;
+  path: string;
+  http_url_to_repo: string;
+  default_branch: string | null;
+  /** `private` | `internal` | `public`. */
+  visibility: string;
+  archived: boolean;
+  last_activity_at: string | null;
+  namespace?: { full_path?: string } | null;
+};
+
+/** One entry of `GET /projects/:id/repository/tree`. */
+export type GitLabTreeEntry = { path: string; type: string };
+
 export interface GitLabClient {
   listMergeRequestNotes(
     apiBase: string,
@@ -21,6 +40,36 @@ export interface GitLabClient {
     mrIid: number,
     token: string,
   ): Promise<GitLabNote[]>;
+  /**
+   * The projects this credential can reach (GP-232), one page at a time.
+   * `nextPage` comes from GitLab's own `X-Next-Page` header — null on the last
+   * page, which is how the caller knows to stop without guessing from a length.
+   */
+  listProjects(
+    apiBase: string,
+    token: string,
+    page: number,
+  ): Promise<{ projects: GitLabProject[]; nextPage: number | null }>;
+  /**
+   * A page of a project's file tree (GP-232). GitLab paginates this where
+   * GitHub does not, so the caller stops at a bound and reports the rest as
+   * truncated rather than walking a monorepo to the end.
+   */
+  getTree(
+    apiBase: string,
+    projectPath: string,
+    ref: string,
+    page: number,
+    token: string,
+  ): Promise<{ entries: GitLabTreeEntry[]; nextPage: number | null }>;
+  /** The first bytes of one file, or null when it is absent/unreadable. */
+  getFileHead(
+    apiBase: string,
+    projectPath: string,
+    ref: string,
+    path: string,
+    token: string,
+  ): Promise<string | null>;
   createMergeRequestNote(
     apiBase: string,
     projectPath: string,
@@ -129,4 +178,71 @@ export const realGitLabClient: GitLabClient = {
     if (!res.ok) throw await toError(res);
     return (await res.json()) as GitLabNote;
   },
+
+  async listProjects(apiBase, token, page) {
+    // `membership=true` is the whole honesty of GitLab discovery: this is the
+    // set of projects the authorizing *account* belongs to, not an
+    // organization's perimeter. The UI says so rather than implying otherwise.
+    const res = await fetch(
+      `${apiBase}/projects?membership=true&per_page=${PER_PAGE}&page=${page}&order_by=path&sort=asc`,
+      { headers: bearer(token) },
+    );
+    if (!res.ok) throw await toError(res);
+    return {
+      projects: (await res.json()) as GitLabProject[],
+      nextPage: nextPageOf(res),
+    };
+  },
+
+  async getTree(apiBase, projectPath, ref, page, token) {
+    const res = await fetch(
+      `${apiBase}/projects/${enc(projectPath)}/repository/tree` +
+        `?recursive=true&per_page=${PER_PAGE}&page=${page}&ref=${enc(ref)}`,
+      { headers: bearer(token) },
+    );
+    // An empty repository has no tree at all; that is "nothing recognisable",
+    // which detection already models, not a failure.
+    if (res.status === 404) return { entries: [], nextPage: null };
+    if (!res.ok) throw await toError(res);
+    return {
+      entries: (await res.json()) as GitLabTreeEntry[],
+      nextPage: nextPageOf(res),
+    };
+  },
+
+  async getFileHead(apiBase, projectPath, ref, path, token) {
+    const res = await fetch(
+      `${apiBase}/projects/${enc(projectPath)}/repository/files/${enc(path)}/raw?ref=${enc(ref)}`,
+      { headers: bearer(token) },
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) throw await toError(res);
+    return (await res.text()).slice(0, FILE_HEAD_BYTES);
+  },
 };
+
+/** GitLab's maximum page size. */
+const PER_PAGE = 100;
+
+/** As much of a candidate YAML as `apiVersion`/`kind` could hide in (GP-228). */
+const FILE_HEAD_BYTES = 2048;
+
+/**
+ * OAuth tokens authenticate with `Authorization: Bearer`; `PRIVATE-TOKEN` is
+ * for personal/project/group tokens only. Bearer accepts both, so the calls
+ * added for discovery use it and work for either kind of credential.
+ */
+function bearer(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "User-Agent": "groundplan",
+  };
+}
+
+/** GitLab's own "is there more?" header — no guessing from a page length. */
+function nextPageOf(res: Response): number | null {
+  const raw = res.headers.get("x-next-page");
+  if (!raw) return null;
+  const page = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(page) && page > 0 ? page : null;
+}

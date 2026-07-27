@@ -125,7 +125,11 @@ export function OrgConnections() {
                   them right here rather than making someone find the screen. */}
               {canManage && connection && provider.capabilities.includes("repo:discover") && (
                 <Button variant="outline" size="sm" asChild>
-                  <Link to="/import">Import repositories</Link>
+                  {/* Named, so the screen opens on the row you clicked rather
+                      than on whichever provider it would have guessed. */}
+                  <Link to={`/import?provider=${provider.id}`}>
+                    Import repositories
+                  </Link>
                 </Button>
               )}
 

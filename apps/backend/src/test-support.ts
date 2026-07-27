@@ -20,6 +20,7 @@ import { loadEnv, type AppEnv } from "./config/env.js";
 import { memberships, organizations } from "./db/schema.js";
 import type { Role } from "./rbac/permissions.js";
 import type { GitHubClient } from "./services/github.js";
+import type { GitLabClient } from "./services/gitlab.js";
 
 /**
  * The file-reading half of `GitHubClient` (GP-228), for stubs that only care
@@ -28,6 +29,22 @@ import type { GitHubClient } from "./services/github.js";
  * reach them is told to stub them properly instead of quietly reading nothing.
  */
 export const noRepoReads: Pick<GitHubClient, "getTree" | "getFileHead"> = {
+  getTree: () => {
+    throw new Error("this stub reads no repository trees — stub getTree");
+  },
+  getFileHead: () => {
+    throw new Error("this stub reads no repository files — stub getFileHead");
+  },
+};
+
+/** The same, for GitLab (GP-232): discovery and tree reads a note stub ignores. */
+export const noGitLabRepoReads: Pick<
+  GitLabClient,
+  "listProjects" | "getTree" | "getFileHead"
+> = {
+  listProjects: () => {
+    throw new Error("this stub lists no projects — stub listProjects");
+  },
   getTree: () => {
     throw new Error("this stub reads no repository trees — stub getTree");
   },

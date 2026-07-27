@@ -65,7 +65,8 @@ it("leads with import when a connection can list repositories", async () => {
   renderActions();
 
   const importLink = await screen.findByRole("link", { name: /import from github/i });
-  expect(importLink).toHaveAttribute("href", "/import?project=p1");
+  // The provider travels with the link, so the screen does not have to guess.
+  expect(importLink).toHaveAttribute("href", "/import?project=p1&provider=github");
   // The URL path is still there, demoted to secondary.
   expect(screen.getByRole("button", { name: /attach by url/i })).toBeInTheDocument();
 });
@@ -95,4 +96,44 @@ it("does not offer import for a connection whose provider cannot discover", asyn
   expect(
     screen.queryByRole("link", { name: /import from github/i }),
   ).not.toBeInTheDocument();
+});
+
+it("names the provider it found, and stays generic when there are two", async () => {
+  connectionsMock.mockResolvedValue([
+    { ...githubConnection, provider: "gitlab", id: "c2", name: "gl" },
+  ]);
+  catalogMock.mockResolvedValue([
+    {
+      id: "gitlab",
+      label: "GitLab",
+      capabilities: ["repo:read", "repo:discover"],
+      credentialModes: ["oauth2"],
+      connectableModes: ["oauth2"],
+    },
+  ]);
+  renderActions();
+
+  const link = await screen.findByRole("link", { name: /import from gitlab/i });
+  expect(link).toHaveAttribute("href", "/import?project=p1&provider=gitlab");
+});
+
+it("does not name a provider when the user will have to choose", async () => {
+  connectionsMock.mockResolvedValue([
+    githubConnection,
+    { ...githubConnection, provider: "gitlab", id: "c2", name: "gl" },
+  ]);
+  catalogMock.mockResolvedValue([
+    ...catalog(["repo:read", "repo:discover"]),
+    {
+      id: "gitlab",
+      label: "GitLab",
+      capabilities: ["repo:read", "repo:discover"],
+      credentialModes: ["oauth2"],
+      connectableModes: ["oauth2"],
+    },
+  ]);
+  renderActions();
+
+  const link = await screen.findByRole("link", { name: /^import repositories$/i });
+  expect(link).toHaveAttribute("href", "/import?project=p1");
 });

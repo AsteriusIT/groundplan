@@ -20,6 +20,10 @@ import { listConnections, listProviderCatalog } from "@/api/client";
 import type { CreatedRepository } from "@/api/types";
 import { AttachRepositoryDialog } from "@/components/attach-repository-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  importableProviders,
+  type ImportableProvider,
+} from "@/lib/importable-providers";
 
 export function AttachRepositoryActions({
   projectId,
@@ -33,29 +37,36 @@ export function AttachRepositoryActions({
   /** Wording for the empty state, where this is someone's very first repo. */
   firstRepository?: boolean;
 }>) {
-  const [canImport, setCanImport] = useState(false);
+  const [importable, setImportable] = useState<ImportableProvider[]>([]);
 
   useEffect(() => {
-    Promise.all([listConnections(), listProviderCatalog()])
-      .then(([connections, catalog]) => {
-        const discovers = new Set(
-          catalog
-            .filter((provider) => provider.capabilities.includes("repo:discover"))
-            .map((provider) => provider.id),
-        );
-        setCanImport(connections.some((c) => discovers.has(c.provider)));
-      })
+    Promise.all([listProviderCatalog(), listConnections()])
+      .then(([catalog, connections]) =>
+        setImportable(importableProviders(catalog, connections)),
+      )
       // No connection, or a backend that cannot say: the URL path still works.
-      .catch(() => setCanImport(false));
+      .catch(() => setImportable([]));
   }, []);
+
+  const canImport = importable.length > 0;
+  // Name the provider when there is one; stay generic when the user will be
+  // asked to choose on the screen itself.
+  const importLabel =
+    importable.length === 1
+      ? `Import from ${importable[0]!.label}`
+      : "Import repositories";
+  const importHref =
+    importable.length === 1
+      ? `/import?project=${encodeURIComponent(projectId)}&provider=${importable[0]!.id}`
+      : `/import?project=${encodeURIComponent(projectId)}`;
 
   return (
     <div className="flex items-center gap-2">
       {canImport && (
         <Button size={size} asChild>
-          <Link to={`/import?project=${encodeURIComponent(projectId)}`}>
+          <Link to={importHref}>
             <Download className="size-4" />
-            Import from GitHub
+            {importLabel}
           </Link>
         </Button>
       )}

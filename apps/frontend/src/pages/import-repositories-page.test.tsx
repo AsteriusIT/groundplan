@@ -18,6 +18,8 @@ vi.mock("@/api/client", async (importOriginal) => {
   return {
     ...actual,
     listProjects: vi.fn(),
+    listProviderCatalog: vi.fn(),
+    listConnections: vi.fn(),
     discoverRepositories: vi.fn(),
     detectRepositoryKinds: vi.fn(),
     importRepositories: vi.fn(),
@@ -29,16 +31,23 @@ import {
   detectRepositoryKinds,
   discoverRepositories,
   importRepositories,
+  listConnections,
   listProjects,
+  listProviderCatalog,
 } from "@/api/client";
 import type {
   DiscoveredRepository,
   Project,
+  Provider,
+  ProviderCatalogEntry,
+  ProviderConnection,
   RepoKindDetection,
 } from "@/api/types";
 import { ImportRepositoriesPage } from "./import-repositories-page";
 
 const projectsMock = vi.mocked(listProjects);
+const catalogMock = vi.mocked(listProviderCatalog);
+const connectionsMock = vi.mocked(listConnections);
 const discoverMock = vi.mocked(discoverRepositories);
 const detectMock = vi.mocked(detectRepositoryKinds);
 const importMock = vi.mocked(importRepositories);
@@ -80,9 +89,40 @@ function detection(overrides: Partial<RepoKindDetection>): RepoKindDetection {
   };
 }
 
+/** A provider entry as the backend registry reports it. */
+function catalogEntry(
+  id: Provider,
+  label: string,
+  discovers = true,
+): ProviderCatalogEntry {
+  return {
+    id,
+    label,
+    capabilities: discovers ? ["repo:read", "repo:discover"] : ["repo:read"],
+    credentialModes: ["pat"],
+    connectableModes: [],
+  };
+}
+
+function connectionFor(id: Provider): ProviderConnection {
+  return {
+    id: `c-${id}`,
+    organizationId: "o1",
+    provider: id,
+    mode: "oauth2",
+    name: id,
+    config: { account: "acme" },
+    status: "ok",
+    lastError: null,
+    createdAt: "2026-07-01T00:00:00.000Z",
+  };
+}
+
 beforeEach(() => {
   canManage = true;
   projectsMock.mockReset().mockResolvedValue([project]);
+  catalogMock.mockReset().mockResolvedValue([catalogEntry("github", "GitHub")]);
+  connectionsMock.mockReset().mockResolvedValue([connectionFor("github")]);
   discoverMock.mockReset().mockResolvedValue({
     credentialId: "c1",
     repositories: [repo()],
@@ -346,4 +386,112 @@ it("is closed to a member, like every other repository change", async () => {
     await screen.findByText(/An admin can import repositories/),
   ).toBeInTheDocument();
   expect(discoverMock).not.toHaveBeenCalled();
+});
+
+// --- GP-232: the screen reads the provider, it does not assume one ----------
+
+it("imports from the org's single importable provider, whichever it is", async () => {
+  catalogMock.mockResolvedValue([catalogEntry("gitlab", "GitLab")]);
+  connectionsMock.mockResolvedValue([connectionFor("gitlab")]);
+  renderPage();
+
+  await waitFor(() =>
+    expect(discoverMock).toHaveBeenCalledWith("gitlab", { search: "" }),
+  );
+  // The copy follows the provider too — no "GitHub" left in a GitLab screen.
+  expect(await screen.findByText(/GitLab connection can reach/i)).toBeInTheDocument();
+  expect(screen.queryByText(/GitHub/)).not.toBeInTheDocument();
+});
+
+it("offers a choice only when there is one, and switches on it", async () => {
+  catalogMock.mockResolvedValue([
+    catalogEntry("github", "GitHub"),
+    catalogEntry("gitlab", "GitLab"),
+  ]);
+  connectionsMock.mockResolvedValue([
+    connectionFor("github"),
+    connectionFor("gitlab"),
+  ]);
+  renderPage();
+
+  const picker = await screen.findByRole("group", { name: "Provider" });
+  expect(within(picker).getByRole("button", { name: "GitHub" })).toBeInTheDocument();
+
+  fireEvent.click(within(picker).getByRole("button", { name: "GitLab" }));
+  await waitFor(() =>
+    expect(discoverMock).toHaveBeenCalledWith("gitlab", { search: "" }),
+  );
+});
+
+it("shows no provider switch when only one provider can import", async () => {
+  renderPage();
+  await screen.findByText("acme/infra");
+  expect(screen.queryByRole("group", { name: "Provider" })).not.toBeInTheDocument();
+});
+
+it("honours ?provider= so a settings row opens on the row you clicked", async () => {
+  catalogMock.mockResolvedValue([
+    catalogEntry("github", "GitHub"),
+    catalogEntry("gitlab", "GitLab"),
+  ]);
+  connectionsMock.mockResolvedValue([
+    connectionFor("github"),
+    connectionFor("gitlab"),
+  ]);
+  render(
+    <MemoryRouter initialEntries={["/import?provider=gitlab"]}>
+      <ImportRepositoriesPage />
+    </MemoryRouter>,
+  );
+
+  await waitFor(() =>
+    expect(discoverMock).toHaveBeenCalledWith("gitlab", { search: "" }),
+  );
+});
+
+it("never carries a selection from one provider to the other", async () => {
+  catalogMock.mockResolvedValue([
+    catalogEntry("github", "GitHub"),
+    catalogEntry("gitlab", "GitLab"),
+  ]);
+  connectionsMock.mockResolvedValue([
+    connectionFor("github"),
+    connectionFor("gitlab"),
+  ]);
+  renderPage();
+
+  fireEvent.click(await screen.findByLabelText("Select acme/infra"));
+  await waitFor(() =>
+    expect(screen.getByTestId("selection-count")).toHaveTextContent("1 selected"),
+  );
+
+  const picker = screen.getByRole("group", { name: "Provider" });
+  fireEvent.click(within(picker).getByRole("button", { name: "GitLab" }));
+
+  // Importing GitHub rows while showing GitLab ones would look entirely normal
+  // — including the counter. It must start over.
+  await waitFor(() =>
+    expect(screen.getByTestId("selection-count")).toHaveTextContent("0 selected"),
+  );
+});
+
+it("says so when nothing connected can list repositories", async () => {
+  catalogMock.mockResolvedValue([catalogEntry("github", "GitHub", false)]);
+  connectionsMock.mockResolvedValue([connectionFor("github")]);
+  renderPage();
+
+  expect(
+    await screen.findByText(/No connected provider on this instance can list/i),
+  ).toBeInTheDocument();
+  expect(discoverMock).not.toHaveBeenCalled();
+});
+
+it("says so when a capable provider has no connection", async () => {
+  catalogMock.mockResolvedValue([catalogEntry("github", "GitHub")]);
+  connectionsMock.mockResolvedValue([]);
+  renderPage();
+
+  expect(
+    await screen.findByText(/No connected provider on this instance can list/i),
+  ).toBeInTheDocument();
 });

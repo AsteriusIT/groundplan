@@ -374,6 +374,67 @@ runProviderContract("github (app installed)", (existing) => {
   };
 });
 
+/**
+ * GitLab on an instance that registered an OAuth application — the second real
+ * discoverer (GP-232). It is here for the same reason as the GitHub variant:
+ * the port's promises (paging without loss, a typed refusal on a dead
+ * credential) are the *port's*, not one provider's.
+ */
+const GITLAB_OAUTH_CONFIG: IntegrationsConfig = {
+  ...NO_INTEGRATIONS_CONFIG,
+  gitlabOAuth: {
+    clientId: "id",
+    clientSecret: "secret",
+    instanceUrl: "https://gitlab.com",
+  },
+};
+
+/** A GitLab that pages its projects the way the real one does. */
+function pagingGitLabClient(total: number, r: ReturnType<typeof recorder>) {
+  return {
+    ...r.gitlab,
+    listProjects: async (_apiBase: string, _token: string, page: number) => {
+      const start = (page - 1) * 100;
+      const projects = Array.from(
+        { length: Math.max(0, Math.min(100, total - start)) },
+        (_, i) => {
+          const n = start + i;
+          return {
+            id: n,
+            path_with_namespace: `acme/repo-${n}`,
+            name: `repo-${n}`,
+            path: `repo-${n}`,
+            http_url_to_repo: `https://gitlab.com/acme/repo-${n}.git`,
+            default_branch: "main",
+            visibility: n % 2 === 0 ? "private" : "public",
+            archived: false,
+            last_activity_at: "2026-07-01T00:00:00Z",
+            namespace: { full_path: "acme" },
+          };
+        },
+      );
+      return {
+        projects,
+        nextPage: start + projects.length < total ? page + 1 : null,
+      };
+    },
+    getTree: async () => ({ entries: [], nextPage: null }),
+    getFileHead: async () => null,
+  };
+}
+
+runProviderContract("gitlab (oauth app registered)", (existing) => {
+  const r = recorder(existing);
+  return {
+    provider: createGitLabProvider(
+      pagingGitLabClient(250, r) as never,
+      GITLAB_OAUTH_CONFIG,
+      {} as never,
+    ),
+    calls: r.calls,
+  };
+});
+
 /* -------------------------------------------------------------------------- */
 /* A provider that does not exist, to prove extension costs only interfaces.   */
 /* -------------------------------------------------------------------------- */

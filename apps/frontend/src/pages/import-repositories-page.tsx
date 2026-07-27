@@ -38,13 +38,16 @@ import {
   detectRepositoryKinds,
   discoverRepositories,
   importRepositories,
+  listConnections,
   listProjects,
+  listProviderCatalog,
 } from "@/api/client";
 import type {
   DiscoveredRepository,
   IacType,
   ImportResult,
   Project,
+  Provider,
   RepoKindDetection,
 } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -52,6 +55,10 @@ import { Chip } from "@/components/ui/chip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { IAC_TYPES, IAC_TYPE_LABELS } from "@/lib/iac-type";
+import {
+  importableProviders,
+  type ImportableProvider,
+} from "@/lib/importable-providers";
 import { cn } from "@/lib/utils";
 import { useCan } from "@/rbac/use-can";
 
@@ -93,6 +100,17 @@ export function ImportRepositoriesPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState(params.get("project") ?? "");
 
+  /**
+   * Which provider we are importing from (GP-232). Read, never assumed: the
+   * backend route has always been `:provider`, and this screen used to name
+   * GitHub in three places — which made the port's promise ("a new adapter
+   * costs no frontend change") untrue of the only screen that used it.
+   */
+  const [importable, setImportable] = useState<ImportableProvider[] | null>(null);
+  const [provider, setProvider] = useState<Provider | null>(
+    (params.get("provider") as Provider | null) ?? null,
+  );
+
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [repos, setRepos] = useState<DiscoveredRepository[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -122,14 +140,30 @@ export function ImportRepositoriesPage() {
   }, []);
 
   useEffect(() => {
+    if (!canManage) return;
+    Promise.all([listProviderCatalog(), listConnections()])
+      .then(([catalog, connections]) => {
+        const options = importableProviders(catalog, connections);
+        setImportable(options);
+        // A single importable provider is not a choice; only offer one when
+        // there genuinely is one to make.
+        setProvider((current) => {
+          if (current && options.some((o) => o.id === current)) return current;
+          return options[0]?.id ?? null;
+        });
+      })
+      .catch(() => setImportable([]));
+  }, [canManage]);
+
+  useEffect(() => {
     const timer = setTimeout(() => setDebounced(search.trim()), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [search]);
 
-  const load = useCallback(async (term: string) => {
+  const load = useCallback(async (term: string, from: Provider) => {
     setState({ status: "loading" });
     try {
-      const page = await discoverRepositories("github", { search: term });
+      const page = await discoverRepositories(from, { search: term });
       setRepos(page.repositories);
       setCursor(page.nextCursor);
       setTotal(page.total);
@@ -144,12 +178,24 @@ export function ImportRepositoriesPage() {
     }
   }, []);
 
+  /**
+   * Switching provider starts over. A selection carried across would import
+   * GitHub rows while the screen shows GitLab ones — the counter would even
+   * look right. (A *search* change deliberately keeps the selection: that is
+   * the same estate, filtered.)
+   */
+  useEffect(() => {
+    setSelection(new Map());
+    setDetections(new Map());
+    setResult(null);
+  }, [provider]);
+
   useEffect(() => {
     // A member cannot import, so nothing here should call an API on their
     // behalf — the screen says so instead of listing what they cannot use.
-    if (!canManage) return;
-    void load(debounced);
-  }, [load, debounced, canManage]);
+    if (!canManage || !provider) return;
+    void load(debounced, provider);
+  }, [load, debounced, canManage, provider]);
 
   /**
    * Detection is lazy and per page (GP-228): the repositories on screen, and
@@ -159,8 +205,9 @@ export function ImportRepositoriesPage() {
     const pending = repos.filter((repo) => !detections.has(repo.fullName));
     if (pending.length === 0) return;
     let cancelled = false;
+    if (!provider) return;
     detectRepositoryKinds(
-      "github",
+      provider,
       pending.map((repo) => ({
         owner: repo.owner,
         name: repo.name,
@@ -180,7 +227,7 @@ export function ImportRepositoriesPage() {
     return () => {
       cancelled = true;
     };
-  }, [repos, detections]);
+  }, [repos, detections, provider]);
 
   /**
    * A detection that lands *after* a row was selected still pre-fills it — the
@@ -209,10 +256,10 @@ export function ImportRepositoriesPage() {
   }, [detections]);
 
   async function loadMore() {
-    if (!cursor) return;
+    if (!cursor || !provider) return;
     setLoadingMore(true);
     try {
-      const page = await discoverRepositories("github", {
+      const page = await discoverRepositories(provider, {
         search: debounced,
         cursor,
       });
@@ -332,7 +379,7 @@ export function ImportRepositoriesPage() {
         }
         return next;
       });
-      await load(debounced);
+      if (provider) await load(debounced, provider);
     } catch (err) {
       setState({
         status: "error",
@@ -354,6 +401,27 @@ export function ImportRepositoriesPage() {
     );
   }
 
+  // Nothing connected can list: say that, rather than showing an empty screen
+  // that reads as "you have no repositories".
+  if (importable !== null && importable.length === 0) {
+    return (
+      <div className="mx-auto max-w-2xl px-6 py-16 text-center">
+        <h1 className="font-display text-lg font-semibold">Import repositories</h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          No connected provider on this instance can list repositories. Connect
+          one from your organization settings, or attach a repository by URL.
+        </p>
+        <div className="mt-4">
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/settings">Organization settings</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const current = importable?.find((option) => option.id === provider);
+
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-8">
       <div className="mb-6 space-y-2">
@@ -367,9 +435,38 @@ export function ImportRepositoriesPage() {
         </button>
         <h1 className="font-display text-xl font-semibold">Import repositories</h1>
         <p className="text-muted-foreground text-sm">
-          Pick what your GitHub App installation can reach. No URLs, no tokens.
+          {/* Named after the connection, never after an "organization scope":
+              a GitLab token lists what its account can reach, which is not the
+              same promise a GitHub App installation makes (GP-232). */}
+          Pick what your {current?.label ?? "provider"} connection can reach. No
+          URLs, no tokens.
         </p>
       </div>
+
+      {/* Only a real choice is offered as one. */}
+      {importable && importable.length > 1 && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="text-muted-foreground text-xs">Import from</span>
+          <fieldset className="flex gap-1" aria-label="Provider">
+            {importable.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={provider === option.id}
+                onClick={() => setProvider(option.id)}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-sm transition-colors",
+                  provider === option.id
+                    ? "border-primary bg-accent-soft text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </fieldset>
+        </div>
+      )}
 
       {result && <ImportSummary result={result} onRetry={() => void handleImport()} />}
 
@@ -440,7 +537,7 @@ export function ImportRepositoriesPage() {
           </p>
         )}
 
-        {state.status === "error" && <DiscoveryError state={state} onRetry={() => void load(debounced)} />}
+        {state.status === "error" && <DiscoveryError state={state} onRetry={() => provider && void load(debounced, provider)} />}
 
         {state.status === "ready" && visible.length === 0 && (
           <EmptyScope filtered={repos.length > 0} />
