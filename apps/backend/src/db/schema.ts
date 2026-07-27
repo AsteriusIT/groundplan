@@ -898,6 +898,11 @@ export const graphSnapshotSource = pgEnum("graph_snapshot_source", [
   // GP-103: manifests rendered by the user's CI (`helm template`, `kustomize
   // build`, or plain YAML) for a pull request head, coloured against main.
   "k8s_rendered",
+  // GP-208: Producer D — what actually exists, derived from a Terraform state
+  // that was parsed and sanitised **in the user's CLI**. The state itself never
+  // reaches us; this snapshot is the graph it produced, and the ingestion route
+  // refuses a raw state outright.
+  "state",
 ]);
 
 /**

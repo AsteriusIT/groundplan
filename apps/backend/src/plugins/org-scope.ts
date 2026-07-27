@@ -45,6 +45,7 @@ import { k8sSnapshotRoutes } from "../routes/k8s-snapshots.js";
 import { memberRoutes } from "../routes/members.js";
 import { policyRoutes } from "../routes/policy.js";
 import { projectRoutes } from "../routes/projects.js";
+import { realityRoutes } from "../routes/reality.js";
 import { pullRoutes } from "../routes/pulls.js";
 import { repositoryFileRoutes } from "../routes/repository-files.js";
 import { repositoryRoutes } from "../routes/repositories.js";
@@ -125,6 +126,7 @@ export const orgScopePlugin: FastifyPluginAsync = async (app) => {
   await app.register(pullRoutes);
   await app.register(docsRoutes);
   await app.register(driftRoutes);
+  await app.register(realityRoutes);
   await app.register(annotationRoutes);
   await app.register(policyRoutes);
   await app.register(aiRoutes);

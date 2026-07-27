@@ -13,7 +13,8 @@ export type SnapshotSource =
   | "hcl"
   | "k8s_namespace"
   | "k8s_manifest"
-  | "k8s_rendered";
+  | "k8s_rendered"
+  | "state";
 
 /** What a repository holds (GP-101) — the axis every producer choice turns on. */
 export type IacType = "terraform" | "kubernetes";
@@ -37,6 +38,18 @@ export const DOCS_SOURCES: SnapshotSource[] = ["hcl", "k8s_manifest"];
 
 /** Every source that describes a pull request's head. */
 export const PR_SOURCES: SnapshotSource[] = ["plan", "k8s_rendered"];
+
+/**
+ * What actually exists (GP-208) — Producer D, derived from a state the user's
+ * CLI parsed and sanitised locally.
+ *
+ * Deliberately in neither list above. It documents no branch: a docs snapshot is
+ * what the code *says*, and folding reality into that list would let a docs
+ * reader, a compliance verdict or a share link answer a question about the
+ * repository with an answer about the cloud. It reviews no pull request either.
+ * It is a third thing, and the one view that reads it says so (GP-209).
+ */
+export const REALITY_SOURCE: SnapshotSource = "state";
 
 /** What the snapshot is *of*: a repository's Terraform, or a cluster's namespace. */
 type SnapshotOwner =

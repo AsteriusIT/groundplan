@@ -1,0 +1,1 @@
+ALTER TYPE "public"."graph_snapshot_source" ADD VALUE 'state';

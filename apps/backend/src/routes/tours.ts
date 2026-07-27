@@ -71,6 +71,10 @@ const KIND_FOR_SOURCE: Record<GraphSnapshotRow["source"], TourKind | null> = {
   // AI layer is grounded in Terraform snapshots and their repository context.
   k8s_manifest: null,
   k8s_rendered: null,
+  // GP-208: a reality snapshot is not a system to be shown around, and it is not
+  // a change to be walked through. It is one half of a comparison, and the half
+  // on its own is not a thing anybody wants narrated.
+  state: null,
 };
 
 type Prepared = {

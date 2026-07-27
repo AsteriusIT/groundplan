@@ -59,6 +59,7 @@ import { gitWebhookRoutes } from "./routes/git-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
+import { realityIngestionRoutes } from "./routes/reality.js";
 import { invitationAcceptRoutes } from "./routes/invitations.js";
 import { meRoutes } from "./routes/me.js";
 import { orgRoutes } from "./routes/organizations.js";
@@ -239,6 +240,9 @@ export async function buildApp(
   // Drift ingestion (GP-206): the same posture as the plan webhook — a nightly
   // `terraform plan -refresh-only`, pushed by the pipeline that ran it.
   await app.register(driftIngestionRoutes, { prefix: "/api/v1" });
+  // Reality ingestion (GP-208): the graph the user's CLI derived from their
+  // state. Never the state — the endpoint refuses one and says so.
+  await app.register(realityIngestionRoutes, { prefix: "/api/v1" });
   // Provider webhooks (GP-194): auth-exempt like the CI one — a provider has
   // no bearer token, it proves it knows a secret. Registered in its own scope
   // so its raw-body parser touches nothing else.

@@ -38,6 +38,36 @@ Run it on a schedule; nightly is a good default. Example cron jobs for GitHub
 Actions, GitLab CI and Azure DevOps are in
 [`docs/drift.md`](https://github.com/AsteriusIT/groundplan/blob/main/docs/drift.md).
 
+### Reality
+
+`push-state` sends a picture of what actually exists — including resources
+created by hand, which no plan can see.
+
+**Your state file never leaves your machine.** A state holds every password and
+key your configuration touched, so the parsing and the sanitising happen here, in
+this CLI, and only the derived graph is sent. Post a raw state at the API and it
+is refused.
+
+```sh
+terraform state pull > terraform.tfstate
+npx @asteriusit/cli push-state --file terraform.tfstate
+```
+
+Read exactly what would be sent, before sending it — `--dry-run` writes the
+payload to `groundplan-state.json` (or `--out <path>`) and needs neither URL nor
+token:
+
+```sh
+npx @asteriusit/cli push-state --file terraform.tfstate --dry-run
+```
+
+Three filters run over every attribute: anything Terraform flagged sensitive,
+anything whose name looks like a secret, and anything that is not a plain string,
+number or boolean — nested structures are dropped entirely rather than
+summarised, so a secret buried inside one cannot escape. Outputs are never sent.
+Full details, the residual risk, and an example job:
+[`docs/reality.md`](https://github.com/AsteriusIT/groundplan/blob/main/docs/reality.md).
+
 Configure it with two environment variables (both shown on the repository's CI
 setup page in Groundplan):
 
