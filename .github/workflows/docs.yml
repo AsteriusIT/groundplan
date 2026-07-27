@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 env:
-  REGISTRY: rg.fr-par.scw.cloud/eidos
+  REGISTRY: rg.fr-par.scw.cloud/asteriusit
 
 jobs:
   # Build + the four gates that keep the docs honest and alive.

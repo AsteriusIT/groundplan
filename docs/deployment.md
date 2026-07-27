@@ -26,17 +26,17 @@ external managed services are required.
 Only Caddy publishes ports (`80`, `443`). Every other service talks over the
 internal Docker network and is never exposed to the host.
 
-| Service        | Image / build                     | Role                                   |
-| -------------- | --------------------------------- | -------------------------------------- |
-| `caddy`        | `caddy:2-alpine`                  | TLS termination + reverse proxy        |
-| `frontend`     | `…/eidos/groundplan-frontend`     | Static Vite SPA served by nginx        |
-| `website`      | `…/eidos/groundplan-website`      | Static marketing site (`WWW_DOMAIN`)   |
-| `docs`         | `…/eidos/groundplan-docs`         | Static documentation site (`DOCS_DOMAIN`) |
-| `backend`      | `…/eidos/groundplan-backend`      | Fastify API (`node dist/index.js`)     |
-| `migrate`      | `…/eidos/groundplan-backend`      | Applies Drizzle migrations, then exits |
-| `app-postgres` | `postgres:17-alpine`              | Application database                   |
-| `keycloak`     | `quay.io/keycloak/keycloak:26.1`  | OIDC identity provider                 |
-| `kc-postgres`  | `postgres:17-alpine`              | Keycloak's own database                |
+| Service        | Image / build                      | Role                                      |
+| -------------- | ---------------------------------- | ----------------------------------------- |
+| `caddy`        | `caddy:2-alpine`                   | TLS termination + reverse proxy           |
+| `frontend`     | `…/asteriusit/groundplan-frontend` | Static Vite SPA served by nginx           |
+| `website`      | `…/asteriusit/groundplan-website`  | Static marketing site (`WWW_DOMAIN`)      |
+| `docs`         | `…/asteriusit/groundplan-docs`     | Static documentation site (`DOCS_DOMAIN`) |
+| `backend`      | `…/asteriusit/groundplan-backend`  | Fastify API (`node dist/index.js`)        |
+| `migrate`      | `…/asteriusit/groundplan-backend`  | Applies Drizzle migrations, then exits    |
+| `app-postgres` | `postgres:17-alpine`               | Application database                      |
+| `keycloak`     | `quay.io/keycloak/keycloak:26.1`   | OIDC identity provider                    |
+| `kc-postgres`  | `postgres:17-alpine`               | Keycloak's own database                   |
 
 ## Prerequisites
 
@@ -47,7 +47,7 @@ internal Docker network and is never exposed to the host.
 3. **Docker** with the Compose plugin.
 
 The `frontend` and `backend` images are **pulled from the container registry**
-(`rg.fr-par.scw.cloud/eidos` by default) — the deploy host needs no source
+(`rg.fr-par.scw.cloud/asteriusit` by default) — the deploy host needs no source
 checkout. `docker-compose.prod.yml` never builds; building lives in
 `docker-compose.build.yml`.
 
@@ -56,7 +56,7 @@ checkout. `docker-compose.prod.yml` never builds; building lives in
 ### In CI (recommended)
 
 The `.github/workflows/build-images.yml` workflow builds and pushes the images
-to `rg.fr-par.scw.cloud/eidos` **and** `ghcr.io/asteriusit` (the public registry
+to `rg.fr-par.scw.cloud/asteriusit` **and** `ghcr.io/asteriusit` (the public registry
 the Helm chart defaults to) automatically. Push a version tag to publish:
 
 ```bash

@@ -26,7 +26,7 @@ permissions:
   packages: write # publish to GHCR
 
 env:
-  REGISTRY: rg.fr-par.scw.cloud/eidos
+  REGISTRY: rg.fr-par.scw.cloud/asteriusit
 
 jobs:
   build:

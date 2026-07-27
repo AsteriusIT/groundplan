@@ -18,17 +18,17 @@ services:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-backend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-backend:${IMAGE_TAG:-latest}
 
   frontend:
     build:
       context: .
       dockerfile: apps/frontend/Dockerfile
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-frontend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-frontend:${IMAGE_TAG:-latest}
 
   # Keycloak with the carbon theme baked in (docker-compose.prod.yml pulls it).
   keycloak:
     build:
       context: .
       dockerfile: keycloak/Dockerfile
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-keycloak:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-keycloak:${IMAGE_TAG:-latest}

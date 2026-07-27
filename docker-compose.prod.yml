@@ -85,17 +85,17 @@ services:
 
   # --- Website: static marketing site (nginx) ------------------------------
   website:
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-website:${WEBSITE_IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-website:${WEBSITE_IMAGE_TAG:-latest}
     restart: unless-stopped
 
   # --- Docs: static documentation site (nginx, GP-213) ---------------------
   docs:
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-docs:${DOCS_IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-docs:${DOCS_IMAGE_TAG:-latest}
     restart: unless-stopped
 
   # --- Frontend: static SPA (nginx) ---------------------------------------
   frontend:
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-frontend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     volumes:
       # Runtime config (API base + OIDC), fetched by the SPA at startup. Edit
@@ -110,7 +110,7 @@ services:
 
   # --- Backend: Fastify API -----------------------------------------------
   backend:
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-backend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     init: true # reap `git` child processes from repo clones
     environment:
@@ -129,7 +129,7 @@ services:
 
   # --- Migrate: one-shot schema apply, then exit --------------------------
   migrate:
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-backend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-backend:${IMAGE_TAG:-latest}
     command: ["node", "dist/db/migrate.cli.js"]
     restart: "no"
     environment:
@@ -158,7 +158,7 @@ services:
   # Custom image = Keycloak 26.7.0 with the carbon "groundplan" theme baked in
   # (built/pushed by docker-compose.build.yml / the build-images workflow).
   keycloak:
-    image: ${REGISTRY:-rg.fr-par.scw.cloud/eidos}/groundplan-keycloak:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-keycloak:${IMAGE_TAG:-latest}
     restart: unless-stopped
     command: ["start", "--import-realm"]
     environment:
