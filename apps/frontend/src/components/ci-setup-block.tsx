@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { IacType } from "@/api/types";
 import { CopyButton } from "@/components/copy-button";
+import { DocsLink } from "@/components/docs-link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -286,7 +287,15 @@ function TerraformSetup({
         <p className="text-muted-foreground text-xs">
           Run this after <code className="font-mono">terraform plan</code> in your
           pipeline. It needs only Node ≥ 20 — <code className="font-mono">npx</code>{" "}
-          fetches the CLI, so there is no install step.
+          fetches the CLI, so there is no install step.{" "}
+          <DocsLink page="ci" showIcon={false}>
+            Complete pipelines for GitHub, GitLab and Azure DevOps
+          </DocsLink>
+          , and the{" "}
+          <DocsLink page="cli" showIcon={false}>
+            CLI reference
+          </DocsLink>{" "}
+          for its flags and exit codes.
         </p>
       </div>
 
@@ -396,7 +405,11 @@ function KubernetesSetup({
         <p className="text-muted-foreground text-xs">
           {docsFromCi(flavour)
             ? "Templates aren't manifests, so Groundplan can't read this repository's diagram from its files — main's documentation comes from your CI rendering it on merge, exactly as pull requests do."
-            : "Groundplan reads these manifests from the repository itself, so merges to main re-document it without a render step."}
+            : "Groundplan reads these manifests from the repository itself, so merges to main re-document it without a render step."}{" "}
+          <DocsLink page="kubernetesManifests" showIcon={false}>
+            More on manifests repositories
+          </DocsLink>
+          .
         </p>
       </div>
 

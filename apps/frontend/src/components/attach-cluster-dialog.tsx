@@ -3,6 +3,7 @@ import { ShieldCheck } from "lucide-react";
 
 import { ApiError, createCluster, verifyCluster } from "@/api/client";
 import type { Cluster } from "@/api/types";
+import { DocsLink } from "@/components/docs-link";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -185,7 +186,11 @@ export function AttachClusterDialog({
                 <p className="text-muted-foreground text-xs leading-relaxed">
                   Read-only access. We list resources to draw diagrams — we never
                   write to your cluster and never read Secret values. Use a
-                  kubeconfig bound to a read-only role.
+                  kubeconfig bound to a read-only role;{" "}
+                  <DocsLink page="liveClusters" showIcon={false}>
+                    the docs ship a minimal ClusterRole
+                  </DocsLink>{" "}
+                  you can paste.
                 </p>
               </div>
 

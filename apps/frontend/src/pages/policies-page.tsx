@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 
+import { DocsLink } from "@/components/docs-link";
 import { OrgPolicy } from "@/components/org-policy";
 import { PageHeader } from "@/components/page-header";
 import { useOrg } from "@/org/use-org";
@@ -42,7 +43,11 @@ export function PoliciesPage() {
             <p className="text-muted-foreground mt-1 text-xs">
               Built-in rules, evaluated on the graph — deterministic, no AI and
               no cloud access. A repository can override any of them from its own
-              Policy dialog.
+              Policy dialog.{" "}
+              <DocsLink page="policies" showIcon={false}>
+                How rules, overrides and waivers work
+              </DocsLink>
+              .
             </p>
           </header>
           <div className="px-5 py-4">

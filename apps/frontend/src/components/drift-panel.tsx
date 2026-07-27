@@ -6,6 +6,7 @@ import type {
   DriftedResource,
   PolicyViolation,
 } from "@/api/types";
+import { DocsLink } from "@/components/docs-link";
 import { cn } from "@/lib/utils";
 import { driftFreshness } from "@/lib/drift";
 import { SEVERITY_CLASS } from "@/lib/policy";
@@ -119,6 +120,16 @@ export function DriftPanel({
             </ul>
           </section>
         )}
+
+        {/* A stale or empty rail is exactly where somebody asks "how do I
+            measure this?", so the answer is here rather than three clicks away. */}
+        <p className="text-muted-foreground border-t border-border pt-3 text-xs">
+          Drift is measured by your own pipeline —{" "}
+          <DocsLink page="driftAndReality" showIcon={false}>
+            how to schedule it
+          </DocsLink>
+          .
+        </p>
       </div>
     </aside>
   );

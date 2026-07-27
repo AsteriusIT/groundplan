@@ -1,4 +1,4 @@
-import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { BookOpen, ChevronsUpDown, LogOut, Settings } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 
 import {
@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/auth/use-auth";
+import { docsUrl } from "@/lib/docs";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +62,15 @@ export function UserCard() {
               <Settings />
               Settings
             </Link>
+          </DropdownMenuItem>
+          {/* The one always-available way in. Everywhere else the app links to a
+              specific page, beside the thing somebody is stuck on — this is for
+              the reader who does not yet know what they are looking for. */}
+          <DropdownMenuItem asChild>
+            <a href={docsUrl("home")} target="_blank" rel="noreferrer">
+              <BookOpen />
+              Documentation
+            </a>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void logout()}>
