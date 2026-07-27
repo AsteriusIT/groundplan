@@ -36,9 +36,19 @@ RUN pnpm --filter @groundplan/backend... build \
 FROM node:22-bookworm-slim AS runtime
 # git: shallow-clone of connected repos. ca-certificates: HTTPS clone + OIDC
 # discovery to Keycloak. tini via `init: true` in compose reaps zombies.
+#
+# The same layer drops the package managers the base image ships. The container
+# only ever runs `node dist/index.js` against an already-installed /prod tree,
+# so npm, corepack and yarn are dead weight — and their vendored dependency
+# trees are the only node packages in the image we do not control (npm bundles
+# node-tar, which is how CVE-2026-59873 reached the Trivy gate). Node itself is
+# untouched, and the build stage still has its own npm/corepack.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v*
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
