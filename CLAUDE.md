@@ -378,6 +378,23 @@ vars, 404s or GP numbers; tests pin copy verbatim against
 Assets are real product output (`assets-src/render-hero.ts`). Noindex until
 naming clears.
 
+**Documentation site (GP-212..225).** `apps/docs` — Astro **Starlight**, static,
+its own image and subdomain (`DOCS_DOMAIN`), noindex until GP-166 clears. The
+website *sells*, the docs *explain*: neither repeats the other, they link. The
+product is **never named in Markdown** — `src/product.ts` holds the constant and
+a remark plugin substitutes `%PRODUCT%` in text nodes only (code blocks keep
+`GROUNDPLAN_TOKEN`, `@asteriusit/cli`: wire contracts, not branding). Four gates
+in `.github/workflows/docs.yml`, all runnable locally: the **honesty** suite
+(forbidden claims scanned per sentence with negations excluded, so "there is no
+cost estimation" passes and a promise of one does not; caveats must sit on the
+same page as their claim), **structure** (every sidebar link has a page, every
+page a sidebar entry), **dead links** (internal offline, external via lychee),
+Markdown lint + Lighthouse ≥ 95. `test/configuration.test.ts` reads
+`config/env.ts` and fails when a variable has no documented row — the reference
+page cannot drift. `src/sidebar.ts` is the IA, declared once. The app links into
+the site through **one** module, `frontend/src/lib/docs.ts` (keys are
+destinations, not paths), only from where somebody is already stuck.
+
 **Deployment.** Self-host = `docker-compose.prod.yml` (Caddy auto-TLS +
 frontend + api + migrate + Postgres + branded Keycloak) or the Helm chart
 (`deploy/chart/groundplan`): external DB/IdP by default, eval-only embedded
@@ -409,7 +426,9 @@ DevOps, Atlassian 3LO, connections UI) · GP-199 policy engine v1 (GP-200..204:
 engine & catalogue, org/repo configuration, PR evaluation, compliance on main,
 waivers) · GP-205 reconciliation with reality (GP-206..210: drift ingestion,
 drift visualisation + policy cross-check, `push-state`, reality vs code, and
-the third-party-inventory ADR).
+the third-party-inventory ADR) · GP-212 documentation site (GP-213..225 —
+foundation, IA, quickstart, both installs, configuration reference, CI, usage,
+Kubernetes, administration, AI, developer tools, help).
 
 **Open:**
 
