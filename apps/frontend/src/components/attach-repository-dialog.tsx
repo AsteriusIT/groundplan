@@ -1,12 +1,43 @@
-import { type ReactNode, type SyntheticEvent, useState } from "react";
+/**
+ * "Attach by URL" (GP-231) — now the **secondary** path.
+ *
+ * Importing from a connected installation (GP-230) is the main road; this modal
+ * is for what that road cannot reach: a self-hosted host, a provider with no
+ * app, a repository outside the installation's scope. What changed here is what
+ * it asks for.
+ *
+ * It used to demand a token "optional — required for private repositories"
+ * while never mentioning the GitHub App installation that makes the token
+ * unnecessary. Now the credential is *reported*, live, as soon as the URL is
+ * readable: covered by an installation (no token field at all), several
+ * candidates (pick one), or nothing (the token path, unchanged from GP-51/52).
+ *
+ * And the repository is only added if it can actually be read: the server
+ * verifies before persisting (GP-229) and its typed refusal is shown here, in
+ * the modal, beside the field that can fix it — never as a repository that was
+ * created and then silently reported as broken.
+ */
+import {
+  type ReactNode,
+  type SyntheticEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   ApiError,
   createRepository,
-  verifyRepository,
+  listConnections,
   webhookUrl,
 } from "@/api/client";
-import type { CreatedRepository, IacType, Provider } from "@/api/types";
+import type {
+  CreatedRepository,
+  IacType,
+  Provider,
+  ProviderConnection,
+} from "@/api/types";
+import { attachRemediation } from "@/lib/attach-errors";
 import { IAC_TYPES } from "@/lib/iac-type";
 import {
   detectProvider,
@@ -14,6 +45,7 @@ import {
   PROVIDER_PAT_HELP,
   PROVIDERS,
 } from "@/lib/providers";
+import { resolveCredential } from "@/lib/repo-credential";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
@@ -29,10 +61,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CiSetupBlock } from "@/components/ci-setup-block";
-import {
-  ConnectionStatusBadge,
-  connectionErrorMessage,
-} from "@/components/connection-status";
+import { ConnectionStatusBadge } from "@/components/connection-status";
 
 export function AttachRepositoryDialog({
   projectId,
@@ -55,13 +84,34 @@ export function AttachRepositoryDialog({
   const [terraformPath, setTerraformPath] = useState("");
   const [pat, setPat] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; code?: string } | null>(
+    null,
+  );
   const [created, setCreated] = useState<CreatedRepository | null>(null);
-  const [connectionIssue, setConnectionIssue] = useState<string | null>(null);
+  /** The org's connections, for reporting which one covers this URL. */
+  const [connections, setConnections] = useState<ProviderConnection[]>([]);
+  /** Which connection to use when more than one candidate covers the URL. */
+  const [chosenConnection, setChosenConnection] = useState<string | null>(null);
 
   const provider = providerOverride ?? detectProvider(url);
   const patHelp = PROVIDER_PAT_HELP[provider];
   const kubernetes = iacType === "kubernetes";
+
+  // Loaded once the dialog opens: before that it is a request nobody asked for.
+  useEffect(() => {
+    if (!open) return;
+    listConnections()
+      .then(setConnections)
+      // No connections is a perfectly good answer — it is the PAT path.
+      .catch(() => setConnections([]));
+  }, [open]);
+
+  const credential = useMemo(
+    () => resolveCredential(url, provider, connections),
+    [url, provider, connections],
+  );
+  /** A covered repository needs no token, so it is not asked for one. */
+  const needsToken = credential.kind === "token" || credential.kind === "unknown";
 
   function reset() {
     setUrl("");
@@ -73,7 +123,7 @@ export function AttachRepositoryDialog({
     setSubmitting(false);
     setError(null);
     setCreated(null);
-    setConnectionIssue(null);
+    setChosenConnection(null);
   }
 
   function handleOpenChange(next: boolean) {
@@ -89,33 +139,37 @@ export function AttachRepositoryDialog({
   async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
     if (!url.trim()) {
-      setError("Enter the repository URL.");
+      setError({ message: "Enter the repository URL." });
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
+      // The server resolves the credential and proves the repository is
+      // readable before storing anything (GP-229), so a success here is a
+      // repository that works — there is nothing left to check afterwards.
       const repo = await createRepository(projectId, {
         provider,
         url: url.trim(),
         defaultBranch: branch.trim() || "main",
         iacType,
-        accessToken: pat.trim() || undefined,
-        terraformPath: terraformPath.trim() || undefined,
+        ...(credential.kind === "covered"
+          ? { credentialId: credential.connection.id }
+          : {}),
+        ...(credential.kind === "ambiguous" && chosenConnection
+          ? { credentialId: chosenConnection }
+          : {}),
+        ...(needsToken && pat.trim() ? { accessToken: pat.trim() } : {}),
+        ...(terraformPath.trim() ? { terraformPath: terraformPath.trim() } : {}),
       });
-      // Surface the structured reason so a bad PAT gets a clear message.
-      if (repo.connectionStatus === "failed") {
-        try {
-          const result = await verifyRepository(repo.id);
-          if (!result.ok) setConnectionIssue(connectionErrorMessage(result.error));
-        } catch {
-          setConnectionIssue("Could not verify the connection.");
-        }
-      }
       setCreated(repo);
     } catch (err) {
+      // The refusal is typed, so it lands here beside the field that fixes it
+      // rather than as a repository created in a state nobody can use.
       setError(
-        err instanceof ApiError ? err.message : "Could not attach the repository.",
+        err instanceof ApiError
+          ? { message: err.message, ...(err.code ? { code: err.code } : {}) }
+          : { message: "Could not attach the repository." },
       );
     } finally {
       setSubmitting(false);
@@ -140,10 +194,13 @@ export function AttachRepositoryDialog({
             </DialogHeader>
             <div className="min-w-0 space-y-4">
               <div className="flex items-center gap-2">
+                {/* Reachability was proven before the row existed (GP-229), so
+                    this badge can only ever say so — there is no "attached but
+                    broken" state left to report here. */}
                 <ConnectionStatusBadge status={created.connectionStatus} />
-                {connectionIssue && (
-                  <span className="text-destructive text-sm" role="alert">
-                    {connectionIssue}
+                {created.authMode === "installation_app" && (
+                  <span className="text-muted-foreground text-sm">
+                    via the organization&apos;s app installation
                   </span>
                 )}
               </div>
@@ -243,9 +300,12 @@ export function AttachRepositoryDialog({
                     </button>
                   ))}
                 </fieldset>
+                {/* Preventive, not descriptive (GP-231): the choice is
+                    permanent, and this is the last moment to say so. */}
                 <p className="text-muted-foreground text-xs">
-                  Set once, when the repository is attached — a repository is one
-                  kind, not both. Attach a monorepo twice, with different paths.
+                  This cannot be changed later — a repository is one kind, not
+                  both. A monorepo holding both is attached twice, with a
+                  different path each time.
                 </p>
               </div>
 
@@ -269,42 +329,89 @@ export function AttachRepositoryDialog({
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="repo-pat">Access token</Label>
-                <Input
-                  id="repo-pat"
-                  type="password"
-                  value={pat}
-                  onChange={(e) => setPat(e.target.value)}
-                  placeholder="Optional — required for private repositories"
-                  autoComplete="off"
-                />
-                <p className="text-muted-foreground text-xs">
-                  Stored encrypted, used only to clone. Leave empty for public
-                  repositories.
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  {patHelp.hint}
-                  {patHelp.href && (
-                    <>
-                      {" "}
-                      <a
-                        href={patHelp.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary underline underline-offset-2"
-                      >
-                        {patHelp.linkLabel}
-                      </a>
-                    </>
-                  )}
-                </p>
-              </div>
+              {/* The credential, reported rather than demanded. A repository an
+                  installation already covers needs no token, so none is asked
+                  for — the field that used to be here was the whole reason a
+                  connected app looked useless. */}
+              {credential.kind === "covered" && (
+                <div className="border-border bg-muted/30 rounded-md border px-3 py-2">
+                  <p className="text-sm">
+                    Access via {credential.connection.name} — this organization&apos;s
+                    app installation.
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    No token needed. Groundplan authenticates with a short-lived
+                    installation token.
+                  </p>
+                </div>
+              )}
+
+              {credential.kind === "ambiguous" && (
+                <div className="space-y-2">
+                  <Label htmlFor="repo-connection">Connection</Label>
+                  <select
+                    id="repo-connection"
+                    value={chosenConnection ?? ""}
+                    onChange={(e) => setChosenConnection(e.target.value || null)}
+                    className="border-border bg-background text-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                  >
+                    <option value="">Choose a connection…</option>
+                    {credential.candidates.map((connection) => (
+                      <option key={connection.id} value={connection.id}>
+                        {connection.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-muted-foreground text-xs">
+                    Several of this organization&apos;s connections cover this
+                    owner. Pick the one to authenticate with.
+                  </p>
+                </div>
+              )}
+
+              {needsToken && (
+                <div className="space-y-2">
+                  <Label htmlFor="repo-pat">Access token</Label>
+                  <Input
+                    id="repo-pat"
+                    type="password"
+                    value={pat}
+                    onChange={(e) => setPat(e.target.value)}
+                    placeholder="Optional — required for private repositories"
+                    autoComplete="off"
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    Stored encrypted, used only to clone. Leave empty for public
+                    repositories.
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {patHelp.hint}
+                    {patHelp.href && (
+                      <>
+                        {" "}
+                        <a
+                          href={patHelp.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary underline underline-offset-2"
+                        >
+                          {patHelp.linkLabel}
+                        </a>
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
 
               {error && (
-                <p className="text-destructive text-sm" role="alert">
-                  {error}
-                </p>
+                <div className="text-destructive space-y-1 text-sm" role="alert">
+                  <p>{error.message}</p>
+                  {attachRemediation(error.code) && (
+                    <p className="text-muted-foreground text-xs">
+                      {attachRemediation(error.code)}
+                    </p>
+                  )}
+                </div>
               )}
               <DialogFooter>
                 <Button type="submit" disabled={submitting}>

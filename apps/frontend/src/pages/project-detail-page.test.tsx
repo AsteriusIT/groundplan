@@ -222,13 +222,19 @@ it("attaches a public repo, shows a connected status and the CI setup", async ()
   ).toBeGreaterThanOrEqual(3);
 });
 
-it("surfaces an explicit auth_failed message when a bad PAT is used", async () => {
+it("shows a refused credential in the modal, and attaches nothing", async () => {
+  // GP-229/231: a repository that cannot be read is no longer created and then
+  // reported as broken — it is refused, with the reason and what to do about it
+  // beside the field that can fix it.
   listRepositoriesMock.mockResolvedValue([]);
-  createRepositoryMock.mockResolvedValue({
-    ...repo({ id: "new", connectionStatus: "failed", accessToken: "***" }),
-    webhookToken: "wh",
-  });
-  verifyRepositoryMock.mockResolvedValue({ ok: false, error: "auth_failed" });
+  createRepositoryMock.mockRejectedValue(
+    new ApiError(
+      422,
+      "the credential was refused by the provider",
+      undefined,
+      "insufficient_permissions",
+    ),
+  );
 
   renderPage();
   fireEvent.click(
@@ -242,7 +248,10 @@ it("surfaces an explicit auth_failed message when a bad PAT is used", async () =
   });
   fireEvent.click(screen.getByRole("button", { name: /^attach repository$/i }));
 
-  expect(await screen.findByText(/authentication failed/i)).toBeInTheDocument();
+  expect(await screen.findByText(/refused by the provider/i)).toBeInTheDocument();
+  expect(screen.getByText(/grants read access/i)).toBeInTheDocument();
+  // The form is still there to correct: nothing was attached.
+  expect(screen.getByLabelText("Repository URL")).toBeInTheDocument();
 });
 
 it("re-verifies a repository from the menu and reflects the new status", async () => {

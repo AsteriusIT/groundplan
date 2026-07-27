@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Ellipsis, Plug, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Ellipsis, Plug, Trash2, TriangleAlert } from "lucide-react";
 
 import {
   ApiError,
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ContextSection } from "@/components/context-section";
 import { PageHeader } from "@/components/page-header";
-import { AttachRepositoryDialog } from "@/components/attach-repository-dialog";
+import { AttachRepositoryActions } from "@/components/attach-repository-actions";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { RepositoryCard } from "@/components/repository-card";
 import { useCan } from "@/rbac/use-can";
@@ -203,16 +203,10 @@ export function ProjectDetailPage() {
                 </span>
               </h2>
               {canManage && (
-              <AttachRepositoryDialog
-                projectId={state.project.id}
-                onAttached={handleAttached}
-                trigger={
-                  <Button size="sm">
-                    <Plus className="size-4" />
-                    Attach repository
-                  </Button>
-                }
-              />
+                <AttachRepositoryActions
+                  projectId={state.project.id}
+                  onAttached={handleAttached}
+                />
               )}
             </div>
 
@@ -259,15 +253,11 @@ function EmptyState({
         </p>
       </div>
       {canAttach && (
-        <AttachRepositoryDialog
+        <AttachRepositoryActions
           projectId={projectId}
           onAttached={onAttached}
-          trigger={
-            <Button>
-              <Plus className="size-4" />
-              Attach your first repository
-            </Button>
-          }
+          size="default"
+          firstRepository
         />
       )}
     </div>

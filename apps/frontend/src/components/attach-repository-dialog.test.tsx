@@ -7,15 +7,38 @@ vi.mock("@/api/client", async (importOriginal) => {
     ...actual,
     createRepository: vi.fn(),
     verifyRepository: vi.fn(),
+    listConnections: vi.fn(),
   };
 });
 
-import { createRepository, verifyRepository } from "@/api/client";
-import type { CreatedRepository } from "@/api/types";
+import {
+  ApiError,
+  createRepository,
+  listConnections,
+  verifyRepository,
+} from "@/api/client";
+import type { CreatedRepository, ProviderConnection } from "@/api/types";
 import { AttachRepositoryDialog } from "./attach-repository-dialog";
 
 const createMock = vi.mocked(createRepository);
 const verifyMock = vi.mocked(verifyRepository);
+const connectionsMock = vi.mocked(listConnections);
+
+/** An org-level GitHub App installation on one account (GP-193). */
+function connection(overrides: Partial<ProviderConnection> = {}): ProviderConnection {
+  return {
+    id: "c1",
+    organizationId: "o1",
+    provider: "github",
+    mode: "installation_app",
+    name: "acme",
+    config: { installationId: 42, account: "acme" },
+    status: "ok",
+    lastError: null,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 const created: CreatedRepository = {
   id: "r1",
@@ -40,6 +63,8 @@ const created: CreatedRepository = {
 beforeEach(() => {
   createMock.mockReset().mockResolvedValue(created);
   verifyMock.mockReset().mockResolvedValue({ ok: true, default_branch_found: true });
+  // No connection by default: the token path, exactly as before (GP-51/52).
+  connectionsMock.mockReset().mockResolvedValue([]);
 });
 
 function open() {
@@ -194,4 +219,121 @@ it("a Kubernetes repository is set up with manifest snippets, not plan ones", as
 
   fireEvent.click(screen.getByRole("button", { name: "Helm" }));
   expect(workflow()).toContain("helm template . -f values.yaml");
+});
+
+// --- GP-231: the credential is reported, not demanded ------------------------
+
+it("asks for no token when an installation already covers the owner", async () => {
+  connectionsMock.mockResolvedValue([connection()]);
+  open();
+
+  // Before a readable URL there is nothing to say, so the token path stands.
+  expect(await screen.findByLabelText("Access token")).toBeInTheDocument();
+
+  await typeUrl("https://github.com/acme/infra");
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument(),
+  );
+  expect(screen.getByText(/Access via acme/i)).toBeInTheDocument();
+  expect(screen.getByText(/No token needed/i)).toBeInTheDocument();
+});
+
+it("keeps the token path for an owner no installation covers", async () => {
+  connectionsMock.mockResolvedValue([connection()]);
+  open();
+
+  await typeUrl("https://github.com/elsewhere/infra");
+  expect(await screen.findByLabelText("Access token")).toBeInTheDocument();
+  expect(screen.queryByText(/Access via/i)).not.toBeInTheDocument();
+});
+
+it("matches the owner case-insensitively, as the provider does", async () => {
+  connectionsMock.mockResolvedValue([connection({ config: { account: "ACME" } })]);
+  open();
+
+  await typeUrl("https://github.com/acme/infra");
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument(),
+  );
+});
+
+it("does not use a connection belonging to another provider", async () => {
+  connectionsMock.mockResolvedValue([
+    connection({ provider: "gitlab", config: { account: "acme" } }),
+  ]);
+  open();
+
+  await typeUrl("https://github.com/acme/infra");
+  expect(await screen.findByLabelText("Access token")).toBeInTheDocument();
+});
+
+it("asks which connection when several cover the owner, and never guesses", async () => {
+  connectionsMock.mockResolvedValue([
+    connection({ id: "c1", name: "acme-eu" }),
+    connection({ id: "c2", name: "acme-us" }),
+  ]);
+  open();
+
+  await typeUrl("https://github.com/acme/infra");
+  const picker = await screen.findByLabelText("Connection");
+  expect(picker).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "acme-eu" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "acme-us" })).toBeInTheDocument();
+
+  fireEvent.change(picker, { target: { value: "c2" } });
+  fireEvent.click(screen.getByRole("button", { name: /^attach repository$/i }));
+  await waitFor(() =>
+    expect(createMock).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ credentialId: "c2" }),
+    ),
+  );
+});
+
+it("sends the covering connection, and no token, when one covers the repo", async () => {
+  connectionsMock.mockResolvedValue([connection({ id: "c9" })]);
+  open();
+
+  await typeUrl("https://github.com/acme/infra");
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: /^attach repository$/i }));
+
+  await waitFor(() => expect(createMock).toHaveBeenCalled());
+  const [, input] = createMock.mock.calls[0]!;
+  expect(input.credentialId).toBe("c9");
+  expect(input.accessToken).toBeUndefined();
+});
+
+it("shows a typed refusal in the modal, with what to do about it", async () => {
+  createMock.mockRejectedValue(
+    new ApiError(
+      422,
+      "the acme installation does not cover this repository",
+      undefined,
+      "installation_does_not_cover_repo",
+    ),
+  );
+  open();
+
+  await typeUrl("https://github.com/acme/infra");
+  fireEvent.click(screen.getByRole("button", { name: /^attach repository$/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/does not cover/i);
+  expect(screen.getByText(/Add this repository to the app/i)).toBeInTheDocument();
+  // The form is still open on the URL that needs fixing.
+  expect(screen.getByLabelText("Repository URL")).toBeInTheDocument();
+});
+
+it("warns that the type is permanent before the repository is attached", async () => {
+  open();
+  expect(await screen.findByText(/cannot be changed later/i)).toBeInTheDocument();
+  expect(screen.getByText(/attached twice, with a different path/i)).toBeInTheDocument();
+});
+
+it("never asks which Groundplan organization — that comes from the route", async () => {
+  open();
+  await typeUrl("https://github.com/acme/infra");
+  expect(screen.queryByLabelText(/organization/i)).not.toBeInTheDocument();
 });
