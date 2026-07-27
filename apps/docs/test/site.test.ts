@@ -113,20 +113,33 @@ describe("links", () => {
    * file tree, so it is deterministic and cannot be flaky; the external half is
    * lychee in `.github/workflows/docs.yml`, where the network lives.
    */
-  it("has no dead internal link", () => {
+  it("has no dead internal link, and no dead fragment", () => {
     const broken: string[] = [];
     for (const page of pages()) {
       const hrefs = [...page.html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]!);
       for (const href of hrefs) {
         if (!href.startsWith("/") || href.startsWith("//")) continue;
-        const [path] = href.split("#");
+        const [path, fragment] = href.split("#");
         const clean = (path ?? "").replace(/^\/|\/$/g, "");
-        const candidates = [
-          join(DIST, clean),
-          join(DIST, `${clean}.html`),
+        // A directory link is what the web server resolves to its index file;
+        // resolve it the same way rather than checking a path nobody serves.
+        const target = [
           join(DIST, clean, "index.html"),
-        ];
-        if (!candidates.some(existsSync)) broken.push(`${page.file} → ${href}`);
+          join(DIST, `${clean}.html`),
+          join(DIST, clean),
+        ].find(existsSync);
+        if (!target) {
+          broken.push(`${page.file} → ${href} (no such page)`);
+          continue;
+        }
+        // A heading renamed on the target page silently breaks every deep link
+        // to it, and the link still looks fine — so the anchor is checked too.
+        if (fragment && target.endsWith(".html")) {
+          const html = readFileSync(target, "utf8");
+          if (!html.includes(`id="${fragment}"`)) {
+            broken.push(`${page.file} → ${href} (no such heading)`);
+          }
+        }
       }
     }
     expect(broken).toEqual([]);

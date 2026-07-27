@@ -59,14 +59,26 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @groundplan/docs typecheck
 
-      # The internal half of the link check runs in the suite above (offline,
-      # deterministic). This is the external half — the half that needs a
-      # network, and the half that catches a vendor moving a page.
-      - name: Check external links
+      # The external half of the link check — the half that needs a network, and
+      # the half that catches a vendor moving a page. (The internal half also
+      # runs offline in the suite above; this one adds fragment checking, so a
+      # link to a heading that was renamed fails too.)
+      #
+      # Two flags carry the whole local half. `--root-dir` is what makes a
+      # root-relative href resolvable in a local file — without it every
+      # `/use/lenses/` on every page is an error — and it must be absolute,
+      # hence `github.workspace`. `--index-files` maps a directory link to the
+      # file the web server would serve, which is how these URLs work in
+      # production; without it a fragment on `/use/lenses/` is looked for in a
+      # directory and never found.
+      - name: Check links
         uses: lycheeverse/lychee-action@v2
         with:
           args: >-
             --no-progress
+            --root-dir ${{ github.workspace }}/apps/docs/dist
+            --index-files index.html
+            --include-fragments
             --max-retries 3
             --accept 200,206,429
             --exclude-path apps/docs/dist/pagefind
