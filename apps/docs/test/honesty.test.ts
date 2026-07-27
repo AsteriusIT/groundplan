@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pages, sources, text } from "./helpers.js";
+import { mainText, pageById, pages, sources } from "./helpers.js";
 
 /**
  * The honesty gate (GP-213) — the same idea as the tests that pin the marketing
@@ -81,7 +81,7 @@ describe("honesty (GP-213)", () => {
   it("never claims a feature the product does not have", () => {
     const offences: string[] = [];
     for (const page of pages()) {
-      for (const sentence of sentences(text(page.html))) {
+      for (const sentence of sentences(mainText(page.html))) {
         if (NEGATED.test(sentence)) continue;
         for (const { pattern, why } of FORBIDDEN) {
           const hit = sentence.match(pattern);
@@ -95,9 +95,13 @@ describe("honesty (GP-213)", () => {
   it("keeps every caveat on the page that makes the claim", () => {
     const offences: string[] = [];
     for (const page of pages()) {
-      const body = text(page.html);
+      const body = mainText(page.html);
+      // Negations again: "Kubernetes snapshots get no IAM lens" mentions the
+      // lens in order to deny it, and owes no caveat. A page that *asserts* one
+      // does — and the caveat may sit anywhere on that page.
+      const asserted = sentences(body).filter((s) => !NEGATED.test(s));
       for (const { claim, requires, why } of CONDITIONAL) {
-        if (claim.test(body) && !requires.test(body)) {
+        if (asserted.some((s) => claim.test(s)) && !requires.test(body)) {
           offences.push(`${page.file}: ${why}`);
         }
       }
@@ -119,5 +123,28 @@ describe("honesty (GP-213)", () => {
       if (hit) offences.push(`${file}: write %PRODUCT%, not "${hit[0]}"`);
     }
     expect(offences).toEqual([]);
+  });
+
+  it("states the trust model where a reader could think it has an exception", () => {
+    // Somebody who lands only on the live-cluster page or the reality page must
+    // not come away believing we hold access to anything.
+    for (const id of ["use/live-clusters", "use/drift-and-reality"]) {
+      expect(mainText(pageById(id).html), id).toMatch(
+        /never|no cloud credential|read-only/i,
+      );
+    }
+  });
+
+  it("says out loud what a Kubernetes snapshot does not get", () => {
+    const body = mainText(pageById("ci/kubernetes").html);
+    for (const missing of [/annotation/i, /share link/i, /tour/i]) {
+      expect(body, "K8s limits").toMatch(missing);
+    }
+  });
+
+  it("says invitations are links, on the page that describes them", () => {
+    expect(mainText(pageById("admin/organizations").html)).toMatch(
+      /no email is sent|copy-the-link|link to copy/i,
+    );
   });
 });

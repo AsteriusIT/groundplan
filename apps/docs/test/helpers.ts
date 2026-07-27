@@ -84,6 +84,23 @@ export function text(html: string): string {
     .replace(/\s+/g, " ");
 }
 
+/**
+ * The visible text of the page's own content, without the site chrome.
+ *
+ * Every claim rule has to run on this rather than on the whole document: the
+ * sidebar names every page on every page, so "this page mentions the AI Studio"
+ * would otherwise be true everywhere and the caveat rules would be unusable.
+ */
+export function mainText(html: string): string {
+  const start = html.indexOf("<main");
+  const end = html.lastIndexOf("</main>");
+  const main = start === -1 || end === -1 ? html : html.slice(start, end);
+  // The previous/next footer names two neighbouring pages, which is navigation
+  // rather than a claim this page makes.
+  const footer = main.indexOf("<footer");
+  return text(footer === -1 ? main : main.slice(0, footer));
+}
+
 /** Every Markdown/MDX source file, with its path relative to the content root. */
 export function sources(): { file: string; body: string }[] {
   return walk(CONTENT, (f) => f.endsWith(".md") || f.endsWith(".mdx")).map(

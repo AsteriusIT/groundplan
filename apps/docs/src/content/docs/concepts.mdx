@@ -1,0 +1,129 @@
+---
+title: Concepts
+description: The vocabulary the rest of this site uses — snapshot, producer, lens, annotation, blast radius, documentation of main, organization.
+---
+
+import { Image } from "astro:assets";
+import pipeline from "../../assets/pipeline.svg";
+
+Read this once and the rest of the site stops needing footnotes. It is for
+anybody about to install %PRODUCT% or about to explain it to a colleague; it
+defines the eight words this documentation uses as if they were obvious.
+
+## The shape of the whole thing
+
+<Image src={pipeline} alt="Four producers feed one GraphSnapshot; every view is a projection of that snapshot, and every export is a rendering of a view." />
+
+Four things produce a graph. One format holds it. Every view you can look at is
+that same graph folded differently — which is why a diagram and its exports can
+never disagree with each other.
+
+## The trust model, in three lines
+
+**We ingest data, not access.** %PRODUCT% reads what your own pipeline already
+produces: the plan JSON, the manifests your CI rendered, the graph its CLI
+derived from a state. It never holds a cloud credential, never reads a state
+backend, and never executes `terraform`, `helm` or `kustomize` — those verbs do
+not appear in the product because the access they need is exactly the access we
+promise not to take.
+
+## GraphSnapshot
+
+The one data structure everything else is about: **nodes** (a resource, a
+module, a subnet, a Kubernetes object), **edges** (a dependency, explicit or
+inferred from an expression), the **attributes** worth keeping, and, where the
+producer knew it, the **source** — the file and line the node came from.
+
+A snapshot is **immutable and dated**. It is not "your infrastructure"; it is
+what a specific input said at a specific moment. That distinction is the reason
+every screen in the product dates what it is showing you, and the reason a
+diagram is reproducible: the same input always yields the same snapshot, and the
+same snapshot always yields the same diagram, byte for byte.
+
+## Producer
+
+The thing that turns an input into a snapshot. There are four, and each runs
+where the relevant access already exists:
+
+| Producer | Input | What it answers |
+| --- | --- | --- |
+| Plan | `terraform show -json`, pushed by your pipeline | What would this pull request change? |
+| Static parse | the HCL in the repository, read from a clone | What does the default branch describe? |
+| Kubernetes | manifests from the repo, YAML rendered by your CI, or a live namespace read | What does this cluster or manifests repo contain? |
+| State | a Terraform state, parsed and stripped by the CLI on your machine | What actually exists — including what nobody wrote down? |
+
+Different producers answer different questions, so the product never quietly
+substitutes one for another. A plan is not a state; a repository is not a
+cluster. Where two of them meet — the code against reality — the comparison is
+[named as such and dated on both sides](/use/drift-and-reality/).
+
+## Lens
+
+A projection of one snapshot that answers one question. Switching lens does not
+fetch anything and cannot change what is in the graph: **infra** (the graph as
+generated), **adapted** (the same graph seen through your accepted
+annotations), **C4** (adapted, collapsed to one node per group), **network**
+(virtual network ⊃ subnet ⊃ resource, with exposure), **IAM** (principal → role
+→ scope), and **reality** (the cloud beside the code, when a state graph has
+been pushed).
+
+A lens that would be empty is not offered rather than drawn blank — an empty
+network view tells a reader their system has no network, which is a lie shaped
+like information. The Network view and the IAM view read **Azure-first**
+semantics: containment, NSG rules and role assignments target `azurerm`. Any
+Terraform provider gets nodes, dependencies, modules and diffing; not every
+provider gets those two lenses.
+
+## Blast radius
+
+The resources you did **not** touch that depend on the ones you did. A plan
+lists what changes; a review needs what is *affected*. Impact is propagated
+along the graph's edges and each affected node carries its distance in hops —
+one hop is a neighbour, three is a surprise. On a diagram it is the violet
+outline, and it is the single most common reason a reviewer asks a question
+they would not have asked reading the plan text.
+
+## Documentation of main
+
+The living diagram of your default branch. It is produced by the static parse of
+your HCL — no plan, no apply, no cloud call — and regenerated automatically when
+main moves, so it is never older than your last merge. Versions are kept, so you
+can walk the history and compare any two of them.
+
+It is also the baseline: a Kubernetes pull request has no plan file, so its head
+graph is coloured by comparison against the latest documentation of main.
+
+## Annotation
+
+What your team knows and the code does not. Five types — **note**, **link**,
+**group**, **hide**, **rename** — anchored to a Terraform address and stored
+**beside** the snapshot, never inside it. Regeneration therefore cannot lose
+them, and they cannot corrupt what was generated.
+
+## Orphan
+
+An annotation whose anchor no longer exists in the newest snapshot. It is
+**flagged, never deleted**: the annotation flips to *orphaned* and waits in a
+review tray where you can re-anchor it, keep it or remove it. If the resource
+comes back — a reverted branch, a renamed module put back — the flip reverses
+itself. The rule behind it is general in this product: nothing you wrote
+disappears because something you generated changed.
+
+## Organization
+
+The tenancy boundary and the unit of ownership. Repositories, projects,
+clusters, policies, integrations and members all belong to exactly one
+organization, and there is **no ownership below it** — everyone in an
+organization sees that organization's whole estate, with roles
+(owner / admin / member) deciding what they may change rather than what they may
+see. Requests that cross a tenant boundary are answered `404`, never `403`, so
+the API cannot even confirm that something exists elsewhere.
+
+Self-hosting a single deployment for a single team is the `SINGLE_ORG` mode,
+where everyone auto-joins one organization and the switcher disappears.
+
+## Where the words go next
+
+- Read a review with these terms in hand: [Review a pull request](/use/pull-requests/)
+- See them on your own repository: [Quickstart](/quickstart/)
+- The lenses, one by one: [Lenses](/use/lenses/)

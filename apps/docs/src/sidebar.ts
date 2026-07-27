@@ -17,6 +17,72 @@ import type { StarlightUserConfig } from "@astrojs/starlight/types";
 export const SIDEBAR: StarlightUserConfig["sidebar"] = [
   {
     label: "Get started",
-    items: [{ label: "Welcome", link: "/" }],
+    items: [
+      { label: "Welcome", link: "/" },
+      { label: "Concepts", link: "/concepts/" },
+      { label: "Quickstart", link: "/quickstart/" },
+    ],
+  },
+  {
+    label: "Install",
+    items: [
+      { label: "Docker Compose", link: "/install/docker-compose/" },
+      { label: "Kubernetes (Helm)", link: "/install/kubernetes/" },
+      { label: "Helm values", link: "/install/helm-values/" },
+    ],
+  },
+  {
+    label: "Connect your pipeline",
+    items: [
+      { label: "CI integration", link: "/ci/" },
+      { label: "CLI reference", link: "/ci/cli/" },
+      { label: "Kubernetes manifests", link: "/ci/kubernetes/" },
+    ],
+  },
+  {
+    label: "Use it",
+    items: [
+      { label: "Review a pull request", link: "/use/pull-requests/" },
+      { label: "Living documentation", link: "/use/living-documentation/" },
+      { label: "Lenses", link: "/use/lenses/" },
+      { label: "Annotations", link: "/use/annotations/" },
+      { label: "Policies", link: "/use/policies/" },
+      { label: "Drift & reality", link: "/use/drift-and-reality/" },
+      { label: "Exports & sharing", link: "/use/exports/" },
+      { label: "Live clusters", link: "/use/live-clusters/" },
+      { label: "Playground", link: "/use/playground/" },
+      { label: "VS Code extension", link: "/use/vscode/" },
+    ],
+  },
+  {
+    label: "AI (optional)",
+    items: [
+      { label: "The AI layer", link: "/ai/" },
+      { label: "AI Studio", link: "/ai/studio/" },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      { label: "Organizations & roles", link: "/admin/organizations/" },
+      { label: "Integrations", link: "/admin/integrations/" },
+      { label: "Security posture", link: "/admin/security/" },
+    ],
+  },
+  {
+    label: "Reference",
+    items: [
+      { label: "Configuration", link: "/reference/configuration/" },
+      { label: "OIDC & single sign-on", link: "/reference/oidc/" },
+      { label: "The encryption key", link: "/reference/encryption-key/" },
+    ],
+  },
+  {
+    label: "Help",
+    items: [
+      { label: "Troubleshooting", link: "/help/troubleshooting/" },
+      { label: "Known limits", link: "/help/limits/" },
+      { label: "FAQ", link: "/help/faq/" },
+    ],
   },
 ];

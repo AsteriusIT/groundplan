@@ -18,7 +18,7 @@
     "MD033": false,
     "MD004": { "style": "dash" },
     "MD048": { "style": "backtick" },
-    "MD049": { "style": "underscore" },
+    "MD049": { "style": "asterisk" },
     "MD050": { "style": "asterisk" }
   },
   "globs": ["src/content/**/*.md", "src/content/**/*.mdx"],

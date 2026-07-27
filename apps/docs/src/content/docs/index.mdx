@@ -4,20 +4,67 @@ description: Install %PRODUCT% and use it — the two questions this documentati
 tableOfContents: false
 ---
 
-This site answers two questions, and deliberately no others: **how do I install
+This site answers two questions and deliberately no others: **how do I install
 %PRODUCT%**, and **how do I use it**. If you are still deciding whether you want
-it at all, the product site is the better read — it has the pitch, and this one
-has the procedures.
+it at all, the [product site](https://www.groundplan.qcs.ovh) is the better
+read — it has the pitch; this one has the procedures.
 
 %PRODUCT% turns Terraform and Kubernetes into living, interactive architecture
-diagrams: pull requests are reviewed as pictures, and the documentation of your
+diagrams: a pull request is reviewed as a picture, and the documentation of your
 default branch redraws itself on every merge.
+
+<div class="gp-doors">
+  <a class="gp-door" href="/quickstart/">
+    <strong>Get started</strong>
+    <span>
+      From nothing to a diagram of your own pull request. Paste some HCL into the
+      playground first if you want the 30-second version.
+    </span>
+    <em>15 minutes</em>
+  </a>
+  <a class="gp-door" href="/install/docker-compose/">
+    <strong>Install</strong>
+    <span>
+      Self-host the whole platform — reverse proxy, API, database, identity
+      provider — from one compose file, or from the Helm chart on a cluster.
+    </span>
+    <em>Docker Compose · Kubernetes</em>
+  </a>
+  <a class="gp-door" href="/use/pull-requests/">
+    <strong>Use it</strong>
+    <span>
+      Read a review, keep the documentation of main alive, switch lenses,
+      annotate, export, share.
+    </span>
+    <em>Feature reference</em>
+  </a>
+</div>
 
 ## What it never asks for
 
 The whole design follows from one rule: **we ingest data, not access.**
 %PRODUCT% reads the plan JSON and the rendered manifests your own pipeline
-already produces. It holds no cloud credentials, reads no Terraform state
-backend, and runs neither `terraform`, `helm` nor `kustomize` anywhere in its
-codebase. Adoption is one pipeline step, and there is nothing to revoke
-afterwards.
+already produces. Concretely, and with no exception anywhere in the product:
+
+- it holds **no cloud credentials** — no subscription, no IAM role, no access
+  key, nothing to rotate and nothing to revoke;
+- it reads **no Terraform state backend** — when you want the picture of what
+  really exists, the state is parsed and stripped
+  [in the CLI, on your machine](/use/drift-and-reality/), and only the derived
+  graph is sent;
+- it runs **neither `terraform`, `helm` nor `kustomize`** — your pipeline
+  renders, and we ingest the result.
+
+Adoption is one pipeline step, and there is nothing left behind afterwards.
+
+## If you are in a hurry
+
+| You want to… | Go to |
+| --- | --- |
+| See a diagram right now, with no setup | [Playground](/use/playground/) |
+| Understand the vocabulary before anything else | [Concepts](/concepts/) |
+| Put it in front of your team this afternoon | [Quickstart](/quickstart/) |
+| Run it on your own hardware | [Docker Compose](/install/docker-compose/) · [Kubernetes](/install/kubernetes/) |
+| Wire your pipeline | [CI integration](/ci/) |
+| Answer a security questionnaire | [Security posture](/admin/security/) |
+| Fix something that is not working | [Troubleshooting](/help/troubleshooting/) |
