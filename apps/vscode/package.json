@@ -2,7 +2,7 @@
   "name": "groundplan-vscode",
   "displayName": "Groundplan — Terraform Architecture Preview",
   "description": "Live, interactive architecture diagram of your Terraform, beside your editor. Runs locally; your code never leaves your machine.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "asterius-it",
   "private": true,
   "license": "MIT",
