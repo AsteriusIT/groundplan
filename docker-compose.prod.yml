@@ -66,7 +66,7 @@ services:
       AUTH_DOMAIN: ${AUTH_DOMAIN:?set AUTH_DOMAIN in .env.prod}
       # Marketing site (GP-158). Defaults to the staging domain so existing
       # .env.prod files keep working; noindex until GP-166 clears.
-      WWW_DOMAIN: ${WWW_DOMAIN:-www.groundplan.qcs.ovh}
+      WWW_DOMAIN: ${WWW_DOMAIN:-www.asteriusit.fr}
       # Documentation site (GP-213). Same posture as the marketing site: its
       # own subdomain, its own image, noindex until GP-166 clears.
       DOCS_DOMAIN: ${DOCS_DOMAIN:-doc.asteriusit.fr}

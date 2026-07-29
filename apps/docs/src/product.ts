@@ -23,7 +23,7 @@ export const PRODUCT_ID = "groundplan";
 export const DOCS_URL = "https://doc.asteriusit.fr";
 
 /** The marketing site — the docs link there for the "why", never repeat it. */
-export const WEBSITE_URL = "https://www.groundplan.qcs.ovh";
+export const WEBSITE_URL = "https://www.asteriusit.fr";
 
 /** The public source repository. */
 export const REPO_URL = "https://github.com/AsteriusIT/groundplan";

@@ -1,5 +1,5 @@
   {
-    "apiUrl": "https://auth.groundplan.qcs.ovh/api",
-    "oidcIssuer": "https://auth.groundplan.qcs.ovh/realms/groundplan",
+    "apiUrl": "https://auth.asteriusit.fr/api",
+    "oidcIssuer": "https://auth.asteriusit.fr/realms/groundplan",
     "oidcClientId": "groundplan-frontend"
   }

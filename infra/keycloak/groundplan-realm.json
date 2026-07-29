@@ -15,7 +15,7 @@
       "directAccessGrantsEnabled": true,
       "redirectUris": [
         "http://localhost:5173/*",
-        "https://app.groundplan.qcs.ovh/*"
+        "https://groundplan.asteriusit.fr/*"
       ],
       "webOrigins": ["*"],
       "protocolMappers": [

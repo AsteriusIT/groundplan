@@ -298,7 +298,7 @@ same in both modes (owner > admin > member).
 
 The `groundplan` realm is imported on first boot from
 `infra/keycloak/groundplan-realm.json`. Its `groundplan-frontend` client allows
-the callback `https://app.groundplan.qcs.ovh/callback`.
+the callback `https://groundplan.asteriusit.fr/callback`.
 
 - **If you use a different `APP_DOMAIN`,** add `https://<your-app-domain>/*` to
   the client's redirect URIs (realm file, or the admin console at

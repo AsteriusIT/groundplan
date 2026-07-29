@@ -68,13 +68,47 @@ function redact(text: string, token?: string | null): string {
   return token ? text.split(token).join("***") : text;
 }
 
+/**
+ * What actually went wrong, in words.
+ *
+ * `stderr` alone is a trap: when `execFile` kills git on timeout, stderr holds
+ * whatever git had printed *so far* — for a clone that is `Cloning into
+ * '/tmp/…'...`, a progress line that reads like success. A production failure
+ * reported as "git clone failed: Cloning into '/tmp/gp-clone-tcghrH'..." tells
+ * nobody anything. So how the process ended is appended to what it said.
+ */
 function toErrorText(err: unknown): string {
-  if (err && typeof err === "object") {
-    const e = err as { stderr?: unknown; message?: unknown };
-    if (typeof e.stderr === "string" && e.stderr.trim()) return e.stderr.trim();
-    if (typeof e.message === "string") return e.message;
+  if (!err || typeof err !== "object") return String(err);
+
+  const e = err as {
+    stderr?: unknown;
+    message?: unknown;
+    killed?: unknown;
+    signal?: unknown;
+    code?: unknown;
+  };
+
+  const parts: string[] = [];
+  if (typeof e.stderr === "string" && e.stderr.trim()) {
+    parts.push(e.stderr.trim());
+  } else if (typeof e.message === "string") {
+    parts.push(e.message);
   }
-  return String(err);
+
+  if (e.killed === true) {
+    parts.push(
+      `(git was killed after ${CLONE_TIMEOUT_MS / 1000}s — the host never answered)`,
+    );
+  } else if (typeof e.signal === "string" && e.signal) {
+    parts.push(`(terminated by ${e.signal})`);
+  } else if (typeof e.code === "string" && e.code) {
+    // ENOENT, ENOTFOUND, ECONNREFUSED… — the shape a spawn failure takes.
+    parts.push(`(${e.code})`);
+  } else if (typeof e.code === "number" && e.code !== 0) {
+    parts.push(`(git exited ${e.code})`);
+  }
+
+  return parts.length > 0 ? parts.join(" ") : String(err);
 }
 
 function ensureValidRef(ref: string): void {
@@ -279,7 +313,17 @@ export type VerifyErrorKind = "auth_failed" | "not_found" | "network";
 
 export type VerifyResult =
   | { ok: true; defaultBranchFound: boolean }
-  | { ok: false; error: VerifyErrorKind };
+  | {
+      ok: false;
+      error: VerifyErrorKind;
+      /**
+       * The redacted git failure, for the server log only — never part of an
+       * API response, and never carrying the token. The classification is what
+       * a user can act on; this is what an operator needs when "the repository
+       * could not be reached" is true but useless.
+       */
+      detail?: string;
+    };
 
 /**
  * The verifier the test environment uses by default (wired in `buildApp`).
@@ -339,6 +383,7 @@ export async function verifyConnection(source: RepoSource): Promise<VerifyResult
       .some((line) => line.split("\t")[1] === target);
     return { ok: true, defaultBranchFound };
   } catch (err) {
-    return { ok: false, error: classifyGitError(toErrorText(err)) };
+    const detail = redact(toErrorText(err), source.accessToken);
+    return { ok: false, error: classifyGitError(detail), detail };
   }
 }

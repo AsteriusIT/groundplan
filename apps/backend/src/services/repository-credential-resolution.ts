@@ -308,6 +308,20 @@ export async function assertReachable(
   });
   if (result.ok) return;
 
+  // The user gets the classification; the operator gets the reason. Without
+  // this line "the repository could not be reached" is where the investigation
+  // both starts and ends.
+  app.log.warn(
+    {
+      url: args.url,
+      provider: args.provider,
+      error: result.error,
+      detail: result.detail,
+      authenticated: token !== null,
+    },
+    "repository verification failed",
+  );
+
   if (result.error === "auth_failed") {
     throw new AttachError(
       "insufficient_permissions",

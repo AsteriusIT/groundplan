@@ -6,7 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 // trademark gate (GP-166) clears and a real domain replaces it; sitemap and
 // canonical URLs derive from it.
 export default defineConfig({
-  site: "https://www.groundplan.qcs.ovh",
+  site: "https://www.asteriusit.fr",
   vite: {
     plugins: [tailwindcss()],
   },

@@ -70,8 +70,8 @@ describe("self-host, FAQ, meta & footer", () => {
 
   it("ships sitemap + robots, robots still noindex until GP-166 clears", () => {
     const sitemap = readFileSync(join(DIST, "sitemap.xml"), "utf8");
-    expect(sitemap).toContain("<loc>https://www.groundplan.qcs.ovh/</loc>");
-    expect(sitemap).toContain("<loc>https://www.groundplan.qcs.ovh/security/</loc>");
+    expect(sitemap).toContain("<loc>https://www.asteriusit.fr/</loc>");
+    expect(sitemap).toContain("<loc>https://www.asteriusit.fr/security/</loc>");
     expect(readFileSync(join(DIST, "robots.txt"), "utf8")).toContain("Disallow: /");
   });
 

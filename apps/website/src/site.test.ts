@@ -49,7 +49,7 @@ describe("scaffold (GP-158)", () => {
     for (const page of PAGES) {
       const html = pageHtml(page);
       const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
-      expect(header).toContain('href="https://app.groundplan.qcs.ovh/"');
+      expect(header).toContain('href="https://groundplan.asteriusit.fr/"');
       expect(header).toContain("Open the app");
     }
   });
