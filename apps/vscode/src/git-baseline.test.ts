@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -303,6 +303,7 @@ test("splitBatch refuses a missing object rather than returning nonsense", () =>
 
 test("parseLsTreeEntry reads mode/type/sha/path, including paths with spaces", () => {
   assert.deepEqual(parseLsTreeEntry("100644 blob abc123\tenvs/my stack/main.tf"), {
+    mode: "100644",
     type: "blob",
     sha: "abc123",
     path: "envs/my stack/main.tf",
@@ -331,8 +332,11 @@ test("baseline content survives non-ASCII and CRLF byte-for-byte", async () => {
 
 test("reading a baseline spawns two git processes, not one per file", async () => {
   const dir = makeRepo();
+  const expected = new Map<string, string>();
   for (const name of ["a.tf", "b.tf", "c.tf", "d.tf", "e.tf"]) {
-    writeFileSync(join(dir, name), MAIN_TF.replace('"b"', `"${name[0]}"`));
+    const content = MAIN_TF.replace('"b"', `"${name[0]}"`);
+    writeFileSync(join(dir, name), content);
+    expected.set(name, content);
   }
   g(dir, "add", "-A");
   g(dir, "commit", "-m", "one");
@@ -359,6 +363,39 @@ test("reading a baseline spawns two git processes, not one per file", async () =
   // rev-parse --show-toplevel, rev-parse HEAD, ls-tree — and one batch.
   assert.equal(plain, 3);
   assert.equal(batches, 1, "one cat-file --batch, whatever the file count");
+  // Each path must get back its own content, not a neighbour's: cat-file
+  // --batch answers strictly in stdin request order, and a shuffled zip
+  // between entries and contents would pass the count assertions above
+  // while silently swapping files.
+  for (const file of result.baseline.files) {
+    assert.equal(file.content, expected.get(file.path));
+  }
+});
+
+test("a zero-byte file and one with no trailing newline survive the batch path", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "empty.tf"), "");
+  writeFileSync(join(dir, "no-newline.tf"), 'resource "aws_vpc" "v" {}');
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  const result = await new BaselineProvider(dir).get("head");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  const byPath = new Map(result.baseline.files.map((f) => [f.path, f.content]));
+  assert.equal(byPath.get("empty.tf"), "");
+  assert.equal(byPath.get("no-newline.tf"), 'resource "aws_vpc" "v" {}');
+});
+
+test("a symlinked .tf is excluded — its blob content is a link target, never HCL", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  symlinkSync("main.tf", join(dir, "linked.tf"));
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  const result = await new BaselineProvider(dir).get("head");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.deepEqual(result.baseline.files.map((f) => f.path), ["main.tf"]);
 });
 
 test("an empty baseline runs no batch at all", async () => {

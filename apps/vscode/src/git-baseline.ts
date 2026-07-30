@@ -76,6 +76,12 @@ export const runGitBatch: GitBatchRunner = (shas, cwd) =>
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+    // A dead child (killed, OOM'd, wrong cwd) can close its input before the
+    // sha list is flushed; without this handler Node turns that EPIPE into an
+    // uncaught exception that takes the whole extension host down. The real
+    // failure still surfaces through "error"/"close" above, so this listener
+    // is deliberately empty — it exists only to stop the write from throwing.
+    child.stdin.on("error", () => {});
     child.stdin.end(shas.map((sha) => `${sha}\n`).join(""));
   });
 
@@ -105,15 +111,16 @@ export function splitBatch(out: Buffer, expected: number): Buffer[] {
 /** One `git ls-tree -r -z` record: `<mode> <type> <sha>\t<path>`. */
 export function parseLsTreeEntry(
   record: string,
-): { type: string; sha: string; path: string } | null {
+): { mode: string; type: string; sha: string; path: string } | null {
   const tab = record.indexOf("\t");
   if (tab === -1) return null;
   const fields = record.slice(0, tab).split(" ");
+  const mode = fields[0];
   const type = fields[1];
   const sha = fields[2];
-  if (!type || !sha) return null;
+  if (!mode || !type || !sha) return null;
   // -z means paths arrive verbatim — never quoted, spaces and all.
-  return { type, sha, path: record.slice(tab + 1) };
+  return { mode, type, sha, path: record.slice(tab + 1) };
 }
 
 export type Baseline = {
@@ -252,8 +259,13 @@ export class BaselineProvider {
       .filter(Boolean)
       .map(parseLsTreeEntry)
       .filter(
-        (entry): entry is { type: string; sha: string; path: string } =>
-          entry !== null && entry.type === "blob" && isDiagramTf(entry.path),
+        (entry): entry is { mode: string; type: string; sha: string; path: string } =>
+          entry !== null &&
+          entry.type === "blob" &&
+          // A symlinked .tf is also mode "blob" — its content is the link
+          // target, never HCL, so require a regular file's mode too.
+          (entry.mode === "100644" || entry.mode === "100755") &&
+          isDiagramTf(entry.path),
       );
 
     // One process for the lot; a baseline with no Terraform runs none.
