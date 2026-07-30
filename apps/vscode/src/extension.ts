@@ -37,8 +37,13 @@ import type {
   WebviewMessage,
 } from "./messages";
 import { toPosixRelative } from "./paths";
-import { detectRootCandidates, resolveRootDir, stackForFile } from "./root-dir";
-import { gatherTfFiles } from "./workspace-files";
+import {
+  resolveFromCandidates,
+  resolveRootDir,
+  stackForFile,
+} from "./root-dir";
+import { TfFileCache } from "./tf-files";
+import { findTfPaths, readTfFile } from "./workspace-files";
 import { buildWebviewHtml, makeNonce } from "./webview-html";
 
 /** How long typing may pause before the diagram catches up (GP-148). */
@@ -125,6 +130,12 @@ class LivePreview {
   /** The first refresh aligns to the file the preview was opened from, once. */
   private initialFollowDone = false;
 
+  /** The workspace's `.tf` files, kept warm — typing must not re-read them. */
+  private readonly cache: TfFileCache;
+  /** False until the first glob, and again when the watcher may have missed
+   * events (a reveal, a git change): the next refresh re-globs. */
+  private primed = false;
+
   /** Diff mode (GP-152/154): the baseline provider + the git-change signal. */
   private readonly baseline: BaselineProvider;
   private readonly gitWatcher: GitWatcher | null;
@@ -143,6 +154,7 @@ class LivePreview {
       "webview",
     );
     this.workspaceState = context.workspaceState;
+    this.cache = new TfFileCache(this.folder.uri.fsPath, readTfFile);
     this.panel = vscode.window.createWebviewPanel(
       "groundplan.preview",
       "Groundplan Preview",
@@ -173,24 +185,48 @@ class LivePreview {
     this.gitWatcher = gitRoot
       ? watchGitChanges(gitRoot, () => {
           this.baseline.invalidate();
+          // A checkout can add and remove files wholesale: re-glob, don't trust
+          // the incremental events to have covered it.
+          this.primed = false;
           this.reparse.schedule();
         })
       : null;
 
-    // Live while you type: in-memory edits count (dirty buffers are read by
-    // gatherTfFiles), so the trigger is the text change, not the save.
+    // Live while you type: in-memory edits count, and the text arrives inside
+    // the event — a keystroke performs no file read at all. Nothing is
+    // scheduled unless the bytes actually moved.
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => {
-        if (e.document.fileName.endsWith(".tf")) this.reparse.schedule();
+        if (e.document.uri.scheme !== "file") return;
+        if (this.cache.set(e.document.uri.fsPath, e.document.getText())) {
+          this.reparse.schedule();
+        }
+      }),
+    );
+    // A discarded dirty buffer leaves the disk untouched, so no watcher event
+    // fires — the cache would otherwise keep text that was never saved.
+    this.disposables.push(
+      vscode.workspace.onDidCloseTextDocument((doc) => {
+        if (doc.uri.scheme !== "file") return;
+        void this.cache.read(doc.uri.fsPath).then((changed) => {
+          if (changed) this.reparse.schedule();
+        });
       }),
     );
     // Create/delete/rename arrive from the file system watcher.
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(this.folder, "**/*.tf"),
     );
-    watcher.onDidCreate(() => this.reparse.schedule());
-    watcher.onDidDelete(() => this.reparse.schedule());
-    watcher.onDidChange(() => this.reparse.schedule());
+    const onTouched = (uri: vscode.Uri): void => {
+      void this.cache.read(uri.fsPath).then((changed) => {
+        if (changed) this.reparse.schedule();
+      });
+    };
+    watcher.onDidCreate(onTouched);
+    watcher.onDidChange(onTouched);
+    watcher.onDidDelete((uri) => {
+      if (this.cache.remove(uri.fsPath)) this.reparse.schedule();
+    });
     this.disposables.push(watcher);
 
     // Code → node (GP-149): the cursor resolves against the last good
@@ -268,6 +304,9 @@ class LivePreview {
 
   reveal(): void {
     this.panel.reveal(vscode.ViewColumn.Beside, true);
+    // The user is already waiting: take the chance to re-glob, since a
+    // workspace can change without an event (`files.watcherExclude`).
+    this.primed = false;
     void this.refresh();
   }
 
@@ -319,16 +358,23 @@ class LivePreview {
 
   /** Re-parse the folder and reconcile panel + Problems with the result. */
   private async refresh(): Promise<void> {
-    const files = await gatherTfFiles(this.folder);
+    if (!this.primed) {
+      await this.cache.prime(await findTfPaths(this.folder));
+      this.primed = true;
+    }
+    const files = this.cache.files();
     // The entrypoint (`terraform -chdir` semantics): setting > panel pick >
     // detection — a stack below the folder root used to parse silently empty.
-    const rootDir = resolveRootDir(rootDirSetting(), this.pickedRootDir(), files);
+    const candidates = this.cache.candidates();
+    const rootDir = resolveFromCandidates(
+      rootDirSetting(),
+      this.pickedRootDir(),
+      candidates,
+    );
     const { snapshot, diagnostics } = parse(files, { rootDir });
     this.lastRootDir = rootDir;
     // The switcher offers every stack unless the setting has pinned one.
-    this.lastCandidates = rootDirSetting()
-      ? [rootDir]
-      : detectRootCandidates(files);
+    this.lastCandidates = rootDirSetting() ? [rootDir] : candidates;
 
     this.publishProblems(toFileDiagnostics(diagnostics));
 
