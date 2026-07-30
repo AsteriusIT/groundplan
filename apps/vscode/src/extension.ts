@@ -36,7 +36,7 @@ import type {
   PreviewTheme,
   WebviewMessage,
 } from "./messages";
-import { toPosixRelative } from "./paths";
+import { isDiagramTf, toPosixRelative } from "./paths";
 import {
   resolveFromCandidates,
   resolveRootDir,
@@ -198,6 +198,14 @@ class LivePreview {
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.uri.scheme !== "file") return;
+        // Reject before materializing the text: cache.set() would refuse a
+        // non-.tf path too, but by then getText() has already copied the
+        // whole buffer — for a large unrelated open file (a lockfile, a
+        // rendered .tfstate) that is the exact per-keystroke cost this cache
+        // exists to remove, just relocated to this call site.
+        const rel = toPosixRelative(this.folder.uri.fsPath, e.document.uri.fsPath);
+        // toPosixRelative echoes paths outside the folder — they stay absolute.
+        if (/^([A-Za-z]:)?\//.test(rel) || !isDiagramTf(rel)) return;
         if (this.cache.set(e.document.uri.fsPath, e.document.getText())) {
           this.reparse.schedule();
         }

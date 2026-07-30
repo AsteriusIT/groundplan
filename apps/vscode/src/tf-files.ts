@@ -36,6 +36,10 @@ export class TfFileCache {
   /** Derived views, dropped whenever the set or any content moves. */
   private sorted: TfFile[] | null = null;
   private candidateList: string[] | null = null;
+  /** Non-null only while a prime() is in flight: every fsPath a set()/remove()
+   * touches during that window, so the prime's stale snapshot can be told
+   * apart from a write that landed after it started. */
+  private touchedDuringPrime: Set<string> | null = null;
 
   constructor(
     private readonly folder: string,
@@ -46,14 +50,36 @@ export class TfFileCache {
    * Replace the whole set from a fresh glob — the only full read. Runs on the
    * first refresh, and again whenever the watcher may have missed something
    * (VS Code honours the user's `files.watcherExclude`).
+   *
+   * A keystroke or a watcher event can land while the reads below are still
+   * in flight; without care, the `entries.clear()` that follows would throw
+   * it away and the diagram would show pre-keystroke content until the next
+   * edit happened to fire. `touchedDuringPrime` records every path a
+   * concurrent `set()`/`remove()` decided during the window, and the commit
+   * phase lets that decision win over this prime's own read of the same path.
    */
   async prime(fsPaths: string[]): Promise<void> {
-    const next = await Promise.all(fsPaths.map((fsPath) => this.entryOf(fsPath)));
+    const touched = new Set<string>();
+    this.touchedDuringPrime = touched;
+    let next: (Entry | null)[];
+    try {
+      next = await Promise.all(fsPaths.map((fsPath) => this.entryOf(fsPath)));
+    } finally {
+      this.touchedDuringPrime = null;
+    }
+    // A touched path's current entry — whatever set() last left it as, or
+    // nothing at all when remove() ran — wins over this prime's stale read.
+    const survivors = new Map<string, Entry>();
+    for (const fsPath of touched) {
+      const entry = this.entries.get(fsPath);
+      if (entry) survivors.set(fsPath, entry);
+    }
     this.entries.clear();
     for (const [index, entry] of next.entries()) {
       const fsPath = fsPaths[index];
-      if (entry && fsPath) this.entries.set(fsPath, entry);
+      if (entry && fsPath && !touched.has(fsPath)) this.entries.set(fsPath, entry);
     }
+    for (const [fsPath, entry] of survivors) this.entries.set(fsPath, entry);
     this.invalidate();
   }
 
@@ -61,6 +87,8 @@ export class TfFileCache {
   set(fsPath: string, content: string): boolean {
     const path = this.relative(fsPath);
     if (!path) return false;
+    // Tell an in-flight prime's commit phase that this path was decided here.
+    this.touchedDuringPrime?.add(fsPath);
     if (this.entries.get(fsPath)?.content === content) return false;
     this.entries.set(fsPath, {
       path,
@@ -86,6 +114,9 @@ export class TfFileCache {
 
   /** Forget one file (a watcher delete). */
   remove(fsPath: string): boolean {
+    // Marked unconditionally: an in-flight prime's stale read of this exact
+    // path must not resurrect a file that a concurrent delete just removed.
+    this.touchedDuringPrime?.add(fsPath);
     if (!this.entries.delete(fsPath)) return false;
     this.invalidate();
     return true;

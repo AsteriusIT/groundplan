@@ -18,16 +18,38 @@ function disk(initial: Record<string, string>): {
   files: Map<string, string>;
   read: ReadFile;
   reads: () => number;
+  /**
+   * Delay the next read of `fsPath` until the returned function is called —
+   * opens a race window deterministically (a concurrent `set()`/`remove()`
+   * landing mid-`prime()`) instead of guessing with a timer.
+   */
+  hold: (fsPath: string) => () => void;
 } {
   const files = new Map(Object.entries(initial));
   let reads = 0;
+  const gates = new Map<string, Promise<void>>();
   const read: ReadFile = async (fsPath) => {
     reads += 1;
+    const gate = gates.get(fsPath);
+    if (gate) await gate;
     const content = files.get(fsPath);
     if (content === undefined) throw new Error(`ENOENT: ${fsPath}`);
     return content;
   };
-  return { files, read, reads: () => reads };
+  const hold = (fsPath: string): (() => void) => {
+    let release = (): void => {};
+    gates.set(
+      fsPath,
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    return () => {
+      gates.delete(fsPath);
+      release();
+    };
+  };
+  return { files, read, reads: () => reads, hold };
 }
 
 test("prime reads every file once and yields sorted, folder-relative paths", async () => {
@@ -126,4 +148,42 @@ test("prime replaces the set — a file gone from the glob is gone from the cach
   d.files.delete("/ws/b.tf");
   await cache.prime(["/ws/a.tf"]);
   assert.deepEqual(cache.files().map((f) => f.path), ["a.tf"]);
+});
+
+test("a set() during an in-flight prime survives it", async () => {
+  const d = disk({ "/ws/main.tf": TF });
+  const cache = new TfFileCache(FOLDER, d.read);
+  const release = d.hold("/ws/main.tf");
+
+  // The first-ever prime is still awaiting its (gated) disk read...
+  const priming = cache.prime(["/ws/main.tf"]);
+  // ...when a keystroke lands, ahead of it, with the text already in hand.
+  const typed = TF.replace("b", "typed");
+  assert.equal(cache.set("/ws/main.tf", typed), true);
+
+  release();
+  await priming;
+
+  // The prime's stale read must not have clobbered the keystroke on commit.
+  assert.equal(cache.files().length, 1);
+  assert.equal(cache.files()[0]?.content, typed);
+});
+
+test("a remove() during an in-flight prime is not resurrected", async () => {
+  const d = disk({ "/ws/main.tf": TF, "/ws/extra.tf": TF });
+  const cache = new TfFileCache(FOLDER, d.read);
+  await cache.prime(["/ws/main.tf", "/ws/extra.tf"]);
+  assert.deepEqual(cache.files().map((f) => f.path), ["extra.tf", "main.tf"]);
+
+  const release = d.hold("/ws/extra.tf");
+  // A re-glob (a reveal, a git checkout) re-reads both files...
+  const priming = cache.prime(["/ws/main.tf", "/ws/extra.tf"]);
+  // ...when a watcher delete for one of them lands mid-read: it is genuinely
+  // gone, and the prime's own (now stale) read of it must not win on commit.
+  assert.equal(cache.remove("/ws/extra.tf"), true);
+
+  release();
+  await priming;
+
+  assert.deepEqual(cache.files().map((f) => f.path), ["main.tf"]);
 });
