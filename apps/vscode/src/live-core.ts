@@ -72,6 +72,29 @@ export function postSignature(payload: PostPayload): string {
   return JSON.stringify(payload);
 }
 
+/**
+ * Sends `messages` in order through `post`, checking *before each one* that
+ * `generation` — the value the caller captured when it started — is still
+ * `current()`. The instant another generation has taken over, the send
+ * stops: neither the message that would run next, nor any after it, goes
+ * out. This is the rule that keeps an overtaken refresh from interleaving
+ * its stale tail into a newer run's sequence: a run superseded partway
+ * through posting will already have sent whatever went out *before* the
+ * newer run started, and nothing after — so the newer run's own messages
+ * are always the last thing the panel hears.
+ */
+export async function postWhileCurrent<M>(
+  generation: number,
+  current: () => number,
+  messages: readonly M[],
+  post: (message: M) => Promise<void>,
+): Promise<void> {
+  for (const message of messages) {
+    if (generation !== current()) return;
+    await post(message);
+  }
+}
+
 export type Debouncer = {
   schedule: () => void;
   dispose: () => void;

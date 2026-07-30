@@ -26,6 +26,7 @@ import {
   createDebouncer,
   hasParseErrors,
   postSignature,
+  postWhileCurrent,
   toFileDiagnostics,
   type Debouncer,
 } from "./live-core";
@@ -469,6 +470,12 @@ class LivePreview {
       outOfSync,
     });
 
+    // Superseded since the last check, before this run's shared-state
+    // writes land: a newer refresh may already own lastPosted / panel.title
+    // / lastSignature (or be about to write them), and this run must not
+    // clobber that with a stale stack's graph and title.
+    if (generation !== this.generation) return;
+
     this.lastPosted = posted;
     // The tab names the stack being previewed — the only place it is said.
     this.panel.title = rootDir
@@ -479,9 +486,21 @@ class LivePreview {
     // full ELK re-layout to draw exactly what is already on screen.
     if (signature !== this.lastSignature) {
       this.lastSignature = signature;
-      await this.post({ type: "snapshot", snapshot: posted, folder, multiRoot, rootDir });
-      await this.post({ type: "diffState", state });
-      await this.post({ type: "outOfSync", value: outOfSync });
+      const messages: HostMessage[] = [
+        { type: "snapshot", snapshot: posted, folder, multiRoot, rootDir },
+        { type: "diffState", state },
+        { type: "outOfSync", value: outOfSync },
+      ];
+      // Checked before each message, not just the first: a run overtaken
+      // mid-sequence (its first post already sent, a newer run completing
+      // all of its own while this one sat suspended on that post) stops
+      // here instead of interleaving its remaining messages after the
+      // newer run's — see live-core.test.ts for the ordering this proves.
+      await postWhileCurrent(generation, () => this.generation, messages, (m) =>
+        this.post(m),
+      );
+      // The last message itself may be the one that got superseded.
+      if (generation !== this.generation) return;
     }
     this.pendingWhileHidden = false;
 

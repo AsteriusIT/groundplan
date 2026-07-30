@@ -7,6 +7,7 @@ import {
   createDebouncer,
   hasParseErrors,
   postSignature,
+  postWhileCurrent,
   toFileDiagnostics,
   type PostPayload,
 } from "./live-core";
@@ -95,3 +96,42 @@ test("every field the panel is told about moves the signature", () => {
     assert.notEqual(postSignature(next), base, `field ${index} was dropped`);
   }
 });
+
+test(
+  "postWhileCurrent: a run overtaken mid-post stops before its remaining " +
+    "messages, so a newer run's three land last",
+  async () => {
+    let current = 1;
+    const sent: string[] = [];
+
+    // Refresh A (generation 1) suspends on its first message — the same
+    // point refresh() suspends on `await this.post(...)` — until released.
+    let releaseA1: () => void = () => {};
+    const a1Gate = new Promise<void>((resolve) => {
+      releaseA1 = resolve;
+    });
+    const a = postWhileCurrent(1, () => current, ["A1", "A2", "A3"], async (m) => {
+      sent.push(m);
+      if (m === "A1") await a1Gate;
+    });
+
+    // While A is suspended, refresh B (generation 2) starts and runs to
+    // completion — the brief's "Ctrl+Tab quickly between two stacks",
+    // undebounced and re-entrant, before A ever gets to send a second
+    // message.
+    current = 2;
+    await postWhileCurrent(2, () => current, ["B1", "B2", "B3"], async (m) => {
+      sent.push(m);
+    });
+
+    // Now let A resume: it must find itself superseded and stop.
+    releaseA1();
+    await a;
+
+    assert.deepEqual(
+      sent,
+      ["A1", "B1", "B2", "B3"],
+      "A's remaining messages must never interleave after B's",
+    );
+  },
+);
