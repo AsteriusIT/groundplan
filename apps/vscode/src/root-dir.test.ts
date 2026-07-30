@@ -6,9 +6,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  candidatesFrom,
   detectRootCandidates,
   detectRootDir,
+  localModuleSources,
   normalizeRootSetting,
+  resolveFromCandidates,
   resolveRootDir,
   stackForFile,
 } from "./root-dir";
@@ -157,4 +160,42 @@ test("resolveRootDir: a remembered stack wins over detection while it exists", (
   assert.equal(resolveRootDir("", "envs/gone", files), "envs/dev");
   // The explicit setting still beats the remembered choice.
   assert.equal(resolveRootDir("infra", "envs/prod", files), "infra");
+});
+
+test("localModuleSources resolves local sources against the file's own directory", () => {
+  assert.deepEqual(
+    localModuleSources("envs/prod/main.tf", 'module "net" {\n  source = "../../modules/net"\n}\n'),
+    ["modules/net"],
+  );
+  assert.deepEqual(
+    localModuleSources("main.tf", 'module "a" {\n  source = "./mod/a"\n}\n'),
+    ["mod/a"],
+  );
+  // Registry and git sources are not local directories.
+  assert.deepEqual(
+    localModuleSources("main.tf", 'module "r" {\n  source = "hashicorp/consul/aws"\n}\n'),
+    [],
+  );
+  // A source pointing at its own directory names no other candidate.
+  assert.deepEqual(localModuleSources("infra/main.tf", 'source = "./"\n'), []);
+});
+
+test("candidatesFrom folds paths + sourced dirs exactly as detectRootCandidates does", () => {
+  const files = [
+    tf("envs/prod/main.tf", 'module "net" {\n  source = "../../modules/net"\n}\n'),
+    tf("modules/net/net.tf"),
+  ];
+  const sourced = files.flatMap((f) => localModuleSources(f.path, f.content));
+  assert.deepEqual(
+    candidatesFrom(files.map((f) => f.path), sourced),
+    detectRootCandidates(files),
+  );
+});
+
+test("resolveFromCandidates honours setting, then pick, then the first candidate", () => {
+  assert.equal(resolveFromCandidates("infra", "envs/dev", ["envs/dev", "envs/prod"]), "infra");
+  assert.equal(resolveFromCandidates("", "envs/prod", ["envs/dev", "envs/prod"]), "envs/prod");
+  // A pick that is no longer a candidate falls back to detection, never a blank.
+  assert.equal(resolveFromCandidates("", "gone", ["envs/dev", "envs/prod"]), "envs/dev");
+  assert.equal(resolveFromCandidates("", null, []), "");
 });

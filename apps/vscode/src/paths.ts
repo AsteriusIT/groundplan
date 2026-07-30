@@ -16,3 +16,16 @@ export function toPosixRelative(root: string, file: string): string {
     ? filePosix.slice(rootPosix.length + 1)
     : filePosix;
 }
+
+/** The directory names `TF_EXCLUDE_GLOB` hides — the same list, as a predicate. */
+const EXCLUDED_SEGMENTS = new Set([".terraform", "node_modules"]);
+
+/**
+ * Is this folder-relative posix path a `.tf` file the diagram should read?
+ * The glob covers `findFiles`; this covers everything that never passes a
+ * glob — git's `ls-tree` output and VS Code's document events.
+ */
+export function isDiagramTf(path: string): boolean {
+  if (!path.endsWith(".tf")) return false;
+  return !path.split("/").some((segment) => EXCLUDED_SEGMENTS.has(segment));
+}

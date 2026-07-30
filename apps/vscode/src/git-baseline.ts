@@ -22,7 +22,7 @@ import { dirname, join } from "node:path";
 import { parse, type Graph, type HclFile } from "@groundplan/graph-parser";
 
 import type { BaselineMode } from "./messages";
-import { toPosixRelative } from "./paths";
+import { isDiagramTf, toPosixRelative } from "./paths.js";
 import { detectRootDir } from "./root-dir";
 
 export type { BaselineMode } from "./messages";
@@ -60,14 +60,6 @@ export type Baseline = {
 export type BaselineResult =
   | { ok: true; baseline: Baseline }
   | { ok: false; reason: string };
-
-/** Mirror of the live view's TF_EXCLUDE_GLOB — vendored dirs never diff. */
-const EXCLUDED_SEGMENTS = new Set([".terraform", "node_modules"]);
-
-function isDiagramTf(path: string): boolean {
-  if (!path.endsWith(".tf")) return false;
-  return !path.split("/").some((segment) => EXCLUDED_SEGMENTS.has(segment));
-}
 
 /** How many distinct shas keep their parsed baseline around. */
 const SHA_CACHE_LIMIT = 4;
