@@ -187,3 +187,79 @@ test("a remove() during an in-flight prime is not resurrected", async () => {
 
   assert.deepEqual(cache.files().map((f) => f.path), ["main.tf"]);
 });
+
+// Two primes overlapping (a reveal() racing the panel's own first refresh is
+// the reachable case): each must protect a mutation that lands during the
+// overlap, independently of the other and regardless of finish order.
+
+test("a set() landing between two overlapping primes survives both commits", async () => {
+  const d = disk({ "/ws/main.tf": TF });
+  const cache = new TfFileCache(FOLDER, d.read);
+
+  // Prime A starts a first read of main.tf, held...
+  const releaseA = d.hold("/ws/main.tf");
+  const primingA = cache.prime(["/ws/main.tf"]);
+  // ...then, before A resolves, prime B starts its own — a second, distinct
+  // hold for the same path, captured by B's own (later) read.
+  const releaseB = d.hold("/ws/main.tf");
+  const primingB = cache.prime(["/ws/main.tf"]);
+
+  // A keystroke lands while both are in flight.
+  const typed = TF.replace("b", "typed");
+  assert.equal(cache.set("/ws/main.tf", typed), true);
+
+  // B, the second prime, finishes (and commits) first.
+  releaseB();
+  await primingB;
+  assert.equal(
+    cache.files()[0]?.content,
+    typed,
+    "B's commit must not clobber the edit with its own stale read",
+  );
+
+  // A, the first prime, finishes (and commits) last.
+  releaseA();
+  await primingA;
+  assert.equal(
+    cache.files()[0]?.content,
+    typed,
+    "A's commit, though it started before the edit, must not clobber it either",
+  );
+});
+
+test("two overlapping primes, the second finishing first, still honour a remove() from the overlap", async () => {
+  const d = disk({ "/ws/main.tf": TF, "/ws/extra.tf": TF });
+  const cache = new TfFileCache(FOLDER, d.read);
+  await cache.prime(["/ws/main.tf", "/ws/extra.tf"]);
+
+  // Both re-globs' reads of extra.tf are held (independently); main.tf reads
+  // through freely for both.
+  const releaseA = d.hold("/ws/extra.tf");
+  const primingA = cache.prime(["/ws/main.tf", "/ws/extra.tf"]);
+  const releaseB = d.hold("/ws/extra.tf");
+  const primingB = cache.prime(["/ws/main.tf", "/ws/extra.tf"]);
+
+  // A watcher delete lands while both primes are in flight.
+  assert.equal(cache.remove("/ws/extra.tf"), true);
+
+  // B, the second prime, finishes first — its own read of extra.tf already
+  // "succeeded" (the fake disk still has the bytes), but it must not
+  // resurrect the file.
+  releaseB();
+  await primingB;
+  assert.deepEqual(
+    cache.files().map((f) => f.path),
+    ["main.tf"],
+    "B's commit must not resurrect the removed file",
+  );
+
+  // A, the first prime, finishes last — same requirement, on the commit that
+  // started before the remove() ever happened.
+  releaseA();
+  await primingA;
+  assert.deepEqual(
+    cache.files().map((f) => f.path),
+    ["main.tf"],
+    "A's commit must not resurrect it either, despite starting first",
+  );
+});
