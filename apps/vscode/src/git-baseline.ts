@@ -22,7 +22,7 @@ import { dirname, join } from "node:path";
 import { parse, type Graph, type HclFile } from "@groundplan/graph-parser";
 
 import type { BaselineMode } from "./messages";
-import { isDiagramTf, toPosixRelative } from "./paths.js";
+import { isDiagramTf, toPosixRelative } from "./paths";
 import { detectRootDir } from "./root-dir";
 
 export type { BaselineMode } from "./messages";
