@@ -3,7 +3,13 @@ import { test } from "node:test";
 
 import type { Diagnostic } from "@groundplan/graph-parser";
 
-import { createDebouncer, hasParseErrors, toFileDiagnostics } from "./live-core";
+import {
+  createDebouncer,
+  hasParseErrors,
+  postSignature,
+  toFileDiagnostics,
+  type PostPayload,
+} from "./live-core";
 
 const error: Diagnostic = {
   severity: "error",
@@ -60,4 +66,32 @@ test("the debouncer collapses a burst into the trailing call and can be disposed
   debouncer.dispose();
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(calls, 1, "a disposed debouncer never fires");
+});
+
+const payload = (): PostPayload => ({
+  snapshot: { nodes: [{ id: "aws_s3_bucket.b" }], edges: [] },
+  folder: "ws",
+  multiRoot: false,
+  rootDir: "infra",
+  diff: { enabled: false, available: false, ref: null, clean: false },
+  outOfSync: false,
+});
+
+test("an unchanged payload keeps its signature — the panel is told nothing", () => {
+  assert.equal(postSignature(payload()), postSignature(payload()));
+});
+
+test("every field the panel is told about moves the signature", () => {
+  const base = postSignature(payload());
+  const moved: PostPayload[] = [
+    { ...payload(), snapshot: { nodes: [], edges: [] } },
+    { ...payload(), folder: "other" },
+    { ...payload(), multiRoot: true },
+    { ...payload(), rootDir: "envs/prod" },
+    { ...payload(), diff: { enabled: true, available: true, ref: "HEAD", clean: true } },
+    { ...payload(), outOfSync: true },
+  ];
+  for (const [index, next] of moved.entries()) {
+    assert.notEqual(postSignature(next), base, `field ${index} was dropped`);
+  }
 });

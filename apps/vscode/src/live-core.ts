@@ -48,6 +48,30 @@ export function toFileDiagnostics(
   return byFile;
 }
 
+/**
+ * Everything the panel is told in one refresh. Anything the webview renders
+ * must appear here: a field left out is a change the panel will never hear
+ * about, because an unchanged signature suppresses the post.
+ */
+export type PostPayload = {
+  snapshot: unknown;
+  folder: string;
+  multiRoot: boolean;
+  rootDir: string;
+  diff: unknown;
+  outOfSync: boolean;
+};
+
+/**
+ * The comparable form of that payload. Re-posting a snapshot the webview
+ * already has is not free: the canvas re-runs its ELK layout on graph *object
+ * identity*, so an unchanged re-post is a full re-layout for nothing — once
+ * per debounced keystroke, including keystrokes inside a comment.
+ */
+export function postSignature(payload: PostPayload): string {
+  return JSON.stringify(payload);
+}
+
 export type Debouncer = {
   schedule: () => void;
   dispose: () => void;

@@ -25,6 +25,7 @@ import {
 import {
   createDebouncer,
   hasParseErrors,
+  postSignature,
   toFileDiagnostics,
   type Debouncer,
 } from "./live-core";
@@ -135,6 +136,12 @@ class LivePreview {
   /** False until the first glob, and again when the watcher may have missed
    * events (a reveal, a git change): the next refresh re-globs. */
   private primed = false;
+  /** Bumped per refresh; a run overtaken by a newer one drops its result. */
+  private generation = 0;
+  /** The signature of what the panel was last told (live-core.postSignature). */
+  private lastSignature: string | null = null;
+  /** A refresh landed while the panel was hidden — post it on reveal. */
+  private pendingWhileHidden = false;
 
   /** Diff mode (GP-152/154): the baseline provider + the git-change signal. */
   private readonly baseline: BaselineProvider;
@@ -293,6 +300,16 @@ class LivePreview {
       }),
     );
 
+    // Coming back into view: deliver whatever the hidden panel missed, and
+    // re-glob, since a workspace can change without a watcher event.
+    this.disposables.push(
+      this.panel.onDidChangeViewState(() => {
+        if (!this.panel.visible || !this.pendingWhileHidden) return;
+        this.primed = false;
+        void this.refresh();
+      }),
+    );
+
     this.panel.onDidDispose(() => {
       this.reparse.dispose();
       this.diagnostics.dispose();
@@ -366,10 +383,14 @@ class LivePreview {
 
   /** Re-parse the folder and reconcile panel + Problems with the result. */
   private async refresh(): Promise<void> {
+    const generation = ++this.generation;
     if (!this.primed) {
       await this.cache.prime(await findTfPaths(this.folder));
       this.primed = true;
     }
+    // A newer refresh started while the prime was in flight: our result is
+    // already stale, so posting it would race the run that superseded us.
+    if (generation !== this.generation) return;
     const files = this.cache.files();
     // The entrypoint (`terraform -chdir` semantics): setting > panel pick >
     // detection — a stack below the folder root used to parse silently empty.
@@ -388,12 +409,23 @@ class LivePreview {
 
     if (hasParseErrors(diagnostics) && this.lastGood) {
       // Mid-edit broken state: the reader keeps the graph they had.
-      await this.post({ type: "outOfSync", value: true });
+      if (this.panel.visible) await this.post({ type: "outOfSync", value: true });
+      else this.pendingWhileHidden = true;
+      // The panel now shows something the signature does not describe.
+      this.lastSignature = null;
       return;
     }
     if (!hasParseErrors(diagnostics)) this.lastGood = snapshot;
     // First-ever parse may be broken — a partial diagram beats a blank panel.
     const current = this.lastGood ?? snapshot;
+
+    // Hidden panel: the parse and the Problems entries above still stand
+    // (they are ~1 ms and the Problems panel must stay honest), but the git
+    // baseline, the diff and the posts would be work for nobody.
+    if (!this.panel.visible) {
+      this.pendingWhileHidden = true;
+      return;
+    }
 
     // Diff mode (GP-154): annotate against the cached baseline. Only the
     // "after" side was re-parsed above; the baseline never re-reads on edits.
@@ -408,6 +440,9 @@ class LivePreview {
     };
     if (prefs.enabled) {
       const result = await this.baseline.get(prefs.mode);
+      // Superseded while the baseline resolved: a newer refresh owns the
+      // panel now, and may already be mid-flight itself.
+      if (generation !== this.generation) return;
       if (result.ok) {
         posted = diff(result.baseline.snapshot, current);
         state = {
@@ -422,20 +457,33 @@ class LivePreview {
       }
     }
 
+    const folder = this.folder.name;
+    const multiRoot = (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
+    const outOfSync = hasParseErrors(diagnostics);
+    const signature = postSignature({
+      snapshot: posted,
+      folder,
+      multiRoot,
+      rootDir,
+      diff: state,
+      outOfSync,
+    });
+
     this.lastPosted = posted;
     // The tab names the stack being previewed — the only place it is said.
     this.panel.title = rootDir
       ? `Groundplan — ${rootDir}`
       : "Groundplan Preview";
-    await this.post({
-      type: "snapshot",
-      snapshot: posted,
-      folder: this.folder.name,
-      multiRoot: (vscode.workspace.workspaceFolders?.length ?? 0) > 1,
-      rootDir,
-    });
-    await this.post({ type: "diffState", state });
-    await this.post({ type: "outOfSync", value: hasParseErrors(diagnostics) });
+
+    // Nothing the panel renders moved: stay quiet. A re-post would cost a
+    // full ELK re-layout to draw exactly what is already on screen.
+    if (signature !== this.lastSignature) {
+      this.lastSignature = signature;
+      await this.post({ type: "snapshot", snapshot: posted, folder, multiRoot, rootDir });
+      await this.post({ type: "diffState", state });
+      await this.post({ type: "outOfSync", value: outOfSync });
+    }
+    this.pendingWhileHidden = false;
 
     // Opened from a file in another stack? Align once, now that candidates
     // are known — later switches come from the editor listener.
