@@ -13,7 +13,10 @@ import { join } from "node:path";
 import {
   BaselineProvider,
   findGitRoot,
+  parseLsTreeEntry,
   runGit,
+  runGitBatch,
+  splitBatch,
   watchGitChanges,
   type GitRunner,
 } from "./git-baseline";
@@ -130,7 +133,10 @@ test("a cached baseline runs no git at all; a re-resolved same sha reparses noth
     calls++;
     return runGit(args, cwd);
   };
-  const provider = new BaselineProvider(dir, counted);
+  const provider = new BaselineProvider(dir, counted, undefined, undefined, (shas, cwd) => {
+    calls++;
+    return runGitBatch(shas, cwd);
+  });
 
   await provider.get("head");
   const afterFirst = calls;
@@ -268,4 +274,106 @@ test("a workspace folder below the repo root gets folder-relative paths", async 
     result.baseline.files.map((f) => f.path),
     ["main.tf"],
   );
+});
+
+test("splitBatch frames on bytes, so multi-byte content cannot shift the next file", () => {
+  // "é" is two bytes and one character: a character-based split loses a byte
+  // per accent and every following object lands askew.
+  const first = Buffer.from('resource "a" "é" {}\n', "utf8");
+  const second = Buffer.from('resource "b" "c" {}\n', "utf8");
+  const out = Buffer.concat([
+    Buffer.from(`aaa blob ${first.length}\n`, "utf8"),
+    first,
+    Buffer.from("\n", "utf8"),
+    Buffer.from(`bbb blob ${second.length}\n`, "utf8"),
+    second,
+    Buffer.from("\n", "utf8"),
+  ]);
+
+  const objects = splitBatch(out, 2);
+  assert.equal(objects.length, 2);
+  assert.equal(objects[0]?.toString("utf8"), first.toString("utf8"));
+  assert.equal(objects[1]?.toString("utf8"), second.toString("utf8"));
+});
+
+test("splitBatch refuses a missing object rather than returning nonsense", () => {
+  const out = Buffer.from("deadbeef missing\n", "utf8");
+  assert.throws(() => splitBatch(out, 1), /missing/);
+});
+
+test("parseLsTreeEntry reads mode/type/sha/path, including paths with spaces", () => {
+  assert.deepEqual(parseLsTreeEntry("100644 blob abc123\tenvs/my stack/main.tf"), {
+    type: "blob",
+    sha: "abc123",
+    path: "envs/my stack/main.tf",
+  });
+  assert.equal(parseLsTreeEntry("not a tree record"), null);
+});
+
+test("baseline content survives non-ASCII and CRLF byte-for-byte", async () => {
+  const dir = makeRepo();
+  // Two files: the first is multi-byte, so a character-based split would
+  // corrupt the second.
+  writeFileSync(join(dir, "a.tf"), 'resource "aws_s3_bucket" "é" {\r\n  bucket = "café"\r\n}\r\n');
+  writeFileSync(join(dir, "b.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  const result = await new BaselineProvider(dir).get("head");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.deepEqual(result.baseline.files.map((f) => f.path), ["a.tf", "b.tf"]);
+  assert.equal(
+    result.baseline.files[0]?.content,
+    'resource "aws_s3_bucket" "é" {\r\n  bucket = "café"\r\n}\r\n',
+  );
+  assert.equal(result.baseline.files[1]?.content, MAIN_TF);
+});
+
+test("reading a baseline spawns two git processes, not one per file", async () => {
+  const dir = makeRepo();
+  for (const name of ["a.tf", "b.tf", "c.tf", "d.tf", "e.tf"]) {
+    writeFileSync(join(dir, name), MAIN_TF.replace('"b"', `"${name[0]}"`));
+  }
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  let plain = 0;
+  let batches = 0;
+  const provider = new BaselineProvider(
+    dir,
+    (args, cwd) => {
+      plain++;
+      return runGit(args, cwd);
+    },
+    undefined,
+    undefined,
+    (shas, cwd) => {
+      batches++;
+      return runGitBatch(shas, cwd);
+    },
+  );
+
+  const result = await provider.get("head");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.equal(result.baseline.files.length, 5);
+  // rev-parse --show-toplevel, rev-parse HEAD, ls-tree — and one batch.
+  assert.equal(plain, 3);
+  assert.equal(batches, 1, "one cat-file --batch, whatever the file count");
+});
+
+test("an empty baseline runs no batch at all", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "readme.md"), "no terraform here");
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  let batches = 0;
+  const provider = new BaselineProvider(dir, undefined, undefined, undefined, (shas, cwd) => {
+    batches++;
+    return runGitBatch(shas, cwd);
+  });
+  const result = await provider.get("head");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.deepEqual(result.baseline.files, []);
+  assert.equal(batches, 0);
 });

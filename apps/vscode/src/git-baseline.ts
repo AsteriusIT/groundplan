@@ -15,7 +15,7 @@
  *    staleness. Keystrokes re-parse the "after" side only; a warm `get()`
  *    performs zero git invocations (verifiable via the `log` hook).
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, statSync, watch } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -45,6 +45,76 @@ export const runGit: GitRunner = (args, cwd) =>
       },
     );
   });
+
+/** Read many blobs by sha in one process. Buffers, because sizes are bytes. */
+export type GitBatchRunner = (shas: string[], cwd: string) => Promise<Buffer[]>;
+
+/**
+ * `git cat-file --batch`: one process for the whole baseline instead of a
+ * `git show` per file (200 `.tf` files used to mean 200 spawns the first time
+ * diff mode turned on). stdin takes one sha per line; stdout frames each
+ * object as `<sha> <type> <size>\n<size bytes>\n`.
+ */
+export const runGitBatch: GitBatchRunner = (shas, cwd) =>
+  new Promise((resolve, reject) => {
+    const child = spawn("git", ["cat-file", "--batch"], { cwd });
+    const chunks: Buffer[] = [];
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `git cat-file exited ${code ?? "?"}`));
+        return;
+      }
+      try {
+        resolve(splitBatch(Buffer.concat(chunks), shas.length));
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    child.stdin.end(shas.map((sha) => `${sha}\n`).join(""));
+  });
+
+/**
+ * Split `cat-file --batch` output into one buffer per requested object. The
+ * header's size is a **byte** count, so this stays on the Buffer until the
+ * payload is sliced: splitting a decoded string would shift every object after
+ * the first one holding non-ASCII.
+ */
+export function splitBatch(out: Buffer, expected: number): Buffer[] {
+  const objects: Buffer[] = [];
+  let at = 0;
+  for (let index = 0; index < expected; index++) {
+    const newline = out.indexOf(0x0a, at);
+    if (newline === -1) throw new Error("git cat-file: truncated output");
+    const header = out.toString("utf8", at, newline);
+    const size = Number(header.split(" ")[2]);
+    // "<sha> missing" — a sha we listed is not readable; never guess past it.
+    if (!Number.isFinite(size)) throw new Error(`git cat-file: ${header}`);
+    const start = newline + 1;
+    objects.push(out.subarray(start, start + size));
+    at = start + size + 1; // the object's trailing newline
+  }
+  return objects;
+}
+
+/** One `git ls-tree -r -z` record: `<mode> <type> <sha>\t<path>`. */
+export function parseLsTreeEntry(
+  record: string,
+): { type: string; sha: string; path: string } | null {
+  const tab = record.indexOf("\t");
+  if (tab === -1) return null;
+  const fields = record.slice(0, tab).split(" ");
+  const type = fields[1];
+  const sha = fields[2];
+  if (!type || !sha) return null;
+  // -z means paths arrive verbatim — never quoted, spaces and all.
+  return { type, sha, path: record.slice(tab + 1) };
+}
 
 export type Baseline = {
   /** The resolved commit the baseline was read from. */
@@ -77,6 +147,7 @@ export class BaselineProvider {
     private readonly log: (line: string) => void = () => {},
     /** The entrypoint a baseline file set parses from — mirrors the live side. */
     private readonly rootDirOf: (files: HclFile[]) => string = detectRootDir,
+    private readonly gitBatch: GitBatchRunner = runGitBatch,
   ) {}
 
   /** Drop the mode → sha resolution; the next get() asks git again. */
@@ -128,6 +199,11 @@ export class BaselineProvider {
     return this.git(args, cwd);
   }
 
+  private batch(shas: string[], cwd: string): Promise<Buffer[]> {
+    this.log(`git cat-file --batch (${shas.length} objects)`);
+    return this.gitBatch(shas, cwd);
+  }
+
   private async root(): Promise<string> {
     this.toplevel ??= (
       await this.run(["rev-parse", "--show-toplevel"], this.folder)
@@ -168,17 +244,29 @@ export class BaselineProvider {
     const inFolder = /^([A-Za-z]:)?\//.test(prefix) ? "" : prefix;
 
     const listed = await this.run(
-      ["ls-tree", "-r", sha, "--name-only", "-z", ...(inFolder ? ["--", inFolder] : [])],
+      ["ls-tree", "-r", "-z", sha, ...(inFolder ? ["--", inFolder] : [])],
       cwd,
     );
-    const paths = listed.split("\0").filter(Boolean).filter(isDiagramTf);
+    const entries = listed
+      .split("\0")
+      .filter(Boolean)
+      .map(parseLsTreeEntry)
+      .filter(
+        (entry): entry is { type: string; sha: string; path: string } =>
+          entry !== null && entry.type === "blob" && isDiagramTf(entry.path),
+      );
 
-    const files = await Promise.all(
-      paths.map(async (path) => ({
-        path: inFolder ? path.slice(inFolder.length + 1) : path,
-        content: await this.run(["show", `${sha}:${path}`], cwd),
-      })),
-    );
+    // One process for the lot; a baseline with no Terraform runs none.
+    const contents = entries.length
+      ? await this.batch(
+          entries.map((entry) => entry.sha),
+          cwd,
+        )
+      : [];
+    const files = entries.map((entry, index) => ({
+      path: inFolder ? entry.path.slice(inFolder.length + 1) : entry.path,
+      content: contents[index]?.toString("utf8") ?? "",
+    }));
     files.sort((a, b) => (a.path < b.path ? -1 : 1));
 
     // Baseline files are committed code: even if a commit somehow fails to
