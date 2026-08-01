@@ -30,9 +30,12 @@ export const FILE_OF_CATEGORY: Record<ResourceCategory, string> = {
   data: "data.tf",
 };
 
+/** Where resources the catalog does not describe are written. */
+export const CUSTOM_FILE = "custom.tf";
+
 /** Every file the builder can write — what the collision check compares against. */
 export const GENERATED_FILES: readonly string[] = [
-  ...new Set(Object.values(FILE_OF_CATEGORY)),
+  ...new Set([...Object.values(FILE_OF_CATEGORY), CUSTOM_FILE]),
 ];
 
 /**
@@ -176,6 +179,43 @@ function renderBlock(
   return [`  ${name} {`, ...align(lines, "    "), "  }"].join("\n");
 }
 
+/**
+ * A resource the catalog does not describe: whatever the user typed, in a
+ * stable order. Attributes are sorted by key and references by the attribute
+ * they fill, so determinism does not depend on the order somebody happened to
+ * add the rows in.
+ */
+function renderCustomResource(
+  node: BuilderNode,
+  graph: BuilderGraph,
+  byId: Map<string, BuilderNode>,
+): string {
+  const lines: Line[] = Object.entries(node.attributes)
+    .filter(([, value]) => !isBlank(value))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => ({ key, value: renderValue(value) }));
+
+  const references = graph.references
+    .filter((reference) => reference.from === node.id)
+    .flatMap((reference) => {
+      const target = byId.get(reference.to);
+      if (!target || !reference.targetAttribute) return [];
+      return [
+        {
+          key: reference.attribute,
+          value: `${addressOf(target)}.${reference.targetAttribute}`,
+        },
+      ];
+    })
+    .sort((a, b) => a.key.localeCompare(b.key));
+
+  return [
+    `resource ${quote(node.type)} ${quote(node.name)} {`,
+    ...align([...lines, ...references], "  "),
+    "}",
+  ].join("\n");
+}
+
 /** One `resource` block: top-level fields, top-level connections, then blocks. */
 export function renderResource(
   node: BuilderNode,
@@ -232,6 +272,13 @@ export function generateTerraform(
   );
 
   for (const node of ordered) {
+    if (node.custom) {
+      byFile.set(CUSTOM_FILE, [
+        ...(byFile.get(CUSTOM_FILE) ?? []),
+        renderCustomResource(node, graph, byId),
+      ]);
+      continue;
+    }
     const def = resourceDef(node.type, catalog);
     if (!def) continue;
     const path = FILE_OF_CATEGORY[def.category];

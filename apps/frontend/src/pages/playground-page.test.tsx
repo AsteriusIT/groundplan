@@ -968,9 +968,11 @@ it("badges the offending nodes when the server refuses the graph (GP-135)", asyn
   fireEvent.click(screen.getByRole("button", { name: /Generate Terraform/ }));
 
   await screen.findByText("Validation failed");
-  // Back onto the node, not just into a sentence.
+  // Back onto the node, not just into a sentence. Awaited because the canvas
+  // holds its own copy of the nodes (so a drag does not stutter) and picks the
+  // new badge up on the commit after the one that answered.
   expect(
-    screen.getByLabelText("resource_group has 1 problem"),
+    await screen.findByLabelText("resource_group has 1 problem"),
   ).toBeInTheDocument();
   expect(screen.queryByText("Generated Terraform")).not.toBeInTheDocument();
 });

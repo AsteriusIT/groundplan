@@ -6,12 +6,17 @@ import {
   addNode,
   canAttach,
   connect,
+  connectCustom,
   connectedTo,
+  CUSTOM_TYPE,
   disconnect,
   freeName,
   removeNode,
   renameNode,
+  renameReference,
+  retypeNode,
   setAttribute,
+  setTargetAttribute,
 } from "./builder-ops";
 
 /** A resource group, a virtual network and a subnet, nothing connected yet. */
@@ -112,5 +117,65 @@ describe("builder operations (GP-133)", () => {
   it("removes an attribute rather than storing it blank", () => {
     const graph = setAttribute(threeNodes(), "n1", "location", undefined);
     expect(graph.nodes[0]?.attributes).not.toHaveProperty("location");
+  });
+});
+
+describe("custom resources and dropped positions (GP-133 follow-up)", () => {
+  it("adds a custom resource with no type, for the form to ask for", () => {
+    const graph = addNode(emptyBuilderGraph(), CUSTOM_TYPE, "c1");
+    expect(graph.nodes[0]).toMatchObject({
+      type: "",
+      name: "resource",
+      custom: true,
+    });
+  });
+
+  it("drops a resource where it was dropped", () => {
+    const graph = addNode(emptyBuilderGraph(), "azurerm_subnet", "a", {
+      x: 320,
+      y: -40,
+    });
+    expect(graph.nodes[0]?.position).toEqual({ x: 320, y: -40 });
+  });
+
+  it("names a custom reference after what it points at, and dedupes", () => {
+    let graph = addNode(emptyBuilderGraph(), "azurerm_subnet", "snet");
+    graph = addNode(graph, "azurerm_subnet", "snet2");
+    graph = addNode(graph, CUSTOM_TYPE, "c1");
+    graph = connectCustom(graph, "c1", "snet");
+    graph = connectCustom(graph, "c1", "snet2");
+    expect(graph.references).toEqual([
+      { from: "c1", to: "snet", attribute: "subnet_id", targetAttribute: "id" },
+      { from: "c1", to: "snet2", attribute: "subnet_id_2", targetAttribute: "id" },
+    ]);
+  });
+
+  it("refuses a custom connection from a catalog resource", () => {
+    let graph = addNode(emptyBuilderGraph(), "azurerm_subnet", "snet");
+    graph = addNode(graph, "azurerm_virtual_network", "vnet");
+    expect(connectCustom(graph, "snet", "vnet")).toBe(graph);
+  });
+
+  it("renames a reference and retargets which attribute it reads", () => {
+    let graph = addNode(emptyBuilderGraph(), "azurerm_subnet", "snet");
+    graph = addNode(graph, CUSTOM_TYPE, "c1");
+    graph = connectCustom(graph, "c1", "snet");
+    graph = renameReference(graph, "c1", "subnet_id", "scope");
+    graph = setTargetAttribute(graph, "c1", "scope", "name");
+    expect(graph.references[0]).toEqual({
+      from: "c1",
+      to: "snet",
+      attribute: "scope",
+      targetAttribute: "name",
+    });
+  });
+
+  it("retypes a custom resource, and only a custom one", () => {
+    let graph = addNode(emptyBuilderGraph(), CUSTOM_TYPE, "c1");
+    graph = addNode(graph, "azurerm_subnet", "snet");
+    graph = retypeNode(graph, "c1", "azurerm_management_lock");
+    graph = retypeNode(graph, "snet", "aws_instance");
+    expect(graph.nodes[0]?.type).toBe("azurerm_management_lock");
+    expect(graph.nodes[1]?.type).toBe("azurerm_subnet");
   });
 });

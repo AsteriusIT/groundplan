@@ -16,6 +16,7 @@ import {
   type BuilderValue,
 } from "@groundplan/builder";
 
+import { NEW_REFERENCE_HANDLE } from "./builder-node";
 import * as ops from "./builder-ops";
 
 export type BuilderController = {
@@ -25,8 +26,19 @@ export type BuilderController = {
   valid: boolean;
   selectedId: string | null;
   select: (id: string | null) => void;
-  addNode: (type: string) => void;
+  /** Add a resource — at a dropped position, or below what is already there. */
+  addNode: (type: string, position?: { x: number; y: number }) => void;
   rename: (id: string, name: string) => void;
+  /** Retype a custom resource (the only node whose type the user writes). */
+  retype: (id: string, type: string) => void;
+  /** Rename the attribute a custom resource's reference is written into. */
+  renameReference: (from: string, attribute: string, next: string) => void;
+  /** Set which attribute of the target a custom reference reads. */
+  setTargetAttribute: (
+    from: string,
+    attribute: string,
+    targetAttribute: string,
+  ) => void;
   setAttribute: (
     id: string,
     attribute: string,
@@ -47,16 +59,19 @@ export function useBuilderGraph(): BuilderController {
 
   const issues = useMemo(() => validateBuilderGraph(graph), [graph]);
 
-  const addNode = useCallback((type: string) => {
+  const addNode = useCallback(
+    (type: string, position?: { x: number; y: number }) => {
     const id = `n${nextId.current++}`;
     setGraph((current) => {
-      const next = ops.addNode(current, type, id);
+      const next = ops.addNode(current, type, id, position);
       // A type the catalog does not know adds nothing — and selecting an id
       // that was never created would leave an empty form open.
       if (next !== current) setSelectedId(id);
       return next;
     });
-  }, []);
+    },
+    [],
+  );
 
   const remove = useCallback((id: string) => {
     setGraph((current) => ops.removeNode(current, id));
@@ -80,7 +95,33 @@ export function useBuilderGraph(): BuilderController {
 
   const connect = useCallback(
     (from: string, attribute: string, to: string) => {
-      setGraph((current) => ops.connect(current, from, attribute, to));
+      setGraph((current) =>
+        // A custom resource has no slot to connect into, so the connection
+        // makes one and names it after what it points at.
+        attribute === NEW_REFERENCE_HANDLE
+          ? ops.connectCustom(current, from, to)
+          : ops.connect(current, from, attribute, to),
+      );
+    },
+    [],
+  );
+
+  const retype = useCallback((id: string, type: string) => {
+    setGraph((current) => ops.retypeNode(current, id, type));
+  }, []);
+
+  const renameReference = useCallback(
+    (from: string, attribute: string, next: string) => {
+      setGraph((current) => ops.renameReference(current, from, attribute, next));
+    },
+    [],
+  );
+
+  const setTargetAttribute = useCallback(
+    (from: string, attribute: string, targetAttribute: string) => {
+      setGraph((current) =>
+        ops.setTargetAttribute(current, from, attribute, targetAttribute),
+      );
     },
     [],
   );
@@ -100,6 +141,9 @@ export function useBuilderGraph(): BuilderController {
     select: setSelectedId,
     addNode,
     rename,
+    retype,
+    renameReference,
+    setTargetAttribute,
     setAttribute,
     move,
     remove,

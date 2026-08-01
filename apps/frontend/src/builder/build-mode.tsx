@@ -40,7 +40,9 @@ export function BuildMode({
 }>) {
   const issues = [...builder.issues, ...extraIssues];
   const selected = builder.graph.nodes.find((n) => n.id === builder.selectedId);
-  const selectedDef = selected ? resourceDef(selected.type) : undefined;
+  // A custom resource has no definition, and that is what makes it custom.
+  const selectedDef =
+    selected && !selected.custom ? resourceDef(selected.type) : undefined;
   const selectedIssues = issues.filter(
     (issue) => issue.nodeId === builder.selectedId,
   );
@@ -54,8 +56,9 @@ export function BuildMode({
           {builder.graph.nodes.length === 0 && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
               <p className="text-muted-foreground max-w-sm text-center text-sm">
-                Pick a resource on the left to start composing. Connect
-                resources to reference them, then generate the Terraform.
+                Drag a resource here, or click one on the left. Connect what a
+                resource offers on its right to what another needs on its left,
+                then generate the Terraform.
               </p>
             </div>
           )}
@@ -68,16 +71,18 @@ export function BuildMode({
             onConnect={builder.connect}
             onDisconnect={builder.disconnect}
             onDelete={builder.remove}
+            onDrop={builder.addNode}
           />
         </div>
 
-        {selected && selectedDef && (
+        {selected && (selectedDef || selected.custom) && (
           <BuilderForm
             node={selected}
             def={selectedDef}
             graph={builder.graph}
             issues={selectedIssues}
             onRename={(name) => builder.rename(selected.id, name)}
+            onRetype={(type) => builder.retype(selected.id, type)}
             onAttribute={(attribute, value) =>
               builder.setAttribute(selected.id, attribute, value)
             }
@@ -86,6 +91,12 @@ export function BuildMode({
             }
             onDisconnect={(attribute, to) =>
               builder.disconnect(selected.id, attribute, to)
+            }
+            onRenameReference={(attribute, next) =>
+              builder.renameReference(selected.id, attribute, next)
+            }
+            onSetTargetAttribute={(attribute, targetAttribute) =>
+              builder.setTargetAttribute(selected.id, attribute, targetAttribute)
             }
             onDelete={() => builder.remove(selected.id)}
           />

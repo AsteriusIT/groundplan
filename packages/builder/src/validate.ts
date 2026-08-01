@@ -18,6 +18,7 @@ import {
 
 export type BuilderIssueReason =
   | "unknown_type"
+  | "invalid_type"
   | "invalid_name"
   | "duplicate_name"
   | "missing_required"
@@ -47,6 +48,9 @@ export type BuilderIssue = {
 
 /** Terraform's rule for a block label: a letter or underscore, then word characters or dashes. */
 const TERRAFORM_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+
+/** A provider resource type: `azurerm_subnet`, `random_password`, `null_resource`. */
+const TERRAFORM_TYPE = /^[a-z][a-z0-9]*(_[a-z0-9]+)+$/;
 
 /** Does a value fit the kind its attribute declares? */
 function fitsKind(def: AttributeDef, value: BuilderValue): boolean {
@@ -89,7 +93,7 @@ export function attributeValue(
 /** The Terraform block label: legal, and unique among its own type. */
 function validateName(
   node: BuilderNode,
-  def: ResourceDef,
+  label: string,
   nameOwners: Map<string, string[]>,
   issues: BuilderIssue[],
 ): void {
@@ -108,7 +112,7 @@ function validateName(
     issues.push({
       nodeId: node.id,
       reason: "duplicate_name",
-      message: `another ${def.label} is already called "${node.name}"`,
+      message: `another ${label} is already called "${node.name}"`,
     });
   }
 }
@@ -151,7 +155,7 @@ function validateNode(
   nameOwners: Map<string, string[]>,
   issues: BuilderIssue[],
 ): void {
-  validateName(node, def, nameOwners, issues);
+  validateName(node, def.label, nameOwners, issues);
 
   const known = new Set(def.attributes.map((a) => a.name));
   for (const name of Object.keys(node.attributes)) {
@@ -167,6 +171,45 @@ function validateNode(
 
   for (const attribute of def.attributes) {
     validateAttribute(attribute, node, issues);
+  }
+}
+
+/**
+ * A custom node's reference: the user named both ends of it, so both are
+ * checked as syntax — an attribute to write it into, an attribute of the target
+ * to read, and a target that is actually on the canvas.
+ */
+function validateCustomReference(
+  reference: BuilderGraph["references"][number],
+  from: BuilderNode,
+  byId: Map<string, BuilderNode>,
+  issues: BuilderIssue[],
+): void {
+  if (!TERRAFORM_NAME.test(reference.attribute)) {
+    issues.push({
+      nodeId: from.id,
+      attribute: reference.attribute,
+      reason: "invalid_value",
+      message: "a reference needs the attribute name to write it into",
+    });
+    return;
+  }
+  if (!byId.has(reference.to)) {
+    issues.push({
+      nodeId: from.id,
+      attribute: reference.attribute,
+      reason: "dangling_reference",
+      message: `${reference.attribute} points at a resource that is not on the canvas`,
+    });
+    return;
+  }
+  if (!TERRAFORM_NAME.test(reference.targetAttribute ?? "")) {
+    issues.push({
+      nodeId: from.id,
+      attribute: reference.attribute,
+      reason: "invalid_value",
+      message: `${reference.attribute} needs the target's attribute to read, e.g. id`,
+    });
   }
 }
 
@@ -194,6 +237,10 @@ function validateReference(
       reason: "dangling_reference",
       message: "this reference starts at a resource that is not on the canvas",
     });
+    return;
+  }
+  if (from.custom) {
+    validateCustomReference(reference, from, byId, issues);
     return;
   }
   const def = resourceDef(from.type, catalog);
@@ -265,6 +312,10 @@ export function validateBuilderGraph(
   }
 
   for (const node of graph.nodes) {
+    if (node.custom) {
+      validateCustomNode(node, nameOwners, issues);
+      continue;
+    }
     const def = resourceDef(node.type, catalog);
     if (!def) {
       issues.push({
@@ -285,6 +336,7 @@ export function validateBuilderGraph(
   }
 
   for (const node of graph.nodes) {
+    if (node.custom) continue;
     const def = resourceDef(node.type, catalog);
     if (!def) continue;
     for (const slot of def.references) {
@@ -305,6 +357,45 @@ export function validateBuilderGraph(
 /** Is this issue about the resource's Terraform name, rather than a field? */
 export function isNameIssue(issue: BuilderIssue): boolean {
   return issue.reason === "invalid_name" || issue.reason === "duplicate_name";
+}
+
+/** Is this issue about a custom resource's typed-in Terraform type? */
+export function isTypeIssue(issue: BuilderIssue): boolean {
+  return issue.reason === "invalid_type";
+}
+
+/**
+ * A custom node (GP-133 follow-up): the catalog knows nothing about it, so the
+ * checks are the ones that hold for any resource — a syntactically valid type,
+ * a legal name, and attribute values that are actually values. What the
+ * provider requires is between the user and `terraform validate`.
+ */
+function validateCustomNode(
+  node: BuilderNode,
+  nameOwners: Map<string, string[]>,
+  issues: BuilderIssue[],
+): void {
+  if (!TERRAFORM_TYPE.test(node.type)) {
+    issues.push({
+      nodeId: node.id,
+      reason: "invalid_type",
+      message:
+        node.type.trim() === ""
+          ? "this resource needs a Terraform type, e.g. azurerm_management_lock"
+          : `"${node.type}" is not a Terraform resource type (lowercase words joined by _)`,
+    });
+  }
+  validateName(node, "custom resource", nameOwners, issues);
+  for (const [name, value] of Object.entries(node.attributes)) {
+    if (typeof value === "object" && !Array.isArray(value)) {
+      issues.push({
+        nodeId: node.id,
+        attribute: name,
+        reason: "invalid_value",
+        message: `${name} must be a value, not a structure`,
+      });
+    }
+  }
 }
 
 /** The issues of each node, keyed by node id — what the canvas badges from. */

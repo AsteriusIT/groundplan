@@ -17,12 +17,16 @@ import {
   type BuilderValue,
 } from "@groundplan/builder";
 
+/** The palette entry that stands for "a resource the catalog does not have". */
+export const CUSTOM_TYPE = "__custom__";
+
 /** Where a new node lands when the palette, not the pointer, decided. */
 const COLUMN_X = 40;
 const ROW_HEIGHT = 150;
 
 /** `azurerm_linux_web_app` → `web_app`: the readable half of a type. */
 export function nameStem(type: string): string {
+  if (type === CUSTOM_TYPE || type === "") return "resource";
   const withoutProvider = type.replace(/^[a-z0-9]+_/, "");
   return withoutProvider || type;
 }
@@ -58,6 +62,18 @@ export function newNode(
   id: string,
   position?: { x: number; y: number },
 ): BuilderNode | null {
+  // A custom resource starts with no type at all: the form asks for it, and
+  // validation says so until it is given one.
+  if (type === CUSTOM_TYPE) {
+    return {
+      id,
+      type: "",
+      name: freeName(graph, ""),
+      attributes: {},
+      custom: true,
+      position: position ?? nextPosition(graph),
+    };
+  }
   const def = resourceDef(type);
   if (!def) return null;
   const node: BuilderNode = {
@@ -131,6 +147,98 @@ export function removeNode(graph: BuilderGraph, id: string): BuilderGraph {
   return {
     nodes: graph.nodes.filter((n) => n.id !== id),
     references: graph.references.filter((r) => r.from !== id && r.to !== id),
+  };
+}
+
+/** Retype a custom resource — the one node whose type is the user's to write. */
+export function retypeNode(
+  graph: BuilderGraph,
+  id: string,
+  type: string,
+): BuilderGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) => (n.id === id && n.custom ? { ...n, type } : n)),
+  };
+}
+
+/** Rename a custom resource's reference — the attribute it is written into. */
+export function renameReference(
+  graph: BuilderGraph,
+  from: string,
+  attribute: string,
+  next: string,
+): BuilderGraph {
+  return {
+    ...graph,
+    references: graph.references.map((r) =>
+      r.from === from && r.attribute === attribute
+        ? { ...r, attribute: next }
+        : r,
+    ),
+  };
+}
+
+/** Retarget a custom reference: which attribute of the target it reads. */
+export function setTargetAttribute(
+  graph: BuilderGraph,
+  from: string,
+  attribute: string,
+  targetAttribute: string,
+): BuilderGraph {
+  return {
+    ...graph,
+    references: graph.references.map((r) =>
+      r.from === from && r.attribute === attribute
+        ? { ...r, targetAttribute }
+        : r,
+    ),
+  };
+}
+
+/**
+ * The attribute name a new custom reference gets: what a Terraform author
+ * would have typed — `subnet_id`, `resource_group_id` — deduplicated.
+ */
+export function freeReferenceName(
+  graph: BuilderGraph,
+  from: string,
+  target: BuilderNode,
+): string {
+  const taken = new Set(
+    graph.references.filter((r) => r.from === from).map((r) => r.attribute),
+  );
+  const stem = `${nameStem(target.type)}_id`;
+  if (!taken.has(stem)) return stem;
+  let n = 2;
+  while (taken.has(`${stem}_${n}`)) n += 1;
+  return `${stem}_${n}`;
+}
+
+/**
+ * Add a reference to a custom resource: it has no slots, so the connection
+ * names itself after what it points at and reads that resource's `id`. Both
+ * halves are editable in the form afterwards.
+ */
+export function connectCustom(
+  graph: BuilderGraph,
+  from: string,
+  to: string,
+): BuilderGraph {
+  const source = graph.nodes.find((n) => n.id === from);
+  const target = graph.nodes.find((n) => n.id === to);
+  if (!source?.custom || !target || from === to) return graph;
+  return {
+    ...graph,
+    references: [
+      ...graph.references,
+      {
+        from,
+        to,
+        attribute: freeReferenceName(graph, from, target),
+        targetAttribute: "id",
+      },
+    ],
   };
 }
 

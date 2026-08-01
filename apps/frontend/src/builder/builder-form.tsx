@@ -7,10 +7,13 @@
  * builder half the team cannot use. Both paths go through the same rules, so
  * neither can make a connection the other would refuse.
  */
+import { useState } from "react";
+
 import {
   attributeValue,
   canConnect,
   isNameIssue,
+  isTypeIssue,
   type AttributeDef,
   type BuilderGraph,
   type BuilderIssue,
@@ -221,25 +224,205 @@ function SlotField({
   );
 }
 
+
+/**
+ * A custom resource's form: the type, then whatever fields and references the
+ * user decides it has. Nothing is offered from a catalog because there is no
+ * catalog entry — this is the part of the builder where the user is the schema.
+ */
+function CustomFields({
+  node,
+  graph,
+  issues,
+  onRetype,
+  onAttribute,
+  onRenameReference,
+  onSetTargetAttribute,
+  onDisconnect,
+}: Readonly<{
+  node: BuilderNode;
+  graph: BuilderGraph;
+  issues: readonly BuilderIssue[];
+  onRetype: (type: string) => void;
+  onAttribute: (attribute: string, value: BuilderValue | undefined) => void;
+  onRenameReference: (attribute: string, next: string) => void;
+  onSetTargetAttribute: (attribute: string, targetAttribute: string) => void;
+  onDisconnect: (attribute: string, to: string) => void;
+}>) {
+  const [newKey, setNewKey] = useState("");
+  const typeProblem = issues.find(isTypeIssue)?.message;
+  const references = graph.references.filter((r) => r.from === node.id);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  function addAttribute() {
+    const key = newKey.trim();
+    if (key === "") return;
+    onAttribute(key, "");
+    setNewKey("");
+  }
+
+  return (
+    <>
+      <div className="space-y-1">
+        <Label htmlFor={`type-${node.id}`} className="text-[11px]">
+          Terraform type<span className="text-destructive"> *</span>
+        </Label>
+        <Input
+          id={`type-${node.id}`}
+          className="h-8 font-mono text-xs"
+          placeholder="azurerm_management_lock"
+          value={node.type}
+          onChange={(e) => onRetype(e.target.value)}
+        />
+        {typeProblem ? (
+          <p className="text-destructive text-[11px]">{typeProblem}</p>
+        ) : (
+          <p className="text-muted-foreground text-[11px]">
+            Nothing here is checked against a provider schema — the fields are
+            yours to get right.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <span className="text-muted-foreground font-mono text-[11px] tracking-[0.12em] uppercase">
+          Attributes
+        </span>
+        {Object.entries(node.attributes).map(([key, value]) => (
+          <div key={key} className="flex items-end gap-1">
+            <div className="min-w-0 flex-1 space-y-1">
+              <Label htmlFor={`custom-${node.id}-${key}`} className="text-[11px]">
+                {key}
+              </Label>
+              <Input
+                id={`custom-${node.id}-${key}`}
+                className="h-8 font-mono text-xs"
+                value={typeof value === "string" ? value : String(value)}
+                onChange={(e) => onAttribute(key, e.target.value)}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label={`Remove ${key}`}
+              onClick={() => onAttribute(key, undefined)}
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          </div>
+        ))}
+        <div className="flex items-end gap-1">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label htmlFor={`new-attr-${node.id}`} className="text-[11px]">
+              New attribute
+            </Label>
+            <Input
+              id={`new-attr-${node.id}`}
+              className="h-8 font-mono text-xs"
+              placeholder="lock_level"
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addAttribute();
+              }}
+            />
+          </div>
+          <Button variant="outline" className="h-8" onClick={addAttribute}>
+            Add
+          </Button>
+        </div>
+      </div>
+
+      {references.length > 0 && (
+        <div className="space-y-2">
+          <span className="text-muted-foreground font-mono text-[11px] tracking-[0.12em] uppercase">
+            References
+          </span>
+          {references.map((reference) => {
+            const target = byId.get(reference.to);
+            const problem = messageFor(issues, reference.attribute);
+            return (
+              <div key={reference.attribute} className="space-y-1">
+                <div className="flex items-center gap-1">
+                  <Input
+                    aria-label={`Reference attribute for ${target?.name ?? reference.to}`}
+                    className="h-8 min-w-0 flex-1 font-mono text-xs"
+                    value={reference.attribute}
+                    onChange={(e) =>
+                      onRenameReference(reference.attribute, e.target.value)
+                    }
+                  />
+                  <span className="text-faint shrink-0 font-mono text-[11px]">
+                    =
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    aria-label={`Remove reference ${reference.attribute}`}
+                    onClick={() =>
+                      onDisconnect(reference.attribute, reference.to)
+                    }
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="bg-muted min-w-0 flex-1 truncate rounded px-2 py-1 font-mono text-[11px]">
+                    {target ? `${target.type}.${target.name}` : reference.to}
+                  </span>
+                  <span className="text-faint shrink-0 font-mono text-[11px]">
+                    .
+                  </span>
+                  <Input
+                    aria-label={`Target attribute for ${reference.attribute}`}
+                    className="h-8 w-24 font-mono text-xs"
+                    value={reference.targetAttribute ?? ""}
+                    placeholder="id"
+                    onChange={(e) =>
+                      onSetTargetAttribute(reference.attribute, e.target.value)
+                    }
+                  />
+                </div>
+                {problem && (
+                  <p className="text-destructive text-[11px]">{problem}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function BuilderForm({
   node,
   def,
   graph,
   issues,
   onRename,
+  onRetype,
   onAttribute,
   onConnect,
   onDisconnect,
+  onRenameReference,
+  onSetTargetAttribute,
   onDelete,
 }: Readonly<{
   node: BuilderNode;
-  def: ResourceDef;
+  /** The catalog definition; absent on a custom resource. */
+  def?: ResourceDef;
   graph: BuilderGraph;
   issues: readonly BuilderIssue[];
   onRename: (name: string) => void;
+  onRetype: (type: string) => void;
   onAttribute: (attribute: string, value: BuilderValue | undefined) => void;
   onConnect: (attribute: string, to: string) => void;
   onDisconnect: (attribute: string, to: string) => void;
+  onRenameReference: (attribute: string, next: string) => void;
+  onSetTargetAttribute: (attribute: string, targetAttribute: string) => void;
   onDelete: () => void;
 }>) {
   // The Terraform name's problems are the ones about the name, not the ones
@@ -253,7 +436,7 @@ export function BuilderForm({
     >
       <div className="border-border flex items-center justify-between gap-2 border-b px-4 py-1.5">
         <span className="text-muted-foreground truncate font-mono text-[11px] tracking-[0.12em] uppercase">
-          {def.label}
+          {def?.label ?? "Custom resource"}
         </span>
         <Button
           variant="ghost"
@@ -286,27 +469,42 @@ export function BuilderForm({
           )}
         </div>
 
-        {def.attributes.map((attribute) => (
-          <AttributeField
-            key={attribute.name}
-            attribute={attribute}
-            node={node}
-            issues={issues}
-            onChange={(value) => onAttribute(attribute.name, value)}
-          />
-        ))}
-
-        {def.references.map((slot) => (
-          <SlotField
-            key={slot.attribute}
-            slot={slot}
+        {def === undefined ? (
+          <CustomFields
             node={node}
             graph={graph}
             issues={issues}
-            onConnect={onConnect}
+            onRetype={onRetype}
+            onAttribute={onAttribute}
+            onRenameReference={onRenameReference}
+            onSetTargetAttribute={onSetTargetAttribute}
             onDisconnect={onDisconnect}
           />
-        ))}
+        ) : (
+          <>
+            {def.attributes.map((attribute) => (
+              <AttributeField
+                key={attribute.name}
+                attribute={attribute}
+                node={node}
+                issues={issues}
+                onChange={(value) => onAttribute(attribute.name, value)}
+              />
+            ))}
+
+            {def.references.map((slot) => (
+              <SlotField
+                key={slot.attribute}
+                slot={slot}
+                node={node}
+                graph={graph}
+                issues={issues}
+                onConnect={onConnect}
+                onDisconnect={onDisconnect}
+              />
+            ))}
+          </>
+        )}
       </div>
     </aside>
   );

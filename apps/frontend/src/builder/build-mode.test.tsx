@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { BuildMode } from "./build-mode";
@@ -115,5 +115,75 @@ it("refuses to leave two resources of a type sharing a name", () => {
   fireEvent.change(field(/Terraform name/), { target: { value: "subnet" } });
   expect(
     screen.getByText('another Subnet is already called "subnet"'),
+  ).toBeInTheDocument();
+});
+
+// --- The GP-133 follow-up: names, custom resources, dragging ---------------
+
+it("shows the name the resource will carry, beside its Terraform label", () => {
+  render(<Harness />);
+  addFromPalette("Resource group");
+
+  const card = screen.getByTestId("builder-node-n1");
+  // Before it is named, the card says so rather than showing nothing.
+  expect(within(card).getByText("unnamed")).toBeInTheDocument();
+
+  fireEvent.change(field(/Azure name/), { target: { value: "rg-demo" } });
+
+  expect(within(card).getByText("rg-demo")).toBeInTheDocument();
+  expect(within(card).getByText(".resource_group")).toBeInTheDocument();
+});
+
+it("carries the resource type in the drag payload", () => {
+  render(<Harness />);
+  const palette = screen.getByLabelText("Resource palette");
+  const entry = within(palette).getByRole("button", { name: /Subnet/i });
+
+  const dataTransfer = {
+    setData: vi.fn(),
+    effectAllowed: "",
+  } as unknown as DataTransfer;
+  fireEvent.dragStart(entry, { dataTransfer });
+
+  expect(dataTransfer.setData).toHaveBeenCalledWith(
+    "application/x-groundplan-resource",
+    "azurerm_subnet",
+  );
+});
+
+it("composes a resource the catalog does not have", () => {
+  render(<Harness />);
+  addFromPalette("Custom resource");
+
+  // It arrives typeless, and says so on the card and in the form.
+  const card = screen.getByTestId("builder-node-n1");
+  expect(within(card).getByText("custom resource")).toBeInTheDocument();
+  expect(
+    screen.getByText(/needs a Terraform type/),
+  ).toBeInTheDocument();
+
+  fireEvent.change(field(/Terraform type/), { target: { value: "Nope Nope" } });
+  expect(
+    screen.getByText(/is not a Terraform resource type/),
+  ).toBeInTheDocument();
+
+  fireEvent.change(field(/Terraform type/), {
+    target: { value: "azurerm_management_lock" },
+  });
+  expect(screen.getByRole("status")).toHaveTextContent("1 resource · ready");
+
+  // Its attributes are the user's to invent.
+  fireEvent.change(field(/New attribute/), { target: { value: "lock_level" } });
+  fireEvent.click(
+    within(screen.getByLabelText("Resource details")).getByRole("button", {
+      name: "Add",
+    }),
+  );
+  fireEvent.change(field("lock_level"), { target: { value: "CanNotDelete" } });
+  expect(field("lock_level")).toHaveValue("CanNotDelete");
+
+  // And nothing about it is checked beyond syntax — said out loud, once.
+  expect(
+    screen.getByText(/checked against a provider schema/),
   ).toBeInTheDocument();
 });

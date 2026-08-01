@@ -22,13 +22,23 @@ export type BuilderPosition = { x: number; y: number };
 export type BuilderNode = {
   /** Canvas-local identity, opaque and stable for the session. Never a Terraform address. */
   id: string;
-  /** Catalog resource type, e.g. `azurerm_subnet`. */
+  /**
+   * Catalog resource type, e.g. `azurerm_subnet` — or, on a `custom` node, any
+   * Terraform type the user typed.
+   */
   type: string;
   /** The Terraform local name — the `this` in `resource "azurerm_subnet" "this"`. */
   name: string;
   /** Catalog attribute name → value. Absent = not filled in yet. */
   attributes: Record<string, BuilderValue>;
   position: BuilderPosition;
+  /**
+   * A resource the catalog does not describe: the user typed the type and the
+   * attributes themselves. It composes and generates like any other node, but
+   * nothing about it is checked beyond syntax — there is no schema to check it
+   * against, and inventing one would be worse than admitting that.
+   */
+  custom?: boolean;
 };
 
 /**
@@ -41,6 +51,12 @@ export type BuilderReference = {
   from: string;
   to: string;
   attribute: string;
+  /**
+   * Which attribute of the target is referenced. Normally the slot's business
+   * (`targetAttribute`), so this is absent; a custom node has no slot, so its
+   * references carry it — `id`, `name`, whatever the user meant.
+   */
+  targetAttribute?: string;
 };
 
 export type BuilderGraph = {
