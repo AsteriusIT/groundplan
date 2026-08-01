@@ -43,6 +43,12 @@ jobs:
       - name: Install (extension + workspace deps)
         run: pnpm install --frozen-lockfile --filter groundplan-vscode...
 
+      - name: Build (host + webview bundles)
+        run: pnpm --filter groundplan-vscode build
+        # The bundle guard in src/bundle.test.ts checks dist/webview/webview.js
+        # for absence of micromark and presence of the stub marker. It skips
+        # itself if dist/ doesn't exist, so it must run after build, not before.
+
       - name: Test
         run: pnpm --filter groundplan-vscode test
 

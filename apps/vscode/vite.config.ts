@@ -17,6 +17,12 @@ export default defineConfig({
   // micromark/mdast/unified rode along in a bundle that never ran it. The
   // stubs throw, so the assumption fails loudly if it ever stops holding.
   // Guarded by src/bundle.test.ts.
+  //
+  // Note: this alias is a Rollup (bundler) concept only. tsc (the type
+  // checker) resolves modules via Node's module resolution and sees the real
+  // types in packages/canvas/node_modules, not the stubs. The stubs need not
+  // be type-compatible with AiResponse; they only throw at runtime if ever
+  // imported, and the preview never imports them.
   resolve: {
     alias: {
       "react-markdown": fileURLToPath(
