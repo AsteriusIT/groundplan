@@ -39,6 +39,7 @@ import { AboutDiffPopover, DiffPopover } from "./components/diff-popover";
 import { FilterChips } from "./components/filter-chips";
 import { FilterButton, filterOptionsFor } from "./components/filter-popover";
 import { LegendButton } from "./components/legend-popover";
+import { OverflowMenu } from "./components/overflow-menu";
 import { SearchField } from "./components/search-field";
 import { StatusBar, type SyncState } from "./components/status-bar";
 import { Toolbar } from "./components/toolbar";
@@ -48,6 +49,7 @@ import {
   INITIAL_PANEL_STATE,
   NO_DIFF_FACTS,
   panelReducer,
+  toPanelPrefs,
   type DiffFacts,
   type PanelAction,
 } from "./state/panel-state";
@@ -117,6 +119,7 @@ export function App({
   const [legendOpen, setLegendOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const [query, setQuery] = useState("");
   const camera = useRef<CanvasCamera | null>(null);
   const view = panel.lens;
@@ -141,6 +144,10 @@ export function App({
         const { enabled, mode, changedOnly, ...observed } = message.state;
         dispatch({ type: "hostDiffPrefs", prefs: { enabled, mode, changedOnly } });
         setFacts(observed);
+      } else if (message.type === "panelPrefs") {
+        dispatch({ type: "hostPanelPrefs", prefs: message.prefs });
+      } else if (message.type === "openDiffInfo") {
+        setAboutOpen(true);
       } else if (message.type === "sync") {
         setSync(
           message.message === undefined
@@ -165,9 +172,10 @@ export function App({
   const act = (action: PanelAction): void => {
     const next = panelReducer(panel, action);
     dispatch(action);
-    if (next.diff !== panel.diff) {
-      post({ type: "setDiffPrefs", ...next.diff });
-    }
+    // Nothing to say when the reducer refused the action (it returns the same
+    // state), and everything to say otherwise: the host stores the document
+    // and decides for itself whether the change was one it must re-render for.
+    if (next !== panel) post({ type: "setPanelPrefs", prefs: toPanelPrefs(next) });
   };
 
   const diffActive = prefs.enabled && facts.available;
@@ -274,6 +282,13 @@ export function App({
           onChange={(filters) => act({ type: "setFilters", filters })}
           onClear={() => act({ type: "clearFilters" })}
         />
+        <OverflowMenu
+          open={overflowOpen}
+          onToggle={() => setOverflowOpen((open) => !open)}
+          onClose={() => setOverflowOpen(false)}
+          followCursor={panel.followCursor}
+          onToggleFollowCursor={() => act({ type: "toggleFollowCursor" })}
+        />
       </Toolbar>
 
       {/* A filter panel you have closed is a filter you have forgotten — and a
@@ -321,6 +336,9 @@ export function App({
               act({ type: "setFilters", filters: toExclusions(next, filterOptions) })
             }
             cameraRef={camera}
+            // Following the cursor must not fight the reader's pan: a node
+            // already in view needs no camera move.
+            revealSelection="offscreen"
             // Diff mode wears the PR view's hierarchy: unchanged recedes (GP-155).
             diffEmphasis={diffActive}
             containerIds={network?.containerIds}

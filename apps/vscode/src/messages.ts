@@ -5,6 +5,7 @@
 import type { Graph } from "@groundplan/graph-parser";
 
 import type { SyncValue } from "./live-core.js";
+import type { PanelPrefs } from "./panel-prefs.js";
 
 export type { SyncValue };
 
@@ -84,6 +85,19 @@ export type HostMessage =
     }
   | {
       /**
+       * The panel's persisted preferences for this workspace, sent once the
+       * webview says it is ready. The panel restores itself from this rather
+       * than starting on the defaults and flickering into place.
+       */
+      type: "panelPrefs";
+      prefs: PanelPrefs;
+    }
+  | {
+      /** The first-run notice's "Learn more" — open the caveat in the panel. */
+      type: "openDiffInfo";
+    }
+  | {
+      /**
        * Whether the panel is caught up with the editor. Deliberately its own
        * message: it must be posted on paths where the rendered payload has
        * not moved, which is exactly where the signature suppresses a post —
@@ -105,9 +119,11 @@ export type WebviewMessage =
       address: string | null;
     }
   | {
-      /** GP-154: the toolbar changed a diff preference; host persists + rediffs. */
-      type: "setDiffPrefs";
-      enabled: boolean;
-      mode: BaselineMode;
-      changedOnly: boolean;
+      /**
+       * A panel preference moved: persist it, and re-render if it was one the
+       * host has a hand in (the diff). Supersedes the three `groundplan.diff.*`
+       * keys, which are read once to seed this and then left alone.
+       */
+      type: "setPanelPrefs";
+      prefs: PanelPrefs;
     };

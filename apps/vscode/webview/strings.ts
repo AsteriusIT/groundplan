@@ -73,6 +73,12 @@ export const strings = {
     fit: "Fit the diagram",
     fitChanges: "Fit the changes",
   },
+  overflow: {
+    label: "More",
+    followCursor: "Follow cursor",
+    followCursorHint:
+      "Select the resource the cursor is in. The camera only moves when that resource is off screen.",
+  },
   status: {
     label: "Preview status",
     rendering: "Rendering…",

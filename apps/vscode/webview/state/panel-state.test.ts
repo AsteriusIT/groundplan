@@ -6,7 +6,13 @@
 import { describe, expect, test } from "vitest";
 
 import { NO_EXCLUSIONS } from "./filters";
-import { INITIAL_PANEL_STATE, panelReducer } from "./panel-state";
+import {
+  INITIAL_PANEL_STATE,
+  fromPanelPrefs,
+  panelReducer,
+  toPanelPrefs,
+  type PanelState,
+} from "./panel-state";
 
 describe("panelReducer", () => {
   test("starts on the global lens with diff off and follow-cursor on", () => {
@@ -128,5 +134,57 @@ describe("panelReducer", () => {
     const next = panelReducer(INITIAL_PANEL_STATE, { type: "clearFilters" });
 
     expect(next).toBe(INITIAL_PANEL_STATE);
+  });
+});
+
+describe("persistence", () => {
+  test("what the panel remembers survives a round trip", () => {
+    const state: PanelState = {
+      lens: "network",
+      diff: { enabled: true, mode: "merge-base", changedOnly: true },
+      filters: {
+        change: new Set(["create"]),
+        categories: new Set(["compute"]),
+        modules: new Set(["net"]),
+        hubEdges: true,
+      },
+      followCursor: false,
+    };
+
+    expect(fromPanelPrefs(toPanelPrefs(state))).toEqual(state);
+  });
+
+  test("the sets come back as sets, not as the arrays they were stored as", () => {
+    const restored = fromPanelPrefs({
+      version: 1,
+      lens: "infra",
+      diff: { enabled: false, mode: "head", changedOnly: false },
+      filters: {
+        change: ["delete"],
+        categories: [],
+        modules: [],
+        hubEdges: false,
+      },
+      followCursor: true,
+    });
+
+    expect(restored.filters.change).toBeInstanceOf(Set);
+    expect(restored.filters.change.has("delete")).toBe(true);
+  });
+
+  test("the host's document replaces the panel's state wholesale", () => {
+    const next = panelReducer(INITIAL_PANEL_STATE, {
+      type: "hostPanelPrefs",
+      prefs: {
+        version: 1,
+        lens: "iam",
+        diff: { enabled: true, mode: "head", changedOnly: false },
+        filters: { change: [], categories: [], modules: [], hubEdges: false },
+        followCursor: false,
+      },
+    });
+
+    expect(next.lens).toBe("iam");
+    expect(next.followCursor).toBe(false);
   });
 });

@@ -9,6 +9,9 @@
  * One reducer, so every piece of chrome reads the same panel.
  */
 import type { BaselineMode, DiffState } from "../../src/messages";
+import { ALL_FILTERS, CATEGORY_META, type Category } from "@groundplan/canvas";
+
+import type { PanelPrefs } from "../../src/panel-prefs";
 import { NO_EXCLUSIONS, type FilterExclusions } from "./filters";
 
 /** `infra` is labelled "Global" — the key is the web app's `?view=infra`. */
@@ -56,6 +59,8 @@ export type PanelAction =
   | { type: "toggleFollowCursor" }
   | { type: "setFilters"; filters: FilterExclusions }
   | { type: "clearFilters" }
+  /** The whole document, restored by the host when the panel says it is ready. */
+  | { type: "hostPanelPrefs"; prefs: PanelPrefs }
   /** The host's persisted preferences, echoed back with every snapshot. */
   | { type: "hostDiffPrefs"; prefs: DiffPrefs };
 
@@ -112,6 +117,9 @@ export function panelReducer(
         ? state
         : { ...state, filters: NO_EXCLUSIONS };
 
+    case "hostPanelPrefs":
+      return fromPanelPrefs(action.prefs);
+
     case "hostDiffPrefs":
       // Identity matters: this arrives with every post, and a fresh object per
       // keystroke would re-render the panel and remount the canvas.
@@ -119,4 +127,50 @@ export function panelReducer(
         ? state
         : { ...state, diff: action.prefs };
   }
+}
+
+/**
+ * The state as the host stores it. Sets do not survive JSON, and the filters
+ * are exclusions on purpose — see ./filters.
+ */
+export function toPanelPrefs(state: PanelState): PanelPrefs {
+  return {
+    version: 1,
+    lens: state.lens,
+    diff: { ...state.diff },
+    filters: {
+      change: [...state.filters.change],
+      categories: [...state.filters.categories],
+      modules: [...state.filters.modules],
+      hubEdges: state.filters.hubEdges,
+    },
+    followCursor: state.followCursor,
+  };
+}
+
+/**
+ * And back. The host validated the document's *shape*; the two enumerated
+ * filter sets are narrowed here instead of cast, because a stored string that
+ * is no longer a change kind or a category should exclude nothing rather than
+ * become one by assertion. Module names are free-form and need no narrowing —
+ * one that no longer exists already excludes nothing (see ./filters).
+ */
+export function fromPanelPrefs(prefs: PanelPrefs): PanelState {
+  const stored = new Set(prefs.filters.change);
+  const storedCategories = new Set<string>(prefs.filters.categories);
+  return {
+    lens: prefs.lens,
+    diff: { ...prefs.diff },
+    filters: {
+      change: new Set(ALL_FILTERS.filter((key) => stored.has(key))),
+      categories: new Set(
+        (Object.keys(CATEGORY_META) as Category[]).filter((category) =>
+          storedCategories.has(category),
+        ),
+      ),
+      modules: new Set(prefs.filters.modules),
+      hubEdges: prefs.filters.hubEdges,
+    },
+    followCursor: prefs.followCursor,
+  };
 }

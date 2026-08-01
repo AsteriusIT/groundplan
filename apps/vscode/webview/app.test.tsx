@@ -251,42 +251,91 @@ describe("filters", () => {
     expect(screen.queryByRole("button", { name: /stop hiding/i })).not.toBeInTheDocument();
   });
 
-  test("filtering is the panel's own business", () => {
-    // It is a fold of the snapshot in hand — no reason to make the host parse
-    // anything again.
+  test("a filter is remembered, so it survives closing the panel", () => {
     const { post } = mount([node("a", "create")], { ...CLEAN, clean: false });
     post.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: /^filters$/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Create/ }));
 
-    expect(post).not.toHaveBeenCalled();
+    // Stored as an exclusion — what is hidden, not what is shown.
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setPanelPrefs",
+        prefs: expect.objectContaining({
+          filters: expect.objectContaining({ change: ["create"] }),
+        }),
+      }),
+    );
   });
 });
 
 describe("talking to the host", () => {
-  test("turning diff on asks the host to re-render, once", () => {
+  test("turning diff on tells the host once", () => {
     const { post } = mount([node("a", "noop")]);
     post.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: /^diff$/i }));
 
     expect(post).toHaveBeenCalledExactlyOnceWith({
-      type: "setDiffPrefs",
-      enabled: true,
-      mode: "head",
-      changedOnly: false,
+      type: "setPanelPrefs",
+      prefs: expect.objectContaining({
+        version: 1,
+        diff: { enabled: true, mode: "head", changedOnly: false },
+      }),
     });
   });
 
-  test("switching lens is the panel's own business", () => {
-    // A lens is a fold of the snapshot already in hand. Asking the host would
-    // mean a round trip and a re-parse for a view it already sent.
+  test("the lens is remembered too", () => {
+    // Whether it costs a re-parse is the host's call (see needsRefresh); the
+    // panel's job is to say what the reader chose.
     const { post } = mount([node("a", "noop")]);
     post.mockClear();
 
     fireEvent.click(screen.getByRole("radio", { name: "Network" }));
 
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setPanelPrefs",
+        prefs: expect.objectContaining({ lens: "network" }),
+      }),
+    );
+  });
+
+  test("an action the reducer refuses says nothing to the host", () => {
+    // "Changed only" while diff is off changes no state, so there is nothing
+    // to persist and nothing to redraw.
+    const { post } = mount([node("a", "noop")]);
+    post.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /diff options/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /changed only/i }));
+
     expect(post).not.toHaveBeenCalled();
+  });
+
+  test("the panel restores what the host remembered", () => {
+    mount([node("a", "noop")]);
+
+    fromHost({
+      type: "panelPrefs",
+      prefs: {
+        version: 1,
+        lens: "network",
+        diff: { enabled: false, mode: "head", changedOnly: false },
+        filters: { change: [], categories: [], modules: [], hubEdges: false },
+        followCursor: true,
+      },
+    });
+
+    expect(screen.getByRole("radio", { name: "Network" })).toBeChecked();
+  });
+
+  test("the first-run notice can open the caveat it summarised", () => {
+    mount([node("a", "update")], { ...CLEAN, clean: false });
+
+    fromHost({ type: "openDiffInfo" });
+
+    expect(screen.getByText(/not a Terraform plan/i)).toBeInTheDocument();
   });
 });

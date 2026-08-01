@@ -42,6 +42,12 @@ import type {
   PreviewTheme,
   WebviewMessage,
 } from "./messages";
+import {
+  needsRefresh,
+  PANEL_PREFS_KEY,
+  parsePanelPrefs,
+  type PanelPrefs,
+} from "./panel-prefs";
 import { isDiagramTf, toPosixRelative } from "./paths";
 import {
   resolveFromCandidates,
@@ -59,10 +65,15 @@ const SELECTION_DEBOUNCE_MS = 200;
 /** How long the jumped-to block stays lit in the editor (GP-149). */
 const HIGHLIGHT_FADE_MS = 1000;
 
-/** workspaceState keys for the persisted diff choices (GP-154). */
+/**
+ * The GP-154 diff keys. Read once to seed the panel document and then left
+ * alone: a downgrade should still find the preferences it wrote.
+ */
 const PREF_ENABLED = "groundplan.diff.enabled";
 const PREF_MODE = "groundplan.diff.mode";
 const PREF_CHANGED_ONLY = "groundplan.diff.changedOnly";
+/** globalState: the static-diff caveat is shown once, ever, per install. */
+const DIFF_EXPLAINER_SHOWN = "groundplan.diffExplainerShown";
 /** The stack last picked in the panel's switcher (multi-stack workspaces). */
 const PREF_ROOT_DIR = "groundplan.rootDir.picked";
 /** The theme is a contributed VS Code setting — no in-panel switch (chrome
@@ -171,6 +182,8 @@ class LivePreview {
   /** Every git invocation is logged here — "no git while typing" is checkable. */
   private readonly gitLog: vscode.OutputChannel;
   private readonly workspaceState: vscode.Memento;
+  /** Shown-once flags live per install, not per workspace. */
+  private readonly globalState: vscode.Memento;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -183,6 +196,7 @@ class LivePreview {
       "webview",
     );
     this.workspaceState = context.workspaceState;
+    this.globalState = context.globalState;
     this.cache = new TfFileCache(this.folder.uri.fsPath, readTfFile);
     this.panel = vscode.window.createWebviewPanel(
       "groundplan.preview",
@@ -292,6 +306,9 @@ class LivePreview {
 
     this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
       if (message.type === "ready") {
+        // Restore the panel before it draws anything, so it does not start on
+        // the defaults and flicker into the reader's actual preferences.
+        void this.post({ type: "panelPrefs", prefs: this.panelPrefs() });
         // `ready` means the webview holds nothing: a reload, or a first
         // mount that missed everything posted before its listener existed
         // (the bundle is 2+ MB and mounts asynchronously). Forget what we
@@ -306,12 +323,15 @@ class LivePreview {
         this.lastSelected = message.address;
         if (message.address) void this.revealOrExplain(message.address);
       }
-      // Diff prefs (GP-154): persist, then re-render under the new lens.
-      if (message.type === "setDiffPrefs") {
-        void this.workspaceState.update(PREF_ENABLED, message.enabled);
-        void this.workspaceState.update(PREF_MODE, message.mode);
-        void this.workspaceState.update(PREF_CHANGED_ONLY, message.changedOnly);
-        void this.refresh();
+      // A panel preference moved: store the document, and re-render only when
+      // the change was one the host has a hand in. A lens or a filter is a
+      // fold of the snapshot the panel already holds — re-parsing for it would
+      // be a round trip to redraw what is on screen.
+      if (message.type === "setPanelPrefs") {
+        const before = this.panelPrefs();
+        void this.workspaceState.update(PANEL_PREFS_KEY, message.prefs);
+        this.maybeExplainDiff(before.diff, message.prefs.diff);
+        if (needsRefresh(before, message.prefs)) void this.refresh();
       }
     });
 
@@ -373,13 +393,21 @@ class LivePreview {
     this.panel.dispose();
   }
 
-  /** The user's persisted diff choices (GP-154), with quiet defaults. */
-  private prefs(): { enabled: boolean; mode: BaselineMode; changedOnly: boolean } {
-    return {
+  /**
+   * Everything the panel remembers here, seeded from the older diff keys the
+   * first time. Never trusted as read — see `parsePanelPrefs`.
+   */
+  private panelPrefs(): PanelPrefs {
+    return parsePanelPrefs(this.workspaceState.get<unknown>(PANEL_PREFS_KEY), {
       enabled: this.workspaceState.get<boolean>(PREF_ENABLED, false),
       mode: this.workspaceState.get<BaselineMode>(PREF_MODE, "head"),
       changedOnly: this.workspaceState.get<boolean>(PREF_CHANGED_ONLY, false),
-    };
+    });
+  }
+
+  /** The diff choices, which are the part of the document the host acts on. */
+  private prefs(): { enabled: boolean; mode: BaselineMode; changedOnly: boolean } {
+    return this.panelPrefs().diff;
   }
 
   /** The stack the switcher last picked here, if any. */
@@ -645,8 +673,37 @@ class LivePreview {
     setTimeout(() => highlight.dispose(), HIGHLIGHT_FADE_MS);
   }
 
+  /**
+   * The static-diff caveat, once ever: a code diff is not a plan, and reading
+   * one as though it were is the mistake this panel can actually cause. It
+   * used to be a note pinned to the canvas on every render, which is how a
+   * caveat becomes furniture. Shown on the first activation of diff mode —
+   * the moment it is about to be true — and never again.
+   */
+  private maybeExplainDiff(
+    before: { enabled: boolean },
+    after: { enabled: boolean },
+  ): void {
+    if (before.enabled || !after.enabled) return;
+    if (this.globalState.get<boolean>(DIFF_EXPLAINER_SHOWN, false)) return;
+    void this.globalState.update(DIFF_EXPLAINER_SHOWN, true);
+    void vscode.window
+      .showInformationMessage(
+        "Groundplan diff compares your working tree against a git baseline. " +
+          "It is not a Terraform plan: no state is read, and count/for_each " +
+          "are not expanded.",
+        "Learn more",
+      )
+      .then((choice) => {
+        if (choice === "Learn more") void this.post({ type: "openDiffInfo" });
+      });
+  }
+
   /** Code → node: tell the webview which resource block the cursor is in. */
   private async postCursorSelection(): Promise<void> {
+    // Following is a preference, and a reader who turned it off should not
+    // have the diagram quietly re-selecting under them.
+    if (!this.panelPrefs().followCursor) return;
     if (!this.lastGood) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !editor.document.fileName.endsWith(".tf")) return;
