@@ -9,6 +9,8 @@ import type {
   AiGeneration,
   AiKind,
   AiStatus,
+  BuilderGraphInput,
+  BuilderStatus,
   Annotation,
   AnnotationStatus,
   Cluster,
@@ -101,7 +103,16 @@ function apiBase(): string {
 }
 
 /** One entry of a 422's per-field details (e.g. an offending playground file). */
-export type ApiFieldError = { field: string; message: string };
+export type ApiFieldError = {
+  field: string;
+  message: string;
+  /**
+   * The builder's 422s (GP-134) name the canvas node the problem belongs to, so
+   * the composition can be badged without matching on prose. Absent everywhere
+   * else — a field name is enough when the form owns the field.
+   */
+  nodeId?: string;
+};
 
 /** Thrown for any non-2xx response; carries the HTTP status and server message. */
 export class ApiError extends Error {
@@ -1070,6 +1081,25 @@ export function updatePlaygroundDraft(
 export function deletePlaygroundDraft(id: string): Promise<void> {
   return request<void>(`/playground/drafts/${encode(id)}`, {
     method: "DELETE",
+  });
+}
+
+// --- Visual builder (GP-131) ------------------------------------------------
+// User-scoped and org-free like the playground it writes into: generation is
+// ephemeral, so nothing here sits under /orgs/:orgId.
+
+/** Is Build mode configured on this deployment (`BUILDER_ENABLED`)? */
+export function getBuilderStatus(): Promise<BuilderStatus> {
+  return request<BuilderStatus>("/builder/status");
+}
+
+/** A composed graph → the Terraform files it stands for. Nothing is stored. */
+export function generateBuilderTerraform(
+  graph: BuilderGraphInput,
+): Promise<{ files: PlaygroundFile[] }> {
+  return request<{ files: PlaygroundFile[] }>("/builder/generate", {
+    method: "POST",
+    body: { graph },
   });
 }
 

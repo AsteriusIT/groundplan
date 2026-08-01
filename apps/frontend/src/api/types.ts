@@ -978,6 +978,30 @@ export interface AiStatus {
   model: string | null;
 }
 
+/**
+ * Whether Build mode exists on this deployment (GP-131). `BUILDER_ENABLED` is
+ * the whole flag: false and the playground renders no Build surface at all.
+ */
+export interface BuilderStatus {
+  enabled: boolean;
+}
+
+/**
+ * A composed builder graph on the wire. Mirrors `BuilderGraph` from
+ * `@groundplan/builder` — the canvas holds the real type; this is what the
+ * generation request carries.
+ */
+export interface BuilderGraphInput {
+  nodes: {
+    id: string;
+    type: string;
+    name: string;
+    attributes: Record<string, string | number | boolean | string[]>;
+    position: { x: number; y: number };
+  }[];
+  references: { from: string; to: string; attribute: string }[];
+}
+
 /** Prose the backend has already generated and cached for a snapshot. */
 export interface AiGeneration {
   kind: AiKind;

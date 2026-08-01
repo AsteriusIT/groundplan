@@ -29,6 +29,9 @@ import type {
   PlaygroundFile,
   PlaygroundSnapshot,
 } from "@/api/types";
+import { BuildMode } from "@/builder/build-mode";
+import { ModeSwitch, type PlaygroundMode } from "@/builder/mode-switch";
+import { useBuilderGraph } from "@/builder/use-builder-graph";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { HclEditor } from "@/components/hcl-editor";
 import { IacSwitch } from "@/components/iac-switch";
@@ -60,6 +63,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { useBuilderStatus } from "@/lib/use-builder-status";
 import { errorLineOf } from "@/lib/error-line";
 import { cn } from "@/lib/utils";
 
@@ -194,6 +198,14 @@ export function PlaygroundPage() {
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
+  // Build mode (GP-133): offered only where BUILDER_ENABLED is on. The
+  // composition lives here, not inside the mode, so a trip through Edit HCL
+  // leaves it exactly as it was.
+  const builderStatus = useBuilderStatus();
+  const builderEnabled = builderStatus?.enabled === true;
+  const [mode, setMode] = useState<PlaygroundMode>("edit");
+  const builder = useBuilderGraph();
+  const building = builderEnabled && mode === "build";
 
   const active = files.find((f) => f.path === activePath) ?? null;
   // The parse error naming the open file, if any — its line (when the message
@@ -484,12 +496,17 @@ export function PlaygroundPage() {
               </h1>
             )}
           </div>
-          {/* The centered stack switch: which parser Visualize runs. */}
-          <IacSwitch
-            value={iacType}
-            onChange={switchIacType}
-            present={present}
-          />
+          {/* The centered switches: which parser Visualize runs, and — where
+              the builder is configured — whether you are writing HCL or
+              composing it. */}
+          <div className="flex items-center gap-2">
+            <IacSwitch
+              value={iacType}
+              onChange={switchIacType}
+              present={present}
+            />
+            {builderEnabled && <ModeSwitch value={mode} onChange={setMode} />}
+          </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {/* The save status lives beside the actions it points at, and is
                 itself the shortest path to saving. */}
@@ -555,17 +572,21 @@ export function PlaygroundPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button
-              onClick={() => void visualize()}
-              disabled={parsing || files.length === 0}
-            >
-              {parsing ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Play className="size-4" />
-              )}
-              {parsing ? "Parsing…" : "Visualize"}
-            </Button>
+            {/* Build mode has its own action (Generate, in its status bar);
+                there is nothing to visualize until it has produced files. */}
+            {!building && (
+              <Button
+                onClick={() => void visualize()}
+                disabled={parsing || files.length === 0}
+              >
+                {parsing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Play className="size-4" />
+                )}
+                {parsing ? "Parsing…" : "Visualize"}
+              </Button>
+            )}
           </div>
         </div>
         {failure && (
@@ -585,6 +606,12 @@ export function PlaygroundPage() {
         )}
       </header>
 
+      {building && <BuildMode builder={builder} />}
+
+      {/* Edit HCL. Unmounted while building rather than hidden: the file set
+          is state, so nothing is lost, and two canvases must never both be
+          mounted competing for the same keyboard. */}
+      {!building && (
       <div className="flex min-h-0 flex-1">
         {collapsed && (
           <div className="bg-card border-border flex w-10 shrink-0 flex-col items-center border-r py-2">
@@ -863,6 +890,7 @@ export function PlaygroundPage() {
           </section>
         </div>
       </div>
+      )}
 
       <SaveDraftDialog
         open={saveOpen}

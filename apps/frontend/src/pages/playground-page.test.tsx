@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { axe } from "vitest-axe";
 
@@ -8,6 +8,7 @@ vi.mock("@/api/client", async (importOriginal) => {
   return {
     ...actual,
     parsePlayground: vi.fn(),
+    getBuilderStatus: vi.fn(),
     listPlaygroundDrafts: vi.fn(),
     getPlaygroundDraft: vi.fn(),
     createPlaygroundDraft: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("@/components/graph-canvas", () => ({
 
 import {
   ApiError,
+  getBuilderStatus,
   createPlaygroundDraft,
   deletePlaygroundDraft,
   getPlaygroundDraft,
@@ -63,9 +65,11 @@ import {
   updatePlaygroundDraft,
 } from "@/api/client";
 import type { PlaygroundDraft, PlaygroundSnapshot } from "@/api/types";
+import { resetBuilderStatus } from "@/lib/use-builder-status";
 import { PlaygroundPage } from "./playground-page";
 
 const parsePlaygroundMock = vi.mocked(parsePlayground);
+const builderStatusMock = vi.mocked(getBuilderStatus);
 const listDraftsMock = vi.mocked(listPlaygroundDrafts);
 const getDraftMock = vi.mocked(getPlaygroundDraft);
 const createDraftMock = vi.mocked(createPlaygroundDraft);
@@ -122,6 +126,9 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  // Build mode is opt-in (GP-133): off unless a test turns it on.
+  resetBuilderStatus();
+  builderStatusMock.mockReset().mockResolvedValue({ enabled: false });
   parsePlaygroundMock.mockReset();
   listDraftsMock.mockReset().mockResolvedValue([]);
   getDraftMock.mockReset();
@@ -792,4 +799,42 @@ it("a Kubernetes snapshot gets the diagram and nothing else", async () => {
     screen.queryByRole("button", { name: "Global" }),
   ).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "IAM" })).not.toBeInTheDocument();
+});
+
+it("shows no Build surface where the builder is not configured (GP-133)", async () => {
+  renderPage();
+
+  // Not a disabled switch, not a hint: a deployment without the builder shows
+  // no trace of it at all.
+  await waitFor(() => expect(builderStatusMock).toHaveBeenCalled());
+  expect(screen.queryByLabelText("Playground mode")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Resource palette")).not.toBeInTheDocument();
+});
+
+it("offers Build mode where BUILDER_ENABLED is on, and composes into it (GP-133)", async () => {
+  builderStatusMock.mockResolvedValue({ enabled: true });
+  renderPage();
+
+  const mode = await screen.findByLabelText("Playground mode");
+  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
+
+  // The palette replaces the file panel; the composition starts empty.
+  expect(screen.getByLabelText("Resource palette")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Playground files")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Nothing composed yet");
+
+  fireEvent.click(
+    within(screen.getByLabelText("Resource palette")).getByRole("button", {
+      name: /Resource group/i,
+    }),
+  );
+  expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
+
+  // Back to Edit HCL: the files are exactly as they were…
+  fireEvent.click(within(mode).getByRole("button", { name: "Edit HCL" }));
+  expect(screen.getByText("main.tf")).toBeInTheDocument();
+
+  // …and the composition survived the trip (GP-133's acceptance criterion).
+  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
+  expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
 });

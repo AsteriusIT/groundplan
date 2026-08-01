@@ -163,6 +163,9 @@ importers:
       '@fontsource/ibm-plex-mono':
         specifier: ^5.2.7
         version: 5.2.7
+      '@groundplan/builder':
+        specifier: workspace:*
+        version: link:../../packages/builder
       '@groundplan/canvas':
         specifier: workspace:*
         version: link:../../packages/canvas

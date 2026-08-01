@@ -31,7 +31,14 @@ export type BuilderIssueReason =
 export type BuilderIssue = {
   /** The node the problem belongs to — the badge's anchor. */
   nodeId: string;
-  /** The attribute or slot at fault, when the problem has one. */
+  /**
+   * The catalog attribute or slot at fault, when the problem has one.
+   * Deliberately absent on `invalid_name` and `duplicate_name`: those are
+   * about the resource's *Terraform* name, which is not a catalog attribute —
+   * and most types do have an attribute called `name`, so reusing the key
+   * would make a form show one field's problem under another's (see
+   * {@link isNameIssue}).
+   */
   attribute?: string;
   reason: BuilderIssueReason;
   /** One sentence, in the language of the person composing. */
@@ -89,7 +96,6 @@ function validateName(
   if (!TERRAFORM_NAME.test(node.name)) {
     issues.push({
       nodeId: node.id,
-      attribute: "name",
       reason: "invalid_name",
       message:
         node.name.trim() === ""
@@ -101,7 +107,6 @@ function validateName(
   if ((nameOwners.get(addressOf(node)) ?? []).length > 1) {
     issues.push({
       nodeId: node.id,
-      attribute: "name",
       reason: "duplicate_name",
       message: `another ${def.label} is already called "${node.name}"`,
     });
@@ -295,6 +300,11 @@ export function validateBuilderGraph(
   }
 
   return issues;
+}
+
+/** Is this issue about the resource's Terraform name, rather than a field? */
+export function isNameIssue(issue: BuilderIssue): boolean {
+  return issue.reason === "invalid_name" || issue.reason === "duplicate_name";
 }
 
 /** The issues of each node, keyed by node id — what the canvas badges from. */
