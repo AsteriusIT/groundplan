@@ -192,3 +192,44 @@ drift. Only a presentational adapter is new.
 
 `presentEdgeKinds` moves out of the summary and into the legend model: the
 differ has no opinion about how an edge is drawn.
+
+## 6. Outcome (2026-08-01)
+
+Shipped in eight commits rather than the plan's eleven lots. Three pairs were
+merged because splitting them would have shipped a broken intermediate state:
+
+- **Lots 2+3** — the split-button's chevron *is* the popover trigger, so
+  building them apart means shipping either a dead chevron or a `<select>`
+  about to be deleted.
+- **Lots 5+6+7** — turning the canvas chrome off gives up search, filters,
+  legend and zoom in one move. Landing them one at a time would ship a panel
+  with no search.
+- **Lots 8+9** — both need the same `setPanelPrefs` message; doing follow-cursor
+  first would have meant inventing a message the next commit deleted.
+
+### Where the implementation diverged from the plan
+
+| Plan | Shipped | Why |
+| --- | --- | --- |
+| `summarizeDiff` in `graph-differ` | `computeGraphStats` from `graph-parser` | It already exists and is what the PR comment counts with; a second fold could disagree with it |
+| Container queries for the tiers | `ResizeObserver` + pure `tierFor(width)` | The tiers change *structure* (a control moves into a menu); CSS can only do that by rendering both forms, which doubles the DOM and gives a screen reader two toolbars |
+| Panel rebuilds the filter checkboxes | `FilterControls` extracted from `graph-canvas` and shared | Two copies of "what a filter covers" would drift the first time a filter was added |
+| Three diff bases | Two | Only `head` and `merge-base` exist; `merge-base` *is* "vs main" |
+| Overflow holds export + theme | Overflow holds follow-cursor + shortcuts | The panel has no export, and the theme is deliberately a VS Code setting rather than in-panel chrome |
+| 150 ms cursor debounce | Left at 200 ms | Tuned and tested as shipped; the change was not a measured improvement |
+
+### Defects the work surfaced
+
+- **The panel never measured itself.** The root ref lived inside the branch
+  that only renders once a graph has arrived, so the first measurement never
+  happened, and an observer keyed on the ref object kept watching a node that
+  had been replaced. Found by writing the 360 px test.
+- **The diff button announced itself as `"Diffvs main+3"`.** Its parts are flex
+  children and the gaps are visual only, so a screen reader ran them together.
+  It now states its own name, with the counts spelled as words — "+3 ~1 −2"
+  read aloud is not a sentence.
+- **A test helper leaked a prototype stub.** `clientWidth` is defined on
+  `Element.prototype`, so restoring "the original own descriptor" of
+  `HTMLElement.prototype` restored nothing and left an 800 px canvas in place
+  for every later test in the file. It caused one intermittent canvas failure
+  before being fixed in both test files.

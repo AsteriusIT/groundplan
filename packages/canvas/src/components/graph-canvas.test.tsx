@@ -1073,8 +1073,13 @@ async function withMeasuredCanvasAsync(run: () => Promise<void>): Promise<void> 
   try {
     await run();
   } finally {
+    // jsdom defines these on Element.prototype, so there is usually no own
+    // descriptor here to put back: the stub has to be deleted, or an 800px
+    // canvas leaks into every test that runs after this one.
     if (width) Object.defineProperty(HTMLElement.prototype, "clientWidth", width);
+    else Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
     if (height) Object.defineProperty(HTMLElement.prototype, "clientHeight", height);
+    else Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
   }
 }
 
