@@ -110,6 +110,26 @@ export type AppEnv = {
    */
   catalogProviders: string;
   /**
+   * How the catalog is kept up to date (GP-235). `auto` (the default) lets the
+   * version watcher ask the public Terraform Registry whether a newer provider
+   * version exists; `disabled` makes **no outbound call at all**, and the
+   * catalog is exactly what is stored — the bundled snapshot on an air-gapped
+   * install (GP-239). A deployment that pins its catalog says so, and every
+   * surface labels it as pinned rather than pretending it is the latest.
+   */
+  catalogRefresh: "auto" | "disabled";
+  /**
+   * How often the refresh loop runs, in milliseconds (GP-235). `0` disables the
+   * timer — which is what tests do, so a tick can be driven by hand.
+   */
+  catalogRefreshIntervalMs: number;
+  /**
+   * How long a registry answer is trusted before the watcher asks again
+   * (GP-235). Hours, not minutes: a provider ships a few times a month, and the
+   * registry is a free public service.
+   */
+  catalogTtlMs: number;
+  /**
    * How often the ref poller runs `git ls-remote` per repository (GP-107), in
    * milliseconds. Defaults to 60s. `0` disables the background timer entirely —
    * which is what tests do, so they can drive a tick by hand with no clock.
@@ -185,6 +205,18 @@ export function loadEnv(): AppEnv {
     // Off unless explicitly opted into — an experimental surface, not a default.
     builderEnabled: (process.env.BUILDER_ENABLED ?? "").toLowerCase() === "true",
     catalogProviders: process.env.CATALOG_PROVIDERS ?? "",
+    // Anything but the literal "disabled" is `auto`: an operator who typed a
+    // value we do not recognise wanted the refresh, and the safe direction for a
+    // typo here is the one that makes no promise about being offline.
+    catalogRefresh:
+      (process.env.CATALOG_REFRESH ?? "").toLowerCase() === "disabled"
+        ? "disabled"
+        : "auto",
+    catalogRefreshIntervalMs: readInt(
+      process.env.CATALOG_REFRESH_INTERVAL_MS,
+      30 * 60_000,
+    ),
+    catalogTtlMs: readInt(process.env.CATALOG_TTL_MS, 6 * 60 * 60_000),
     refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),
     githubAppId: process.env.GITHUB_APP_ID ?? "",
     githubAppPrivateKey: readPem(process.env.GITHUB_APP_PRIVATE_KEY),

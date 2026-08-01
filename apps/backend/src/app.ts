@@ -42,7 +42,10 @@ import { realK8sReader, type K8sReader } from "./services/k8s-reader.js";
 import { realK8sVerify, type K8sVerify } from "./services/k8s-verify.js";
 import { authPlugin } from "./plugins/auth.js";
 import { backgroundPlugin } from "./plugins/background.js";
+import { catalogPlugin } from "./plugins/catalog.js";
 import { dbPlugin } from "./plugins/db.js";
+import type { RegistryClient } from "./catalog/registry.js";
+import type { SchemaExtractor } from "./catalog/refresh.js";
 import { refPollerPlugin } from "./plugins/ref-poller.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import {
@@ -145,6 +148,11 @@ export type BuildAppOptions = {
   k8sVerify?: K8sVerify;
   /** Inject a cluster reader (tests). Defaults to the real Kubernetes client. */
   k8s?: K8sReader;
+  /** Inject the registry version watcher (tests). Defaults to the real HTTP one. */
+  catalogRegistry?: RegistryClient;
+  /** Inject a schema extractor. Defaults to the one an API process must have:
+   * the one that refuses, because extraction belongs to the worker (GP-236). */
+  catalogExtractor?: SchemaExtractor;
 };
 
 /** Pretty logs in dev, structured JSON in prod, silent in tests. */
@@ -281,6 +289,19 @@ export async function buildApp(
   // annotations, AI generation, exports, tours, dashboard — lives under
   // `/api/v1/orgs/:orgId`, behind the org-scope guard (membership + ownership).
   await app.register(orgScopePlugin, { prefix: "/api/v1/orgs/:orgId" });
+
+  // The resource catalog (GP-234/235): the store, the allowlist and the version
+  // watcher. Registered after the routes because nothing on the request path
+  // waits on it — a read answers from what is stored, and the refresh is a
+  // background enhancement that an air-gapped instance turns off entirely.
+  await app.register(catalogPlugin, {
+    providers: env.catalogProviders,
+    mode: env.catalogRefresh,
+    intervalMs: env.nodeEnv === "test" ? 0 : env.catalogRefreshIntervalMs,
+    ttlMs: env.catalogTtlMs,
+    ...(opts.catalogRegistry ? { registry: opts.catalogRegistry } : {}),
+    ...(opts.catalogExtractor ? { extractor: opts.catalogExtractor } : {}),
+  });
 
   // Ref poller (GP-107): the background `git ls-remote` loop that keeps docs and
   // PR state in sync with the git remote. `pollRefsOnce` is always available;
