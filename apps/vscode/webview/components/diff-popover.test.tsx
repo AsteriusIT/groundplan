@@ -15,6 +15,7 @@ const ON: DiffPrefs = { enabled: true, mode: "merge-base", changedOnly: false };
 const RESOLVED: DiffFacts = {
   available: true,
   ref: "origin/main",
+  sha: "a1b2c3d4e5f6",
   reason: null,
   clean: false,
 };
@@ -133,7 +134,13 @@ describe("honest framing", () => {
   test("an unresolved baseline explains itself here", () => {
     renderPopover({
       prefs: ON,
-      facts: { available: false, ref: null, reason: "no commits yet", clean: false },
+      facts: {
+        available: false,
+        ref: null,
+        sha: null,
+        reason: "no commits yet",
+        clean: false,
+      },
     });
 
     expect(screen.getByText(/no commits yet/i)).toBeInTheDocument();

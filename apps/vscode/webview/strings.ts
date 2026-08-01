@@ -51,4 +51,16 @@ export const strings = {
       "This compares your working tree against the baseline — it is not a " +
       "Terraform plan. It reads no state and does not expand count or for_each.",
   },
+  status: {
+    label: "Preview status",
+    rendering: "Rendering…",
+    synced: "Synced",
+    error: "Error",
+    about: "About this diff",
+    diffUnavailable: (reason: string | null) =>
+      `Diff unavailable — ${reason ?? "no baseline"}. Showing the live view.`,
+    outOfSync: "Out of sync — showing the last good parse",
+    multiRoot: (folder: string) =>
+      `Previewing “${folder}” — the first of several workspace folders.`,
+  },
 } as const;

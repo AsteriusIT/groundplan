@@ -4,6 +4,10 @@
  */
 import type { Graph } from "@groundplan/graph-parser";
 
+import type { SyncValue } from "./live-core.js";
+
+export type { SyncValue };
+
 /** GP-154: what the diff is against. The wire owns this type — both sides use it. */
 export type BaselineMode = "head" | "merge-base";
 
@@ -30,6 +34,12 @@ export type DiffState = {
   available: boolean;
   /** The ref the snapshot is diffed against (caption text), when available. */
   ref: string | null;
+  /**
+   * The commit that ref resolved to, when available. A ref name alone dates
+   * nothing — `origin/main` is a different diagram before and after a fetch,
+   * and the status bar exists to stop a comparison being read as live.
+   */
+  sha: string | null;
   /** Why there is no baseline (non-git folder, no commits, no main…). */
   reason: string | null;
   /** True when the diff found nothing — all noop, no ghosts. */
@@ -71,6 +81,19 @@ export type HostMessage =
       /** The `groundplan.theme` setting changed while the panel was open. */
       type: "theme";
       theme: PreviewTheme;
+    }
+  | {
+      /**
+       * Whether the panel is caught up with the editor. Deliberately its own
+       * message: it must be posted on paths where the rendered payload has
+       * not moved, which is exactly where the signature suppresses a post —
+       * and a spinner started by an edit that changed nothing would otherwise
+       * never be cleared.
+       */
+      type: "sync";
+      value: SyncValue;
+      /** What went wrong, when `value` is `error`. */
+      message?: string;
     };
 
 /** Webview → host. */

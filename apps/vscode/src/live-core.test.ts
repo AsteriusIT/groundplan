@@ -6,6 +6,7 @@ import type { Diagnostic } from "@groundplan/graph-parser";
 import {
   createDebouncer,
   createSignatureTracker,
+  createSyncReporter,
   hasParseErrors,
   postSignature,
   postWhileCurrent,
@@ -166,3 +167,118 @@ test(
     );
   },
 );
+
+// --- sync reporter (the status bar's state) --------------------------------
+
+/** Collects what the panel would be told. */
+function syncReporter() {
+  const posted: { value: string; message?: string }[] = [];
+  const sync = createSyncReporter((value, message) =>
+    posted.push(message === undefined ? { value } : { value, message }),
+  );
+  return { posted, sync };
+}
+
+test("a refresh announces that it is rendering", () => {
+  const { posted, sync } = syncReporter();
+
+  sync.begin();
+
+  assert.deepEqual(posted, [{ value: "rendering" }]);
+});
+
+test("a typing burst does not re-announce what the panel already shows", () => {
+  // Every keystroke schedules a refresh. Posting "rendering" for each one is a
+  // message per character describing a state that has not moved.
+  const { posted, sync } = syncReporter();
+
+  sync.begin();
+  sync.begin();
+  sync.begin();
+
+  assert.equal(posted.length, 1);
+});
+
+test("settling reports the outcome", () => {
+  const { posted, sync } = syncReporter();
+
+  sync.settle(sync.begin(), "synced");
+
+  assert.deepEqual(posted, [{ value: "rendering" }, { value: "synced" }]);
+});
+
+test("settling twice on the same outcome reports it once", () => {
+  const { posted, sync } = syncReporter();
+
+  const token = sync.begin();
+  sync.settle(token, "synced");
+  sync.settle(token, "synced");
+
+  assert.equal(posted.length, 2);
+});
+
+test("the next refresh announces itself again", () => {
+  const { posted, sync } = syncReporter();
+
+  sync.settle(sync.begin(), "synced");
+  sync.begin();
+
+  assert.deepEqual(
+    posted.map((p) => p.value),
+    ["rendering", "synced", "rendering"],
+  );
+});
+
+test("an error carries what went wrong", () => {
+  const { posted, sync } = syncReporter();
+
+  sync.settle(sync.begin(), "error", "parse failed");
+
+  assert.deepEqual(posted[1], { value: "error", message: "parse failed" });
+});
+
+test("two failures that read differently are two things to say", () => {
+  // Deduplication is on (value, message): repeating a failure verbatim says
+  // nothing new, but a different reason is a different story.
+  const { posted, sync } = syncReporter();
+
+  const token = sync.begin();
+  sync.settle(token, "error", "no baseline");
+  sync.settle(token, "error", "no baseline");
+  sync.settle(token, "error", "parse failed");
+
+  assert.deepEqual(
+    posted.filter((p) => p.value === "error").map((p) => p.message),
+    ["no baseline", "parse failed"],
+  );
+});
+
+test("a failure that survives the next refresh is reported again", () => {
+  // A new run really did happen and really did fail. Staying quiet because
+  // the previous run failed the same way would leave the panel looking as
+  // though the edit had healed it.
+  const { posted, sync } = syncReporter();
+
+  sync.settle(sync.begin(), "error", "no baseline");
+  sync.settle(sync.begin(), "error", "no baseline");
+
+  assert.deepEqual(
+    posted.map((p) => p.value),
+    ["rendering", "error", "rendering", "error"],
+  );
+});
+
+test("a run that was overtaken does not report its own outcome", () => {
+  // The panel belongs to the newer refresh, which may already be rendering.
+  // A stale "synced" would clear a spinner that is still honest.
+  const { posted, sync } = syncReporter();
+
+  const overtaken = sync.begin();
+  sync.begin();
+  sync.settle(overtaken, "synced");
+
+  assert.deepEqual(
+    posted.map((p) => p.value),
+    ["rendering"],
+  );
+});

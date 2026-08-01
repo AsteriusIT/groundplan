@@ -15,6 +15,7 @@ const ON: DiffPrefs = { enabled: true, mode: "merge-base", changedOnly: false };
 const RESOLVED: DiffFacts = {
   available: true,
   ref: "origin/main",
+  sha: "a1b2c3d4e5f6",
   reason: null,
   clean: false,
 };
@@ -169,7 +170,13 @@ describe("diff split-button", () => {
   test("no baseline is flagged on the button, not hidden", () => {
     renderToolbar({
       prefs: ON,
-      facts: { available: false, ref: null, reason: "no commits yet", clean: false },
+      facts: {
+        available: false,
+        ref: null,
+        sha: null,
+        reason: "no commits yet",
+        clean: false,
+      },
       counts: null,
     });
 

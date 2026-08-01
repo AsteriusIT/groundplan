@@ -41,6 +41,7 @@ const CLEAN: DiffState = {
   changedOnly: false,
   available: true,
   ref: "origin/main",
+  sha: "a1b2c3d4e5f6",
   reason: null,
   clean: true,
 };
@@ -91,6 +92,52 @@ describe("the canvas is clear", () => {
     fireEvent.click(screen.getByRole("button", { name: /diff options/i }));
 
     expect(screen.getByText(/not a Terraform plan/i)).toBeInTheDocument();
+  });
+});
+
+describe("the status bar", () => {
+  test("dates the comparison: which ref, which commit", () => {
+    // A diagram read as live when it is a comparison against an old commit is
+    // the one failure this bar exists to prevent.
+    mount([node("a", "update")], { ...CLEAN, clean: false });
+
+    expect(screen.getByText("origin/main")).toBeInTheDocument();
+    expect(screen.getByText("a1b2c3d")).toBeInTheDocument();
+  });
+
+  test("reports what the host says about freshness", () => {
+    mount([node("a", "noop")]);
+
+    fromHost({ type: "sync", value: "rendering" });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/rendering/i);
+  });
+
+  test("an out-of-sync parse is reported in the bar, not over the diagram", () => {
+    mount([node("a", "noop")]);
+
+    fromHost({ type: "outOfSync", value: true });
+
+    // Still said — moved, not dropped.
+    expect(screen.getByText(/out of sync/i)).toBeInTheDocument();
+    // And no longer a chip pinned to the corner of the drawing.
+    expect(screen.getByText(/out of sync/i).closest("[class*='absolute']")).toBeNull();
+  });
+
+  test("a multi-root workspace is an aside, not a banner across the diagram", () => {
+    const post = vi.fn();
+    render(<App post={post} />);
+    fromHost({
+      type: "snapshot",
+      snapshot: graph([node("a", "noop")]),
+      folder: "infra",
+      multiRoot: true,
+      rootDir: "",
+    });
+
+    const notice = screen.getByText(/first of several workspace folders/i);
+    expect(notice).toBeInTheDocument();
+    expect(notice.closest("[class*='absolute']")).toBeNull();
   });
 });
 

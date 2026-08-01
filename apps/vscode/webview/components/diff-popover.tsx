@@ -79,10 +79,43 @@ export function DiffPopover({
       )}
 
       <div className="text-muted-foreground mt-2 border-t border-border pt-2">
-        <p className="text-foreground font-mono text-[10px] uppercase tracking-wide">
-          {strings.diff.aboutTitle}
-        </p>
-        <p className="mt-1 text-[11px] leading-snug">{strings.diff.about}</p>
+        <AboutDiff />
+      </div>
+    </Popover>
+  );
+}
+
+/** The caveat itself. One copy, three places that show it. */
+function AboutDiff(): React.JSX.Element {
+  return (
+    <>
+      <p className="text-foreground font-mono text-[10px] uppercase tracking-wide">
+        {strings.diff.aboutTitle}
+      </p>
+      <p className="mt-1 text-[11px] leading-snug">{strings.diff.about}</p>
+    </>
+  );
+}
+
+/**
+ * The same explanation, reached from the status bar's ⓘ rather than from the
+ * diff options. It used to be a note pinned to the canvas on every render —
+ * which is how a caveat stops being read.
+ */
+export function AboutDiffPopover({
+  open,
+  onClose,
+}: Readonly<{ open: boolean; onClose: () => void }>): React.JSX.Element | null {
+  return (
+    <Popover
+      open={open}
+      onClose={onClose}
+      label={strings.diff.aboutTitle}
+      align="end"
+      side="top"
+    >
+      <div className="text-muted-foreground">
+        <AboutDiff />
       </div>
     </Popover>
   );

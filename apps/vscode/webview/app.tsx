@@ -33,7 +33,8 @@ import "@groundplan/canvas/styles.css";
 
 import type { HostMessage, PreviewTheme, WebviewMessage } from "../src/messages";
 import { postToHost } from "./vscode-api";
-import { DiffPopover } from "./components/diff-popover";
+import { AboutDiffPopover, DiffPopover } from "./components/diff-popover";
+import { StatusBar, type SyncState } from "./components/status-bar";
 import { Toolbar } from "./components/toolbar";
 import { diffCounts } from "./state/diff-summary";
 import {
@@ -43,6 +44,7 @@ import {
   type DiffFacts,
   type PanelAction,
 } from "./state/panel-state";
+import { statusNotice } from "./state/status-notice";
 
 /**
  * Theme (the `groundplan.theme` setting — no in-panel switch): the host bakes
@@ -98,6 +100,8 @@ export function App({
   const [panel, dispatch] = useReducer(panelReducer, INITIAL_PANEL_STATE);
   const [facts, setFacts] = useState<DiffFacts>(NO_DIFF_FACTS);
   const [diffOptionsOpen, setDiffOptionsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [sync, setSync] = useState<SyncState>({ value: "synced" });
   const view = panel.lens;
   const prefs = panel.diff;
 
@@ -120,6 +124,12 @@ export function App({
         const { enabled, mode, changedOnly, ...observed } = message.state;
         dispatch({ type: "hostDiffPrefs", prefs: { enabled, mode, changedOnly } });
         setFacts(observed);
+      } else if (message.type === "sync") {
+        setSync(
+          message.message === undefined
+            ? { value: message.value }
+            : { value: message.value, message: message.message },
+        );
       } else if (message.type === "theme") {
         applyTheme(message.theme);
       }
@@ -212,17 +222,6 @@ export function App({
           view !== "iam" && "blueprint-grid",
         )}
       >
-        {multiRoot && (
-          <div className="bg-warning-soft text-warning absolute inset-x-0 top-0 z-20 px-3 py-1 text-center font-mono text-xs">
-            Previewing “{folder}” — the first of several workspace folders.
-          </div>
-        )}
-        {outOfSync && (
-          <div className="bg-warning-soft text-warning border-warning absolute right-3 top-3 z-20 rounded-sm border px-2 py-1 font-mono text-xs">
-            Out of sync — showing the last good parse
-          </div>
-        )}
-
         {view === "iam" ? (
           <IamTable
             graph={graph}
@@ -257,6 +256,26 @@ export function App({
           />
         )}
       </div>
+
+      {/* Everything a reader asks *about* the diagram rather than of it. The
+          notice slot holds one thing at a time — the old panel let a banner,
+          a chip and a pill all have the canvas at once. */}
+      <StatusBar
+        base={
+          diffActive ? { ref: facts.ref, sha: facts.sha } : null
+        }
+        sync={sync}
+        notice={statusNotice({
+          diffEnabled: prefs.enabled,
+          facts,
+          outOfSync,
+          multiRoot,
+          folder,
+        })}
+        onAbout={() => setAboutOpen((open) => !open)}
+      >
+        <AboutDiffPopover open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      </StatusBar>
     </div>
   );
 }

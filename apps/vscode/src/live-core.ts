@@ -164,3 +164,52 @@ export function createDebouncer(fn: () => void, delayMs: number): Debouncer {
     },
   };
 }
+
+/** What the status bar says about the panel's freshness. */
+export type SyncValue = "rendering" | "synced" | "error";
+
+export type SyncReporter = {
+  /** Announce that a refresh started; returns the token that settles it. */
+  begin(): number;
+  /** Report the outcome. A token from a run that was overtaken is ignored. */
+  settle(token: number, value: "synced" | "error", message?: string): void;
+};
+
+/**
+ * The panel's sync state, deduplicated and generation-guarded.
+ *
+ * This deliberately does not ride on the payload signature. The signature
+ * suppresses a post when nothing the panel *renders* moved — which is exactly
+ * the case where a spinner started by an edit would never be cleared. So the
+ * sync state is its own message, sent on every path, and deduplicated here
+ * instead: otherwise a typing burst is one "rendering" per keystroke.
+ *
+ * The token is the guard. A refresh overtaken mid-flight must not report its
+ * own outcome: the panel belongs to the newer run by then, and a stale
+ * "synced" would clear a spinner that is still telling the truth.
+ */
+export function createSyncReporter(
+  post: (value: SyncValue, message?: string) => void,
+): SyncReporter {
+  let token = 0;
+  let last: string | null = null;
+
+  const say = (value: SyncValue, message?: string): void => {
+    const said = `${value} ${message ?? ""}`;
+    if (said === last) return;
+    last = said;
+    post(value, message);
+  };
+
+  return {
+    begin() {
+      token += 1;
+      say("rendering");
+      return token;
+    },
+    settle(settling, value, message) {
+      if (settling !== token) return;
+      say(value, message);
+    },
+  };
+}

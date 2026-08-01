@@ -16,6 +16,7 @@ export function Popover({
   onClose,
   label,
   align = "start",
+  side = "bottom",
   children,
 }: Readonly<{
   open: boolean;
@@ -23,6 +24,8 @@ export function Popover({
   /** What this panel is, for anyone who cannot see where it is anchored. */
   label: string;
   align?: "start" | "end";
+  /** Which way it opens. The status bar sits at the floor, so it opens up. */
+  side?: "top" | "bottom";
   children: React.ReactNode;
 }>): React.JSX.Element | null {
   const panel = useRef<HTMLDivElement>(null);
@@ -55,7 +58,8 @@ export function Popover({
       role="dialog"
       aria-label={label}
       className={cn(
-        "border-border-strong bg-panel absolute top-full z-30 mt-1 w-72 rounded-sm border p-3 shadow-lg",
+        "border-border-strong bg-panel absolute z-30 w-72 rounded-sm border p-3 shadow-lg",
+        side === "bottom" ? "top-full mt-1" : "bottom-full mb-1",
         align === "end" ? "right-0" : "left-0",
       )}
     >

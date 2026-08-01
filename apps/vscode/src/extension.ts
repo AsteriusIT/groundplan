@@ -25,12 +25,14 @@ import {
 import {
   createDebouncer,
   createSignatureTracker,
+  createSyncReporter,
   hasParseErrors,
   postSignature,
   postWhileCurrent,
   toFileDiagnostics,
   type Debouncer,
   type SignatureTracker,
+  type SyncReporter,
 } from "./live-core";
 import { nodeAtPosition, sourceOf } from "./locate";
 import type {
@@ -156,6 +158,12 @@ class LivePreview {
   private readonly signatureTracker: SignatureTracker = createSignatureTracker();
   /** A refresh landed while the panel was hidden — post it on reveal. */
   private pendingWhileHidden = false;
+  /**
+   * Whether the panel is caught up (the status bar). Off the signature path
+   * on purpose: an edit that changes nothing still starts and finishes a
+   * refresh, and a spinner nobody clears is worse than no spinner.
+   */
+  private readonly sync: SyncReporter;
 
   /** Diff mode (GP-152/154): the baseline provider + the git-change signal. */
   private readonly baseline: BaselineProvider;
@@ -191,6 +199,9 @@ class LivePreview {
 
     this.diagnostics = vscode.languages.createDiagnosticCollection("groundplan");
     this.reparse = createDebouncer(() => void this.refresh(), REPARSE_DEBOUNCE_MS);
+    this.sync = createSyncReporter((value, message) => {
+      void this.post(message === undefined ? { type: "sync", value } : { type: "sync", value, message });
+    });
 
     this.gitLog = vscode.window.createOutputChannel("Groundplan Git");
     this.baseline = new BaselineProvider(
@@ -404,8 +415,32 @@ class LivePreview {
     this.switchStack(stack);
   }
 
-  /** Re-parse the folder and reconcile panel + Problems with the result. */
+  /**
+   * Re-parse the folder and reconcile panel + Problems with the result,
+   * reporting to the status bar whether the panel has caught up.
+   *
+   * The outcome is settled on every path, including the ones that return
+   * early — a hidden panel, a superseded run, a parse that failed. A refresh
+   * that starts a spinner and returns without clearing it leaves the panel
+   * looking permanently behind.
+   */
   private async refresh(): Promise<void> {
+    const token = this.sync.begin();
+    try {
+      await this.refreshOnce();
+      this.sync.settle(token, "synced");
+    } catch (error) {
+      // Otherwise this is an unhandled rejection nobody sees: `refresh()` is
+      // called as `void this.refresh()` from every listener.
+      this.sync.settle(
+        token,
+        "error",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  private async refreshOnce(): Promise<void> {
     const generation = ++this.generation;
     if (this.primeDone < this.primeWanted) {
       // Captured before the await: a bump that lands during it (a second git
@@ -473,6 +508,7 @@ class LivePreview {
       ...prefs,
       available: false,
       ref: null,
+      sha: null,
       reason: null,
       clean: false,
     };
@@ -487,6 +523,10 @@ class LivePreview {
           ...state,
           available: true,
           ref: result.baseline.ref,
+          // The commit, not just the ref: `origin/main` names a different
+          // diagram before and after a fetch, and the panel has to be able
+          // to say which one it drew.
+          sha: result.baseline.sha,
           clean: isAllNoop(posted),
         };
       } else {

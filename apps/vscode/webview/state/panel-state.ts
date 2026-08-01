@@ -26,11 +26,15 @@ export type DiffPrefs = {
  * diff came back clean are facts about the workspace: they arrive by message,
  * and no control may assert one on its own.
  */
-export type DiffFacts = Pick<DiffState, "available" | "ref" | "reason" | "clean">;
+export type DiffFacts = Pick<
+  DiffState,
+  "available" | "ref" | "sha" | "reason" | "clean"
+>;
 
 export const NO_DIFF_FACTS: DiffFacts = {
   available: false,
   ref: null,
+  sha: null,
   reason: null,
   clean: false,
 };
