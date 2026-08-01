@@ -97,6 +97,8 @@ groundplan/
 │   └── docs/           # @groundplan/docs — Astro Starlight documentation site
 │                       #   (install & use; honesty + env-coverage tests gate CI)
 ├── packages/
+│   ├── builder/        # @groundplan/builder — the visual builder's core: resource
+│   │                   #   catalog, BuilderGraph, validation, deterministic codegen
 │   ├── graph-parser/   # @groundplan/graph-parser — HCL → GraphSnapshot (Producer B)
 │   │                   #   + THE graph types/validator, schema v1..v8, no server deps
 │   ├── graph-differ/   # @groundplan/graph-differ — static snapshot diff + impact
@@ -361,6 +363,22 @@ live in Groundplan" backlink (a `docs_latest` share link when one exists, else
 the in-app docs URL); failures land in `last_publish_error`, never thrown. PR
 comments have one adapter per provider behind `pr-comment-port.ts`.
 
+**Visual builder (GP-131..135, flagged).** `BUILDER_ENABLED=true` adds a
+**Build** mode to the playground: compose Azure resources on a canvas, then
+generate Terraform from them. Off by default — the `AI_API_KEY` posture applied
+to a boolean: `/builder/status` reports it, `POST /builder/generate` 404s, and
+the frontend renders no Build surface. `packages/builder` holds everything both
+sides need (`catalog.ts` is the only place that knows which resource types
+exist — the `registry.ts`/policy-catalogue posture), so the browser composes
+against the same rules the server generates from. Generation is deterministic
+and template-free: a catalog entry *is* the template (attributes, typed
+reference slots, the scaffold blocks a type always carries, and one
+`${attr:…}` substitution), so adding a type is adding one entry. The **golden
+invariant** is the correctness test — generated files parsed by Producer B must
+reproduce the composed nodes and reference edges. One-way by construction
+(ADR #5): the files land in the playground and are the truth from that moment;
+existing HCL is never read back into the builder.
+
 **VS Code extension (GP-144, GP-151).** Live preview: parse in the extension
 host with `@groundplan/graph-parser`, draw with `@groundplan/canvas` in a
 strict-CSP Vite-built webview; debounced re-parse of dirty buffers,
@@ -420,7 +438,8 @@ network view · GP-46 IAM view · GP-50 multi-provider Git · GP-55 annotation
 foundation · GP-61 AI v1 · GP-66 dashboard/settings · GP-70 adapted
 diagrams · GP-85 resource stacking · GP-90 AWS/GCP/K8s icons · GP-94 K8s
 live view · GP-100 K8s Git flow · GP-106 GitOps/CLI · GP-112 orgs & RBAC ·
-GP-119 HCL source in docs · GP-122 playground · GP-136 AI Studio · GP-144
+GP-119 HCL source in docs · GP-122 playground · GP-131 visual builder
+(flagged) · GP-136 AI Studio · GP-144
 VS Code extension · GP-151 VS Code diff mode · GP-157 website (stories
 done; GP-166 legal gate **in progress**) · GP-167 Helm chart · GP-173
 draw.io export · GP-178 Confluence export (GP-179..184 done; page quality +
@@ -441,6 +460,4 @@ Kubernetes, administration, AI, developer tools, help).
   links/docs/exports stay cost-free. ⚠️ **Key collision:** commits on main
   labelled GP-78/GP-79 are the *guided tours* work, not these cost tickets.
   Nothing in the product prices resources today — never claim cost.
-- **GP-131 Visual Builder** (GP-132..135, To Do): compose visually →
-  generate deterministic HCL into the playground (one-way scaffolding).
 - **GP-166** naming clearance (see "Naming").
