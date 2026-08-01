@@ -1,0 +1,32 @@
+{
+  "name": "@groundplan/builder",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Groundplan visual builder as a pure shared package: the resource catalog, the BuilderGraph document, its validation and deterministic HCL generation. No I/O, no server dependencies.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "[ -f tsconfig.build.json ] && tsc -p tsconfig.build.json || true",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@groundplan/graph-parser": "workspace:*",
+    "@types/node": "^22.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "sideEffects": false
+}
