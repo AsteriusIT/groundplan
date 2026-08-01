@@ -16,9 +16,11 @@ import { diff, isAllNoop } from "@groundplan/graph-differ";
 import { parse, type Graph } from "@groundplan/graph-parser";
 import * as vscode from "vscode";
 
+import { listBranches } from "./branches";
 import {
   BaselineProvider,
   findGitRoot,
+  runGit,
   watchGitChanges,
   type GitWatcher,
 } from "./git-baseline";
@@ -35,12 +37,13 @@ import {
   type SyncReporter,
 } from "./live-core";
 import { nodeAtPosition, sourceOf } from "./locate";
-import type {
-  BaselineMode,
-  DiffState,
-  HostMessage,
-  PreviewTheme,
-  WebviewMessage,
+import {
+  branchMode,
+  type BaselineMode,
+  type DiffState,
+  type HostMessage,
+  type PreviewTheme,
+  type WebviewMessage,
 } from "./messages";
 import {
   needsRefresh,
@@ -333,6 +336,9 @@ class LivePreview {
         this.maybeExplainDiff(before.diff, message.prefs.diff);
         if (needsRefresh(before, message.prefs)) void this.refresh();
       }
+      // The branch picker: git's answer at this instant, so the host asks and
+      // the list never crosses the wire.
+      if (message.type === "pickDiffBase") void this.pickDiffBase();
     });
 
     // A settings change repaints the open panel — no reload, the webview just
@@ -413,6 +419,65 @@ class LivePreview {
   /** The stack the switcher last picked here, if any. */
   private pickedRootDir(): string | null {
     return this.workspaceState.get<string | null>(PREF_ROOT_DIR, null);
+  }
+
+  /**
+   * "Branch…": pick a diff baseline from the repository's branches.
+   *
+   * A native QuickPick rather than a list in the panel — it brings fuzzy
+   * matching and keyboard handling a repository with hundreds of branches
+   * needs, none of which is worth rebuilding in a webview. The choice is
+   * written to the panel document like any other preference; the webview
+   * learns the new mode from the next `diffState`, so nothing is posted here.
+   */
+  private async pickDiffBase(): Promise<void> {
+    let branches;
+    try {
+      branches = await listBranches(runGit, this.folder.uri.fsPath);
+    } catch (error) {
+      // A repository that cannot be read and one with nothing to offer are
+      // different answers; only this one is worth interrupting for.
+      void vscode.window.showWarningMessage(
+        `Groundplan: could not list branches — ${
+          error instanceof Error ? error.message.split("\n")[0] : String(error)
+        }`,
+      );
+      return;
+    }
+    if (branches.length === 0) {
+      void vscode.window.showInformationMessage(
+        "Groundplan: this repository has no branches to compare against.",
+      );
+      return;
+    }
+
+    const current = this.prefs().mode;
+    const picked = await vscode.window.showQuickPick(
+      branches.map((branch) => ({
+        label: branch.name,
+        description:
+          branchMode(branch.ref) === current ? `${branch.when} · current` : branch.when,
+        ref: branch.ref,
+      })),
+      {
+        title: "Compare against branch",
+        placeHolder: "The diff is against the fork point with this branch",
+        matchOnDescription: false,
+      },
+    );
+    // Cancelled: the reader changed nothing, so nothing changes.
+    if (!picked) return;
+
+    const prefs = this.panelPrefs();
+    const next: PanelPrefs = {
+      ...prefs,
+      diff: { ...prefs.diff, mode: branchMode(picked.ref) },
+    };
+    if (next.diff.mode === prefs.diff.mode) return;
+    await this.workspaceState.update(PANEL_PREFS_KEY, next);
+    // No caveat prompt here: picking a baseline never turns diff mode on, and
+    // that transition is the only thing worth explaining once.
+    void this.refresh();
   }
 
   /** Move the preview to `dir`: remember it, drop stale baseline parses, redraw. */
@@ -538,8 +603,14 @@ class LivePreview {
       ref: null,
       sha: null,
       reason: null,
+      // Asked for whether or not the diff is on: the baseline can be chosen
+      // before it is enabled, and the popover must name the branch rather than
+      // guess it. Memoised in the provider, so this costs one `symbolic-ref`
+      // per checkout or fetch and nothing per keystroke.
+      defaultBranch: await this.baseline.defaultBranch(),
       clean: false,
     };
+    if (generation !== this.generation) return;
     if (prefs.enabled) {
       const result = await this.baseline.get(prefs.mode);
       // Superseded while the baseline resolved: a newer refresh owns the

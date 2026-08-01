@@ -43,6 +43,7 @@ const CLEAN: DiffState = {
   ref: "origin/main",
   sha: "a1b2c3d4e5f6",
   reason: null,
+  defaultBranch: "origin/main",
   clean: true,
 };
 

@@ -101,6 +101,168 @@ test("merge-base mode diffs against the fork point, preferring origin/main", asy
   assert.equal(viaOrigin.baseline.ref, "merge-base origin/main");
 });
 
+test("the default branch is detected, not assumed to be main", async () => {
+  // A repository whose trunk is `master` — the case that used to report
+  // "no origin/main or main branch to compare against" and offer no way out.
+  const dir = makeDir();
+  g(dir, "init", "-b", "master");
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "base");
+  const baseSha = g(dir, "rev-parse", "HEAD");
+
+  g(dir, "checkout", "-b", "feature");
+  writeFileSync(join(dir, "extra.tf"), 'resource "aws_sqs_queue" "q" {\n  name = "q"\n}\n');
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "feature work");
+
+  const provider = new BaselineProvider(dir);
+  assert.equal(await provider.defaultBranch(), "master");
+  const result = await provider.get("merge-base");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.equal(result.baseline.ref, "merge-base master");
+  assert.equal(result.baseline.sha, baseSha);
+});
+
+test("origin/HEAD is believed over the candidate list", async () => {
+  // Both `main` and `master` exist; only origin/HEAD says which is the trunk.
+  const dir = makeRepo();
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "base");
+  const baseSha = g(dir, "rev-parse", "HEAD");
+  g(dir, "branch", "master");
+  g(dir, "update-ref", "refs/remotes/origin/master", baseSha);
+  g(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master");
+
+  const provider = new BaselineProvider(dir);
+  assert.equal(await provider.defaultBranch(), "origin/master");
+  const result = await provider.get("merge-base");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.equal(result.baseline.ref, "merge-base origin/master");
+});
+
+test("an origin/HEAD left pointing at a deleted branch falls through, not over", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "base");
+  // origin/HEAD outlives the branch it names — the remote renamed its trunk
+  // and nobody ran `git remote set-head`.
+  g(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone");
+
+  const provider = new BaselineProvider(dir);
+  assert.equal(await provider.defaultBranch(), "main");
+  const result = await provider.get("merge-base");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  assert.equal(result.baseline.ref, "merge-base main");
+});
+
+test("a repository with no recognisable trunk says so, and stays usable", async () => {
+  const dir = makeDir();
+  g(dir, "init", "-b", "develop");
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  const provider = new BaselineProvider(dir);
+  assert.equal(await provider.defaultBranch(), null);
+  const result = await provider.get("merge-base");
+  assert.ok(!result.ok);
+  assert.match(result.reason, /no default branch/i);
+  // The named-branch route still works — that is the way out.
+  const named = await provider.get("branch:refs/heads/develop");
+  assert.ok(named.ok, !named.ok ? named.reason : "");
+});
+
+test("a named branch is the fork point with that branch", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "base");
+  const baseSha = g(dir, "rev-parse", "HEAD");
+
+  g(dir, "checkout", "-b", "release/2.4");
+  writeFileSync(join(dir, "rel.tf"), 'resource "aws_vpc" "r" {}\n');
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "release work");
+
+  g(dir, "checkout", "main");
+  writeFileSync(join(dir, "extra.tf"), 'resource "aws_sqs_queue" "q" {}\n');
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "main moves on");
+
+  const result = await new BaselineProvider(dir).get("branch:refs/heads/release/2.4");
+  assert.ok(result.ok, !result.ok ? result.reason : "");
+  // The fork point, not the branch tip: a colleague's push must not turn up
+  // in the reader's diff as work they have to undo.
+  assert.equal(result.baseline.sha, baseSha);
+  assert.equal(result.baseline.ref, "merge-base release/2.4");
+  assert.deepEqual(result.baseline.files.map((f) => f.path), ["main.tf"]);
+});
+
+test("a branch that is not there is named in the reason, and the choice is kept", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  const provider = new BaselineProvider(dir);
+  const missing = await provider.get("branch:refs/remotes/origin/release/2.4");
+  assert.ok(!missing.ok);
+  assert.match(missing.reason, /not found/);
+  assert.match(missing.reason, /origin\/release\/2\.4/);
+
+  // It heals by itself once the ref arrives (a fetch, then the ref watcher).
+  g(dir, "update-ref", "refs/remotes/origin/release/2.4", g(dir, "rev-parse", "HEAD"));
+  provider.invalidate();
+  const found = await provider.get("branch:refs/remotes/origin/release/2.4");
+  assert.ok(found.ok, !found.ok ? found.reason : "");
+});
+
+test("unrelated histories are told apart from a missing branch", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  g(dir, "checkout", "--orphan", "imported");
+  writeFileSync(join(dir, "other.tf"), 'resource "aws_vpc" "v" {}\n');
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "unrelated");
+
+  const result = await new BaselineProvider(dir).get("branch:refs/heads/main");
+  assert.ok(!result.ok);
+  assert.match(result.reason, /no common commit/i);
+  assert.match(result.reason, /main/);
+});
+
+test("a warm merge-base get() shells out no more than a warm head one", async () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "main.tf"), MAIN_TF);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-m", "one");
+
+  let calls = 0;
+  const counted: GitRunner = (args, cwd) => {
+    calls++;
+    return runGit(args, cwd);
+  };
+  const provider = new BaselineProvider(dir, counted, undefined, undefined, (shas, cwd) => {
+    calls++;
+    return runGitBatch(shas, cwd);
+  });
+
+  await provider.get("merge-base");
+  const afterFirst = calls;
+  await provider.get("merge-base");
+  // The detected default branch is memoised with the resolution: typing must
+  // not re-detect it any more than it re-resolves the sha.
+  assert.equal(calls, afterFirst, "a warm get() must not shell out (typing path)");
+  await provider.defaultBranch();
+  assert.equal(calls, afterFirst, "the panel asking for the name must not either");
+});
+
 test("a new commit moves the baseline after invalidate()", async () => {
   const dir = makeRepo();
   writeFileSync(join(dir, "main.tf"), MAIN_TF);
@@ -149,7 +311,10 @@ test("a cached baseline runs no git at all; a re-resolved same sha reparses noth
   assert.equal(calls, afterFirst + 1);
 });
 
-test("non-git folders, empty repos and missing main report a graceful reason", async () => {
+// A repository with no recognisable trunk is covered by "a repository with no
+// recognisable trunk says so, and stays usable", which also asserts the way
+// out; `trunk` itself is now one of the detected candidates.
+test("non-git folders and empty repos report a graceful reason", async () => {
   const notGit = makeDir();
   const noRepo = await new BaselineProvider(notGit).get("head");
   assert.ok(!noRepo.ok && /not a git repository/i.test(noRepo.reason));
@@ -157,14 +322,6 @@ test("non-git folders, empty repos and missing main report a graceful reason", a
   const empty = makeRepo();
   const noCommits = await new BaselineProvider(empty).get("head");
   assert.ok(!noCommits.ok && /no commit/i.test(noCommits.reason));
-
-  const noMain = makeRepo();
-  writeFileSync(join(noMain, "main.tf"), MAIN_TF);
-  g(noMain, "add", "-A");
-  g(noMain, "commit", "-m", "one");
-  g(noMain, "branch", "-m", "trunk");
-  const noBase = await new BaselineProvider(noMain).get("merge-base");
-  assert.ok(!noBase.ok && /main/.test(noBase.reason));
 });
 
 test("vendored directories are excluded, matching the live view's glob", async () => {

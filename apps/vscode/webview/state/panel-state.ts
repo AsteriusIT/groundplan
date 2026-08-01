@@ -32,7 +32,7 @@ export type DiffPrefs = {
  */
 export type DiffFacts = Pick<
   DiffState,
-  "available" | "ref" | "sha" | "reason" | "clean"
+  "available" | "ref" | "sha" | "reason" | "clean" | "defaultBranch"
 >;
 
 export const NO_DIFF_FACTS: DiffFacts = {
@@ -41,6 +41,7 @@ export const NO_DIFF_FACTS: DiffFacts = {
   sha: null,
   reason: null,
   clean: false,
+  defaultBranch: null,
 };
 
 export type PanelState = {

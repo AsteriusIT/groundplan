@@ -7,6 +7,8 @@
  * appears in the diff popover, behind the status bar's ⓘ and in the first-run
  * notice, and three copies of it would eventually say three different things.
  */
+import { branchRefOf, shortRef, type BaselineMode } from "../src/messages";
+
 export const strings = {
   lens: {
     label: "View",
@@ -16,9 +18,19 @@ export const strings = {
   },
   diff: {
     label: "Diff",
-    /** The short name of a baseline, for the button. The status bar prints the
-     * resolved ref; here the reader wants the choice they made. */
-    base: { head: "HEAD", "merge-base": "main" } as const,
+    /**
+     * The short name of a baseline, for the button and the popover rows. The
+     * status bar prints the resolved ref; here the reader wants the choice they
+     * made. The default branch is *detected* and passed in — this used to be a
+     * table with `main` written into it, which was a guess on any repository
+     * whose trunk is called something else.
+     */
+    baseLabel: (mode: BaselineMode, defaultBranch: string | null): string => {
+      const ref = branchRefOf(mode);
+      if (ref !== null) return shortRef(ref);
+      if (mode === "head") return "HEAD";
+      return defaultBranch ?? "default branch";
+    },
     against: (base: string) => `vs ${base}`,
     toggleHint: "Colour the diagram as changes against a git baseline",
     options: "Diff options",
@@ -39,7 +51,11 @@ export const strings = {
         .join(", "),
     baseLegend: "Compare against",
     baseHead: "HEAD — what you have not committed yet",
-    baseMergeBase: "main — everything on this branch",
+    /** Named when the repository told us; never guessed when it did not. */
+    baseDefault: (name: string | null) =>
+      `${name ?? "Default branch"} — everything on this branch`,
+    pickBranch: "Branch…",
+    pickBranchHint: "Compare against another branch",
     changedOnly: "Changed only",
     changedOnlyHint: "Show changed nodes and one hop of context",
     aboutTitle: "About this diff",

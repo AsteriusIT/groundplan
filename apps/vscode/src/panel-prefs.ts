@@ -12,7 +12,7 @@
  * nothing*: the failure mode worth avoiding is a panel that silently shows less
  * of the estate than the workspace holds.
  */
-import type { BaselineMode } from "./messages.js";
+import { isBaselineMode, type BaselineMode } from "./messages.js";
 
 export const PANEL_PREFS_KEY = "groundplan.panelState.v1";
 
@@ -35,7 +35,6 @@ export type PanelPrefs = {
 };
 
 const LENSES: readonly PanelLens[] = ["infra", "network", "iam"];
-const MODES: readonly BaselineMode[] = ["head", "merge-base"];
 
 export const DEFAULT_PANEL_PREFS: PanelPrefs = {
   version: 1,
@@ -90,7 +89,9 @@ export function parsePanelPrefs(
 
   const lens = LENSES.find((candidate) => candidate === stored.lens);
   const diff = isRecord(stored.diff) ? stored.diff : {};
-  const mode = MODES.find((candidate) => candidate === diff.mode);
+  // Includes the branch modes, whose ref is validated too: it is handed
+  // straight to `git`, and this document is untrusted input.
+  const mode = isBaselineMode(diff.mode) ? diff.mode : null;
 
   return {
     version: 1,

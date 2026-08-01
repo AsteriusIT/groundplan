@@ -21,11 +21,26 @@ import { dirname, join } from "node:path";
 
 import { parse, type Graph, type HclFile } from "@groundplan/graph-parser";
 
-import type { BaselineMode } from "./messages";
+import { branchRefOf, shortRef, type BaselineMode } from "./messages";
 import { isDiagramTf, toPosixRelative } from "./paths";
 import { detectRootDir } from "./root-dir";
 
 export type { BaselineMode } from "./messages";
+
+/**
+ * Where to look for the repository's trunk when `origin/HEAD` is not set —
+ * which is common, since it survives neither a bare `git init` nor some CI
+ * clones. Remote-tracking first: it is what the team shares, and the local
+ * branch of the same name may be behind it.
+ */
+const DEFAULT_BRANCH_CANDIDATES = [
+  "refs/remotes/origin/main",
+  "refs/remotes/origin/master",
+  "refs/remotes/origin/trunk",
+  "refs/heads/main",
+  "refs/heads/master",
+  "refs/heads/trunk",
+] as const;
 
 /** Run git with `args` in `cwd`; resolves raw stdout, rejects on any failure. */
 export type GitRunner = (args: string[], cwd: string) => Promise<string>;
@@ -147,6 +162,13 @@ export class BaselineProvider {
   /** sha → immutable content; evicted for size only. */
   private readonly bySha = new Map<string, { files: HclFile[]; snapshot: Graph }>();
   private toplevel: string | null = null;
+  /**
+   * The detected default branch, memoised *including* its absence — the outer
+   * null means "not looked yet", the inner one means "looked, found nothing".
+   * Without that distinction a repository with no trunk would re-detect on
+   * every refresh, and the panel asks for this name even with diff mode off.
+   */
+  private defaultRef: { ref: string | null } | null = null;
 
   constructor(
     private readonly folder: string,
@@ -160,6 +182,9 @@ export class BaselineProvider {
   /** Drop the mode → sha resolution; the next get() asks git again. */
   invalidate(): void {
     this.refByMode.clear();
+    // A checkout, a fetch or a rename can all move which branch is the trunk,
+    // and those are exactly the events this is cleared on.
+    this.defaultRef = null;
   }
 
   /**
@@ -170,6 +195,18 @@ export class BaselineProvider {
   reset(): void {
     this.refByMode.clear();
     this.bySha.clear();
+    this.defaultRef = null;
+  }
+
+  /**
+   * The branch this repository treats as its trunk, named the way a reader
+   * says it (`master`, `origin/master`) — or null when there is none to find.
+   * The panel prints it on the "everything on this branch" choice, which is
+   * why this never throws: not knowing is an answer, not a failure.
+   */
+  async defaultBranch(): Promise<string | null> {
+    const ref = await this.resolveDefaultRef();
+    return ref === null ? null : shortRef(ref);
   }
 
   async get(mode: BaselineMode): Promise<BaselineResult> {
@@ -218,6 +255,52 @@ export class BaselineProvider {
     return this.toplevel;
   }
 
+  /** Memoised, absence included — see `defaultRef`. Never throws. */
+  private async resolveDefaultRef(): Promise<string | null> {
+    if (this.defaultRef) return this.defaultRef.ref;
+    let ref: string | null = null;
+    try {
+      ref = await this.detectDefaultRef(await this.root());
+    } catch {
+      // Not a repository, or git is unavailable: the same answer as a
+      // repository with no trunk, and the caller says so either way.
+      ref = null;
+    }
+    this.defaultRef = { ref };
+    return ref;
+  }
+
+  /** Only ever returns a ref that resolves — `resolve()` relies on that. */
+  private async detectDefaultRef(cwd: string): Promise<string | null> {
+    try {
+      // Authoritative when the clone has it: `git clone` sets it, and
+      // `git remote set-head origin -a` restores it.
+      const head = (
+        await this.run(["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"], cwd)
+      ).trim();
+      // Checked, not trusted: origin/HEAD can outlive the branch it points at,
+      // and a dangling pointer should fall through to the candidates rather
+      // than becoming a baseline that cannot be read.
+      if (head && (await this.exists(head, cwd))) return head;
+    } catch {
+      // Unset, which is common enough not to be worth reporting.
+    }
+    for (const candidate of DEFAULT_BRANCH_CANDIDATES) {
+      if (await this.exists(candidate, cwd)) return candidate;
+    }
+    return null;
+  }
+
+  /** Does `ref` name a commit here? The question a missing branch answers no to. */
+  private async exists(ref: string, cwd: string): Promise<boolean> {
+    try {
+      await this.run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], cwd);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async resolve(
     mode: BaselineMode,
   ): Promise<{ sha: string; ref: string }> {
@@ -226,17 +309,28 @@ export class BaselineProvider {
       const sha = (await this.run(["rev-parse", "HEAD"], cwd)).trim();
       return { sha, ref: "HEAD" };
     }
-    for (const branch of ["origin/main", "main"]) {
-      try {
-        const sha = (
-          await this.run(["merge-base", "HEAD", branch], cwd)
-        ).trim();
-        return { sha, ref: `merge-base ${branch}` };
-      } catch {
-        // Try the next candidate; a repo without origin/main is normal.
-      }
+
+    const named = branchRefOf(mode);
+    const target = named ?? (await this.resolveDefaultRef());
+    if (target === null) {
+      throw new Error("no default branch found — pick one to compare against");
     }
-    throw new Error("no origin/main or main branch to compare against");
+
+    const name = shortRef(target);
+    // Asked separately from the merge-base so the two failures can be told
+    // apart: "nobody has fetched that branch" and "these histories never met"
+    // are different problems with different fixes. Only for a *named* branch —
+    // a detected default has already been verified, and re-asking would put a
+    // second `git` spawn on the common path for nothing.
+    if (named !== null && !(await this.exists(target, cwd))) {
+      throw new Error(`branch "${name}" not found`);
+    }
+    try {
+      const sha = (await this.run(["merge-base", "HEAD", target], cwd)).trim();
+      return { sha, ref: `merge-base ${name}` };
+    } catch {
+      throw new Error(`no common commit with "${name}"`);
+    }
   }
 
   /** The committed `.tf` set at `sha`, folder-relative, parsed. */

@@ -366,8 +366,12 @@ host with `@groundplan/graph-parser`, draw with `@groundplan/canvas` in a
 strict-CSP Vite-built webview; debounced re-parse of dirty buffers,
 last-good graph + out-of-sync chip on errors, Problems-panel diagnostics,
 node↔code navigation off `node.source` ranges. Diff mode: git baseline
-(HEAD or merge-base, per-SHA cache) through `@groundplan/graph-differ`,
-ghost-the-unchanged, changed-only filter. Settings (`groundplan.theme`,
+(HEAD, the **detected** default branch, or any branch picked through a host
+QuickPick — never a hardcoded `main`; per-SHA cache) through
+`@groundplan/graph-differ`, ghost-the-unchanged, changed-only filter. The
+baseline is a tagged string (`head` | `merge-base` | `branch:<full ref>`) so
+it keeps comparing by `===`; a ref that fails to resolve is reported, never
+silently swapped for another. Settings (`groundplan.theme`,
 `rootDir`, `followActiveFile`) are preferences, not chrome. **Fully offline
 — never add a network call or telemetry.** Publishing:
 `docs/vscode-publishing.md` (tag `vscode-v<version>`).

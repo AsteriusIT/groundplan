@@ -18,6 +18,7 @@ const RESOLVED: DiffFacts = {
   sha: "a1b2c3d4e5f6",
   reason: null,
   clean: false,
+  defaultBranch: "origin/main",
 };
 
 function renderToolbar(
@@ -99,7 +100,33 @@ describe("diff split-button", () => {
       counts: { created: 1, updated: 0, deleted: 0, impacted: 0, total: 1 },
     });
 
-    expect(screen.getByRole("button", { name: /diff vs main/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /diff vs origin\/main/i }),
+    ).toBeInTheDocument();
+  });
+
+  test("it names the branch the repository actually calls its trunk", () => {
+    // The button used to print "main" from a lookup table, whatever the
+    // repository called its default branch.
+    renderToolbar({
+      prefs: ON,
+      facts: { ...RESOLVED, ref: "master", defaultBranch: "master" },
+      counts: { created: 1, updated: 0, deleted: 0, impacted: 0, total: 1 },
+    });
+
+    expect(screen.getByRole("button", { name: /diff vs master/i })).toBeInTheDocument();
+  });
+
+  test("a picked branch is named on the button too", () => {
+    renderToolbar({
+      prefs: { ...ON, mode: "branch:refs/remotes/origin/release/2.4" },
+      facts: { ...RESOLVED, defaultBranch: "master" },
+      counts: { created: 1, updated: 0, deleted: 0, impacted: 0, total: 1 },
+    });
+
+    expect(
+      screen.getByRole("button", { name: /diff vs origin\/release\/2\.4/i }),
+    ).toBeInTheDocument();
   });
 
   test("a clean diff reads as clean, not as three zeroes", () => {
@@ -151,7 +178,7 @@ describe("diff split-button", () => {
 
     expect(
       screen.getByRole("button", {
-        name: "Diff vs main 3 created, 1 updated, 2 deleted",
+        name: "Diff vs origin/main 3 created, 1 updated, 2 deleted",
       }),
     ).toBeInTheDocument();
   });
@@ -170,13 +197,7 @@ describe("diff split-button", () => {
   test("no baseline is flagged on the button, not hidden", () => {
     renderToolbar({
       prefs: ON,
-      facts: {
-        available: false,
-        ref: null,
-        sha: null,
-        reason: "no commits yet",
-        clean: false,
-      },
+      facts: { ...NO_DIFF_FACTS, reason: "no commits yet" },
       counts: null,
     });
 

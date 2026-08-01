@@ -46,6 +46,7 @@ describe("statusNotice", () => {
         sha: null,
         reason: "no commits yet",
         clean: false,
+        defaultBranch: null,
       },
       outOfSync: true,
       multiRoot: true,
@@ -65,6 +66,7 @@ describe("statusNotice", () => {
         sha: null,
         reason: "no commits yet",
         clean: false,
+        defaultBranch: null,
       },
     });
 
@@ -80,6 +82,7 @@ describe("statusNotice", () => {
         ref: "origin/main",
         sha: "a1b2c3d",
         reason: null,
+        defaultBranch: "origin/main",
         clean: false,
       },
     });

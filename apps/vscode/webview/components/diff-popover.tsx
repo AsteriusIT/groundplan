@@ -8,15 +8,29 @@
  * space. The caveat text is the same string the status bar's ⓘ shows and the
  * first-run notice carries; there is one copy of it in `strings.ts`.
  */
-import type { BaselineMode } from "../../src/messages";
+import { branchRefOf, shortRef, type BaselineMode } from "../../src/messages";
 import { strings } from "../strings";
 import type { DiffFacts, DiffPrefs, PanelAction } from "../state/panel-state";
 import { Popover } from "./popover";
 
-const BASES: readonly { mode: BaselineMode; label: string }[] = [
-  { mode: "head", label: strings.diff.baseHead },
-  { mode: "merge-base", label: strings.diff.baseMergeBase },
-];
+/**
+ * The baselines on offer. Two are always there; the third exists only while a
+ * picked branch *is* the baseline — deliberately not sticky, because a
+ * remembered branch would be state that can disagree with the mode, and the
+ * frequent toggle is HEAD against the default branch, which rows one and two
+ * already serve.
+ */
+function basesFor(
+  mode: BaselineMode,
+  defaultBranch: string | null,
+): readonly { mode: BaselineMode; label: string }[] {
+  const picked = branchRefOf(mode);
+  return [
+    { mode: "head", label: strings.diff.baseHead },
+    { mode: "merge-base", label: strings.diff.baseDefault(defaultBranch) },
+    ...(picked === null ? [] : [{ mode, label: shortRef(picked) }]),
+  ];
+}
 
 export function DiffPopover({
   open,
@@ -24,12 +38,15 @@ export function DiffPopover({
   prefs,
   facts,
   onAction,
+  onPickBranch,
 }: Readonly<{
   open: boolean;
   onClose: () => void;
   prefs: DiffPrefs;
   facts: DiffFacts;
   onAction: (action: PanelAction) => void;
+  /** Ask the host for its branch picker — the webview holds no branch list. */
+  onPickBranch: () => void;
 }>): React.JSX.Element | null {
   return (
     <Popover open={open} onClose={onClose} label={strings.diff.options} align="start">
@@ -38,7 +55,7 @@ export function DiffPopover({
           {strings.diff.baseLegend}
         </legend>
         <div role="radiogroup" aria-label={strings.diff.baseLegend}>
-          {BASES.map(({ mode, label }) => (
+          {basesFor(prefs.mode, facts.defaultBranch).map(({ mode, label }) => (
             <label
               key={mode}
               className="text-foreground flex cursor-pointer items-center gap-2 py-0.5 text-xs"
@@ -54,6 +71,14 @@ export function DiffPopover({
             </label>
           ))}
         </div>
+        <button
+          type="button"
+          title={strings.diff.pickBranchHint}
+          onClick={onPickBranch}
+          className="text-muted-foreground hover:text-foreground mt-1 ml-5 cursor-pointer font-mono text-[10px] underline underline-offset-2"
+        >
+          {strings.diff.pickBranch}
+        </button>
       </fieldset>
 
       {/* Nothing to fold without a diff — so it is disabled, not hidden: a

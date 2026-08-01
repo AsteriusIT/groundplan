@@ -78,6 +78,40 @@ test("a baseline that is not one of ours falls back", () => {
   assert.equal(prefs.diff.mode, "head");
 });
 
+test("a branch baseline survives a round trip", () => {
+  const prefs = parsePanelPrefs(
+    {
+      version: 1,
+      diff: {
+        enabled: true,
+        mode: "branch:refs/remotes/origin/release/2.4",
+        changedOnly: false,
+      },
+    },
+    LEGACY,
+  );
+
+  assert.equal(prefs.diff.mode, "branch:refs/remotes/origin/release/2.4");
+});
+
+test("a stored branch ref git could not be handed falls back to HEAD", () => {
+  // The document is untrusted input: an older build, a newer one, or a
+  // hand-edited workspace file. A ref that reaches `git` as an option is the
+  // case worth being strict about.
+  for (const mode of [
+    "branch:",
+    "branch:master",
+    "branch:--upload-pack=evil",
+    "branch:refs/heads/a b",
+  ]) {
+    const prefs = parsePanelPrefs(
+      { version: 1, diff: { enabled: true, mode, changedOnly: false } },
+      LEGACY,
+    );
+    assert.equal(prefs.diff.mode, "head", `must reject ${mode}`);
+  }
+});
+
 test("a partially written state keeps the parts that read", () => {
   const prefs = parsePanelPrefs({ version: 1, lens: "iam" }, LEGACY);
 

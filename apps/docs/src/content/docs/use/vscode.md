@@ -39,9 +39,22 @@ construction rather than by resemblance.
 
 ## Diff mode: a code diff, not a plan diff
 
-Toggle diff mode and the working tree is compared against a git baseline — `HEAD`
-or your branch's merge-base — with unchanged resources ghosted and a
-changed-only filter.
+Toggle diff mode and the working tree is compared against a git baseline, with
+unchanged resources ghosted and a changed-only filter. Three baselines are on
+offer, under the chevron beside the Diff button:
+
+- **`HEAD`** — what you have not committed yet;
+- **your default branch** — everything on this branch. The branch is detected
+  from the repository itself, so a repository whose trunk is `master` is
+  compared against `master`;
+- **any other branch** — pick one with **Branch…**, which opens the usual
+  Quick Pick over every local and remote-tracking branch.
+
+The last two compare against the *fork point* with that branch, so work
+somebody else pushed there does not appear in your diff. When a branch cannot
+be resolved — nobody has fetched it yet, or it has been deleted — the panel
+says so and keeps showing the live view rather than quietly comparing against
+something else.
 
 **This is a diff of your code, not of a plan.** It has no state, so:
 

@@ -332,6 +332,13 @@ export function App({
             prefs={prefs}
             facts={facts}
             onAction={act}
+            onPickBranch={() => {
+              // The host owns the branch list and the QuickPick; it writes the
+              // preference itself, and the new mode comes back on the next
+              // `diffState` like any other host-side change.
+              setDiffOptionsOpen(false);
+              post({ type: "pickDiffBase" });
+            }}
           />
         }
       >

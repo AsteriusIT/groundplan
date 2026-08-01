@@ -179,9 +179,15 @@ function DiffSplitButton({
   // them with no separator ("Diffvs main+3") because the gaps are visual only.
   // So the name is stated, and the counters are spelled as words — "+3 ~1 −2"
   // read aloud is "plus three tilde one minus two", which is not a sentence.
+  // "vs master" / "vs origin/release/2.4" — the branch is whatever the panel
+  // was told, never a name written into the code.
+  const against = strings.diff.against(
+    strings.diff.baseLabel(prefs.mode, facts.defaultBranch),
+  );
+
   const spokenName = [
     strings.diff.label,
-    prefs.enabled ? strings.diff.against(strings.diff.base[prefs.mode]) : null,
+    prefs.enabled ? against : null,
     prefs.enabled && !facts.available ? strings.diff.unavailable : null,
     clean ? strings.diff.clean : null,
     active && counts !== null && counts.total > 0
@@ -213,9 +219,7 @@ function DiffSplitButton({
             this button is worth its space, and the name is one click away in
             the popover. Dropped whole — never truncated to "vs ma…". */}
         {prefs.enabled && tier !== "narrow" && (
-          <span className="opacity-80">
-            {strings.diff.against(strings.diff.base[prefs.mode])}
-          </span>
+          <span className="opacity-80">{against}</span>
         )}
         {prefs.enabled && !facts.available && (
           <TriangleAlert

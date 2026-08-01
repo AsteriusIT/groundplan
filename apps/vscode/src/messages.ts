@@ -9,8 +9,70 @@ import type { PanelPrefs } from "./panel-prefs.js";
 
 export type { SyncValue };
 
-/** GP-154: what the diff is against. The wire owns this type — both sides use it. */
-export type BaselineMode = "head" | "merge-base";
+/**
+ * GP-154: what the diff is against. The wire owns this type — both sides use it.
+ *
+ * `head` is the last commit; `merge-base` is the fork point with whatever this
+ * repository calls its default branch (detected, never assumed to be `main`);
+ * `branch:<ref>` is the fork point with a branch the reader picked.
+ *
+ * A tagged string rather than an object because `mode` is compared with `===`
+ * in three places that matter: the webview's re-render guard (a deep compare
+ * there would remount the canvas on every keystroke), the baseline provider's
+ * cache `Map` key, and the flat JSON preferences document.
+ *
+ * The ref is always fully qualified (`refs/heads/x`, `refs/remotes/origin/x`).
+ * Short names are ambiguous — local `master` and `origin/master` are different
+ * commits — and a name beginning with `-` would reach `git` as an option.
+ */
+export type BaselineMode = "head" | "merge-base" | `branch:${string}`;
+
+const BRANCH_PREFIX = "branch:";
+
+/** The mode that compares against `ref`, which must be fully qualified. */
+export function branchMode(ref: string): BaselineMode {
+  return `${BRANCH_PREFIX}${ref}`;
+}
+
+/** The ref a branch mode names, or null for the two fixed modes. */
+export function branchRefOf(mode: BaselineMode): string | null {
+  return mode.startsWith(BRANCH_PREFIX) ? mode.slice(BRANCH_PREFIX.length) : null;
+}
+
+/** A ref as a reader says it: `refs/remotes/origin/x` → `origin/x`. */
+export function shortRef(ref: string): string {
+  for (const prefix of ["refs/heads/", "refs/remotes/"]) {
+    if (ref.startsWith(prefix)) return ref.slice(prefix.length);
+  }
+  return ref;
+}
+
+/**
+ * Ref names this extension will hand to `git`. Deliberately stricter than
+ * `git check-ref-format`: an allowlist of characters, fully qualified, and
+ * bounded — because the value arrives from a stored preferences document,
+ * which is untrusted input whoever wrote it.
+ */
+const SAFE_REF = /^refs\/[A-Za-z0-9._\-/]+$/;
+
+function isSafeRef(ref: string): boolean {
+  return (
+    ref.length <= 255 &&
+    SAFE_REF.test(ref) &&
+    !ref.includes("..") &&
+    !ref.includes("//") &&
+    !ref.includes("/.") &&
+    !ref.endsWith("/") &&
+    !ref.endsWith(".lock")
+  );
+}
+
+/** Narrow untrusted input (a stored preference, a message) to a mode. */
+export function isBaselineMode(value: unknown): value is BaselineMode {
+  if (value === "head" || value === "merge-base") return true;
+  if (typeof value !== "string" || !value.startsWith(BRANCH_PREFIX)) return false;
+  return isSafeRef(value.slice(BRANCH_PREFIX.length));
+}
 
 /**
  * The preview's colour theme: the near-neutral dark "carbon" (default) or the
@@ -41,8 +103,15 @@ export type DiffState = {
    * and the status bar exists to stop a comparison being read as live.
    */
   sha: string | null;
-  /** Why there is no baseline (non-git folder, no commits, no main…). */
+  /** Why there is no baseline (non-git folder, no commits, no trunk…). */
   reason: string | null;
+  /**
+   * The branch this repository treats as its trunk, short form, or null when
+   * none was found. Reported whether or not the diff is on, because the choice
+   * is offered before it is enabled — and reported rather than assumed, which
+   * is the whole point: a `master` repository must not be shown "main".
+   */
+  defaultBranch: string | null;
   /** True when the diff found nothing — all noop, no ghosts. */
   clean: boolean;
 };
@@ -126,4 +195,14 @@ export type WebviewMessage =
        */
       type: "setPanelPrefs";
       prefs: PanelPrefs;
+    }
+  | {
+      /**
+       * Open the host's branch picker for the diff baseline. Deliberately a
+       * request rather than a preference: the branch list is git's answer at
+       * this instant, and one sent to the webview could only arrive stale. The
+       * host shows the QuickPick, stores the choice, and the new mode returns
+       * with the next `diffState`.
+       */
+      type: "pickDiffBase";
     };

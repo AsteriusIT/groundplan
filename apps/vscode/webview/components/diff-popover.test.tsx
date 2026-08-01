@@ -18,6 +18,7 @@ const RESOLVED: DiffFacts = {
   sha: "a1b2c3d4e5f6",
   reason: null,
   clean: false,
+  defaultBranch: "origin/main",
 };
 
 function renderPopover(
@@ -25,6 +26,7 @@ function renderPopover(
 ) {
   const onAction = vi.fn();
   const onClose = vi.fn();
+  const onPickBranch = vi.fn();
   render(
     <div>
       <button type="button">outside</button>
@@ -34,11 +36,12 @@ function renderPopover(
         prefs={ON}
         facts={RESOLVED}
         onAction={onAction}
+        onPickBranch={onPickBranch}
         {...overrides}
       />
     </div>,
   );
-  return { onAction, onClose };
+  return { onAction, onClose, onPickBranch };
 }
 
 describe("opening and closing", () => {
@@ -74,15 +77,22 @@ describe("opening and closing", () => {
 });
 
 describe("baseline", () => {
-  test("offers the two baselines that exist, with the current one selected", () => {
-    // There are exactly two: `head` and `merge-base`. `merge-base` *is*
-    // "vs main" — a third option would be an invention.
-    renderPopover();
+  test("names the repository's own default branch, never a guessed one", () => {
+    // The whole point: a repository whose trunk is `master` must not be
+    // offered a choice labelled "main".
+    renderPopover({ facts: { ...RESOLVED, defaultBranch: "master" } });
 
     const radios = screen.getAllByRole("radio");
     expect(radios).toHaveLength(2);
-    expect(screen.getByRole("radio", { name: /main/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /master/i })).toBeChecked();
     expect(screen.getByRole("radio", { name: /head/i })).not.toBeChecked();
+    expect(screen.queryByRole("radio", { name: /\bmain\b/i })).not.toBeInTheDocument();
+  });
+
+  test("with no default branch detected, the row says so rather than naming one", () => {
+    renderPopover({ facts: { ...NO_DIFF_FACTS, defaultBranch: null }, prefs: OFF });
+
+    expect(screen.getByRole("radio", { name: /default branch/i })).toBeInTheDocument();
   });
 
   test("picking a baseline asks for it", () => {
@@ -91,6 +101,39 @@ describe("baseline", () => {
     fireEvent.click(screen.getByRole("radio", { name: /head/i }));
 
     expect(onAction).toHaveBeenCalledWith({ type: "setBase", mode: "head" });
+  });
+});
+
+describe("choosing another branch", () => {
+  const ON_BRANCH: DiffPrefs = {
+    enabled: true,
+    mode: "branch:refs/remotes/origin/release/2.4",
+    changedOnly: false,
+  };
+
+  test("the chosen branch gets its own row, selected, named as a reader says it", () => {
+    renderPopover({ prefs: ON_BRANCH });
+
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(3);
+    expect(screen.getByRole("radio", { name: /origin\/release\/2\.4/ })).toBeChecked();
+  });
+
+  test("no row for a branch that is not the baseline — it is not a menu", () => {
+    // The frequent toggle is HEAD vs the default branch; a remembered branch
+    // would be state that can disagree with the mode for no gain.
+    renderPopover({ prefs: ON });
+
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+  });
+
+  test("Branch… asks the host to pick — the webview never holds a branch list", () => {
+    const onPickBranch = vi.fn();
+    renderPopover({ onPickBranch });
+
+    fireEvent.click(screen.getByRole("button", { name: /branch/i }));
+
+    expect(onPickBranch).toHaveBeenCalled();
   });
 });
 
@@ -134,13 +177,7 @@ describe("honest framing", () => {
   test("an unresolved baseline explains itself here", () => {
     renderPopover({
       prefs: ON,
-      facts: {
-        available: false,
-        ref: null,
-        sha: null,
-        reason: "no commits yet",
-        clean: false,
-      },
+      facts: { ...NO_DIFF_FACTS, reason: "no commits yet" },
     });
 
     expect(screen.getByText(/no commits yet/i)).toBeInTheDocument();

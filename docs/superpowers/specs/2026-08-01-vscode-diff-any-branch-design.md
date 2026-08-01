@@ -92,10 +92,21 @@ branch rename re-resolves it, and nothing else does.
 
 1. `git symbolic-ref --quiet refs/remotes/origin/HEAD` — authoritative when the
    clone has it (`git clone` sets it; `git remote set-head -a` restores it).
+   Verified rather than trusted: `origin/HEAD` can outlive the branch it names,
+   and a dangling pointer falls through to the candidates instead of becoming a
+   baseline that cannot be read.
 2. Otherwise the first ref that `git rev-parse --verify` resolves, in order:
    `refs/remotes/origin/{main,master,trunk}`, then `refs/heads/{main,master,trunk}`.
+   Remote-tracking first: it is what the team shares.
 3. Neither → the baseline is unavailable, with the reason `no default branch
    found — pick one to compare against`.
+
+The memoisation holds the *outcome*, absence included — an outer null means
+"not looked yet", an inner one means "looked, found nothing". Without that
+distinction a repository with no trunk would re-detect on every refresh, and
+the panel asks for this name even with diff mode off. Because detection only
+ever returns a ref that resolves, `resolve()` re-checks existence for a
+**named** branch only, keeping the common path at one `git` invocation.
 
 `resolve(mode)` then reads:
 
@@ -172,7 +183,14 @@ with rows derived from state:
   resolved and `Default branch` when it did not;
 - the chosen branch, **only while a branch is the active mode**, labelled with
   `shortRef`;
-- a `Branch…` button that posts `pickDiffBase`.
+- a `Branch…` button, wired through its own `onPickBranch` prop rather than a
+  `PanelAction`. Asking the host to open a picker is a request, not a state
+  change, and the reducer stays about state; `app.tsx` closes the popover and
+  posts `pickDiffBase`.
+
+`parseBranchRefs` puts every candidate through the same `isBaselineMode` gate
+the stored preference passes: a ref the extension would refuse to resolve has
+no business being offered as a choice.
 
 The third row is deliberately not sticky, and no last-branch-picked field is
 stored. The frequent toggle is HEAD ↔ default branch, which rows one and two
@@ -195,6 +213,7 @@ Following the repository's TDD convention, tests sit beside their subject.
 does:
 
 - `origin/HEAD` wins over the candidate list;
+- an `origin/HEAD` pointing at a deleted branch falls through to the candidates;
 - a repository with no remote falls back to `refs/heads/master`;
 - a repository with neither reports `no default branch found`;
 - `branch:refs/heads/x` resolves and captions `merge-base x`;
@@ -235,17 +254,21 @@ warn-on-failure are verified by hand against a real workspace.
 
 ## 9. Delivery
 
-One commit, `feat(vscode): …`, carrying the Jira key of the story filed for this
-work under the VS Code diff-mode line (GP-151/GP-152/GP-154); the key is
-assigned when that story is filed. Files touched:
+One commit, `feat(vscode): …`. No Jira key: this was implemented directly at the
+author's request rather than filed as a story under the VS Code diff-mode line
+(GP-151/GP-152/GP-154). Files touched:
 
-- new: `src/branches.ts`, `src/branches.test.ts`;
+- new: `src/branches.ts`, `src/branches.test.ts`, `src/messages.test.ts`;
 - changed: `src/messages.ts`, `src/git-baseline.ts`, `src/panel-prefs.ts`,
-  `src/extension.ts`, `webview/strings.ts`,
-  `webview/components/diff-popover.tsx`, `webview/state/panel-state.ts`;
+  `src/extension.ts`, `webview/app.tsx`, `webview/strings.ts`,
+  `webview/components/diff-popover.tsx`, `webview/components/toolbar.tsx`,
+  `webview/state/panel-state.ts`;
 - changed tests: `src/git-baseline.test.ts`, `src/panel-prefs.test.ts`,
-  `webview/state/panel-state.test.ts`,
-  `webview/components/diff-popover.test.tsx`, and
-  `webview/components/toolbar.test.tsx` (the base label became a function).
+  `webview/components/diff-popover.test.tsx`,
+  `webview/components/toolbar.test.tsx` (the base label became a function),
+  `webview/app.test.tsx` and `webview/state/status-notice.test.ts` (fixtures);
+- docs: `apps/docs/src/content/docs/use/vscode.md` and the VS Code paragraph in
+  `CLAUDE.md`. The website copy needs no change — it says "git HEAD or your
+  branch's merge-base", which stays true.
 
 No `package.json` contribution changes: no new setting and no new command.
