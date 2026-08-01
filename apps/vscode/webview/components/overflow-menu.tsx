@@ -6,7 +6,7 @@
  * so only things a reader changes once belong here: whether the diagram follows
  * the cursor, and what the keyboard can do.
  */
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Search } from "lucide-react";
 
 import { strings } from "../strings";
 import { Popover } from "./popover";
@@ -17,6 +17,7 @@ export function OverflowMenu({
   onClose,
   followCursor,
   onToggleFollowCursor,
+  onSearch,
   children,
 }: Readonly<{
   open: boolean;
@@ -24,6 +25,11 @@ export function OverflowMenu({
   onClose: () => void;
   followCursor: boolean;
   onToggleFollowCursor: () => void;
+  /**
+   * Present only in the narrow tier, where search has no room to sit in the
+   * bar. Folded away is fine; unreachable is not.
+   */
+  onSearch?: () => void;
   /** Anything else that belongs behind the ⋯ — the shortcut list, so far. */
   children?: React.ReactNode;
 }>): React.JSX.Element {
@@ -42,6 +48,20 @@ export function OverflowMenu({
       </button>
 
       <Popover open={open} onClose={onClose} label={strings.overflow.label} align="end">
+        {onSearch && (
+          <button
+            type="button"
+            aria-label={strings.search.label}
+            onClick={() => {
+              onClose();
+              onSearch();
+            }}
+            className="text-foreground hover:bg-accent-soft mb-2 flex w-full items-center gap-2 border-b border-border pb-2 text-xs"
+          >
+            <Search className="size-3.5" />
+            {strings.search.label}
+          </button>
+        )}
         <label className="text-foreground flex cursor-pointer items-center gap-2 text-xs">
           <input
             type="checkbox"

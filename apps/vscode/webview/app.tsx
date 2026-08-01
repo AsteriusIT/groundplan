@@ -54,6 +54,7 @@ import {
   type PanelAction,
 } from "./state/panel-state";
 import { statusNotice } from "./state/status-notice";
+import { useTier } from "./state/tier";
 import {
   activeFilterChips,
   toCanvasFilters,
@@ -122,6 +123,10 @@ export function App({
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [query, setQuery] = useState("");
   const camera = useRef<CanvasCamera | null>(null);
+  // The panel measures itself: it opens beside the editor and can be dragged
+  // to any width, so the window's size is not the question.
+  const root = useRef<HTMLDivElement>(null);
+  const tier = useTier(root);
   const view = panel.lens;
   const prefs = panel.diff;
 
@@ -219,9 +224,15 @@ export function App({
     [graph, diffActive],
   );
 
+  // Every branch renders inside the same measured root. The panel sizes its
+  // toolbar from its own width, and a root that only exists once a graph has
+  // arrived is a panel that never measures itself on first load.
   if (!graph || !displayed) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div
+        ref={root}
+        className="flex h-screen w-screen items-center justify-center bg-background"
+      >
         <p className="text-muted-foreground text-sm">Reading Terraform…</p>
       </div>
     );
@@ -230,13 +241,18 @@ export function App({
   // An empty snapshot drew a silent blank grid; say where the parse looked
   // and how to point it elsewhere instead.
   if (graph.nodes.length === 0) {
-    return <EmptyState folder={folder} rootDir={rootDir} outOfSync={outOfSync} />;
+    return (
+      <div ref={root} className="h-screen w-screen">
+        <EmptyState folder={folder} rootDir={rootDir} outOfSync={outOfSync} />
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-canvas">
+    <div ref={root} className="flex h-screen w-screen flex-col bg-canvas">
       <Toolbar
         lens={view}
+        tier={tier}
         prefs={prefs}
         facts={facts}
         counts={counts}
@@ -253,6 +269,9 @@ export function App({
           />
         }
       >
+        {/* Narrow: the field only takes the bar once it is actually being
+            used; the way in moves to the overflow. */}
+        {(tier !== "narrow" || searchOpen) && (
         <SearchField
           graph={graph}
           open={searchOpen}
@@ -270,6 +289,7 @@ export function App({
             setQuery("");
           }}
         />
+        )}
         <FilterButton
           graph={graph}
           variant={diffActive ? "plan" : "docs"}
@@ -288,6 +308,7 @@ export function App({
           onClose={() => setOverflowOpen(false)}
           followCursor={panel.followCursor}
           onToggleFollowCursor={() => act({ type: "toggleFollowCursor" })}
+          {...(tier === "narrow" ? { onSearch: () => setSearchOpen(true) } : {})}
         />
       </Toolbar>
 
@@ -296,6 +317,9 @@ export function App({
           saying so. */}
       <FilterChips
         chips={chips}
+        // Narrow: one chip standing for all of them. Still says that
+        // something is hidden, which is the part that must not be lost.
+        collapsed={tier !== "wide"}
         onRemove={(chip) =>
           act({ type: "setFilters", filters: chip.without(panel.filters) })
         }

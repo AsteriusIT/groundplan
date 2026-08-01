@@ -200,3 +200,69 @@ describe("diff split-button", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// --- how the toolbar narrows ----------------------------------------------
+//
+// The rule: a control is complete or it is replaced by its compact form. It is
+// never truncated mid-word — the old toolbar's "IA…" was a label that had
+// stopped being a word.
+
+describe("narrowing", () => {
+  test("wide keeps the lens segments spelled out", () => {
+    renderToolbar({ tier: "wide" });
+
+    expect(screen.getByRole("radiogroup", { name: /view/i })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Network" })).toBeInTheDocument();
+  });
+
+  test("medium keeps the segments — they are how you change view", () => {
+    renderToolbar({ tier: "medium" });
+
+    expect(screen.getByRole("radiogroup", { name: /view/i })).toBeInTheDocument();
+  });
+
+  test("narrow trades the segments for a dropdown, not for three squeezed labels", () => {
+    renderToolbar({ tier: "narrow" });
+
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /view/i })).toBeInTheDocument();
+  });
+
+  test("the dropdown switches lens like the segments did", () => {
+    const { onAction } = renderToolbar({ tier: "narrow" });
+
+    fireEvent.change(screen.getByRole("combobox", { name: /view/i }), {
+      target: { value: "iam" },
+    });
+
+    expect(onAction).toHaveBeenCalledWith({ type: "setLens", lens: "iam" });
+  });
+
+  test("narrow drops the baseline name from the button, never half of it", () => {
+    renderToolbar({
+      tier: "narrow",
+      prefs: ON,
+      facts: RESOLVED,
+      counts: { created: 2, updated: 0, deleted: 0, impacted: 0, total: 2 },
+    });
+
+    expect(screen.queryByText("vs main")).not.toBeInTheDocument();
+    // The counts survive: they are the reason the button is worth its space.
+    expect(screen.getByText("+2")).toBeInTheDocument();
+  });
+
+  test("the baseline is still reachable — it moved into the popover, not away", () => {
+    renderToolbar({ tier: "narrow", prefs: ON, facts: RESOLVED, counts: null });
+
+    expect(
+      screen.getByRole("button", { name: /diff options/i }),
+    ).toBeInTheDocument();
+  });
+
+  test("every lens is still reachable at 360px", () => {
+    renderToolbar({ tier: "narrow" });
+
+    const dropdown = screen.getByRole("combobox", { name: /view/i });
+    expect(within(dropdown).getAllByRole("option")).toHaveLength(3);
+  });
+});

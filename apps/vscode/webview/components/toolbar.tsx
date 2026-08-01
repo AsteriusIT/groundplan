@@ -22,6 +22,7 @@ import type {
   Lens,
   PanelAction,
 } from "../state/panel-state";
+import type { Tier } from "../state/tier";
 
 const LENSES: readonly { key: Lens; label: string }[] = [
   { key: "infra", label: strings.lens.infra },
@@ -102,6 +103,36 @@ function LensSegments({
 }
 
 /**
+ * The same choice as the segments, in the space of one control. A dropdown
+ * rather than three squeezed labels: a segmented control that has run out of
+ * room can only truncate, and half a word is not a label.
+ */
+function LensDropdown({
+  lens,
+  onAction,
+}: Readonly<{
+  lens: Lens;
+  onAction: (action: PanelAction) => void;
+}>): React.JSX.Element {
+  return (
+    <select
+      aria-label={strings.lens.label}
+      value={lens}
+      onChange={(event) =>
+        onAction({ type: "setLens", lens: event.target.value as Lens })
+      }
+      className="border-border-strong bg-panel text-foreground shrink-0 rounded-sm border px-1 py-1 font-mono text-xs"
+    >
+      {LENSES.map(({ key, label }) => (
+        <option key={key} value={key}>
+          {label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
  * `+3 ~1 −2` in the change colours. A kind with nothing in it is not printed:
  * `+0` is noise that looks like information, and the reader is scanning for
  * the one number that says whether this diff is worth opening.
@@ -126,6 +157,7 @@ function DiffSplitButton({
   prefs,
   facts,
   counts,
+  tier,
   optionsOpen,
   onToggleOptions,
   onAction,
@@ -134,6 +166,7 @@ function DiffSplitButton({
   prefs: DiffPrefs;
   facts: DiffFacts;
   counts: DiffCounts | null;
+  tier: Tier;
   optionsOpen: boolean;
   onToggleOptions: () => void;
   onAction: (action: PanelAction) => void;
@@ -176,7 +209,10 @@ function DiffSplitButton({
       >
         <GitCompareArrows className="size-3.5 shrink-0" />
         {strings.diff.label}
-        {prefs.enabled && (
+        {/* The baseline name is the first thing to go: the counts are why
+            this button is worth its space, and the name is one click away in
+            the popover. Dropped whole — never truncated to "vs ma…". */}
+        {prefs.enabled && tier !== "narrow" && (
           <span className="opacity-80">
             {strings.diff.against(strings.diff.base[prefs.mode])}
           </span>
@@ -219,6 +255,7 @@ export function Toolbar({
   prefs,
   facts,
   counts,
+  tier = "wide",
   optionsOpen = false,
   onToggleOptions = () => {},
   onAction,
@@ -226,6 +263,8 @@ export function Toolbar({
   children,
 }: Readonly<{
   lens: Lens;
+  /** How much room there is. Measured, not queried — see ../state/tier. */
+  tier?: Tier;
   prefs: DiffPrefs;
   facts: DiffFacts;
   /** Null when there is no diff to count — the button then shows no numbers. */
@@ -244,13 +283,18 @@ export function Toolbar({
       aria-label="Preview controls"
       className="border-border bg-panel flex shrink-0 items-center gap-2 border-b px-2 py-1.5"
     >
-      <LensSegments lens={lens} onAction={onAction} />
+      {tier === "narrow" ? (
+        <LensDropdown lens={lens} onAction={onAction} />
+      ) : (
+        <LensSegments lens={lens} onAction={onAction} />
+      )}
       {/* A table has no diagram to colour, so the IAM lens has no diff. */}
       {lens !== "iam" && (
         <DiffSplitButton
           prefs={prefs}
           facts={facts}
           counts={counts}
+          tier={tier}
           optionsOpen={optionsOpen}
           onToggleOptions={onToggleOptions}
           onAction={onAction}

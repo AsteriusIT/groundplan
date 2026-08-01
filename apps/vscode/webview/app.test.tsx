@@ -270,6 +270,71 @@ describe("filters", () => {
   });
 });
 
+describe("a narrow panel", () => {
+  /** The panel measures itself on mount; jsdom measures nothing on its own. */
+  function atWidth(width: number, run: () => void): void {
+    const original = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      value: width,
+    });
+    try {
+      run();
+    } finally {
+      // jsdom defines clientWidth on Element.prototype, so there is usually no
+      // own descriptor here to put back — the stub has to be deleted, or it
+      // leaks into every test that runs after this one.
+      if (original) {
+        Object.defineProperty(HTMLElement.prototype, "clientWidth", original);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+      }
+    }
+  }
+
+  test("at 360px the lens becomes a dropdown rather than three squeezed labels", () => {
+    atWidth(360, () => {
+      mount([node("a", "noop")]);
+
+      expect(screen.getByRole("combobox", { name: /view/i })).toBeInTheDocument();
+      expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    });
+  });
+
+  test("at 360px search is still reachable, just not resident", () => {
+    atWidth(360, () => {
+      mount([node("a", "noop")]);
+
+      fireEvent.click(screen.getByRole("button", { name: /^more$/i }));
+      fireEvent.click(screen.getByRole("button", { name: /search resources/i }));
+
+      expect(screen.getByLabelText(/search resources/i)).toBeInTheDocument();
+    });
+  });
+
+  test("at 360px the filters and the legend are still reachable", () => {
+    atWidth(360, () => {
+      mount([node("a", "noop")]);
+
+      expect(screen.getByRole("button", { name: /^filters$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^legend$/i })).toBeInTheDocument();
+    });
+  });
+
+  test("at 360px hidden filters collapse to a count, and still say so", () => {
+    atWidth(360, () => {
+      mount([node("a", "create")], { ...CLEAN, clean: false });
+      fireEvent.click(screen.getByRole("button", { name: /^filters$/i }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /Create/ }));
+
+      expect(screen.getByText("1 filter")).toBeInTheDocument();
+    });
+  });
+});
+
 describe("talking to the host", () => {
   test("turning diff on tells the host once", () => {
     const { post } = mount([node("a", "noop")]);
