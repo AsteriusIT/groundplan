@@ -8,7 +8,12 @@ const ROWS: { claim: string; proof: string }[] = [
   {
     claim: "We ingest data, not access",
     proof:
-      "Only plan JSON / rendered YAML from your CI; no cloud SDK credentials, no state backends, no terraform/helm/kustomize execution anywhere in the codebase",
+      "Only plan JSON / rendered YAML from your CI; no cloud SDK credentials, no state backends, and nothing is ever executed against your infrastructure, your state or your code",
+  },
+  {
+    claim: "The resource catalog is public metadata",
+    proof:
+      "The one place terraform runs is a sandboxed worker, against a generated empty configuration pinning one allowlisted public provider, to read that provider's own schema — no credentials, no state, no code of yours. Air-gapped installs use the bundled snapshot and make no outbound call at all",
   },
   {
     claim: "Secrets are write-only",
@@ -73,10 +78,11 @@ const AI_FACTS = [
       <p class="mt-6 max-w-3xl text-lg leading-relaxed text-muted-foreground">
         <strong class="text-foreground">We ingest data, not access.</strong> Groundplan reads
         the plan JSON and rendered manifests your own CI produces. It never holds cloud
-        credentials, never reads your Terraform state, never runs
+        credentials, never reads your Terraform state, and never runs
         <code class="font-mono text-base">terraform</code>,
         <code class="font-mono text-base">helm</code> or
-        <code class="font-mono text-base">kustomize</code>. Adoption is one pipeline step.
+        <code class="font-mono text-base">kustomize</code> against your infrastructure, your
+        state or your code. Adoption is one pipeline step.
       </p>
     </section>
   </div>

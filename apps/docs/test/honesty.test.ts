@@ -42,8 +42,13 @@ const FORBIDDEN: { pattern: RegExp; why: string }[] = [
     why: "no certification exists; claiming one is a lie with legal weight",
   },
   {
-    pattern: /\bwe run (terraform|helm|kustomize)\b|\bruns? (helm|kustomize) for you\b/i,
-    why: "the product never executes terraform, helm or kustomize",
+    // "for you" is the whole claim: since the resource catalog (GP-240) the
+    // product does run `terraform`, on a generated empty config, to read a
+    // public provider's schema. What it must never say is that it runs any of
+    // them against the reader's infrastructure, state or code.
+    pattern:
+      /\bwe run (terraform|helm|kustomize) for you\b|\bruns? (terraform|helm|kustomize) for you\b|\bruns? your (terraform|helm|kustomize)\b/i,
+    why: "the product never runs terraform, helm or kustomize against your infrastructure, state or code",
   },
   {
     pattern: /\bround-?trips? (the |your )?(HCL|Terraform)\b|\bedits? your Terraform for you\b/i,
@@ -81,9 +86,13 @@ const CONDITIONAL: { claim: RegExp; requires: RegExp; why: string }[] = [
     why: "the builder is off unless a deployment turns it on, and must say so wherever it is named",
   },
   {
+    // Not Azure-only since GP-238: the builder composes against whichever
+    // providers a deployment allowlists. What must still be said is the bound
+    // that replaced it — the catalog is those providers and no others, and a
+    // community provider is not supported.
     claim: /\bvisual builder\b|\bBuild mode\b/i,
-    requires: /\bAzure\b|\bazurerm\b/i,
-    why: "the builder's catalog is Azure-only and must say so wherever it is named",
+    requires: /\ballowlist(ed)?\b|\bazurerm\b|\bcurated\b/i,
+    why: "the builder's catalog is the allowlisted providers and no others — say which",
   },
 ];
 

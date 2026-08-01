@@ -242,7 +242,8 @@ your pipeline already produces and writes a comment back:
 - **Can**: read repository contents and metadata, comment on pull requests,
   publish check runs — on the repositories you selected, and nothing else.
 - **Cannot**: reach any cloud account. Groundplan holds no cloud credentials,
-  never reads Terraform state, never runs `terraform`, `helm` or `kustomize`.
+  never reads Terraform state, and never runs `terraform`, `helm` or
+  `kustomize` against your infrastructure, your state or your code.
 - **Stored**: the installation id and the account login. That is all — the row
   holds **no secret**. Installation tokens live in memory until they expire and
   are never written down; the private key stays in your deployment's env.

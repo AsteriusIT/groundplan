@@ -13,7 +13,7 @@ repository, and none of them is a roadmap item.
 | --- | --- |
 | Cloud credentials (subscription, IAM role, access key) | **Never.** None exist anywhere in the product. |
 | Terraform state backend | **Never.** A state is parsed and stripped by the CLI on your machine; only the derived graph is sent, and a raw state posted at the API is refused. |
-| Executing `terraform`, `helm` or `kustomize` | **Never.** Your pipeline renders; the product ingests the output. |
+| Executing `terraform`, `helm` or `kustomize` **against your infrastructure, state or code** | **Never.** Your pipeline renders; the product ingests the output. The one place the `terraform` binary runs at all is the [resource catalog](#the-resource-catalog) worker, on a generated empty configuration — see below. |
 | Repository read access | Yes — a credential you supply, to clone. |
 | Repository write access | Only to comment on pull requests, only if you grant it. |
 | A Kubernetes cluster | Only if you attach one: a read-only kubeconfig, LIST verbs only, [Secret values never fetched](/use/live-clusters/). |
@@ -22,6 +22,43 @@ repository, and none of them is a roadmap item.
 This is the moat and the design constraint: the product is fed artefacts your
 own systems produce, so a compromise of it does not become a compromise of your
 cloud.
+
+## The resource catalog
+
+The visual builder — off by default, enabled per deployment — offers real
+resource types with real arguments, and those come from the providers
+themselves. Reading them is the single place this product runs the `terraform`
+binary, so it is worth stating exactly.
+
+A separate worker writes a configuration and runs Terraform against **it**: a
+`required_providers` block pinning one exact version of one allowlisted public
+provider, and nothing else. No resources, no backend, no variables, no
+credentials — there are none to supply. `terraform init` downloads the
+provider, `terraform providers schema -json` asks it to describe itself, the
+schemas are stored, and the directory is deleted. Your infrastructure, your
+state and your code are not involved at any point.
+
+What bounds it:
+
+- **An allowlist, checked before anything is spawned.** A provider is an
+  executable that `terraform init` downloads and runs, so an arbitrary
+  namespace/name would be arbitrary code execution. Only the configured
+  providers are ever fetched — four by default, and community providers are not
+  supported.
+- **Its own container**, non-root, with a checksum-verified pinned Terraform, no
+  listening port, and deliberately **not** the API's environment: it holds a
+  database URL and the catalog's settings, and none of the application's
+  secrets.
+- **Bounded resources**: a wall clock per command that kills the process group
+  on expiry, a memory cap, and a temp directory removed on every path.
+- **Restricted egress**: the Terraform registry and HashiCorp's release host.
+  Nothing else.
+
+An air-gapped deployment can switch the whole thing off
+(`CATALOG_REFRESH=disabled`) and still have the complete builder: every release
+bundles a snapshot of the schemas, imported on first boot. The interface then
+labels the catalog **pinned**, with the provider version and the date it was
+read, rather than presenting it as current.
 
 ## Secrets at rest
 
@@ -108,6 +145,9 @@ Stated plainly, because a questionnaire will ask:
 - **No SSO group-to-role mapping**; roles are managed in the product.
 - **No per-project permissions**, no service accounts, no IP allowlisting.
 - **No SMTP** anywhere — invitations are copy-the-link.
+- **No community provider support** in the visual builder. The catalog covers
+  the providers a deployment allowlists; anything else is composed as a custom
+  resource, checked as syntax only.
 
 ## Reporting a vulnerability
 

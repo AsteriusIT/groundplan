@@ -5,7 +5,10 @@
 const PROOFS = [
   { title: "No cloud credentials", text: "There is nothing to leak — we never hold access." },
   { title: "No state access", text: "Your state never leaves your pipeline." },
-  { title: "Nothing executed", text: "No terraform, helm or kustomize — ever. We ingest what your CI renders." },
+  {
+    title: "Nothing run on your side",
+    text: "No terraform, helm or kustomize against your infrastructure, state or code. We ingest what your CI renders.",
+  },
 ];
 ---
 

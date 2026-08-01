@@ -13,10 +13,17 @@ network, permissions, C4 systems — instead of thousands of lines of HCL.
 
 **Trust model (the moat): we ingest data, not access.** The platform reads the
 plan JSON and CI-rendered manifests the user's own pipeline produces. It never
-holds cloud credentials, never reads Terraform state, never runs `terraform`,
-`helm` or `kustomize`. The one deliberate extension: an optional **read-only**
-kubeconfig for live-cluster views (encrypted like PATs, LIST-only, Secret
-values never fetched). **Never introduce cloud SDK credentials or state access.**
+holds cloud credentials, never reads Terraform state, and never runs
+`terraform`, `helm` or `kustomize` **against the user's infrastructure, state or
+code**. Two deliberate, bounded exceptions — say them precisely, never drop the
+qualifier (GP-240):
+1. an optional **read-only** kubeconfig for live-cluster views (encrypted like
+   PATs, LIST-only, Secret values never fetched);
+2. the **resource catalog worker** (GP-233), which runs `terraform` against a
+   config Groundplan generates — one allowlisted *public* provider, pinned, no
+   resources, no backend, no credentials — purely to read that provider's own
+   schema.
+**Never introduce cloud SDK credentials or state access.**
 
 > Status: **full product.** Everything below is implemented and tested (Jira
 > GP-1..GP-181 except the open items listed under "Jira board"). The
@@ -363,14 +370,38 @@ live in Groundplan" backlink (a `docs_latest` share link when one exists, else
 the in-app docs URL); failures land in `last_publish_error`, never thrown. PR
 comments have one adapter per provider behind `pr-comment-port.ts`.
 
+**Resource catalog (GP-233..240).** The visual builder composes against the
+*real* provider schemas. Four global `catalog_*` tables (no org column — a
+provider schema is public information), schemas gzipped in `bytea` and split
+from the type rows so the fifteen-hundred-row list stays a cheap read.
+`src/catalog/` holds it all: `providers.ts` is the **allowlist** — a security
+boundary, not an inventory, because a provider is an executable — `registry.ts`
+watches the public registry for versions, `refresh.ts` decides (TTL → newer? →
+may we claim it?) and never throws, `extract.ts` is the only code in this
+product that runs `terraform`, `snapshot.ts`/`seed.ts` are the air-gapped path.
+Reads answer from the latest **ready** version, always, so a refresh in flight
+cannot degrade a response; the version row *is* the single-flight lock
+(conditional UPDATE). Extraction runs in its **own image** (`Dockerfile.catalog-worker`,
+non-root, pinned+checksummed terraform, minimal env, restricted egress) against
+a generated empty config — never customer code, state or credentials. The API
+process gets `refusingExtractor` and must never spawn one.
+`schema-def.ts` in `@groundplan/builder` turns a schema into a `ResourceDef`:
+references are **derived** (`<x>_id`/`_ids`/`_name` → `<provider>_<x>` when that
+type exists), which a test proves by rediscovering every curated connection bar
+one polymorphic id. Curated entries always win (`mergeCatalog`) and are compiled
+in, so the twelve work with no catalog at all — warming, unreachable, or never
+configured. Wording rule: **never write "never runs `terraform`" unqualified**
+(GP-240).
+
 **Visual builder (GP-131..135, flagged).** `BUILDER_ENABLED=true` adds a
 **Build** mode to the playground: compose Azure resources on a canvas, then
 generate Terraform from them. Off by default — the `AI_API_KEY` posture applied
 to a boolean: `/builder/status` reports it, `POST /builder/generate` 404s, and
 the frontend renders no Build surface. `packages/builder` holds everything both
-sides need (`catalog.ts` is the only place that knows which resource types
-exist — the `registry.ts`/policy-catalogue posture), so the browser composes
-against the same rules the server generates from. Generation is deterministic
+sides need, so the browser composes against the same rules the server generates
+from. `catalog.ts` is now the **curated** dozen (labels, categories, scaffold
+blocks, defaults) rather than the whole list — since GP-238 the rest comes from
+the provider catalog and `mergeCatalog` prefers curation wherever it exists. Generation is deterministic
 and template-free: a catalog entry *is* the template (attributes, typed
 reference slots, the scaffold blocks a type always carries, and one
 `${attr:…}` substitution), so adding a type is adding one entry. The **golden
@@ -451,7 +482,10 @@ waivers) · GP-205 reconciliation with reality (GP-206..210: drift ingestion,
 drift visualisation + policy cross-check, `push-state`, reality vs code, and
 the third-party-inventory ADR) · GP-212 documentation site (GP-213..225 —
 foundation, IA, quickstart, both installs, configuration reference, CI, usage,
-Kubernetes, administration, AI, developer tools, help).
+Kubernetes, administration, AI, developer tools, help) · GP-233 dynamic
+provider catalog (GP-234..240: model & store, registry watcher, sandboxed
+extraction worker, read API, schema-driven builder, bundled snapshot, trust-model
+wording).
 
 **Open:**
 

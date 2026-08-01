@@ -18,10 +18,25 @@ main. No screenshots, no stale wiki, no draw.io archaeology.
 
 **Trust model (the differentiator): we ingest data, not access.** Groundplan
 reads only the plan JSON and rendered manifests the user's own CI produces.
-It never holds cloud credentials, never reads Terraform state, never runs
-`terraform`, `helm` or `kustomize`. Adoption is one pipeline step. The one
-deliberate extension: an optional read-only kubeconfig for live-cluster views
-(encrypted, LIST-only, Secret values never fetched).
+It never holds cloud credentials, never reads Terraform state, and never runs
+`terraform`, `helm` or `kustomize` **against the user's infrastructure, state
+or code**. Adoption is one pipeline step.
+
+Two deliberate, bounded exceptions, and the qualifier above is what keeps the
+claim airtight rather than fragile:
+
+- an optional read-only kubeconfig for live-cluster views (encrypted,
+  LIST-only, Secret values never fetched);
+- the **resource catalog worker**, which runs `terraform` against a
+  configuration Groundplan generates — a `required_providers` block pinning one
+  exact version of one allowlisted *public* provider, with no resources, no
+  backend and no credentials — purely to read that provider's own published
+  schema, so the visual builder can offer real resource types with real
+  arguments. It is sandboxed (non-root, its own container, wall clock, memory
+  cap, none of the application's secrets, egress restricted to the Terraform
+  registry and HashiCorp's release host), the allowlist is enforced before any
+  process is spawned, and an air-gapped install can turn it off entirely and
+  use the snapshot bundled in the release.
 
 **Who it's for:** platform/DevOps/SRE teams reviewing Terraform PRs; tech
 leads and architects who need always-current architecture views;

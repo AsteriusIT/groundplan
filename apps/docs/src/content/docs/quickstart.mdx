@@ -83,7 +83,8 @@ not just from what you declared.
 3. **Add the pipeline step.**
 
    This is the whole integration. Your pipeline produces the plan — %PRODUCT%
-   never runs `terraform` itself — and the CLI posts it.
+   never runs `terraform` against your infrastructure, your state or your
+   code — and the CLI posts it.
 
    ```yaml title=".github/workflows/groundplan.yml"
    name: Groundplan

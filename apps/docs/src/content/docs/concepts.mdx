@@ -23,9 +23,17 @@ never disagree with each other.
 **We ingest data, not access.** %PRODUCT% reads what your own pipeline already
 produces: the plan JSON, the manifests your CI rendered, the graph its CLI
 derived from a state. It never holds a cloud credential, never reads a state
-backend, and never executes `terraform`, `helm` or `kustomize` — those verbs do
-not appear in the product because the access they need is exactly the access we
-promise not to take.
+backend, and never runs `terraform`, `helm` or `kustomize` against your
+infrastructure, your state or your code — the access those verbs need is
+exactly the access we promise not to take.
+
+The qualifier is doing real work, so here is what it excludes: the
+[resource catalog](/admin/security/#the-resource-catalog) worker runs
+`terraform` against a configuration %PRODUCT% generates — one allowlisted public
+provider, pinned, with no resources, no backend and no credentials — to read
+that provider's own published schema. Nothing of yours is involved, and an
+air-gapped install can switch it off and use the snapshot bundled in the
+release.
 
 ## GraphSnapshot
 

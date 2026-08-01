@@ -9,9 +9,10 @@ three snippets below differ only in the yaml around it.
 Two things are true of every one of them, and they are the reason the
 integration is this small:
 
-- **Your pipeline produces the plan.** %PRODUCT% never runs `terraform` — it has
-  no cloud credentials to run it with, and that is the whole point. You already
-  run `terraform plan` in review; this adds a step that posts the JSON.
+- **Your pipeline produces the plan.** %PRODUCT% never runs `terraform` against
+  your infrastructure, your state or your code — it has no cloud credentials to
+  run it with, and that is the whole point. You already run `terraform plan` in
+  review; this adds a step that posts the JSON.
 - **The plan is data, not access.** Nothing is granted, so nothing needs
   revoking if you stop.
 

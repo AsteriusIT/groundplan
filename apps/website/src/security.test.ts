@@ -13,7 +13,11 @@ describe("security page (GP-161)", () => {
   it("renders every §8 claim → proof row", () => {
     for (const cell of [
       "We ingest data, not access",
-      "no cloud SDK credentials, no state backends, no terraform/helm/kustomize execution anywhere in the codebase",
+      "no cloud SDK credentials, no state backends, and nothing is ever executed against your infrastructure, your state or your code",
+      // The catalog (GP-240): the claim stays airtight by naming the one place
+      // terraform runs, rather than by an absolute nobody could defend.
+      "The resource catalog is public metadata",
+      "against a generated empty configuration pinning one allowlisted public provider",
       "Secrets are write-only",
       "encrypted at rest (AES-256-GCM), masked as *** in every response, never logged — clone URLs are token-redacted in errors",
       "Tokens compared safely",

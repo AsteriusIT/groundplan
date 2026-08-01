@@ -30,7 +30,8 @@ listed pre-launch step (`docs/vscode-publishing.md`).
 
 > **We ingest data, not access.** Groundplan reads the plan JSON and rendered
 > manifests your own CI produces. It never holds cloud credentials, never
-> reads your Terraform state, never runs `terraform`, `helm` or `kustomize`.
+> reads your Terraform state, and never runs `terraform`, `helm` or
+> `kustomize` against your infrastructure, your state or your code.
 > Adoption is one pipeline step.
 
 **Elevator pitch [copy]:**
@@ -250,6 +251,34 @@ canvas packages as the web product — identical diagrams by construction.
 drop, savable drafts — nothing touches a repository. The fastest way to try
 Groundplan (and a natural interactive demo for the website).
 
+### How the resource catalog works
+
+**[copy]** The visual builder offers every resource type your provider has,
+with each argument checked against what the provider actually declares —
+nothing hand-maintained, nothing guessed by a model.
+
+**[facts]** The schemas come from the providers themselves. A separate,
+sandboxed worker runs `terraform` against a configuration Groundplan generates:
+a `required_providers` block pinning one exact version of one **allowlisted
+public provider**, and nothing else. No resources, no backend, no variables, no
+credentials — there are none to give. `terraform init` downloads the provider,
+`terraform providers schema -json` asks it to describe itself, and the
+directory is deleted.
+
+This is the one place the `terraform` binary is used, and it never touches your
+infrastructure, your state or your code. The allowlist is a security boundary
+rather than a preference: a provider is an executable, so nothing outside the
+configured list is ever downloaded, and the check happens before any process is
+spawned. The worker runs non-root, in its own container, with a wall clock, a
+memory cap, none of the application's secrets, and egress restricted to the
+Terraform registry and HashiCorp's release host.
+
+Every release bundles a snapshot of the schemas, so a self-hosted install has
+the complete builder immediately — and an air-gapped one can turn the refresh
+off entirely and make no outbound connection at any point. The interface then
+labels the catalog **pinned**, with the provider version and the date it was
+read, rather than passing it off as current.
+
 ---
 
 ## 7. Teams, tenancy & authentication
@@ -277,7 +306,8 @@ Groundplan (and a natural interactive demo for the website).
 
 | Claim [copy] | Proof [facts] |
 | --- | --- |
-| We ingest data, not access | Only plan JSON / rendered YAML from *your* CI; no cloud SDK credentials, no state backends, no `terraform`/`helm`/`kustomize` execution anywhere in the codebase |
+| We ingest data, not access | Only plan JSON / rendered YAML from *your* CI; no cloud SDK credentials, no state backends, and nothing is ever executed against your infrastructure, your state or your code |
+| The resource catalog is public metadata | The one place `terraform` runs is a sandboxed worker, against a generated *empty* configuration pinning one allowlisted public provider, to read that provider's own schema. No credentials, no state, no customer code. Air-gapped installs use the bundled snapshot and make no outbound call at all |
 | Secrets are write-only | Repo PATs and kubeconfigs encrypted at rest (AES-256-GCM), masked as `***` in every response, never logged — clone URLs are token-redacted in errors |
 | Tokens compared safely | Webhook & invite tokens use constant-time comparison; invite tokens stored as SHA-256 hashes |
 | Tenants are isolated | Org-scope guard returns 404 (never 403) across tenants — no existence leaks |
@@ -373,6 +403,14 @@ people who review infrastructure for a living.)*
 ## 13. What the website must NOT claim (yet)
 
 - **No cost estimation.** Nothing in the product prices resources.
+- **The catalog covers allowlisted providers only.** The builder offers every
+  resource type of the providers a deployment allowlists (azurerm, aws, google
+  and kubernetes by default). Community and third-party providers are not
+  supported, and "any Terraform provider" is not a claim to make.
+- **Do not say "never runs `terraform`" unqualified.** The catalog worker runs
+  it, against a generated empty config, to read public provider metadata. The
+  claim is "never against your infrastructure, your state or your code" — say
+  it that way, every time.
 - **The AI Studio is experimental and Azure-only.** Present it as a preview.
 - **Deep semantics are Azure-first.** Network containment, NSG exposure, IAM
   extraction and the join-resource catalog target `azurerm`. Any Terraform

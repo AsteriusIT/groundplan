@@ -59,7 +59,14 @@ describe("product tour", () => {
   it("carries the trust model as its own full-width moment", () => {
     expectVerbatim("index.html", "We ingest data, not access.");
     const text = pageText("index.html");
-    for (const proof of ["No cloud credentials", "No state access", "Nothing executed"]) {
+    for (const proof of [
+      "No cloud credentials",
+      "No state access",
+      // Qualified since the resource catalog (GP-240): the one place terraform
+      // runs is a sandboxed worker reading a public provider's own schema, so
+      // the claim names what it is about — your side.
+      "Nothing run on your side",
+    ]) {
       expect(text).toContain(proof);
     }
   });

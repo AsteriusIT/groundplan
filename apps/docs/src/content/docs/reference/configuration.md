@@ -67,7 +67,7 @@ What the model does and does not see is on [The AI layer](/ai/).
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `BUILDER_ENABLED` | `false` | Opt-in. Turns on Build mode in the playground: compose Azure resources on a canvas and generate Terraform from what you composed. Unset, the feature does not exist — the status endpoint reports it disabled, the generation route answers `404`, and the playground shows no Build surface. Anything but `true` leaves it off. |
+| `BUILDER_ENABLED` | `false` | Opt-in. Turns on Build mode in the playground: compose resources on a canvas and generate Terraform from what you composed. Unset, the feature does not exist — the status endpoint reports it disabled, the generation route answers `404`, and the playground shows no Build surface. Anything but `true` leaves it off. |
 
 Generation is deterministic and runs on the server with no model involved and no
 cloud access: the same composition produces the same files.
