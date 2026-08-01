@@ -9,5 +9,7 @@
  */
 export * from "./builder-graph.js";
 export * from "./catalog.js";
+export * from "./provider-schema.js";
+export * from "./provider-schema-parse.js";
 export * from "./validate.js";
 export * from "./generate.js";

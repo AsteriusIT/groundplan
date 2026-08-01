@@ -7,6 +7,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  customType,
   integer,
   jsonb,
   pgEnum,
@@ -1565,6 +1566,178 @@ export const playgroundDrafts = pgTable("playground_drafts", {
 });
 
 export type PlaygroundDraftRow = typeof playgroundDrafts.$inferSelect;
+
+/**
+ * Raw bytes. Drizzle has no `bytea` helper, and the catalog needs one: a
+ * provider schema is stored gzip-compressed, which is a byte string and not
+ * text. `pg` hands `bytea` back as a Buffer and takes one on the way in, so the
+ * driver value and the TypeScript value are the same thing.
+ */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
+/**
+ * A provider the catalog may extract schemas from (GP-234).
+ *
+ * The table is **global** — shared by every organization, owned by none. A
+ * provider schema is public information about a public artefact; scoping it per
+ * tenant would mean extracting `azurerm` once per customer, and there is nothing
+ * in it that belongs to a customer in the first place. Tenant code only ever
+ * reads it.
+ *
+ * `allowlisted` is the load-bearing column, and it is a column rather than an
+ * env lookup at use time so that a row can be *read back* to prove what a past
+ * extraction was allowed to do. A provider is an executable that `terraform
+ * init` downloads and runs: extracting an arbitrary namespace/name would be an
+ * arbitrary-code-execution primitive with an HTTP front door. The allowlist is
+ * therefore checked before anything is spawned (GP-236), and a provider that
+ * falls out of the configured list keeps its row with the flag cleared rather
+ * than disappearing — its already-extracted schemas stay readable, and nothing
+ * new is ever fetched for it.
+ */
+export const catalogProviders = pgTable(
+  "catalog_providers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** `hashicorp` in `hashicorp/azurerm`. */
+    namespace: text("namespace").notNull(),
+    /** `azurerm` in `hashicorp/azurerm` — also the type prefix its resources carry. */
+    name: text("name").notNull(),
+    allowlisted: boolean("allowlisted").notNull().default(true),
+    /** The latest stable version the registry watcher saw (GP-235). Null = never checked. */
+    latestKnownVersion: text("latest_known_version"),
+    /** When the registry was last asked. Null = never; drives the TTL. */
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [unique("catalog_providers_ref_unique").on(t.namespace, t.name)],
+);
+
+export type CatalogProviderRow = typeof catalogProviders.$inferSelect;
+
+/**
+ * Where one provider version's extraction stands (GP-234).
+ *
+ * `pending` → `extracting` → `ready` | `failed`. The row *is* the lock (GP-235):
+ * the move to `extracting` is a conditional UPDATE, so a cluster of API nodes
+ * that all notice a new version at once produces exactly one extraction and the
+ * losers simply carry on serving the previous `ready` version.
+ *
+ * A `failed` version is kept, with its error, rather than deleted: retrying is a
+ * status flip, and the record of what a version did wrong is the only thing that
+ * makes a repeated failure visible.
+ */
+export const catalogExtractionStatus = pgEnum("catalog_extraction_status", [
+  "pending",
+  "extracting",
+  "ready",
+  "failed",
+]);
+
+export const catalogProviderVersions = pgTable(
+  "catalog_provider_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    providerId: uuid("provider_id")
+      .notNull()
+      .references(() => catalogProviders.id, { onDelete: "cascade" }),
+    /** The exact version, as the registry names it: `4.81.0`. Never a range. */
+    version: text("version").notNull(),
+    status: catalogExtractionStatus("status").notNull().default("pending"),
+    /** Why the last attempt failed, in one line. Cleared when one succeeds. */
+    error: text("error"),
+    /** When this version became `ready`. Null while it never has. */
+    extractedAt: timestamp("extracted_at", { withTimezone: true }),
+    /** How many attempts have been made, for backoff (GP-235). */
+    attempts: integer("attempts").notNull().default(0),
+    /** When the running extraction claimed the row — how a stuck one is reclaimed. */
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("catalog_provider_versions_unique").on(t.providerId, t.version),
+  ],
+);
+
+export type CatalogProviderVersionRow =
+  typeof catalogProviderVersions.$inferSelect;
+
+/** A resource type, or a data source of the same provider (GP-234). */
+export const catalogResourceKind = pgEnum("catalog_resource_kind", [
+  "resource",
+  "data_source",
+]);
+
+/**
+ * One resource type of one provider version (GP-234) — the row the picker lists
+ * and searches, deliberately without the schema beside it. The list of a large
+ * provider is fifteen hundred rows of a few hundred bytes; the schemas are tens
+ * of megabytes. Splitting them is what lets `GET .../resources` stay a
+ * lightweight, cache-friendly read.
+ */
+export const catalogResourceTypes = pgTable(
+  "catalog_resource_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => catalogProviderVersions.id, { onDelete: "cascade" }),
+    /** `azurerm_subnet`. */
+    name: text("name").notNull(),
+    kind: catalogResourceKind("kind").notNull(),
+    /** The first sentence of the provider's own description; "" when it ships none. */
+    summary: text("summary").notNull().default(""),
+    /** Top-level arguments — a cheap sense of how big the form will be. */
+    attributeCount: integer("attribute_count").notNull().default(0),
+  },
+  (t) => [
+    unique("catalog_resource_types_unique").on(t.versionId, t.name, t.kind),
+  ],
+);
+
+export type CatalogResourceTypeRow = typeof catalogResourceTypes.$inferSelect;
+
+/**
+ * The narrowed schema of one resource type (GP-234), gzip-compressed.
+ *
+ * Compressed because the uncompressed set for `azurerm` is tens of megabytes of
+ * highly repetitive JSON, and because nothing ever queries *inside* a schema —
+ * it is read whole, by type, and handed to a form. A `jsonb` column would buy
+ * indexing nobody wants and pay for it in storage and parse time on every write.
+ *
+ * One row per resource type (the unique key on the FK): re-extracting a version
+ * replaces its schemas rather than accumulating them.
+ */
+export const catalogResourceSchemas = pgTable(
+  "catalog_resource_schemas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    resourceTypeId: uuid("resource_type_id")
+      .notNull()
+      .references(() => catalogResourceTypes.id, { onDelete: "cascade" }),
+    /** gzip of the canonical JSON of a `ProviderResourceSchema`. */
+    schema: bytea("schema").notNull(),
+    /** Bytes before compression — what makes a payload budget checkable. */
+    rawBytes: integer("raw_bytes").notNull().default(0),
+  },
+  (t) => [
+    unique("catalog_resource_schemas_type_unique").on(t.resourceTypeId),
+  ],
+);
+
+export type CatalogResourceSchemaRow =
+  typeof catalogResourceSchemas.$inferSelect;
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),

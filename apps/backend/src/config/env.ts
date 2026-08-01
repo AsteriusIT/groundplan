@@ -99,6 +99,17 @@ export type AppEnv = {
    */
   builderEnabled: boolean;
   /**
+   * The providers the resource catalog may extract schemas from (GP-234), as a
+   * comma-separated `namespace/name` list. Empty = the four defaults, which
+   * match the vendor icons the canvas ships.
+   *
+   * This is an **allowlist, not a preference**: `terraform init` downloads a
+   * provider and runs it, so an arbitrary namespace/name reaching the extraction
+   * worker would be arbitrary code execution. Nothing outside this list is ever
+   * fetched, and the check happens before any process is spawned (GP-236).
+   */
+  catalogProviders: string;
+  /**
    * How often the ref poller runs `git ls-remote` per repository (GP-107), in
    * milliseconds. Defaults to 60s. `0` disables the background timer entirely —
    * which is what tests do, so they can drive a tick by hand with no clock.
@@ -173,6 +184,7 @@ export function loadEnv(): AppEnv {
     aiModel: process.env.AI_MODEL ?? DEFAULT_AI_MODEL,
     // Off unless explicitly opted into — an experimental surface, not a default.
     builderEnabled: (process.env.BUILDER_ENABLED ?? "").toLowerCase() === "true",
+    catalogProviders: process.env.CATALOG_PROVIDERS ?? "",
     refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),
     githubAppId: process.env.GITHUB_APP_ID ?? "",
     githubAppPrivateKey: readPem(process.env.GITHUB_APP_PRIVATE_KEY),
