@@ -2,7 +2,7 @@
   "name": "@groundplan/graph-parser",
   "version": "0.0.0",
   "private": true,
-  "description": "Groundplan Producer B as a pure shared package: static HCL → GraphSnapshot, no server dependencies (files in as data).",
+  "description": "Groundplan Producer B as a pure shared package: static HCL \u2192 GraphSnapshot, no server dependencies (files in as data).",
   "type": "module",
   "exports": {
     ".": {
@@ -29,5 +29,6 @@
     "@types/node": "^22.13.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
-  }
+  },
+  "sideEffects": false
 }

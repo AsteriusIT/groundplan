@@ -5,6 +5,7 @@
  */
 export * from "./parse.js";
 export * from "./graph.js";
+export * from "./stats.js";
 export * from "./hcl-parser.js";
 export * from "./dependency-edges.js";
 export * from "./azurerm-joins.js";

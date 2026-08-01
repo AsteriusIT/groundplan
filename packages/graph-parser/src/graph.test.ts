@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeGraphStats, validateGraph, type Graph } from "./graph.js";
+import { validateGraph, type Graph } from "./graph.js";
+import { computeGraphStats } from "./stats.js";
 
 const validGraph: Graph = {
   version: 1,

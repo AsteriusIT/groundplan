@@ -215,23 +215,6 @@ export type UnresolvedReference = {
   reason?: string;
 };
 
-export type GraphStats = {
-  nodes: number;
-  edges: number;
-  /** How many of the `depends_on` edges were expression-inferred (GP-20). */
-  inferredEdges: number;
-  /** How many unchanged nodes are impacted by the change set (GP-22). */
-  impactedCount: number;
-  changes: {
-    create: number;
-    update: number;
-    delete: number;
-    noop: number;
-    /** Nodes with a null `change` (module nodes, docs-flow snapshots). */
-    unchanged: number;
-  };
-};
-
 // The schema is imported as a JSON module (not read from disk at runtime) so
 // the package stays pure and bundles cleanly — an esbuild-bundled consumer
 // (the VS Code extension host) carries the schema inside its bundle.
@@ -239,16 +222,36 @@ export type GraphStats = {
 export const graphSchema: Record<string, unknown> =
   graphSchemaJson as Record<string, unknown>;
 
-const ajv = new Ajv({ allErrors: true });
-const validator: ValidateFunction = ajv.compile(graphSchema);
+/**
+ * Compiled on first use, never at import.
+ *
+ * Ajv builds validators by generating source and handing it to `new Function`.
+ * That is fine in Node and fatal in a webview, where a strict CSP allows only
+ * nonce-tagged script: the call throws, the module that triggered it fails to
+ * evaluate, and every module downstream of it goes with it. Importing anything
+ * at all from this file used to compile the schema — so a consumer that only
+ * wanted `computeGraphStats` got a blank panel and an "Error compiling schema"
+ * with nothing of its own in the stack.
+ *
+ * Nobody in a browser validates a snapshot: that happens server-side, before
+ * storage. Deferring the compile keeps this file importable from anywhere and
+ * costs the one caller a few milliseconds, once.
+ */
+let validator: ValidateFunction | null = null;
+
+function graphValidator(): ValidateFunction {
+  validator ??= new Ajv({ allErrors: true }).compile(graphSchema);
+  return validator;
+}
 
 export type ValidationResult = { valid: boolean; errors: string[] };
 
 /** Validate a value against the v1 graph schema. Never throws. */
 export function validateGraph(graph: unknown): ValidationResult {
-  const valid = validator(graph);
+  const validate = graphValidator();
+  const valid = validate(graph);
   if (valid) return { valid: true, errors: [] };
-  const errors = (validator.errors ?? []).map(
+  const errors = (validate.errors ?? []).map(
     (e) => `${e.instancePath || "(root)"} ${e.message ?? "is invalid"}`.trim(),
   );
   return { valid: false, errors };
@@ -268,22 +271,4 @@ export class InvalidGraphError extends Error {
 export function assertValidGraph(graph: unknown): asserts graph is Graph {
   const { valid, errors } = validateGraph(graph);
   if (!valid) throw new InvalidGraphError(errors);
-}
-
-/** Node/edge/change counts, computed once and stored alongside the snapshot. */
-export function computeGraphStats(graph: Graph): GraphStats {
-  const changes = { create: 0, update: 0, delete: 0, noop: 0, unchanged: 0 };
-  for (const node of graph.nodes) {
-    if (node.change === null) changes.unchanged += 1;
-    else changes[node.change] += 1;
-  }
-  const inferredEdges = graph.edges.filter((e) => e.inferred === true).length;
-  const impactedCount = graph.nodes.filter((n) => n.impacted === true).length;
-  return {
-    nodes: graph.nodes.length,
-    edges: graph.edges.length,
-    inferredEdges,
-    impactedCount,
-    changes,
-  };
 }
