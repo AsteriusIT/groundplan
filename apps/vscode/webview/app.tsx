@@ -40,6 +40,7 @@ import { FilterChips } from "./components/filter-chips";
 import { FilterButton, filterOptionsFor } from "./components/filter-popover";
 import { LegendButton } from "./components/legend-popover";
 import { OverflowMenu } from "./components/overflow-menu";
+import { ShortcutList } from "./components/shortcut-list";
 import { SearchField } from "./components/search-field";
 import { StatusBar, type SyncState } from "./components/status-bar";
 import { Toolbar } from "./components/toolbar";
@@ -54,6 +55,7 @@ import {
   type PanelAction,
 } from "./state/panel-state";
 import { statusNotice } from "./state/status-notice";
+import { shortcutFor } from "./state/shortcut";
 import { useTier } from "./state/tier";
 import {
   activeFilterChips,
@@ -168,6 +170,58 @@ export function App({
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  // The keyboard. Bound on the window because the panel is the whole webview;
+  // what it must not do is take a key from a text field or one the editor
+  // owns — both decided in `shortcutFor`, not here.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target !== null &&
+        (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+          target.isContentEditable);
+
+      const shortcut = shortcutFor({
+        key: event.key,
+        typing,
+        popoverOpen:
+          diffOptionsOpen || aboutOpen || legendOpen || filtersOpen || overflowOpen,
+        searchOpen,
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+        alt: event.altKey,
+        shift: event.shiftKey,
+      });
+      if (!shortcut) return;
+      event.preventDefault();
+
+      if (shortcut.kind === "toggleDiff") actRef.current({ type: "toggleDiff" });
+      else if (shortcut.kind === "lens")
+        actRef.current({ type: "setLens", lens: shortcut.lens });
+      else if (shortcut.kind === "fit") fitRef.current();
+      else if (shortcut.kind === "search") setSearchOpen(true);
+      else if (shortcut.kind === "closeSearch") {
+        setSearchOpen(false);
+        setQuery("");
+      } else if (shortcut.kind === "closePopover") {
+        setDiffOptionsOpen(false);
+        setAboutOpen(false);
+        setLegendOpen(false);
+        setFiltersOpen(false);
+        setOverflowOpen(false);
+      } else setSelectedAddress(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    diffOptionsOpen,
+    aboutOpen,
+    legendOpen,
+    filtersOpen,
+    overflowOpen,
+    searchOpen,
+  ]);
+
   /**
    * Apply a panel action locally and tell the host when it changed a diff
    * preference. The reducer is pure, so running it here to see whether the
@@ -181,6 +235,18 @@ export function App({
     // state), and everything to say otherwise: the host stores the document
     // and decides for itself whether the change was one it must re-render for.
     if (next !== panel) post({ type: "setPanelPrefs", prefs: toPanelPrefs(next) });
+  };
+
+  // The key handler is bound once and must not re-bind per render just to see
+  // a fresh closure; these keep it pointed at the current one.
+  const actRef = useRef(act);
+  actRef.current = act;
+  // `fit` means fit the changes in diff mode, and the whole diagram otherwise
+  // — the same rule the overlay button follows, kept in one place.
+  const fitRef = useRef<() => void>(() => {});
+  fitRef.current = () => {
+    if (view === "iam" || !graph) return;
+    camera.current?.fit(diffActive ? changedFocusIds(graph) : undefined);
   };
 
   const diffActive = prefs.enabled && facts.available;
@@ -309,7 +375,9 @@ export function App({
           followCursor={panel.followCursor}
           onToggleFollowCursor={() => act({ type: "toggleFollowCursor" })}
           {...(tier === "narrow" ? { onSearch: () => setSearchOpen(true) } : {})}
-        />
+        >
+          <ShortcutList />
+        </OverflowMenu>
       </Toolbar>
 
       {/* A filter panel you have closed is a filter you have forgotten — and a

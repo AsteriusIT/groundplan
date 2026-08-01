@@ -79,6 +79,14 @@ export const strings = {
     followCursorHint:
       "Select the resource the cursor is in. The camera only moves when that resource is off screen.",
   },
+  shortcuts: {
+    title: "Keyboard",
+    diff: "Toggle diff mode",
+    lens: "Global / Network / IAM",
+    fit: "Fit the diagram",
+    search: "Search resources",
+    escape: "Close, then collapse, then deselect",
+  },
   status: {
     label: "Preview status",
     rendering: "Rendering…",

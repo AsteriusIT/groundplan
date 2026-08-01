@@ -335,6 +335,68 @@ describe("a narrow panel", () => {
   });
 });
 
+describe("the keyboard", () => {
+  test("d toggles diff mode", () => {
+    const { post } = mount([node("a", "noop")]);
+    post.mockClear();
+
+    fireEvent.keyDown(window, { key: "d" });
+
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prefs: expect.objectContaining({
+          diff: expect.objectContaining({ enabled: true }),
+        }),
+      }),
+    );
+  });
+
+  test("2 switches to the network lens", () => {
+    mount([node("a", "noop")]);
+
+    fireEvent.keyDown(window, { key: "2" });
+
+    expect(screen.getByRole("radio", { name: "Network" })).toBeChecked();
+  });
+
+  test("/ opens search", () => {
+    mount([node("a", "noop")]);
+
+    fireEvent.keyDown(window, { key: "/" });
+
+    expect(screen.getByLabelText(/search resources/i)).toBeInTheDocument();
+  });
+
+  test("Escape closes an open popover before anything else", () => {
+    mount([node("a", "noop")]);
+    fireEvent.click(screen.getByRole("button", { name: /diff options/i }));
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  test("a letter typed into search stays a letter", () => {
+    // "d" in a text field is not a command, and swallowing it would make the
+    // search box impossible to type in.
+    const { post } = mount([node("a", "noop")]);
+    fireEvent.keyDown(window, { key: "/" });
+    post.mockClear();
+
+    fireEvent.keyDown(screen.getByLabelText(/search resources/i), { key: "d" });
+
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  test("the shortcuts are written down where somebody can find them", () => {
+    mount([node("a", "noop")]);
+
+    fireEvent.click(screen.getByRole("button", { name: /^more$/i }));
+
+    expect(screen.getByText(/toggle diff mode/i)).toBeInTheDocument();
+  });
+});
+
 describe("talking to the host", () => {
   test("turning diff on tells the host once", () => {
     const { post } = mount([node("a", "noop")]);
