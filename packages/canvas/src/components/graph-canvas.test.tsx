@@ -7,6 +7,7 @@ const rfInstance = vi.hoisted(() => ({
   setViewport: vi.fn(),
   setCenter: vi.fn(() => Promise.resolve(true)),
   getZoom: vi.fn(() => 1),
+  getViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
 }));
@@ -122,7 +123,8 @@ vi.mock("@xyflow/react", async () => {
 vi.mock("@xyflow/react/dist/style.css", () => ({}));
 
 import type { Graph } from "../types";
-import { GraphCanvas } from "./graph-canvas";
+import type { Category } from "../lib/resource-category";
+import { GraphCanvas, type CanvasCamera } from "./graph-canvas";
 
 const graph: Graph = {
   version: 2,
@@ -883,4 +885,271 @@ it("no data-source legend entry for a graph without one", async () => {
   render(<GraphCanvas graph={graph} variant="plan" />);
   await screen.findByText("node:main");
   expect(screen.queryByText("data source")).not.toBeInTheDocument();
+});
+
+// --- opt-in chrome, controlled filters, camera handle ----------------------
+//
+// Everything below is off by default: a consumer that passes none of these
+// props gets exactly the canvas the web app has always rendered. The VS Code
+// panel draws its own toolbar, legend and zoom cluster, and needs the canvas
+// to stop drawing a second set underneath it.
+
+it("draws its own chrome when asked for nothing", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+
+  expect(screen.getByLabelText("Search resources")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /filters/i })).toBeInTheDocument();
+  expect(screen.getByText("depends_on")).toBeInTheDocument();
+  expect(screen.getByLabelText("Zoom in")).toBeInTheDocument();
+});
+
+it("gives up each piece of chrome on request", async () => {
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="plan"
+      chrome={{ search: false, filters: false, legend: false, zoom: false }}
+    />,
+  );
+  await screen.findByText("node:main");
+
+  expect(screen.queryByLabelText("Search resources")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /filters/i })).not.toBeInTheDocument();
+  expect(screen.queryByText("depends_on")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Zoom in")).not.toBeInTheDocument();
+});
+
+it("gives up one piece without giving up the rest", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" chrome={{ legend: false }} />);
+  await screen.findByText("node:main");
+
+  expect(screen.queryByText("depends_on")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Search resources")).toBeInTheDocument();
+});
+
+it("stops binding '/' when it is not the one drawing the search box", async () => {
+  // Otherwise the key focuses an input that is not on screen, and the panel's
+  // own search never hears it.
+  render(<GraphCanvas graph={graph} variant="plan" chrome={{ search: false }} />);
+  await screen.findByText("node:main");
+
+  fireEvent.keyDown(document.body, { key: "/" });
+
+  expect(document.activeElement).toBe(document.body);
+});
+
+it("renders under the filters it is given, not its own", async () => {
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="plan"
+      filters={{
+        change: new Set(["update", "delete", "noop", "impacted"]),
+        categories: new Set<Category>(["network", "data", "compute", "other"]),
+        modules: new Set(["root", "net"]),
+        hubEdges: false,
+      }}
+      onFiltersChange={() => {}}
+    />,
+  );
+  await screen.findByText("node:main");
+  openFilters();
+
+  // "create" is not in the set it was handed.
+  expect(screen.getByRole("checkbox", { name: /Create/ })).not.toBeChecked();
+});
+
+it("reports a filter change out instead of keeping it", async () => {
+  const onFiltersChange = vi.fn();
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="plan"
+      filters={{
+        change: new Set(["create", "update", "delete", "noop", "impacted"]),
+        categories: new Set<Category>(["network", "data", "compute", "other"]),
+        modules: new Set(["root", "net"]),
+        hubEdges: false,
+      }}
+      onFiltersChange={onFiltersChange}
+    />,
+  );
+  await screen.findByText("node:main");
+  openFilters();
+
+  fireEvent.click(screen.getByRole("checkbox", { name: /Create/ }));
+
+  expect(onFiltersChange).toHaveBeenCalledTimes(1);
+  const next = onFiltersChange.mock.calls[0]![0] as { change: Set<string> };
+  expect(next.change.has("create")).toBe(false);
+});
+
+it("keeps owning its filters when nobody asks to", async () => {
+  render(<GraphCanvas graph={graph} variant="plan" />);
+  await screen.findByText("node:main");
+  openFilters();
+
+  const create = screen.getByRole("checkbox", { name: /Create/ });
+  fireEvent.click(create);
+
+  expect(create).not.toBeChecked();
+});
+
+it("hands out a camera to a consumer that hid the zoom cluster", async () => {
+  const camera = { current: null as CanvasCamera | null };
+  render(
+    <GraphCanvas
+      graph={graph}
+      variant="plan"
+      chrome={{ zoom: false }}
+      cameraRef={camera}
+    />,
+  );
+  await screen.findByText("node:main");
+
+  camera.current?.zoomIn();
+  expect(rfInstance.zoomIn).toHaveBeenCalled();
+
+  camera.current?.zoomOut();
+  expect(rfInstance.zoomOut).toHaveBeenCalled();
+});
+
+it("frames the nodes the camera was asked for", async () => {
+  const camera = { current: null as CanvasCamera | null };
+  render(<GraphCanvas graph={graph} variant="plan" cameraRef={camera} />);
+  await screen.findByText("node:main");
+  rfInstance.fitView.mockClear();
+
+  camera.current?.fit(["module.net.aws_instance.web"]);
+
+  expect(rfInstance.fitView).toHaveBeenCalledWith(
+    expect.objectContaining({ nodes: [{ id: "module.net.aws_instance.web" }] }),
+  );
+});
+
+it("frames everything when asked to fit nothing in particular", async () => {
+  const camera = { current: null as CanvasCamera | null };
+  render(<GraphCanvas graph={graph} variant="plan" cameraRef={camera} />);
+  await screen.findByText("node:main");
+  rfInstance.fitView.mockClear();
+
+  camera.current?.fit();
+
+  expect(rfInstance.fitView).toHaveBeenCalledWith(
+    expect.not.objectContaining({ nodes: expect.anything() }),
+  );
+});
+
+it("frames the whole graph when the nodes it was given are not in it", async () => {
+  // Fit-to-changes on a diff with no changes: falling through to a fit on an
+  // empty node list would leave the reader staring at nothing.
+  const camera = { current: null as CanvasCamera | null };
+  render(<GraphCanvas graph={graph} variant="plan" cameraRef={camera} />);
+  await screen.findByText("node:main");
+  rfInstance.fitView.mockClear();
+
+  camera.current?.fit([]);
+
+  expect(rfInstance.fitView).toHaveBeenCalledWith(
+    expect.not.objectContaining({ nodes: expect.anything() }),
+  );
+});
+
+// --- revealSelection -------------------------------------------------------
+
+/** jsdom measures nothing; give the canvas a viewport to be inside of. */
+async function withMeasuredCanvasAsync(run: () => Promise<void>): Promise<void> {
+  const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+  const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    value: 800,
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    value: 600,
+  });
+  try {
+    await run();
+  } finally {
+    if (width) Object.defineProperty(HTMLElement.prototype, "clientWidth", width);
+    if (height) Object.defineProperty(HTMLElement.prototype, "clientHeight", height);
+  }
+}
+
+it("flies to an externally selected node, as it always has", async () => {
+  const { rerender } = render(
+    <GraphCanvas graph={graph} variant="plan" selectedAddress={null} />,
+  );
+  await screen.findByText("node:main");
+  rfInstance.fitView.mockClear();
+
+  rerender(
+    <GraphCanvas
+      graph={graph}
+      variant="plan"
+      selectedAddress="azurerm_virtual_network.main"
+    />,
+  );
+
+  expect(rfInstance.fitView).toHaveBeenCalled();
+});
+
+it("leaves the camera alone for a node the reader can already see", async () => {
+  // Following a cursor with an unconditional fly means the view snaps back on
+  // every keystroke, and panning while editing becomes impossible.
+  await withMeasuredCanvasAsync(async () => {
+    const { rerender } = render(
+      <GraphCanvas
+        graph={graph}
+        variant="plan"
+        revealSelection="offscreen"
+        selectedAddress={null}
+      />,
+    );
+    await screen.findByText("node:main");
+    rfInstance.fitView.mockClear();
+
+    rerender(
+      <GraphCanvas
+        graph={graph}
+        variant="plan"
+        revealSelection="offscreen"
+        selectedAddress="azurerm_virtual_network.main"
+      />,
+    );
+
+    expect(rfInstance.fitView).not.toHaveBeenCalled();
+    // Still selected — the panel opens, the camera simply does not move.
+    expect(screen.getByText("Terraform address")).toBeInTheDocument();
+  });
+});
+
+it("still flies when the node is off screen", async () => {
+  await withMeasuredCanvasAsync(async () => {
+    rfInstance.getViewport.mockReturnValue({ x: -5000, y: 0, zoom: 1 });
+    const { rerender } = render(
+      <GraphCanvas
+        graph={graph}
+        variant="plan"
+        revealSelection="offscreen"
+        selectedAddress={null}
+      />,
+    );
+    await screen.findByText("node:main");
+    rfInstance.fitView.mockClear();
+
+    rerender(
+      <GraphCanvas
+        graph={graph}
+        variant="plan"
+        revealSelection="offscreen"
+        selectedAddress="azurerm_virtual_network.main"
+      />,
+    );
+
+    expect(rfInstance.fitView).toHaveBeenCalled();
+    rfInstance.getViewport.mockReturnValue({ x: 0, y: 0, zoom: 1 });
+  });
 });

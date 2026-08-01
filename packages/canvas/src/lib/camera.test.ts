@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Graph, GraphNode } from "../types";
-import { changedFocusIds, planCamera } from "./camera";
+import { changedFocusIds, isNodeOnScreen, planCamera } from "./camera";
 
 function node(id: string, change: GraphNode["change"], impacted = false): GraphNode {
   return {
@@ -106,5 +106,71 @@ describe("planCamera", () => {
         prevSelectedId: null,
       }),
     ).toEqual({ kind: "keep" });
+  });
+});
+
+// --- is a node already on screen? -----------------------------------------
+
+// A 800x600 viewport at 1:1, panned to the origin.
+const VIEWPORT = { x: 0, y: 0, zoom: 1 };
+const SIZE = { width: 800, height: 600 };
+
+describe("isNodeOnScreen", () => {
+  it("sees a node sitting in the middle of the view", () => {
+    expect(
+      isNodeOnScreen({ x: 300, y: 200, width: 200, height: 56 }, VIEWPORT, SIZE),
+    ).toBe(true);
+  });
+
+  it("does not see a node panned off to the right", () => {
+    expect(
+      isNodeOnScreen({ x: 2000, y: 200, width: 200, height: 56 }, VIEWPORT, SIZE),
+    ).toBe(false);
+  });
+
+  it("does not see a node above the view", () => {
+    expect(
+      isNodeOnScreen({ x: 100, y: -400, width: 200, height: 56 }, VIEWPORT, SIZE),
+    ).toBe(false);
+  });
+
+  it("follows the pan", () => {
+    // The same node, with the canvas panned so that it comes into view.
+    const box = { x: 2000, y: 200, width: 200, height: 56 };
+
+    expect(isNodeOnScreen(box, { x: -1900, y: 0, zoom: 1 }, SIZE)).toBe(true);
+  });
+
+  it("follows the zoom", () => {
+    // Zoomed out, more of the graph fits — a node that was off screen at 1:1
+    // is on screen at 0.25.
+    const box = { x: 2000, y: 200, width: 200, height: 56 };
+
+    expect(isNodeOnScreen(box, { x: 0, y: 0, zoom: 0.25 }, SIZE)).toBe(true);
+  });
+
+  it("counts a node only half in view as on screen", () => {
+    // It is visible. Recentring on something the reader can already see is
+    // exactly the camera movement that makes panning feel broken.
+    expect(
+      isNodeOnScreen({ x: 700, y: 200, width: 200, height: 56 }, VIEWPORT, SIZE),
+    ).toBe(true);
+  });
+
+  it("treats a node touching the edge from outside as off screen", () => {
+    expect(
+      isNodeOnScreen({ x: 800, y: 200, width: 200, height: 56 }, VIEWPORT, SIZE),
+    ).toBe(false);
+  });
+
+  it("cannot answer without a measured viewport", () => {
+    // Before the first layout the container has no size. Saying "on screen"
+    // there would silently disable revealing altogether.
+    expect(
+      isNodeOnScreen({ x: 0, y: 0, width: 200, height: 56 }, VIEWPORT, {
+        width: 0,
+        height: 0,
+      }),
+    ).toBe(false);
   });
 });

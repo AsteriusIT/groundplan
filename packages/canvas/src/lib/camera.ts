@@ -64,3 +64,37 @@ export function planCamera(args: {
   }
   return { kind: "keep" };
 }
+
+/** The React Flow transform: pan in screen pixels, plus scale. */
+export type Viewport = { x: number; y: number; zoom: number };
+
+/**
+ * Is this node already visible?
+ *
+ * An external selection — the VS Code panel's cursor→node lane — flies the
+ * camera to whatever the cursor is in. Doing that unconditionally means the
+ * diagram jumps on every cursor move, including to nodes the reader is already
+ * looking at, which makes panning feel broken: you move the view, type a
+ * character, and it snaps back.
+ *
+ * Any overlap counts as visible. Half a card on screen is a card the reader
+ * can see, and recentring on it is precisely the movement worth avoiding.
+ */
+export function isNodeOnScreen(
+  box: { x: number; y: number; width: number; height: number },
+  viewport: Viewport,
+  container: { width: number; height: number },
+): boolean {
+  // Before the first layout there is no container to be inside of. Answering
+  // "yes" here would quietly disable revealing for the whole session.
+  if (container.width <= 0 || container.height <= 0) return false;
+
+  const left = box.x * viewport.zoom + viewport.x;
+  const top = box.y * viewport.zoom + viewport.y;
+  const right = left + box.width * viewport.zoom;
+  const bottom = top + box.height * viewport.zoom;
+
+  return (
+    right > 0 && left < container.width && bottom > 0 && top < container.height
+  );
+}

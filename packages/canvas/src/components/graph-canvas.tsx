@@ -66,7 +66,7 @@ import { NotePanel } from "../components/note-editor";
 import { COACH_MARK_GUTTER, TourSpotlight } from "../components/tour-spotlight";
 import type { TourChrome } from "../components/tour-chrome";
 import type { TourStyle } from "../types";
-import { changedFocusIds, planCamera } from "../lib/camera";
+import { changedFocusIds, isNodeOnScreen, planCamera } from "../lib/camera";
 import {
   ALL_FILTERS,
   categoryCounts,
@@ -81,11 +81,11 @@ import {
   type FilterKey,
   type GraphNodeData,
 } from "../lib/graph-layout";
+import { buildLegendModel, FILTER_LABELS, FILTER_SWATCH } from "../lib/legend";
 import { searchNodes } from "../lib/graph-search";
 import { detectHubs } from "../lib/hub";
 import {
   CATEGORY_META,
-  isDataSource,
   shortType,
   type Category,
 } from "../lib/resource-category";
@@ -206,22 +206,6 @@ const FIT_VIEW_PADDING = 0.1;
 const BLAST_FIT_PADDING = 0.2;
 const BLAST_FIT_MAX_ZOOM = 1.5;
 
-const FILTER_LABELS: Record<FilterKey, string> = {
-  create: "Create",
-  update: "Update",
-  delete: "Delete",
-  noop: "No change",
-  impacted: "Impacted",
-};
-
-const FILTER_SWATCH: Record<FilterKey, string> = {
-  create: "bg-create",
-  update: "bg-update",
-  delete: "bg-delete",
-  noop: "bg-edge",
-  impacted: "bg-impacted",
-};
-
 function CheckRow({
   checked,
   onToggle,
@@ -258,51 +242,55 @@ function CheckRow({
  * on screen said so, which turns a deterministic encoding into a guess.
  */
 function EdgeLegend({
+  graph,
   variant,
-  showDataSource = false,
 }: Readonly<{
+  graph: Graph;
   variant: "plan" | "docs";
-  /** True when the graph holds a data source — no entry for an absent thing. */
-  showDataSource?: boolean;
 }>) {
+  // `presentOnly: false` — the canvas legend has always listed every change
+  // state under variant="plan", and this is not the place to change that.
+  // Filtering to what is on screen is the VS Code panel's opt-in.
+  const model = buildLegendModel(graph, { variant, presentOnly: false });
   return (
     <div className="bg-card/90 text-muted-foreground absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-1.5 shadow-sm backdrop-blur">
-      {variant === "plan" &&
-        ALL_FILTERS.map((key) => (
-          <span
-            key={key}
-            className="inline-flex items-center gap-1.5 font-mono text-[10px]"
-          >
-            <span className={cn("size-2 rounded-full", FILTER_SWATCH[key])} />
-            {FILTER_LABELS[key]}
-          </span>
-        ))}
-      {showDataSource && (
-        <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
-          <span className="bg-muted border-border size-2 rounded-full border" />
-          data source
+      {model.changes.map(({ key, label, swatch }) => (
+        <span
+          key={key}
+          className="inline-flex items-center gap-1.5 font-mono text-[10px]"
+        >
+          <span className={cn("size-2 rounded-full", swatch)} />
+          {label}
         </span>
-      )}
-      <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
-        <svg width="18" height="6" aria-hidden="true">
-          <line x1="0" y1="3" x2="18" y2="3" strokeWidth="1.5" className="stroke-edge" />
-        </svg>
-        depends_on
-      </span>
-      <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
-        <svg width="18" height="6" aria-hidden="true">
-          <line
-            x1="0"
-            y1="3"
-            x2="18"
-            y2="3"
-            strokeWidth="1.5"
-            strokeDasharray="4 3"
-            className="stroke-edge-inferred"
-          />
-        </svg>
-        inferred reference
-      </span>
+      ))}
+      {model.notes.map(({ key, label }) => (
+        <span
+          key={key}
+          className="inline-flex items-center gap-1.5 font-mono text-[10px]"
+        >
+          <span className="bg-muted border-border size-2 rounded-full border" />
+          {label}
+        </span>
+      ))}
+      {model.edges.map(({ key, label, dashed }) => (
+        <span
+          key={key}
+          className="inline-flex items-center gap-1.5 font-mono text-[10px]"
+        >
+          <svg width="18" height="6" aria-hidden="true">
+            <line
+              x1="0"
+              y1="3"
+              x2="18"
+              y2="3"
+              strokeWidth="1.5"
+              strokeDasharray={dashed ? "4 3" : undefined}
+              className={dashed ? "stroke-edge-inferred" : "stroke-edge"}
+            />
+          </svg>
+          {label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -317,7 +305,7 @@ function worstLintSeverity(
   return "info";
 }
 
-function toggle<T>(set: Set<T>, key: T): Set<T> {
+function toggle<T>(set: ReadonlySet<T>, key: T): Set<T> {
   const next = new Set(set);
   if (next.has(key)) next.delete(key);
   else next.add(key);
@@ -336,6 +324,83 @@ function attachAnchors(
   return map;
 }
 
+
+/**
+ * Which built-in chrome the canvas draws. Every field defaults to true, so a
+ * consumer that says nothing gets exactly what the canvas has always drawn.
+ *
+ * `zoom` covers the +/−/fit cluster and the zoom-% chip together: they are one
+ * idea to a reader, even though the code places them as two blocks.
+ */
+export type CanvasChrome = {
+  search?: boolean;
+  filters?: boolean;
+  legend?: boolean;
+  zoom?: boolean;
+};
+
+/** The filter state, when a consumer wants to own it (and draw it itself). */
+export type CanvasFilters = {
+  change: ReadonlySet<FilterKey>;
+  categories: ReadonlySet<Category>;
+  modules: ReadonlySet<string>;
+  hubEdges: boolean;
+};
+
+/**
+ * The camera, for a consumer that hid `chrome.zoom` and draws its own controls.
+ * Imperative because that is what a camera is: "frame these" is an event, not a
+ * value the canvas could derive from props without fighting the user's pan.
+ */
+export type CanvasCamera = {
+  zoomIn(): void;
+  zoomOut(): void;
+  /** Frame these nodes. No ids — or none present — frames the whole graph. */
+  fit(nodeIds?: readonly string[]): void;
+  reveal(nodeId: string): void;
+};
+
+/**
+ * The filters, owned here or by the caller.
+ *
+ * Uncontrolled is the default and the existing behaviour: four sets living in
+ * this component, reset when the graph changes. Controlled hands them out, so
+ * a consumer drawing its own filter chrome can render the same truth the
+ * diagram is dimmed by — two sources for "which filters are on" is how a chip
+ * ends up claiming a filter the graph is not actually under.
+ */
+function useCanvasFilters({
+  filters,
+  onFiltersChange,
+  categoryOpts,
+  moduleOpts,
+}: {
+  filters?: CanvasFilters;
+  onFiltersChange?: (next: CanvasFilters) => void;
+  categoryOpts: Category[];
+  moduleOpts: string[];
+}): {
+  filters: CanvasFilters;
+  set: (next: CanvasFilters) => void;
+  controlled: boolean;
+} {
+  const [own, setOwn] = useState<CanvasFilters>(() => ({
+    change: new Set(ALL_FILTERS),
+    categories: new Set(categoryOpts),
+    modules: new Set(moduleOpts),
+    hubEdges: false,
+  }));
+  const controlled = filters !== undefined;
+  return {
+    filters: filters ?? own,
+    set: (next) => {
+      if (controlled) onFiltersChange?.(next);
+      else setOwn(next);
+    },
+    controlled,
+  };
+}
+
 /**
  * Shared graph canvas (GP-17 / GP-24 / GP-25): an ELK-laid-out React Flow diagram
  * with type-first labels, category icons, module nesting, change/impact colouring,
@@ -348,8 +413,13 @@ export function GraphCanvas({
   diffEmphasis = false,
   focusNodeId,
   selectedAddress,
+  revealSelection = "always",
   onNodeSelect,
   detailsPanel = true,
+  chrome,
+  filters,
+  onFiltersChange,
+  cameraRef,
   containerIds,
   stacks,
   chips,
@@ -385,6 +455,16 @@ export function GraphCanvas({
    */
   selectedAddress?: string | null;
   /**
+   * Whether an external `selectedAddress` always recentres the camera.
+   *
+   * `"always"` (the default, and every existing caller) flies to the node on
+   * every change. `"offscreen"` flies only when the node is not already
+   * visible — which is what a cursor-following consumer wants: recentring on a
+   * card the reader is already looking at makes panning feel broken, because
+   * the view snaps back on the next keystroke.
+   */
+  revealSelection?: "always" | "offscreen";
+  /**
    * GP-146: selection reported out — the clicked node, or null when the user
    * clears the selection. Fired for user interactions only, never for a
    * selection `selectedAddress` drove in (no feedback loops, GP-149).
@@ -397,6 +477,23 @@ export function GraphCanvas({
    * cover the canvas. Selection, highlight and `onNodeSelect` still work.
    */
   detailsPanel?: boolean;
+  /**
+   * Which built-in chrome to draw. Omitted — or any field omitted — leaves it
+   * on, so this changes nothing for a consumer that does not ask.
+   *
+   * The VS Code panel turns all four off: it draws a toolbar, a legend popover
+   * and a zoom overlay of its own, and a second set underneath is exactly the
+   * crowding this exists to remove.
+   */
+  chrome?: CanvasChrome;
+  /** Controlled filter state. Absent = the canvas owns it, exactly as today. */
+  filters?: CanvasFilters;
+  onFiltersChange?: (next: CanvasFilters) => void;
+  /**
+   * Filled with the camera once React Flow is ready, cleared on unmount. For a
+   * consumer that hid `chrome.zoom` and needs a way to drive the view.
+   */
+  cameraRef?: React.RefObject<CanvasCamera | null>;
   /** vnet/subnet ids to render as containers even when empty (GP-44 network view). */
   containerIds?: ReadonlySet<string>;
   /** GP-87: host id → its stacked satellite children (network view only). Their
@@ -475,9 +572,15 @@ export function GraphCanvas({
 
   const [layout, setLayout] = useState<ElkGraphNode | null>(null);
   const [laying, setLaying] = useState(true);
-  const [activeFilters, setActiveFilters] = useState(() => new Set(ALL_FILTERS));
-  const [activeCategories, setActiveCategories] = useState(() => new Set(categoryOpts));
-  const [activeModules, setActiveModules] = useState(() => new Set(moduleOpts));
+  const {
+    filters: activeFilterState,
+    set: setFilterState,
+    controlled: filtersControlled,
+  } = useCanvasFilters({ filters, onFiltersChange, categoryOpts, moduleOpts });
+  const activeFilters = activeFilterState.change;
+  const activeCategories = activeFilterState.categories;
+  const activeModules = activeFilterState.modules;
+  const showHubEdges = activeFilterState.hubEdges;
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   // Which host each stacked child belongs to (GP-87), which subnet each chip
@@ -520,18 +623,18 @@ export function GraphCanvas({
   );
   const hubs = useMemo(() => detectHubs(hubGraph), [hubGraph]);
 
-  // Data sources are read from the provider, not defined in the repo — the
-  // legend explains their muted card, but only when one is actually on screen.
-  const hasDataSource = useMemo(
-    () => graph.nodes.some((n) => isDataSource(n.id)),
-    [graph],
-  );
-  const [showHubEdges, setShowHubEdges] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Everything on unless a consumer says otherwise.
+  const showSearch = chrome?.search ?? true;
+  const showFilters = chrome?.filters ?? true;
+  const showLegend = chrome?.legend ?? true;
+  const showZoom = chrome?.zoom ?? true;
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
 
   const rfRef = useRef<ReactFlowInstance<FlowNode<GraphNodeData>> | null>(null);
+  /** The drawing area, so "is this node visible" has something to be inside. */
+  const containerRef = useRef<HTMLDivElement>(null);
   // Flips once onInit hands over the instance, so the fit-after-layout effect
   // can wait for whichever of {instance, layout} arrives last (GP-130).
   const [rfReady, setRfReady] = useState(false);
@@ -555,10 +658,18 @@ export function GraphCanvas({
     });
     setHoveredId(null);
     setQuery("");
-    setShowHubEdges(false);
-    setActiveFilters(new Set(ALL_FILTERS));
-    setActiveCategories(new Set(categoryOptions(graph)));
-    setActiveModules(new Set(moduleOptions(graph)));
+    // A new graph has new modules and new categories, so the old sets no
+    // longer mean anything. Only when the canvas owns them: a controlled
+    // consumer decides for itself what a new snapshot does to its filters,
+    // and resetting through the callback would fight it every layout.
+    if (!filtersControlled) {
+      setFilterState({
+        change: new Set(ALL_FILTERS),
+        categories: new Set(categoryOptions(graph)),
+        modules: new Set(moduleOptions(graph)),
+        hubEdges: false,
+      });
+    }
     elk
       .layout(toElkGraph(graph, hubs, containerIds, stacks, chips))
       .then((result) => {
@@ -628,8 +739,12 @@ export function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout, rfReady]);
 
-  // `/` focuses the search box (unless already typing in a field).
+  // `/` focuses the search box (unless already typing in a field). Not bound
+  // when this canvas is not the one drawing that box: the key would swallow
+  // itself focusing an input nobody rendered, and the consumer's own search
+  // would never hear it.
   useEffect(() => {
+    if (!showSearch) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
@@ -640,7 +755,7 @@ export function GraphCanvas({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [showSearch]);
 
   // The stop's anchors, as a set, and only the ones this graph actually has. The
   // backend already dropped stops it could not fly to, but the canvas may be
@@ -1015,6 +1130,58 @@ export function GraphCanvas({
     [childToHost, chipToAnchor],
   );
 
+  /**
+   * Is the node already visible? Answered from the laid-out box, the current
+   * transform and the measured container — no DOM query per node.
+   */
+  const isSelectionOnScreen = useCallback((id: string): boolean => {
+    const rf = rfRef.current;
+    const box = boxesRef.current.get(id);
+    const el = containerRef.current;
+    if (!rf || !box || !el) return false;
+    return isNodeOnScreen(box, rf.getViewport(), {
+      width: el.clientWidth,
+      height: el.clientHeight,
+    });
+  }, []);
+
+  // The camera handle, for a consumer drawing its own zoom controls. Filled
+  // once React Flow exists, cleared on unmount so a stale handle cannot drive
+  // a canvas that is gone.
+  useEffect(() => {
+    if (!cameraRef) return;
+    cameraRef.current = {
+      zoomIn: () => rfRef.current?.zoomIn(),
+      zoomOut: () => rfRef.current?.zoomOut(),
+      fit: (nodeIds) => {
+        // Fit-to-changes on a diff that changed nothing asks to frame an
+        // empty set; React Flow would happily land nowhere, so fall through
+        // to the whole graph — which is the honest answer to "show me the
+        // changes" when there are none.
+        const present = (nodeIds ?? []).filter((id) =>
+          graph.nodes.some((n) => n.id === id),
+        );
+        void rfRef.current?.fitView(
+          present.length > 0
+            ? {
+                nodes: present.map((id) => ({ id })),
+                padding: BLAST_FIT_PADDING,
+                maxZoom: BLAST_FIT_MAX_ZOOM,
+                duration: 300,
+              }
+            : { padding: FIT_VIEW_PADDING, duration: 300 },
+        );
+      },
+      reveal: (nodeId) => {
+        const node = graph.nodes.find((n) => n.id === nodeId);
+        if (node) flyTo(node);
+      },
+    };
+    return () => {
+      cameraRef.current = null;
+    };
+  }, [cameraRef, graph, flyTo]);
+
   // Fly to a node requested from outside (GP-40 compare summary lists).
   useEffect(() => {
     if (!focusNodeId) return;
@@ -1032,8 +1199,17 @@ export function GraphCanvas({
       return;
     }
     const node = graph.nodes.find((n) => n.id === selectedAddress);
-    if (node) flyTo(node);
-  }, [selectedAddress, graph, flyTo]);
+    if (!node) return;
+    // `"offscreen"`: a node the reader can already see does not need the
+    // camera moved onto it. Following a cursor with an unconditional fly
+    // means the diagram snaps back on every keystroke, and panning while
+    // editing becomes impossible.
+    if (revealSelection === "offscreen" && isSelectionOnScreen(node.id)) {
+      setSelected(node);
+      return;
+    }
+    flyTo(node);
+  }, [selectedAddress, graph, flyTo, revealSelection, isSelectionOnScreen]);
 
   // Report selection out (GP-146) — user interactions only. A change that
   // merely lands on what `selectedAddress` already asked for is the echo of an
@@ -1084,16 +1260,18 @@ export function GraphCanvas({
   const results = useMemo(() => searchNodes(graph.nodes, query, 10), [graph, query]);
 
   const reset = () => {
-    setActiveFilters(new Set(ALL_FILTERS));
-    setActiveCategories(new Set(categoryOpts));
-    setActiveModules(new Set(moduleOpts));
+    setFilterState({
+      change: new Set(ALL_FILTERS),
+      categories: new Set(categoryOpts),
+      modules: new Set(moduleOpts),
+      hubEdges: false,
+    });
     setSelected(null);
-    setShowHubEdges(false);
     setQuery("");
   };
 
   return (
-    <div className="bg-canvas relative h-full w-full">
+    <div ref={containerRef} className="bg-canvas relative h-full w-full">
       <EdgeArrowMarkers />
       <ReactFlow
         nodes={flowNodes}
@@ -1151,6 +1329,7 @@ export function GraphCanvas({
       </ReactFlow>
 
       {/* Floating zoom toolbar (top-right). */}
+      {showZoom && (
       <div className="bg-card/90 absolute top-3 right-3 z-10 flex flex-col overflow-hidden rounded-md border border-border shadow-sm backdrop-blur">
         <ToolbarButton label="Zoom in" onClick={() => rfRef.current?.zoomIn()}>
           <Plus className="size-4" />
@@ -1170,8 +1349,10 @@ export function GraphCanvas({
           <Maximize2 className="size-4" />
         </ToolbarButton>
       </div>
+      )}
 
       {/* Zoom % + interaction hints (bottom-right). */}
+      {showZoom && (
       <div className="bg-card/90 text-muted-foreground absolute right-3 bottom-3 z-10 flex items-center gap-2 rounded-md border border-border px-2.5 py-1 shadow-sm backdrop-blur">
         <span className="text-ink font-mono text-xs tabular-nums">
           {Math.round(zoom * 100)}%
@@ -1180,6 +1361,7 @@ export function GraphCanvas({
           scroll to zoom · drag to pan
         </span>
       </div>
+      )}
 
       {laying && (
         <div
@@ -1196,7 +1378,9 @@ export function GraphCanvas({
       {/* One left rail: search, then filters. The search box used to float in
           the middle of the canvas, anchored to nothing; the filter panel used to
           hold canvas space open all session for something you touch once. */}
+      {(showSearch || showFilters) && (
       <div className="absolute top-3 left-3 z-10 flex max-h-[calc(100%-1.5rem)] w-64 flex-col gap-2">
+        {showSearch && (
         <div className="shrink-0">
           <div className="bg-card/95 flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 shadow-sm backdrop-blur">
             <Search className="text-muted-foreground size-3.5 shrink-0" />
@@ -1240,7 +1424,9 @@ export function GraphCanvas({
             </ul>
           )}
         </div>
+        )}
 
+        {showFilters && (
         <div className="bg-card/90 flex min-h-0 flex-col overflow-hidden rounded-md border border-border shadow-sm backdrop-blur">
           <div className="flex items-center justify-between gap-2 px-3 py-2">
             <button
@@ -1271,7 +1457,12 @@ export function GraphCanvas({
                       key={key}
                       checked={activeFilters.has(key)}
                       count={changeCount.get(key) ?? 0}
-                      onToggle={() => setActiveFilters((s) => toggle(s, key))}
+                      onToggle={() =>
+                        setFilterState({
+                          ...activeFilterState,
+                          change: toggle(activeFilters, key),
+                        })
+                      }
                     >
                       <span className={cn("size-2.5 rounded-xs", FILTER_SWATCH[key])} />
                       {FILTER_LABELS[key]}
@@ -1290,7 +1481,10 @@ export function GraphCanvas({
                         checked={activeCategories.has(cat)}
                         count={categoryCount.get(cat) ?? 0}
                         onToggle={() =>
-                          setActiveCategories((s) => toggle<Category>(s, cat))
+                          setFilterState({
+                            ...activeFilterState,
+                            categories: toggle<Category>(activeCategories, cat),
+                          })
                         }
                       >
                         <meta.icon className={cn("size-3", meta.className)} />
@@ -1313,7 +1507,12 @@ export function GraphCanvas({
                       key={mod}
                       checked={activeModules.has(mod)}
                       count={moduleCount.get(mod) ?? 0}
-                      onToggle={() => setActiveModules((s) => toggle(s, mod))}
+                      onToggle={() =>
+                        setFilterState({
+                          ...activeFilterState,
+                          modules: toggle(activeModules, mod),
+                        })
+                      }
                     >
                       <span className="truncate">{mod}</span>
                     </CheckRow>
@@ -1326,7 +1525,12 @@ export function GraphCanvas({
                 <FilterSection title="Connections">
                   <CheckRow
                     checked={showHubEdges}
-                    onToggle={() => setShowHubEdges((v) => !v)}
+                    onToggle={() =>
+                      setFilterState({
+                        ...activeFilterState,
+                        hubEdges: !showHubEdges,
+                      })
+                    }
                   >
                     <Waypoints className="text-muted-foreground size-3" />
                     Show hub connections
@@ -1345,11 +1549,13 @@ export function GraphCanvas({
             </div>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {/* What the lines mean. An undocumented encoding is a guess the reader has
           to make — and this diagram is supposed to be trustworthy. */}
-      <EdgeLegend variant={variant} showDataSource={hasDataSource} />
+      {showLegend && <EdgeLegend graph={graph} variant={variant} />}
 
       {detailsPanel && selected && (
         <NodeDetailsPanel

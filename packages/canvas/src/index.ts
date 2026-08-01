@@ -36,6 +36,7 @@ export * from "./lib/edge-path";
 export * from "./lib/hub";
 export * from "./lib/hub-config";
 export * from "./lib/graph-search";
+export * from "./lib/legend";
 export * from "./lib/resource-category";
 export * from "./lib/status";
 export * from "./lib/node-details";
