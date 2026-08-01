@@ -51,6 +51,28 @@ export const strings = {
       "This compares your working tree against the baseline — it is not a " +
       "Terraform plan. It reads no state and does not expand count or for_each.",
   },
+  search: {
+    label: "Search resources",
+    placeholder: "Search resources…",
+    close: "Close search",
+  },
+  filters: {
+    label: "Filters",
+    active: (count: number) => `${count} filter${count === 1 ? "" : "s"}`,
+    clearAll: "Clear all filters",
+    remove: (label: string) => `Stop hiding ${label}`,
+  },
+  legend: {
+    label: "Legend",
+    open: "What the diagram's colours and lines mean",
+    empty: "Nothing on this diagram needs explaining.",
+  },
+  zoom: {
+    in: "Zoom in",
+    out: "Zoom out",
+    fit: "Fit the diagram",
+    fitChanges: "Fit the changes",
+  },
   status: {
     label: "Preview status",
     rendering: "Rendering…",

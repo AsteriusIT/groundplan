@@ -23,12 +23,10 @@ import {
   Minus,
   MousePointer2,
   Plus,
-  RotateCcw,
   Search,
   SlidersHorizontal,
   Trash2,
   Type,
-  Waypoints,
   X,
 } from "lucide-react";
 
@@ -62,6 +60,7 @@ import {
   renameIsReady,
   type AnnotateTool,
 } from "../lib/annotate-tool";
+import { FilterControls } from "../components/filter-controls";
 import { NotePanel } from "../components/note-editor";
 import { COACH_MARK_GUTTER, TourSpotlight } from "../components/tour-spotlight";
 import type { TourChrome } from "../components/tour-chrome";
@@ -81,14 +80,10 @@ import {
   type FilterKey,
   type GraphNodeData,
 } from "../lib/graph-layout";
-import { buildLegendModel, FILTER_LABELS, FILTER_SWATCH } from "../lib/legend";
+import { buildLegendModel } from "../lib/legend";
 import { searchNodes } from "../lib/graph-search";
 import { detectHubs } from "../lib/hub";
-import {
-  CATEGORY_META,
-  shortType,
-  type Category,
-} from "../lib/resource-category";
+import { shortType, type Category } from "../lib/resource-category";
 import { cn } from "../lib/utils";
 import { NodeDetailsPanel } from "../components/node-details-panel";
 import { ResourceIcon } from "../components/resource-icon";
@@ -206,36 +201,6 @@ const FIT_VIEW_PADDING = 0.1;
 const BLAST_FIT_PADDING = 0.2;
 const BLAST_FIT_MAX_ZOOM = 1.5;
 
-function CheckRow({
-  checked,
-  onToggle,
-  count,
-  children,
-}: Readonly<{
-  checked: boolean;
-  onToggle: () => void;
-  /** How many resources this option covers — what unticking it will cost you. */
-  count?: number;
-  children: React.ReactNode;
-}>) {
-  return (
-    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onToggle}
-        className="accent-primary size-3.5"
-      />
-      <span className="flex min-w-0 flex-1 items-center gap-1.5">{children}</span>
-      {count !== undefined && (
-        <span className="text-muted-foreground shrink-0 font-mono text-[10px] tabular-nums">
-          {count}
-        </span>
-      )}
-    </label>
-  );
-}
-
 /**
  * What a line means. Dashed vs solid already carried a real distinction — an
  * expression-inferred reference vs an explicit `depends_on` (GP-20) — but nothing
@@ -303,13 +268,6 @@ function worstLintSeverity(
   if (findings.some((f) => f.severity === "high")) return "high";
   if (findings.some((f) => f.severity === "warn")) return "warn";
   return "info";
-}
-
-function toggle<T>(set: ReadonlySet<T>, key: T): Set<T> {
-  const next = new Set(set);
-  if (next.has(key)) next.delete(key);
-  else next.add(key);
-  return next;
 }
 
 /** Invert an attachment map (anchor id → attached nodes) to attached id → anchor
@@ -1450,102 +1408,18 @@ export function GraphCanvas({
 
           {filtersOpen && (
             <div className="min-h-0 overflow-auto border-t border-border px-3 pb-3">
-              {variant === "plan" && (
-                <FilterSection title="Change">
-                  {ALL_FILTERS.map((key) => (
-                    <CheckRow
-                      key={key}
-                      checked={activeFilters.has(key)}
-                      count={changeCount.get(key) ?? 0}
-                      onToggle={() =>
-                        setFilterState({
-                          ...activeFilterState,
-                          change: toggle(activeFilters, key),
-                        })
-                      }
-                    >
-                      <span className={cn("size-2.5 rounded-xs", FILTER_SWATCH[key])} />
-                      {FILTER_LABELS[key]}
-                    </CheckRow>
-                  ))}
-                </FilterSection>
-              )}
-
-              {categoryOpts.length > 0 && (
-                <FilterSection title="Category">
-                  {categoryOpts.map((cat) => {
-                    const meta = CATEGORY_META[cat];
-                    return (
-                      <CheckRow
-                        key={cat}
-                        checked={activeCategories.has(cat)}
-                        count={categoryCount.get(cat) ?? 0}
-                        onToggle={() =>
-                          setFilterState({
-                            ...activeFilterState,
-                            categories: toggle<Category>(activeCategories, cat),
-                          })
-                        }
-                      >
-                        <meta.icon className={cn("size-3", meta.className)} />
-                        {meta.label}
-                      </CheckRow>
-                    );
-                  })}
-                </FilterSection>
-              )}
-
-              {/* One option is not a choice: a lone "root" box would only ever
-                  hide the entire diagram. A Kubernetes graph is always this (a
-                  manifest has no modules), and so is a Terraform repository that
-                  never wrote one — but `activeModules` still covers them, or the
-                  dim pass would hide what no checkbox could bring back. */}
-              {moduleOpts.length > 1 && (
-                <FilterSection title="Module">
-                  {moduleOpts.map((mod) => (
-                    <CheckRow
-                      key={mod}
-                      checked={activeModules.has(mod)}
-                      count={moduleCount.get(mod) ?? 0}
-                      onToggle={() =>
-                        setFilterState({
-                          ...activeFilterState,
-                          modules: toggle(activeModules, mod),
-                        })
-                      }
-                    >
-                      <span className="truncate">{mod}</span>
-                    </CheckRow>
-                  ))}
-                </FilterSection>
-              )}
-
-              {/* GP-35: hub edges are hidden by default; this restores them all. */}
-              {hubs.size > 0 && (
-                <FilterSection title="Connections">
-                  <CheckRow
-                    checked={showHubEdges}
-                    onToggle={() =>
-                      setFilterState({
-                        ...activeFilterState,
-                        hubEdges: !showHubEdges,
-                      })
-                    }
-                  >
-                    <Waypoints className="text-muted-foreground size-3" />
-                    Show hub connections
-                  </CheckRow>
-                </FilterSection>
-              )}
-
-              <button
-                type="button"
-                onClick={reset}
-                className="text-muted-foreground hover:text-foreground mt-3 inline-flex items-center gap-1 border-t border-border pt-2 text-[10px]"
-              >
-                <RotateCcw className="size-3" />
-                Reset
-              </button>
+              <FilterControls
+                filters={activeFilterState}
+                onChange={setFilterState}
+                onReset={reset}
+                variant={variant}
+                categoryOptions={categoryOpts}
+                moduleOptions={moduleOpts}
+                changeCounts={changeCount}
+                categoryCounts={categoryCount}
+                moduleCounts={moduleCount}
+                hasHubs={hubs.size > 0}
+              />
             </div>
           )}
         </div>
@@ -1883,23 +1757,6 @@ function AnnotationRow({
         <Trash2 className="size-3.5" />
       </button>
     </li>
-  );
-}
-
-function FilterSection({
-  title,
-  children,
-}: Readonly<{
-  title: string;
-  children: React.ReactNode;
-}>) {
-  return (
-    <div className="mb-2 last:mb-0">
-      <p className="text-muted-foreground mb-1 font-mono text-[10px] tracking-wide uppercase">
-        {title}
-      </p>
-      <ul className="space-y-0.5">{children}</ul>
-    </div>
   );
 }
 

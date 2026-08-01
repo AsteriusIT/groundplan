@@ -7,6 +7,7 @@
 export * from "./types";
 
 export * from "./components/graph-canvas";
+export * from "./components/filter-controls";
 export * from "./components/graph-node";
 export * from "./components/graph-edge";
 export * from "./components/network-container-node";

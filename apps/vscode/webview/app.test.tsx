@@ -7,7 +7,7 @@
  * instead. `packages/canvas` has its own tests for the drawing.
  */
 import { describe, expect, test, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ChangeKind, Graph, GraphNode } from "@groundplan/graph-parser";
 
 import type { DiffState, HostMessage } from "../src/messages";
@@ -169,6 +169,98 @@ describe("the diff button carries the counts", () => {
 
     expect(screen.getByLabelText("No baseline")).toBeInTheDocument();
     expect(screen.queryByText("+1")).not.toBeInTheDocument();
+  });
+});
+
+describe("the chrome the canvas gave up", () => {
+  test("search is a toolbar control, folded away until asked for", () => {
+    mount([node("a", "noop")]);
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /search resources/i }));
+
+    expect(screen.getByLabelText(/search resources/i)).toBeInTheDocument();
+  });
+
+  test("the legend explains only what is on the diagram", () => {
+    mount([node("a", "create"), node("b", "noop")], { ...CLEAN, clean: false });
+
+    fireEvent.click(screen.getByRole("button", { name: /^legend$/i }));
+
+    const legend = screen.getByRole("dialog", { name: /legend/i });
+    expect(within(legend).getByText(/create/i)).toBeInTheDocument();
+    // Nothing was deleted, so there is no delete swatch to explain.
+    expect(within(legend).queryByText(/^delete$/i)).not.toBeInTheDocument();
+  });
+
+  test("zoom sits on the diagram, where zooming happens", () => {
+    mount([node("a", "noop")]);
+
+    expect(screen.getByRole("button", { name: /zoom in/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /zoom out/i })).toBeInTheDocument();
+  });
+
+  test("fit means fit the changes once there are changes to fit", () => {
+    mount([node("a", "create")], { ...CLEAN, clean: false });
+
+    expect(screen.getByRole("button", { name: /fit the changes/i })).toBeInTheDocument();
+  });
+
+  test("fit means fit the diagram when nothing is being compared", () => {
+    mount([node("a", "noop")]);
+
+    expect(screen.getByRole("button", { name: /fit the diagram/i })).toBeInTheDocument();
+  });
+});
+
+describe("filters", () => {
+  test("no chips row at all while nothing is filtered", () => {
+    mount([node("a", "noop")]);
+
+    expect(screen.queryByRole("button", { name: /stop hiding/i })).not.toBeInTheDocument();
+  });
+
+  test("hiding something puts a chip on screen saying so", () => {
+    // A filter panel you closed is a filter you forgot; the diagram would show
+    // less than the workspace holds with nothing on screen admitting it.
+    mount([node("a", "create")], { ...CLEAN, clean: false });
+
+    fireEvent.click(screen.getByRole("button", { name: /^filters$/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Create/ }));
+
+    expect(screen.getByRole("button", { name: /stop hiding create/i })).toBeInTheDocument();
+  });
+
+  test("the filter icon counts what is hidden", () => {
+    mount([node("a", "create")], { ...CLEAN, clean: false });
+
+    fireEvent.click(screen.getByRole("button", { name: /^filters$/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Create/ }));
+
+    expect(screen.getByRole("button", { name: /^filters$/i })).toHaveTextContent("1");
+  });
+
+  test("a chip puts back exactly what it was hiding", () => {
+    mount([node("a", "create")], { ...CLEAN, clean: false });
+    fireEvent.click(screen.getByRole("button", { name: /^filters$/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Create/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: /stop hiding create/i }));
+
+    expect(screen.queryByRole("button", { name: /stop hiding/i })).not.toBeInTheDocument();
+  });
+
+  test("filtering is the panel's own business", () => {
+    // It is a fold of the snapshot in hand — no reason to make the host parse
+    // anything again.
+    const { post } = mount([node("a", "create")], { ...CLEAN, clean: false });
+    post.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /^filters$/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Create/ }));
+
+    expect(post).not.toHaveBeenCalled();
   });
 });
 

@@ -19,14 +19,16 @@
  * "this is not a plan" caveat is in the popover instead of pinned to the
  * corner on every render. A caveat that is always on screen is not read.
  */
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { changedOnly as changedOnlyFold } from "@groundplan/graph-differ";
 import {
+  changedFocusIds,
   cn,
   GraphCanvas,
   IamTable,
   networkProjection,
+  type CanvasCamera,
   type Graph,
 } from "@groundplan/canvas";
 import "@groundplan/canvas/styles.css";
@@ -34,8 +36,13 @@ import "@groundplan/canvas/styles.css";
 import type { HostMessage, PreviewTheme, WebviewMessage } from "../src/messages";
 import { postToHost } from "./vscode-api";
 import { AboutDiffPopover, DiffPopover } from "./components/diff-popover";
+import { FilterChips } from "./components/filter-chips";
+import { FilterButton, filterOptionsFor } from "./components/filter-popover";
+import { LegendButton } from "./components/legend-popover";
+import { SearchField } from "./components/search-field";
 import { StatusBar, type SyncState } from "./components/status-bar";
 import { Toolbar } from "./components/toolbar";
+import { ZoomOverlay } from "./components/zoom-overlay";
 import { diffCounts } from "./state/diff-summary";
 import {
   INITIAL_PANEL_STATE,
@@ -45,6 +52,11 @@ import {
   type PanelAction,
 } from "./state/panel-state";
 import { statusNotice } from "./state/status-notice";
+import {
+  activeFilterChips,
+  toCanvasFilters,
+  toExclusions,
+} from "./state/filters";
 
 /**
  * Theme (the `groundplan.theme` setting — no in-panel switch): the host bakes
@@ -102,6 +114,11 @@ export function App({
   const [diffOptionsOpen, setDiffOptionsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [sync, setSync] = useState<SyncState>({ value: "synced" });
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const camera = useRef<CanvasCamera | null>(null);
   const view = panel.lens;
   const prefs = panel.diff;
 
@@ -174,6 +191,21 @@ export function App({
   // Counted off the whole annotated snapshot, not the "changed only" fold:
   // the question the button answers is what this diff contains, which does
   // not change because the reader chose to look at less of it.
+  // The filter vocabulary of the graph on screen, and the panel's exclusions
+  // resolved against it (see state/filters for why exclusions).
+  const filterOptions = useMemo(
+    () => (graph ? filterOptionsFor(graph) : { categories: [], modules: [] }),
+    [graph],
+  );
+  const canvasFilters = useMemo(
+    () => toCanvasFilters(panel.filters, filterOptions),
+    [panel.filters, filterOptions],
+  );
+  const chips = useMemo(
+    () => activeFilterChips(panel.filters, filterOptions),
+    [panel.filters, filterOptions],
+  );
+
   const counts = useMemo(
     () => (graph && diffActive ? diffCounts(graph) : null),
     [graph, diffActive],
@@ -212,6 +244,47 @@ export function App({
             onAction={act}
           />
         }
+      >
+        <SearchField
+          graph={graph}
+          open={searchOpen}
+          query={query}
+          onOpen={() => setSearchOpen(true)}
+          onClose={() => {
+            setSearchOpen(false);
+            setQuery("");
+          }}
+          onQuery={setQuery}
+          onPick={(nodeId) => {
+            camera.current?.reveal(nodeId);
+            setSelectedAddress(nodeId);
+            setSearchOpen(false);
+            setQuery("");
+          }}
+        />
+        <FilterButton
+          graph={graph}
+          variant={diffActive ? "plan" : "docs"}
+          options={filterOptions}
+          exclusions={panel.filters}
+          activeCount={chips.length}
+          open={filtersOpen}
+          onToggle={() => setFiltersOpen((open) => !open)}
+          onClose={() => setFiltersOpen(false)}
+          onChange={(filters) => act({ type: "setFilters", filters })}
+          onClear={() => act({ type: "clearFilters" })}
+        />
+      </Toolbar>
+
+      {/* A filter panel you have closed is a filter you have forgotten — and a
+          diagram showing less than the workspace holds, with nothing on screen
+          saying so. */}
+      <FilterChips
+        chips={chips}
+        onRemove={(chip) =>
+          act({ type: "setFilters", filters: chip.without(panel.filters) })
+        }
+        onClearAll={() => act({ type: "clearFilters" })}
       />
 
       {/* The diagram owns everything below the bar. Nothing is pinned on top
@@ -239,6 +312,15 @@ export function App({
             key={view}
             graph={network ? network.graph : displayed}
             variant={diffActive ? "plan" : "docs"}
+            // The panel draws all of this itself, in its own zones. Leaving
+            // the canvas to draw a second set is how one diagram ended up
+            // under two chromes.
+            chrome={{ search: false, filters: false, legend: false, zoom: false }}
+            filters={canvasFilters}
+            onFiltersChange={(next) =>
+              act({ type: "setFilters", filters: toExclusions(next, filterOptions) })
+            }
+            cameraRef={camera}
             // Diff mode wears the PR view's hierarchy: unchanged recedes (GP-155).
             diffEmphasis={diffActive}
             containerIds={network?.containerIds}
@@ -253,6 +335,20 @@ export function App({
               setSelectedAddress(node?.id ?? null);
               post({ type: "nodeSelected", address: node?.id ?? null });
             }}
+          />
+        )}
+
+        {view !== "iam" && (
+          <ZoomOverlay
+            onZoomIn={() => camera.current?.zoomIn()}
+            onZoomOut={() => camera.current?.zoomOut()}
+            // In diff mode, "fit" means fit the changes: framing the whole
+            // estate is the wrong answer to "what moved". With nothing
+            // changed the canvas falls back to the full graph.
+            onFit={() =>
+              camera.current?.fit(diffActive ? changedFocusIds(graph) : undefined)
+            }
+            fitsChanges={diffActive && !facts.clean}
           />
         )}
       </div>
@@ -274,6 +370,15 @@ export function App({
         })}
         onAbout={() => setAboutOpen((open) => !open)}
       >
+        {view !== "iam" && (
+          <LegendButton
+            graph={network ? network.graph : displayed}
+            variant={diffActive ? "plan" : "docs"}
+            open={legendOpen}
+            onToggle={() => setLegendOpen((open) => !open)}
+            onClose={() => setLegendOpen(false)}
+          />
+        )}
         <AboutDiffPopover open={aboutOpen} onClose={() => setAboutOpen(false)} />
       </StatusBar>
     </div>

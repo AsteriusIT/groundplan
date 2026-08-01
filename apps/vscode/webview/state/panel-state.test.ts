@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from "vitest";
 
+import { NO_EXCLUSIONS } from "./filters";
 import { INITIAL_PANEL_STATE, panelReducer } from "./panel-state";
 
 describe("panelReducer", () => {
@@ -12,6 +13,7 @@ describe("panelReducer", () => {
     expect(INITIAL_PANEL_STATE).toEqual({
       lens: "infra",
       diff: { enabled: false, mode: "head", changedOnly: false },
+      filters: NO_EXCLUSIONS,
       followCursor: true,
     });
   });
@@ -98,6 +100,32 @@ describe("panelReducer", () => {
       type: "hostDiffPrefs",
       prefs: { enabled: false, mode: "head", changedOnly: false },
     });
+
+    expect(next).toBe(INITIAL_PANEL_STATE);
+  });
+
+  test("setFilters records what is being hidden", () => {
+    const next = panelReducer(INITIAL_PANEL_STATE, {
+      type: "setFilters",
+      filters: { ...NO_EXCLUSIONS, change: new Set(["create"]) },
+    });
+
+    expect([...next.filters.change]).toEqual(["create"]);
+  });
+
+  test("clearFilters puts the whole diagram back", () => {
+    const filtered = panelReducer(INITIAL_PANEL_STATE, {
+      type: "setFilters",
+      filters: { ...NO_EXCLUSIONS, change: new Set(["create"]), hubEdges: true },
+    });
+
+    const cleared = panelReducer(filtered, { type: "clearFilters" });
+
+    expect(cleared.filters).toEqual(NO_EXCLUSIONS);
+  });
+
+  test("clearing filters that are already clear changes nothing", () => {
+    const next = panelReducer(INITIAL_PANEL_STATE, { type: "clearFilters" });
 
     expect(next).toBe(INITIAL_PANEL_STATE);
   });

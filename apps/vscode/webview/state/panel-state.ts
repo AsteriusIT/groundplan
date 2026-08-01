@@ -9,6 +9,7 @@
  * One reducer, so every piece of chrome reads the same panel.
  */
 import type { BaselineMode, DiffState } from "../../src/messages";
+import { NO_EXCLUSIONS, type FilterExclusions } from "./filters";
 
 /** `infra` is labelled "Global" — the key is the web app's `?view=infra`. */
 export type Lens = "infra" | "network" | "iam";
@@ -42,6 +43,8 @@ export const NO_DIFF_FACTS: DiffFacts = {
 export type PanelState = {
   lens: Lens;
   diff: DiffPrefs;
+  /** What is being filtered *out* — see ./filters for why that way round. */
+  filters: FilterExclusions;
   followCursor: boolean;
 };
 
@@ -51,12 +54,15 @@ export type PanelAction =
   | { type: "setBase"; mode: BaselineMode }
   | { type: "toggleChangedOnly" }
   | { type: "toggleFollowCursor" }
+  | { type: "setFilters"; filters: FilterExclusions }
+  | { type: "clearFilters" }
   /** The host's persisted preferences, echoed back with every snapshot. */
   | { type: "hostDiffPrefs"; prefs: DiffPrefs };
 
 export const INITIAL_PANEL_STATE: PanelState = {
   lens: "infra",
   diff: { enabled: false, mode: "head", changedOnly: false },
+  filters: NO_EXCLUSIONS,
   followCursor: true,
 };
 
@@ -95,6 +101,16 @@ export function panelReducer(
 
     case "toggleFollowCursor":
       return { ...state, followCursor: !state.followCursor };
+
+    case "setFilters":
+      return { ...state, filters: action.filters };
+
+    case "clearFilters":
+      // Identity when nothing was filtered: the chips row is not rendered at
+      // all in that state, so a "clear" that re-renders the panel is churn.
+      return state.filters === NO_EXCLUSIONS
+        ? state
+        : { ...state, filters: NO_EXCLUSIONS };
 
     case "hostDiffPrefs":
       // Identity matters: this arrives with every post, and a fresh object per
