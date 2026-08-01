@@ -8,7 +8,7 @@
  *
  * One reducer, so every piece of chrome reads the same panel.
  */
-import type { BaselineMode } from "../../src/messages";
+import type { BaselineMode, DiffState } from "../../src/messages";
 
 /** `infra` is labelled "Global" — the key is the web app's `?view=infra`. */
 export type Lens = "infra" | "network" | "iam";
@@ -18,6 +18,21 @@ export type DiffPrefs = {
   enabled: boolean;
   mode: BaselineMode;
   changedOnly: boolean;
+};
+
+/**
+ * What the host observed about the diff, as opposed to what the reader chose.
+ * Whether a baseline resolved, which ref it is, why it did not and whether the
+ * diff came back clean are facts about the workspace: they arrive by message,
+ * and no control may assert one on its own.
+ */
+export type DiffFacts = Pick<DiffState, "available" | "ref" | "reason" | "clean">;
+
+export const NO_DIFF_FACTS: DiffFacts = {
+  available: false,
+  ref: null,
+  reason: null,
+  clean: false,
 };
 
 export type PanelState = {
