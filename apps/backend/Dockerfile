@@ -19,6 +19,10 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .npmrc .
 COPY apps/backend/package.json apps/backend/package.json
 COPY packages/graph-parser/package.json packages/graph-parser/package.json
 COPY packages/graph-differ/package.json packages/graph-differ/package.json
+# @groundplan/builder is a backend dependency since the visual builder's
+# generation endpoint (GP-134); without its manifest the workspace install
+# cannot resolve it.
+COPY packages/builder/package.json packages/builder/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @groundplan/backend...
 
@@ -28,6 +32,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 # dist + drizzle migrations).
 COPY packages/graph-parser/ packages/graph-parser/
 COPY packages/graph-differ/ packages/graph-differ/
+COPY packages/builder/ packages/builder/
 COPY apps/backend/ apps/backend/
 RUN pnpm --filter @groundplan/backend... build \
  && pnpm --filter=@groundplan/backend deploy --prod --legacy /prod

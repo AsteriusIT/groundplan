@@ -39,6 +39,10 @@ jobs:
             dockerfile: apps/backend/Dockerfile
           - image: frontend
             dockerfile: apps/frontend/Dockerfile
+          # The catalog extraction worker (GP-236): the one image that ships a
+          # `terraform` binary. Scanned by the same Trivy gate as the rest.
+          - image: catalog-worker
+            dockerfile: apps/backend/Dockerfile.catalog-worker
           # Keycloak 26.7 with the carbon theme baked in (keycloak/Dockerfile).
           - image: keycloak
             dockerfile: keycloak/Dockerfile

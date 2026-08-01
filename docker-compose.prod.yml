@@ -53,6 +53,12 @@ x-backend-env: &backend-env
   # Orgs (GP-112): single-org unless explicitly opted out (SINGLE_ORG=false
   # enables SaaS multi-org mode — org switcher, invites, onboarding).
   SINGLE_ORG: ${SINGLE_ORG:-true}
+  # Resource catalog (GP-233). CATALOG_REFRESH=disabled makes the whole stack
+  # air-gapped as far as the catalog is concerned: no registry call, no
+  # extraction, and whatever is stored is served and labelled as pinned.
+  CATALOG_PROVIDERS: ${CATALOG_PROVIDERS:-}
+  CATALOG_REFRESH: ${CATALOG_REFRESH:-auto}
+  CATALOG_TTL_MS: ${CATALOG_TTL_MS:-21600000}
 
 services:
   # --- Edge: TLS termination + routing ------------------------------------
@@ -140,6 +146,52 @@ services:
       app-postgres:
         condition: service_healthy
 
+  # --- Catalog worker: provider schema extraction --------------------------
+  # The only container that runs `terraform`, and it runs it against a config it
+  # generates itself: one allowlisted public provider, pinned, no resources, no
+  # backend, no credentials (GP-236). It serves nothing and is reachable from
+  # nothing.
+  #
+  # `deploy.resources` is the limit the process cannot set for itself. Egress
+  # should be restricted to registry.terraform.io and releases.hashicorp.com;
+  # compose has no egress policy, so on a host that needs one, run this service
+  # on a network whose gateway enforces it (the chart ships a NetworkPolicy).
+  #
+  # Under the `catalog` profile: an install that does not want the builder's
+  # full catalog simply never starts it, and the bundled snapshot still serves.
+  catalog-worker:
+    image: ${REGISTRY:-rg.fr-par.scw.cloud/asteriusit}/groundplan-catalog-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    init: true # reap terraform + provider child processes
+    profiles: ["catalog"]
+    # Deliberately NOT `*backend-env`: this container has no business holding
+    # ENCRYPTION_KEY, an AI key or an OAuth secret. It needs a database and the
+    # catalog's own settings, and that is the whole list.
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-groundplan}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}@app-postgres:5432/${POSTGRES_DB:-groundplan}
+      CATALOG_PROVIDERS: ${CATALOG_PROVIDERS:-}
+      CATALOG_REFRESH: ${CATALOG_REFRESH:-auto}
+      CATALOG_TTL_MS: ${CATALOG_TTL_MS:-21600000}
+      # A refresh interval, not a schedule: each pass asks the registry only if
+      # CATALOG_TTL_MS has elapsed since the last answer.
+      CATALOG_REFRESH_INTERVAL_MS: ${CATALOG_REFRESH_INTERVAL_MS:-1800000}
+      CATALOG_EXTRACT_TIMEOUT_MS: ${CATALOG_EXTRACT_TIMEOUT_MS:-600000}
+    volumes:
+      # Terraform's shared plugin cache. Without it every pass re-downloads the
+      # provider — hundreds of megabytes for azurerm.
+      - catalog_plugins:/var/cache/terraform-plugins
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.0"
+    depends_on:
+      app-postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   # --- App database --------------------------------------------------------
   app-postgres:
     image: postgres:17-alpine
@@ -222,3 +274,6 @@ volumes:
   caddy_config:
   app_pgdata:
   kc_pgdata:
+  # Terraform's plugin cache for the catalog worker (GP-236). Cache only —
+  # nothing here is state, and deleting it costs one slower pass.
+  catalog_plugins:

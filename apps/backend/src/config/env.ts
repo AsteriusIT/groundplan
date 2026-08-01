@@ -130,6 +130,24 @@ export type AppEnv = {
    */
   catalogTtlMs: number;
   /**
+   * The `terraform` binary the extraction worker runs (GP-236). Only the worker
+   * image ships one; the API never spawns it. A path, never something composed
+   * from user input.
+   */
+  terraformBin: string;
+  /**
+   * Terraform's shared plugin cache, mounted as a volume in the worker
+   * (GP-236). Without it every extraction re-downloads the provider — hundreds
+   * of megabytes for azurerm — instead of reusing what is already on disk.
+   */
+  catalogPluginCacheDir: string;
+  /**
+   * Wall clock for one extraction command (GP-236), in milliseconds. On expiry
+   * the process **group** is killed (a provider plugin is a child process), the
+   * version is marked failed and the temp directory is removed.
+   */
+  catalogExtractTimeoutMs: number;
+  /**
    * How often the ref poller runs `git ls-remote` per repository (GP-107), in
    * milliseconds. Defaults to 60s. `0` disables the background timer entirely —
    * which is what tests do, so they can drive a tick by hand with no clock.
@@ -217,6 +235,13 @@ export function loadEnv(): AppEnv {
       30 * 60_000,
     ),
     catalogTtlMs: readInt(process.env.CATALOG_TTL_MS, 6 * 60 * 60_000),
+    terraformBin: process.env.TERRAFORM_BIN ?? "terraform",
+    catalogPluginCacheDir:
+      process.env.TF_PLUGIN_CACHE_DIR ?? join(tmpdir(), "groundplan-tf-plugins"),
+    catalogExtractTimeoutMs: readInt(
+      process.env.CATALOG_EXTRACT_TIMEOUT_MS,
+      10 * 60_000,
+    ),
     refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),
     githubAppId: process.env.GITHUB_APP_ID ?? "",
     githubAppPrivateKey: readPem(process.env.GITHUB_APP_PRIVATE_KEY),

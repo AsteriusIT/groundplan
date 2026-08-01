@@ -1,0 +1,100 @@
+# syntax=docker/dockerfile:1
+
+# The catalog extraction worker (GP-236) — the only image in this product that
+# ships a `terraform` binary.
+#
+# It exists so that running a third-party executable has a boundary around it.
+# The worker downloads an allowlisted public provider, asks it to describe
+# itself against a generated empty config, writes the schemas to Postgres and
+# deletes the directory. It never sees customer code, customer state or a cloud
+# credential — see `src/catalog/extract.ts`, which is where that is enforced,
+# and the operator-facing rules below, which are what the container adds.
+#
+# What this image is responsible for:
+#   * a pinned Terraform, verified against its published checksum
+#   * a non-root user, which is also who owns the plugin cache volume
+#   * no shell tooling beyond what `terraform init` needs (HTTPS + unzip)
+#   * no HTTP port: nothing can reach this process from outside
+# Memory, CPU, disk and egress limits belong to the orchestrator — compose
+# `deploy.resources`, or the chart's worker values and NetworkPolicy. Egress
+# must be restricted to `registry.terraform.io` and `releases.hashicorp.com`.
+#
+# Build context is the REPO ROOT, like the API image.
+
+ARG TERRAFORM_VERSION=1.15.8
+
+# ---- terraform ------------------------------------------------------------
+# A separate stage so the checksum verification is explicit and the download
+# tooling (curl, unzip) never reaches the runtime image.
+FROM debian:bookworm-slim AS terraform
+ARG TERRAFORM_VERSION
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /dl
+# The archive keeps its published name: `sha256sum -c` looks the file up by the
+# name in SHA256SUMS, so renaming it on download would quietly verify nothing.
+RUN ARCHIVE="terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+ && curl -fsSL -O "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/${ARCHIVE}" \
+ && curl -fsSL -O "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" \
+ # The binary this image runs is the one HashiCorp published, or the build
+ # fails. A provider is executed by it; an unverified download would make every
+ # guarantee below decorative.
+ && grep " ${ARCHIVE}\$" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" | sha256sum -c - \
+ && unzip -q "${ARCHIVE}" \
+ && chmod 0755 terraform \
+ && ./terraform version
+
+# ---- deps + build ---------------------------------------------------------
+FROM node:22-bookworm-slim AS build
+ENV PNPM_HOME=/pnpm CI=true
+RUN corepack enable
+WORKDIR /repo
+
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .npmrc ./
+COPY apps/backend/package.json apps/backend/package.json
+COPY packages/graph-parser/package.json packages/graph-parser/package.json
+COPY packages/graph-differ/package.json packages/graph-differ/package.json
+COPY packages/builder/package.json packages/builder/package.json
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @groundplan/backend...
+
+COPY packages/graph-parser/ packages/graph-parser/
+COPY packages/graph-differ/ packages/graph-differ/
+COPY packages/builder/ packages/builder/
+COPY apps/backend/ apps/backend/
+RUN pnpm --filter @groundplan/backend... build \
+ && pnpm --filter=@groundplan/backend deploy --prod --legacy /prod
+
+# ---- runtime --------------------------------------------------------------
+FROM node:22-bookworm-slim AS runtime
+# ca-certificates: HTTPS to the registry and the release host. No git — this
+# process reads no repositories. The package managers go for the reason they go
+# in the API image: their vendored trees are node packages we do not control.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v*
+
+COPY --from=terraform /dl/terraform /usr/local/bin/terraform
+
+ENV NODE_ENV=production \
+    TERRAFORM_BIN=/usr/local/bin/terraform \
+    TF_PLUGIN_CACHE_DIR=/var/cache/terraform-plugins
+
+# The shared plugin cache. Mount a volume here or every pass re-downloads
+# hundreds of megabytes; owned by `node`, because that is who writes it.
+RUN mkdir -p "$TF_PLUGIN_CACHE_DIR" && chown node:node "$TF_PLUGIN_CACHE_DIR"
+
+WORKDIR /app
+COPY --from=build --chown=node:node /prod ./
+
+# Non-root. The one process here downloads and runs third-party executables;
+# doing that as root would be the whole story's point, missed.
+USER node
+
+# No EXPOSE and no HEALTHCHECK: this container serves nothing and is reachable
+# from nothing. Liveness is the log line each pass writes.
+CMD ["node", "dist/catalog-worker.js"]
