@@ -83,7 +83,8 @@
   },
   "scripts": {
     "build": "node esbuild.mjs && vite build",
-    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test": "node --import tsx --test \"src/**/*.test.ts\" && vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "package": "pnpm build && vsce package --no-dependencies -o groundplan.vsix",
     "clean": "rm -rf dist *.tsbuildinfo groundplan.vsix"
@@ -93,6 +94,8 @@
     "@groundplan/graph-differ": "workspace:*",
     "@groundplan/graph-parser": "workspace:*",
     "@tailwindcss/vite": "^4.0.6",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22.13.1",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
@@ -100,6 +103,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.25.0",
+    "jsdom": "^29.1.1",
     "lucide-react": "^0.474.0",
     "ovsx": "^0.10.1",
     "react": "^19.0.0",
@@ -107,6 +111,7 @@
     "tailwindcss": "^4.0.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vite": "^6.1.0"
+    "vite": "^6.1.0",
+    "vitest": "^4.1.10"
   }
 }

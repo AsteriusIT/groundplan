@@ -1,6 +1,7 @@
+/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from "node:url";
 
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -32,6 +33,14 @@ export default defineConfig({
         new URL("./webview/stubs/remark-gfm.ts", import.meta.url),
       ),
     },
+  },
+  // The webview's own tests. `include` is webview-only on purpose: everything
+  // under src/ is a node:test file for the extension host, which vitest would
+  // pick up and fail on. `pnpm test` runs the two runners in sequence.
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./webview/test-setup.ts"],
+    include: ["webview/**/*.test.{ts,tsx}"],
   },
   build: {
     outDir: "dist/webview",

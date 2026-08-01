@@ -14,7 +14,7 @@
  * a "changed only" fold, and the honest-framing caption — a code diff is not
  * a plan and never pretends to be.
  */
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useReducer, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { GitCompareArrows } from "lucide-react";
 
@@ -35,6 +35,12 @@ import type {
   PreviewTheme,
   WebviewMessage,
 } from "../src/messages";
+import {
+  INITIAL_PANEL_STATE,
+  panelReducer,
+  type Lens,
+  type PanelAction,
+} from "./state/panel-state";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: WebviewMessage): void;
@@ -53,13 +59,26 @@ function applyTheme(theme: PreviewTheme): void {
   else delete root.dataset.theme;
 }
 
-type View = "infra" | "network" | "iam";
-
-const VIEWS: readonly { key: View; label: string }[] = [
+const VIEWS: readonly { key: Lens; label: string }[] = [
   { key: "infra", label: "Global" },
   { key: "network", label: "Network" },
   { key: "iam", label: "IAM" },
 ];
+
+/**
+ * What the host reported about the diff, as opposed to what the reader chose
+ * (that lives in `PanelState`). Whether a baseline resolved, which ref it is,
+ * why it did not and whether the diff came back clean are all facts about the
+ * workspace — the panel must never be able to assert one on its own.
+ */
+type DiffFacts = Pick<DiffState, "available" | "ref" | "reason" | "clean">;
+
+const NO_DIFF_FACTS: DiffFacts = {
+  available: false,
+  ref: null,
+  reason: null,
+  clean: false,
+};
 
 
 /** One toolbar pill; the shared look of every control up top. */
@@ -127,8 +146,10 @@ function App(): React.JSX.Element {
   const [multiRoot, setMultiRoot] = useState(false);
   const [outOfSync, setOutOfSync] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-  const [view, setView] = useState<View>("infra");
-  const [diff, setDiff] = useState<DiffState | null>(null);
+  const [panel, dispatch] = useReducer(panelReducer, INITIAL_PANEL_STATE);
+  const [facts, setFacts] = useState<DiffFacts>(NO_DIFF_FACTS);
+  const view = panel.lens;
+  const prefs = panel.diff;
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostMessage>): void => {
@@ -143,7 +164,12 @@ function App(): React.JSX.Element {
       } else if (message.type === "select") {
         setSelectedAddress(message.address);
       } else if (message.type === "diffState") {
-        setDiff(message.state);
+        // The host owns both halves of this message: the preferences it
+        // persisted (echoed back) and the facts it observed about the
+        // baseline. They land in different places on this side.
+        const { enabled, mode, changedOnly, ...observed } = message.state;
+        dispatch({ type: "hostDiffPrefs", prefs: { enabled, mode, changedOnly } });
+        setFacts(observed);
       } else if (message.type === "theme") {
         applyTheme(message.theme);
       }
@@ -153,35 +179,31 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  /** Optimistic prefs update; the host persists and echoes the new state. */
-  const setPrefs = (next: {
-    enabled: boolean;
-    mode: BaselineMode;
-    changedOnly: boolean;
-  }): void => {
-    setDiff((prev) => ({
-      enabled: next.enabled,
-      mode: next.mode,
-      changedOnly: next.changedOnly,
-      available: prev?.available ?? false,
-      ref: prev?.ref ?? null,
-      reason: prev?.reason ?? null,
-      clean: prev?.clean ?? false,
-    }));
-    vscode.postMessage({ type: "setDiffPrefs", ...next });
+  /**
+   * Apply a panel action locally and tell the host when it changed a diff
+   * preference. The reducer is pure, so running it here to see whether the
+   * preferences moved costs nothing and keeps the "when do we post" rule in
+   * one place — including the actions it refuses, which must post nothing.
+   */
+  const act = (action: PanelAction): void => {
+    const next = panelReducer(panel, action);
+    dispatch(action);
+    if (next.diff !== panel.diff) {
+      vscode.postMessage({ type: "setDiffPrefs", ...next.diff });
+    }
   };
 
-  const diffActive = (diff?.enabled ?? false) && (diff?.available ?? false);
+  const diffActive = prefs.enabled && facts.available;
 
   // "Changed only" (GP-154): changed nodes + one hop of context. A clean diff
   // shows the full all-noop graph with its banner, never an empty canvas.
   const displayed = useMemo(() => {
     if (!graph) return null;
-    if (view === "infra" && diffActive && diff?.changedOnly && !diff.clean) {
+    if (view === "infra" && diffActive && prefs.changedOnly && !facts.clean) {
       return changedOnlyFold(graph) as Graph;
     }
     return graph;
-  }, [graph, view, diffActive, diff?.changedOnly, diff?.clean]);
+  }, [graph, view, diffActive, prefs.changedOnly, facts.clean]);
 
   // The network fold is cheap but not free — only computed while looked at.
   const network = useMemo(
@@ -202,16 +224,6 @@ function App(): React.JSX.Element {
   if (graph.nodes.length === 0) {
     return <EmptyState folder={folder} rootDir={rootDir} outOfSync={outOfSync} />;
   }
-
-  const prefs = diff ?? {
-    enabled: false,
-    mode: "head" as BaselineMode,
-    changedOnly: false,
-    available: false,
-    ref: null,
-    reason: null,
-    clean: false,
-  };
 
   return (
     <div
@@ -234,7 +246,11 @@ function App(): React.JSX.Element {
       <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-start gap-2">
         <div className="border-border-strong bg-panel flex overflow-hidden rounded-sm border">
           {VIEWS.map(({ key, label }) => (
-            <Pill key={key} active={view === key} onClick={() => setView(key)}>
+            <Pill
+              key={key}
+              active={view === key}
+              onClick={() => act({ type: "setLens", lens: key })}
+            >
               {label}
             </Pill>
           ))}
@@ -248,7 +264,7 @@ function App(): React.JSX.Element {
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setPrefs({ ...prefs, enabled: !prefs.enabled })}
+              onClick={() => act({ type: "toggleDiff" })}
               aria-pressed={prefs.enabled}
               title="Colour the diagram as changes against a git baseline"
               className={cn(
@@ -267,7 +283,7 @@ function App(): React.JSX.Element {
                   aria-label="Diff baseline"
                   value={prefs.mode}
                   onChange={(e) =>
-                    setPrefs({ ...prefs, mode: e.target.value as BaselineMode })
+                    act({ type: "setBase", mode: e.target.value as BaselineMode })
                   }
                   className="border-border-strong bg-panel text-foreground rounded-sm border px-1.5 py-1 font-mono text-xs shadow-sm"
                 >
@@ -282,9 +298,7 @@ function App(): React.JSX.Element {
                     <input
                       type="checkbox"
                       checked={prefs.changedOnly}
-                      onChange={() =>
-                        setPrefs({ ...prefs, changedOnly: !prefs.changedOnly })
-                      }
+                      onChange={() => act({ type: "toggleChangedOnly" })}
                       className="accent-primary size-3"
                     />
                     Changed only
@@ -296,14 +310,14 @@ function App(): React.JSX.Element {
         )}
       </div>
 
-      {view !== "iam" && prefs.enabled && !prefs.available && (
+      {view !== "iam" && prefs.enabled && !facts.available && (
         <div className="bg-warning-soft text-warning absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-sm px-3 py-1 font-mono text-xs">
-          Diff unavailable — {prefs.reason ?? "no baseline"}. Showing the live view.
+          Diff unavailable — {facts.reason ?? "no baseline"}. Showing the live view.
         </div>
       )}
-      {view !== "iam" && diffActive && prefs.clean && (
+      {view !== "iam" && diffActive && facts.clean && (
         <div className="border-border-strong bg-panel text-muted-foreground absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-sm border px-3 py-1 font-mono text-xs">
-          No changes vs {prefs.ref}
+          No changes vs {facts.ref}
         </div>
       )}
 
@@ -313,7 +327,7 @@ function App(): React.JSX.Element {
           variant="docs"
           onViewInPlanImpact={(node) => {
             // "View on canvas": back to the diagram with that node selected.
-            setView("infra");
+            act({ type: "setLens", lens: "infra" });
             setSelectedAddress(node.id);
           }}
         />
@@ -349,7 +363,7 @@ function App(): React.JSX.Element {
           className="border-border-strong bg-panel text-muted-foreground absolute right-3 bottom-12 z-20 max-w-xs rounded-sm border px-2.5 py-1 text-right font-mono text-[10px]"
           role="note"
         >
-          Code diff vs {prefs.ref} — not a plan: no state, no count/for_each
+          Code diff vs {facts.ref} — not a plan: no state, no count/for_each
           expansion.
         </div>
       )}
