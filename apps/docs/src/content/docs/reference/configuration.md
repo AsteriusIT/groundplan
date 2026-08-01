@@ -63,6 +63,20 @@ users between the two models — their memberships already exist. Details:
 
 What the model does and does not see is on [The AI layer](/ai/).
 
+## The visual builder
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `BUILDER_ENABLED` | `false` | Opt-in. Turns on Build mode in the playground: compose Azure resources on a canvas and generate Terraform from what you composed. Unset, the feature does not exist — the status endpoint reports it disabled, the generation route answers `404`, and the playground shows no Build surface. Anything but `true` leaves it off. |
+
+The catalog is a curated set of `azurerm` resource types, so Build mode is
+Azure-only. Generation is deterministic and runs on the server with no model
+involved and no cloud access: the same composition produces the same files.
+
+It is one-way scaffolding. The generated files land in the playground, and from
+there the Terraform is the source of truth; editing it does not move the sketch,
+and existing Terraform is never read back into the builder.
+
 ## Ingestion and polling
 
 | Variable | Default | Effect |

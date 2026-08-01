@@ -91,6 +91,14 @@ export type AppEnv = {
   /** Model the AI layer generates with. Only used when `aiApiKey` is set. */
   aiModel: string;
   /**
+   * The visual builder (GP-131). Off by default — the `AI_API_KEY` posture,
+   * applied to a boolean because there is no key to double as the flag: unset,
+   * `/builder/status` reports it disabled, `POST /builder/generate` answers 404
+   * and the playground renders no Build surface at all. `BUILDER_ENABLED=true`
+   * turns it on; nothing else about the deployment changes.
+   */
+  builderEnabled: boolean;
+  /**
    * How often the ref poller runs `git ls-remote` per repository (GP-107), in
    * milliseconds. Defaults to 60s. `0` disables the background timer entirely —
    * which is what tests do, so they can drive a tick by hand with no clock.
@@ -163,6 +171,8 @@ export function loadEnv(): AppEnv {
     publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/(?=(\/+))\1$/, ""),
     aiApiKey: process.env.AI_API_KEY ?? "",
     aiModel: process.env.AI_MODEL ?? DEFAULT_AI_MODEL,
+    // Off unless explicitly opted into — an experimental surface, not a default.
+    builderEnabled: (process.env.BUILDER_ENABLED ?? "").toLowerCase() === "true",
     refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),
     githubAppId: process.env.GITHUB_APP_ID ?? "",
     githubAppPrivateKey: readPem(process.env.GITHUB_APP_PRIVATE_KEY),

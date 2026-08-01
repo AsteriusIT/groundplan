@@ -57,6 +57,7 @@ import { aiStatusRoutes } from "./routes/ai.js";
 import { aiStudioRoutes } from "./routes/ai-studio.js";
 import { driftIngestionRoutes } from "./routes/drift.js";
 import { gitWebhookRoutes } from "./routes/git-webhooks.js";
+import { builderRoutes, builderStatusRoutes } from "./routes/builder.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
@@ -112,6 +113,8 @@ declare module "fastify" {
     k8s: K8sReader;
     /** Deployment mode (GP-115): true = single-org (self-hosted), false = SaaS. */
     singleOrg: boolean;
+    /** The visual builder (GP-131). false = no status, no generation, no UI. */
+    builderEnabled: boolean;
   }
 }
 
@@ -226,6 +229,9 @@ export async function buildApp(
   app.decorate("k8s", opts.k8s ?? realK8sReader);
   // Deployment mode (GP-115), read by /me and the org-creation gate.
   app.decorate("singleOrg", env.singleOrg);
+  // Visual builder (GP-131): BUILDER_ENABLED is the whole flag — the status
+  // route reports it and the generation route 404s without it.
+  app.decorate("builderEnabled", env.builderEnabled);
   // Global bearer-token auth (skips /healthz and /webhooks/*). Registered
   // before routes so its onRequest hook guards every protected endpoint.
   await app.register(authPlugin, {
@@ -260,12 +266,16 @@ export async function buildApp(
   await app.register(settingsRoutes, { prefix: "/api/v1" });
   await app.register(sharePublicRoutes, { prefix: "/api/v1" });
   await app.register(aiStatusRoutes, { prefix: "/api/v1" });
+  await app.register(builderStatusRoutes, { prefix: "/api/v1" });
   // Playground (GP-123): user-scoped, org-free — parse is ephemeral, drafts
   // belong to their author alone, so none of it sits under /orgs/:orgId.
   await app.register(playgroundRoutes, { prefix: "/api/v1" });
   // AI studio (GP-137): stateless chat + parse — nothing an org owns, so it
   // sits beside the playground, behind the same global auth hook.
   await app.register(aiStudioRoutes, { prefix: "/api/v1" });
+  // Visual builder (GP-134): stateless generation, beside the playground it
+  // writes into — nothing an org owns, and nothing stored either way.
+  await app.register(builderRoutes, { prefix: "/api/v1" });
 
   // Everything a tenant owns — projects, repos, snapshots, PRs, clusters, docs,
   // annotations, AI generation, exports, tours, dashboard — lives under

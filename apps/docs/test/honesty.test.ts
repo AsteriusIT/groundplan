@@ -46,8 +46,8 @@ const FORBIDDEN: { pattern: RegExp; why: string }[] = [
     why: "the product never executes terraform, helm or kustomize",
   },
   {
-    pattern: /\bVisual Builder\b/i,
-    why: "GP-131 is not implemented",
+    pattern: /\bround-?trips? (the |your )?(HCL|Terraform)\b|\bedits? your Terraform for you\b/i,
+    why: "the builder is one-way scaffolding: Terraform is never read back into it",
   },
   {
     pattern: /\bcloud credentials? (are|is) (stored|held|required)\b/i,
@@ -74,6 +74,16 @@ const CONDITIONAL: { claim: RegExp; requires: RegExp; why: string }[] = [
     claim: /\b(network lens|IAM lens|Network view|IAM view)\b/i,
     requires: /Azure-first|azurerm/i,
     why: "deep network/IAM semantics are Azure-first — never promise them for AWS/GCP",
+  },
+  {
+    claim: /\bvisual builder\b|\bBuild mode\b/i,
+    requires: /\bBUILDER_ENABLED\b|\bopt-in\b|\boff by default\b/i,
+    why: "the builder is off unless a deployment turns it on, and must say so wherever it is named",
+  },
+  {
+    claim: /\bvisual builder\b|\bBuild mode\b/i,
+    requires: /\bAzure\b|\bazurerm\b/i,
+    why: "the builder's catalog is Azure-only and must say so wherever it is named",
   },
 ];
 

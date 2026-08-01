@@ -23,6 +23,7 @@
     "@ai-sdk/anthropic": "^4.0.12",
     "@fastify/cors": "^10.0.2",
     "@fastify/sensible": "^6.0.3",
+    "@groundplan/builder": "workspace:*",
     "@groundplan/graph-differ": "workspace:*",
     "@groundplan/graph-parser": "workspace:*",
     "@kubernetes/client-node": "^1.4.0",
