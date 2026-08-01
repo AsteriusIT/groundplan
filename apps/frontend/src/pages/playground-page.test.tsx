@@ -9,6 +9,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     ...actual,
     parsePlayground: vi.fn(),
     getBuilderStatus: vi.fn(),
+    generateBuilderTerraform: vi.fn(),
     listPlaygroundDrafts: vi.fn(),
     getPlaygroundDraft: vi.fn(),
     createPlaygroundDraft: vi.fn(),
@@ -57,6 +58,7 @@ vi.mock("@/components/graph-canvas", () => ({
 import {
   ApiError,
   getBuilderStatus,
+  generateBuilderTerraform,
   createPlaygroundDraft,
   deletePlaygroundDraft,
   getPlaygroundDraft,
@@ -64,12 +66,17 @@ import {
   parsePlayground,
   updatePlaygroundDraft,
 } from "@/api/client";
-import type { PlaygroundDraft, PlaygroundSnapshot } from "@/api/types";
+import type {
+  PlaygroundDraft,
+  PlaygroundFile,
+  PlaygroundSnapshot,
+} from "@/api/types";
 import { resetBuilderStatus } from "@/lib/use-builder-status";
 import { PlaygroundPage } from "./playground-page";
 
 const parsePlaygroundMock = vi.mocked(parsePlayground);
 const builderStatusMock = vi.mocked(getBuilderStatus);
+const generateMock = vi.mocked(generateBuilderTerraform);
 const listDraftsMock = vi.mocked(listPlaygroundDrafts);
 const getDraftMock = vi.mocked(getPlaygroundDraft);
 const createDraftMock = vi.mocked(createPlaygroundDraft);
@@ -129,6 +136,7 @@ beforeEach(() => {
   // Build mode is opt-in (GP-133): off unless a test turns it on.
   resetBuilderStatus();
   builderStatusMock.mockReset().mockResolvedValue({ enabled: false });
+  generateMock.mockReset();
   parsePlaygroundMock.mockReset();
   listDraftsMock.mockReset().mockResolvedValue([]);
   getDraftMock.mockReset();
@@ -837,4 +845,132 @@ it("offers Build mode where BUILDER_ENABLED is on, and composes into it (GP-133)
   // …and the composition survived the trip (GP-133's acceptance criterion).
   fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
   expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
+});
+
+// --- The generate flow (GP-135) ---------------------------------------------
+
+/** Build mode, with one valid resource composed. */
+async function composeOneResource() {
+  builderStatusMock.mockResolvedValue({ enabled: true });
+  renderPage();
+  const mode = await screen.findByLabelText("Playground mode");
+  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
+  fireEvent.click(
+    within(screen.getByLabelText("Resource palette")).getByRole("button", {
+      name: /Resource group/i,
+    }),
+  );
+  fireEvent.change(
+    within(screen.getByLabelText("Resource details")).getByLabelText(/Azure name/),
+    { target: { value: "rg-demo" } },
+  );
+  return mode;
+}
+
+const GENERATED = [
+  { path: "generated.tf", content: 'resource "azurerm_resource_group" "rg" {}\n' },
+];
+
+it("will not generate an incomplete composition (GP-135)", async () => {
+  builderStatusMock.mockResolvedValue({ enabled: true });
+  renderPage();
+  const mode = await screen.findByLabelText("Playground mode");
+  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
+  fireEvent.click(
+    within(screen.getByLabelText("Resource palette")).getByRole("button", {
+      name: /Resource group/i,
+    }),
+  );
+
+  // The resource is missing its Azure name, and the node already says so —
+  // there is nothing for a round trip to the server to add.
+  expect(screen.getByRole("button", { name: /Generate Terraform/ })).toBeDisabled();
+  expect(generateMock).not.toHaveBeenCalled();
+});
+
+it("previews the generated files before writing them (GP-135)", async () => {
+  generateMock.mockResolvedValue({ files: GENERATED });
+  await composeOneResource();
+
+  fireEvent.click(screen.getByRole("button", { name: /Generate Terraform/ }));
+
+  await screen.findByText("Generated Terraform");
+  expect(generateMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      nodes: [expect.objectContaining({ type: "azurerm_resource_group" })],
+    }),
+  );
+  // Nothing has been written yet: the file panel is still the example set.
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByText("generated.tf")).not.toBeInTheDocument();
+});
+
+it("writes the files, returns to Edit HCL and visualizes them (GP-135)", async () => {
+  generateMock.mockResolvedValue({ files: GENERATED });
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  await composeOneResource();
+
+  fireEvent.click(screen.getByRole("button", { name: /Generate Terraform/ }));
+  await screen.findByText("Generated Terraform");
+  fireEvent.click(screen.getByRole("button", { name: "Write to playground" }));
+
+  // The file landed beside the others, the editor is back, and Visualize ran
+  // on the merged set — the loop closes on the diagram.
+  await waitFor(() => expect(parsePlaygroundMock).toHaveBeenCalled());
+  expect(screen.getByText("generated.tf")).toBeInTheDocument();
+  expect(screen.getByLabelText("Playground files")).toBeInTheDocument();
+  const [written] = parsePlaygroundMock.mock.calls.at(-1) ?? [];
+  expect((written as PlaygroundFile[]).map((f) => f.path)).toContain(
+    "generated.tf",
+  );
+  // And the one-way rule is said out loud, once.
+  expect(
+    screen.getByText(/Build mode never reads Terraform back/),
+  ).toBeInTheDocument();
+});
+
+it("names the files a generation would replace, and cancels cleanly (GP-135)", async () => {
+  generateMock.mockResolvedValue({
+    files: [{ path: "main.tf", content: "# generated\n" }],
+  });
+  await composeOneResource();
+
+  fireEvent.click(screen.getByRole("button", { name: /Generate Terraform/ }));
+  await screen.findByText("Generated Terraform");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "main.tf already exists in this playground and will be replaced",
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  // The example main.tf is untouched: cancelling wrote nothing.
+  fireEvent.click(
+    within(await screen.findByLabelText("Playground mode")).getByRole("button", {
+      name: "Edit HCL",
+    }),
+  );
+  const editor = screen.getByLabelText("File content") as HTMLTextAreaElement;
+  expect(editor.value).toContain('resource "azurerm_resource_group" "demo"');
+  expect(editor.value).not.toContain("# generated");
+});
+
+it("badges the offending nodes when the server refuses the graph (GP-135)", async () => {
+  generateMock.mockRejectedValue(
+    new ApiError(422, "Validation failed", [
+      {
+        field: "azurerm_resource_group.resource_group.name",
+        message: "Azure name is required",
+        nodeId: "n1",
+      },
+    ]),
+  );
+  await composeOneResource();
+
+  fireEvent.click(screen.getByRole("button", { name: /Generate Terraform/ }));
+
+  await screen.findByText("Validation failed");
+  // Back onto the node, not just into a sentence.
+  expect(
+    screen.getByLabelText("resource_group has 1 problem"),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Generated Terraform")).not.toBeInTheDocument();
 });

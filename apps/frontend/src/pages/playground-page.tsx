@@ -14,11 +14,13 @@ import {
   SaveAll,
   Trash2,
   Upload,
+  Wand2,
 } from "lucide-react";
 
 import {
   ApiError,
   deletePlaygroundDraft,
+  generateBuilderTerraform,
   parsePlayground,
   updatePlaygroundDraft,
 } from "@/api/client";
@@ -29,7 +31,10 @@ import type {
   PlaygroundFile,
   PlaygroundSnapshot,
 } from "@/api/types";
+import type { BuilderIssue } from "@groundplan/builder";
+
 import { BuildMode } from "@/builder/build-mode";
+import { GenerateDialog } from "@/builder/generate-dialog";
 import { ModeSwitch, type PlaygroundMode } from "@/builder/mode-switch";
 import { useBuilderGraph } from "@/builder/use-builder-graph";
 import { GraphCanvas } from "@/components/graph-canvas";
@@ -206,6 +211,13 @@ export function PlaygroundPage() {
   const [mode, setMode] = useState<PlaygroundMode>("edit");
   const builder = useBuilderGraph();
   const building = builderEnabled && mode === "build";
+  // The generation flow (GP-135): the preview, what the server refused, and
+  // the note that says which of the two artefacts is now the truth.
+  const [generated, setGenerated] = useState<PlaygroundFile[] | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [serverIssues, setServerIssues] = useState<BuilderIssue[]>([]);
+  const [oneWayNote, setOneWayNote] = useState(false);
 
   const active = files.find((f) => f.path === activePath) ?? null;
   // The parse error naming the open file, if any — its line (when the message
@@ -300,6 +312,70 @@ export function PlaygroundPage() {
     setIacType(next);
     setFailure(null);
   }, []);
+
+  /**
+   * Generate (GP-135): the composition → files, previewed before they exist.
+   * The button is only offered on a valid composition, so a 422 here is the
+   * server disagreeing with the client's copy of the rules — it badges the same
+   * nodes rather than becoming a sentence nobody can act on.
+   */
+  const generate = useCallback(async () => {
+    setGenerating(true);
+    setGenerateError(null);
+    setServerIssues([]);
+    try {
+      const { files: written } = await generateBuilderTerraform(builder.graph);
+      setGenerated(written);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 422 && err.fields) {
+        setServerIssues(
+          err.fields.flatMap((field) =>
+            field.nodeId
+              ? [
+                  {
+                    nodeId: field.nodeId,
+                    reason: "invalid_value" as const,
+                    message: field.message,
+                  },
+                ]
+              : [],
+          ),
+        );
+      }
+      setGenerateError(
+        err instanceof ApiError ? err.message : "Could not generate Terraform.",
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }, [builder.graph]);
+
+  /** Paths the generation would overwrite — named before anything is written. */
+  const collisions = (generated ?? [])
+    .map((file) => file.path)
+    .filter((path) => files.some((existing) => existing.path === path));
+
+  /**
+   * Confirm: the files land in the playground, the mode goes back to Edit HCL
+   * with the first of them open, and Visualize runs — so the loop closes on
+   * the diagram, which is the whole point of the golden invariant.
+   */
+  function writeGenerated() {
+    if (!generated) return;
+    const merged = [...files];
+    for (const file of generated) {
+      const at = merged.findIndex((existing) => existing.path === file.path);
+      if (at === -1) merged.push(file);
+      else merged[at] = file;
+    }
+    setFiles(merged);
+    setActivePath(generated[0]?.path ?? activePath);
+    setGenerated(null);
+    setMode("edit");
+    setIacType("terraform");
+    setOneWayNote(true);
+    void runParse(merged, "terraform");
+  }
 
   const saveCurrentDraft = useCallback(async () => {
     if (!draft) return;
@@ -604,9 +680,55 @@ export function PlaygroundPage() {
             {saveError}
           </p>
         )}
+        {generateError && (
+          <p className="text-destructive mt-2 text-sm" role="alert">
+            {generateError}
+          </p>
+        )}
+        {/* GP-135: said once, where it matters — the sketch made the code, and
+            the code is what counts from now on. */}
+        {oneWayNote && (
+          <div className="bg-accent/60 text-muted-foreground mt-2 flex items-start gap-2 rounded-md px-3 py-2 text-sm">
+            <p className="flex-1">
+              These files are yours now. Editing them will not change what you
+              composed, and Build mode never reads Terraform back — it is a
+              starting point, not a second copy of the truth.
+            </p>
+            <button
+              type="button"
+              onClick={() => setOneWayNote(false)}
+              className="text-muted-foreground hover:text-foreground shrink-0 font-mono text-[11px]"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </header>
 
-      {building && <BuildMode builder={builder} />}
+      {building && (
+        <BuildMode
+          builder={builder}
+          extraIssues={serverIssues}
+          actions={
+            <Button
+              onClick={() => void generate()}
+              disabled={!builder.valid || generating}
+              title={
+                builder.valid
+                  ? undefined
+                  : "Fix the flagged resources before generating"
+              }
+            >
+              {generating ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Wand2 className="size-4" />
+              )}
+              {generating ? "Generating…" : "Generate Terraform"}
+            </Button>
+          }
+        />
+      )}
 
       {/* Edit HCL. Unmounted while building rather than hidden: the file set
           is state, so nothing is lost, and two canvases must never both be
@@ -891,6 +1013,17 @@ export function PlaygroundPage() {
         </div>
       </div>
       )}
+
+      <GenerateDialog
+        open={generated !== null}
+        onOpenChange={(open) => {
+          // Cancel leaves the file set untouched — nothing was written yet.
+          if (!open) setGenerated(null);
+        }}
+        files={generated ?? []}
+        collisions={collisions}
+        onConfirm={writeGenerated}
+      />
 
       <SaveDraftDialog
         open={saveOpen}

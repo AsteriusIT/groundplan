@@ -107,6 +107,7 @@ export function HclEditor({
   ariaLabel,
   errorLine = null,
   className,
+  readOnly = false,
 }: Readonly<{
   value: string;
   onChange: (content: string) => void;
@@ -114,6 +115,8 @@ export function HclEditor({
   /** 1-based line to mark as the parse error, when the server named one. */
   errorLine?: number | null;
   className?: string;
+  /** Read the code, do not write it — the builder's generation preview (GP-135). */
+  readOnly?: boolean;
 }>) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -138,6 +141,11 @@ export function HclEditor({
           indentUnit.of("  "),
           EditorState.tabSize.of(2),
           hclHighlighter,
+          // Mount-time only, like the doc itself: the preview is a fresh editor
+          // per file, never a live one that turns read-only mid-session.
+          ...(readOnly
+            ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+            : []),
           errorCompartment.current.of(errorLineDecoration(errorLine)),
           EditorView.contentAttributes.of({ "aria-label": ariaLabel }),
           EditorView.updateListener.of((update) => {

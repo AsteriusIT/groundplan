@@ -5,7 +5,7 @@
  * The playground owns the controller so the composition survives a trip
  * through Edit HCL; this component is what it looks like.
  */
-import { resourceDef } from "@groundplan/builder";
+import { resourceDef, type BuilderIssue } from "@groundplan/builder";
 
 import { BuilderCanvas } from "./builder-canvas";
 import { BuilderForm } from "./builder-form";
@@ -26,14 +26,22 @@ export function compositionStatus(
 export function BuildMode({
   builder,
   actions,
+  extraIssues = [],
 }: Readonly<{
   builder: BuilderController;
   /** The generate control (GP-135), rendered in the status bar. */
   actions?: React.ReactNode;
+  /**
+   * Issues the server reported (GP-135). The client validates with the same
+   * rules, so a 422 should be unreachable — when one arrives anyway it badges
+   * the same nodes rather than becoming a sentence nobody can act on.
+   */
+  extraIssues?: readonly BuilderIssue[];
 }>) {
+  const issues = [...builder.issues, ...extraIssues];
   const selected = builder.graph.nodes.find((n) => n.id === builder.selectedId);
   const selectedDef = selected ? resourceDef(selected.type) : undefined;
-  const selectedIssues = builder.issues.filter(
+  const selectedIssues = issues.filter(
     (issue) => issue.nodeId === builder.selectedId,
   );
 
@@ -53,7 +61,7 @@ export function BuildMode({
           )}
           <BuilderCanvas
             graph={builder.graph}
-            issues={builder.issues}
+            issues={issues}
             selectedId={builder.selectedId}
             onSelect={builder.select}
             onMove={builder.move}
@@ -89,7 +97,7 @@ export function BuildMode({
           className="text-muted-foreground font-mono text-[11px]"
           role="status"
         >
-          {compositionStatus(builder.graph.nodes.length, builder.issues.length)}
+          {compositionStatus(builder.graph.nodes.length, issues.length)}
         </p>
         {actions}
       </div>
