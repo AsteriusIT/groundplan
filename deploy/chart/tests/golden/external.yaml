@@ -146,6 +146,15 @@ spec:
               value: "https://groundplan.example.com"
             - name: SINGLE_ORG
               value: "true"
+            # The catalog (GP-233). The API never extracts — it reads what is
+            # stored and, on a fresh install, seeds it from the snapshot bundled
+            # in the image. `disabled` means it makes no outbound call at all.
+            - name: CATALOG_REFRESH
+              value: "auto"
+            - name: CATALOG_PROVIDERS
+              value: ""
+            - name: CATALOG_TTL_MS
+              value: "21600000"
           # Probe pair (GP-168): liveness ignores the DB, readiness checks it.
           livenessProbe:
             httpGet:

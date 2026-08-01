@@ -1,0 +1,29 @@
+# The resource catalog with its worker (GP-239): the extraction workload, its
+# plugin-cache volume and the egress NetworkPolicy, on top of the external
+# database + IdP case. The air-gapped shape is the opposite of this file —
+# refresh: disabled, worker off — and is covered by external.yaml's defaults.
+externalDatabase:
+  host: db.example.internal
+  database: groundplan
+  user: groundplan
+  password: not-a-real-password
+oidc:
+  issuerUrl: https://id.example.com/realms/groundplan
+  audience: groundplan-api
+api:
+  encryptionKey: dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcyEh
+ingress:
+  host: groundplan.example.com
+catalog:
+  providers: hashicorp/azurerm,hashicorp/aws
+  ttl: 12h
+  worker:
+    enabled: true
+    interval: 45m
+    timeout: 15m
+    persistence:
+      enabled: true
+      size: 16Gi
+      storageClass: fast
+    networkPolicy:
+      enabled: true

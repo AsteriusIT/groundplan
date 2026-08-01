@@ -199,6 +199,66 @@ keycloak:
     limits:
       memory: 1536Mi
 
+# --- Resource catalog (GP-233) ---------------------------------------------
+# The visual builder composes against the real provider schemas. A worker reads
+# them by running Terraform against a generated EMPTY configuration that pins
+# one allowlisted public provider — never against your infrastructure, your
+# state or your code.
+#
+# `providers` is an ALLOWLIST, not a preference: a Terraform provider is an
+# executable that `terraform init` downloads and runs, so nothing outside this
+# list is ever fetched. Empty = the four defaults (azurerm, aws, google,
+# kubernetes).
+#
+# Air-gapped clusters: set refresh: disabled and leave worker.enabled false. The
+# API seeds its catalog from the snapshot bundled in the image and labels it as
+# pinned; no outbound connection is made at any point.
+catalog:
+  # auto | disabled. `disabled` = no outbound call anywhere in the deployment.
+  refresh: auto
+  # Comma-separated namespace/name list. Empty = the defaults.
+  providers: ""
+  # How long a registry answer is trusted before asking again.
+  ttl: 6h
+  worker:
+    # Off by default: it is an extra workload, and the bundled snapshot already
+    # gives a complete builder. Turn it on to track new provider versions.
+    enabled: false
+    # How often a pass runs. Each pass only asks the registry once the TTL has
+    # elapsed, so this is a heartbeat rather than a schedule.
+    interval: 30m
+    # Wall clock for one extraction command. On expiry the process group is
+    # killed and the previous version keeps being served.
+    timeout: 10m
+    # A pass downloads and runs a provider binary; give it room, and a bound.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+    # Terraform's plugin cache. Without a volume every pass re-downloads the
+    # provider — hundreds of megabytes for azurerm. Cache only: losing it costs
+    # one slower pass and nothing else.
+    persistence:
+      enabled: true
+      size: 8Gi
+      storageClass: ""
+    # A NetworkPolicy restricting the worker's egress to DNS, the cluster's
+    # Postgres and the public internet on 443. Kubernetes NetworkPolicy cannot
+    # express "only registry.terraform.io" — that needs a CNI with FQDN rules or
+    # an egress proxy. Enable this for the port-level bound, and see
+    # docs/install-kubernetes.md for how to narrow it further.
+    networkPolicy:
+      enabled: false
+      # Extra CIDRs the worker may reach on 443, e.g. an internal proxy.
+      allowedCIDRs:
+        - 0.0.0.0/0
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
 # --- AI layer (GP-61.., opt-in) --------------------------------------------
 # The AI features (PR summaries, docs "Explain", annotation proposals, tours,
 # the Studio) are gated on AI_API_KEY. Leave every field below empty to keep AI

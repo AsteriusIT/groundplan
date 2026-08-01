@@ -1,4 +1,85 @@
 ---
+# Source: groundplan/templates/catalog-worker.yaml
+# Egress bound for the worker (GP-236). It needs DNS, the database, and HTTPS to
+# the Terraform registry and release host.
+#
+# Kubernetes NetworkPolicy has no notion of a hostname, so this is a port-level
+# bound and not the FQDN allowlist the story asks for. Narrowing it to
+# registry.terraform.io and releases.hashicorp.com needs a CNI with FQDN
+# policies (Cilium, Calico) or an egress proxy — see docs/install-kubernetes.md.
+# Stating that here beats a policy that looks tighter than it is.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: groundplan-catalog-worker
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: catalog-worker
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: groundplan
+      app.kubernetes.io/instance: groundplan
+      app.kubernetes.io/component: catalog-worker
+  policyTypes: ["Ingress", "Egress"]
+  # Nothing may reach it: it serves no port.
+  ingress: []
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: "0.0.0.0/0"
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# Source: groundplan/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: groundplan-api
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: api
+type: Opaque
+stringData:
+  ENCRYPTION_KEY: "dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcyEh"
+---
+# Source: groundplan/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: groundplan-db
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: database
+type: Opaque
+stringData:
+  password: "not-a-real-password"
+
+---
 # Source: groundplan/templates/frontend-configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -17,10 +98,29 @@ data:
   config.json: |
     {
       "apiUrl": "",
-      "oidcIssuer": "https://login.example.com/realms/groundplan",
+      "oidcIssuer": "https://id.example.com/realms/groundplan",
       "oidcClientId": "groundplan-frontend"
     }
 
+---
+# Source: groundplan/templates/catalog-worker.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: groundplan-catalog-plugins
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: catalog-worker
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 16Gi
+  storageClassName: fast
 ---
 # Source: groundplan/templates/api-service.yaml
 apiVersion: v1
@@ -97,7 +197,7 @@ spec:
         app.kubernetes.io/component: api
       annotations:
         # Roll the pods when the chart-managed secret material changes.
-        checksum/secrets: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+        checksum/secrets: 53221f2e51336d9591071d3c7753e01cdfb431b6c57538d6d2d513757059ec49
     spec:
       securityContext:
         runAsNonRoot: true
@@ -108,7 +208,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: ghcr.io/asteriusit/groundplan-backend:1.0.0
+          image: ghcr.io/asteriusit/groundplan-backend:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -130,20 +230,20 @@ spec:
                   name: groundplan-db
                   key: password
             - name: DATABASE_URL
-              value: "postgres://groundplan:$(DB_PASSWORD)@db.internal.example.com:5432/groundplan?sslmode=require"
+              value: "postgres://groundplan:$(DB_PASSWORD)@db.example.internal:5432/groundplan"
             - name: ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   name: groundplan-api
                   key: ENCRYPTION_KEY
             - name: OIDC_ISSUER_URL
-              value: "https://login.example.com/realms/groundplan"
+              value: "https://id.example.com/realms/groundplan"
             - name: OIDC_AUDIENCE
               value: "groundplan-api"
             - name: CORS_ORIGIN
-              value: "https://groundplan.example.com"
+              value: "http://groundplan.example.com"
             - name: PUBLIC_BASE_URL
-              value: "https://groundplan.example.com"
+              value: "http://groundplan.example.com"
             - name: SINGLE_ORG
               value: "true"
             # The catalog (GP-233). The API never extracts — it reads what is
@@ -152,14 +252,9 @@ spec:
             - name: CATALOG_REFRESH
               value: "auto"
             - name: CATALOG_PROVIDERS
-              value: ""
+              value: "hashicorp/azurerm,hashicorp/aws"
             - name: CATALOG_TTL_MS
-              value: "21600000"
-            - name: AI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: groundplan-ai
-                  key: AI_API_KEY
+              value: "43200000"
           # Probe pair (GP-168): liveness ignores the DB, readiness checks it.
           livenessProbe:
             httpGet:
@@ -178,6 +273,98 @@ spec:
               cpu: 100m
               memory: 256Mi
 
+---
+# Source: groundplan/templates/catalog-worker.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groundplan-catalog-worker
+  labels:
+    helm.sh/chart: groundplan-0.1.0
+    app.kubernetes.io/name: groundplan
+    app.kubernetes.io/instance: groundplan
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: catalog-worker
+spec:
+  # Always one. Extraction is single-flight through the database anyway, so a
+  # second replica would only ever lose the claim and idle.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: groundplan
+      app.kubernetes.io/instance: groundplan
+      app.kubernetes.io/component: catalog-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: groundplan
+        app.kubernetes.io/instance: groundplan
+        app.kubernetes.io/component: catalog-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: catalog-worker
+          image: ghcr.io/asteriusit/groundplan-catalog-worker:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          # Deliberately NOT the api's environment: this container has no
+          # business holding ENCRYPTION_KEY, an AI key or an OAuth secret. A
+          # database and the catalog's own settings is the whole list.
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: groundplan-db
+                  key: password
+            - name: DATABASE_URL
+              value: "postgres://groundplan:$(DB_PASSWORD)@db.example.internal:5432/groundplan"
+            - name: CATALOG_REFRESH
+              value: "auto"
+            - name: CATALOG_PROVIDERS
+              value: "hashicorp/azurerm,hashicorp/aws"
+            - name: CATALOG_TTL_MS
+              value: "43200000"
+            - name: CATALOG_REFRESH_INTERVAL_MS
+              value: "2700000"
+            - name: CATALOG_EXTRACT_TIMEOUT_MS
+              value: "900000"
+            - name: TF_PLUGIN_CACHE_DIR
+              value: /var/cache/terraform-plugins
+          volumeMounts:
+            - name: plugin-cache
+              mountPath: /var/cache/terraform-plugins
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+      volumes:
+        - name: plugin-cache
+          persistentVolumeClaim:
+            claimName: groundplan-catalog-plugins
+        # Extractions unpack a provider into a temp directory and delete it
+        # again; it is scratch, and it is bounded by the extraction timeout.
+        - name: tmp
+          emptyDir: {}
 ---
 # Source: groundplan/templates/frontend-deployment.yaml
 apiVersion: apps/v1
@@ -206,7 +393,7 @@ spec:
         app.kubernetes.io/component: frontend
       annotations:
         # Roll the pods when the runtime config.json changes.
-        checksum/config: c25c864589aa230b98d2071612663fafd392b7c8b5d4560f6f0c37ef2909295e
+        checksum/config: 5598baf02fca28d7cc1ff8dabb9b3c388b2c5bdf9d9c674a8aad1f7c5e1b0080
     spec:
       securityContext:
         runAsNonRoot: true
@@ -215,7 +402,7 @@ spec:
       containers:
         - name: frontend
           # nginx-unprivileged serving the static SPA on 8080 (GP-168).
-          image: ghcr.io/asteriusit/groundplan-frontend:1.0.0
+          image: ghcr.io/asteriusit/groundplan-frontend:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -266,11 +453,6 @@ metadata:
     app.kubernetes.io/version: "latest"
     app.kubernetes.io/managed-by: Helm
 spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - groundplan.example.com
-      secretName: groundplan-tls
   rules:
     - host: groundplan.example.com
       http:
@@ -291,83 +473,6 @@ spec:
                 name: groundplan-frontend
                 port:
                   name: http
-
----
-# Source: groundplan/templates/external-secret.yaml
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: groundplan-api
-  labels:
-    helm.sh/chart: groundplan-0.1.0
-    app.kubernetes.io/name: groundplan
-    app.kubernetes.io/instance: groundplan
-    app.kubernetes.io/version: "latest"
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: api
-spec:
-  refreshInterval: "30m"
-  secretStoreRef:
-    name: cluster-store
-    kind: ClusterSecretStore
-  target:
-    name: groundplan-api
-    creationPolicy: Owner
-  data:
-    - secretKey: ENCRYPTION_KEY
-      remoteRef:
-        key: "groundplan/encryption-key"
----
-# Source: groundplan/templates/external-secret.yaml
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: groundplan-db
-  labels:
-    helm.sh/chart: groundplan-0.1.0
-    app.kubernetes.io/name: groundplan
-    app.kubernetes.io/instance: groundplan
-    app.kubernetes.io/version: "latest"
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: database
-spec:
-  refreshInterval: "30m"
-  secretStoreRef:
-    name: cluster-store
-    kind: ClusterSecretStore
-  target:
-    name: groundplan-db
-    creationPolicy: Owner
-  data:
-    - secretKey: password
-      remoteRef:
-        key: "groundplan/database"
-        property: "password"
----
-# Source: groundplan/templates/external-secret.yaml
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: groundplan-ai
-  labels:
-    helm.sh/chart: groundplan-0.1.0
-    app.kubernetes.io/name: groundplan
-    app.kubernetes.io/instance: groundplan
-    app.kubernetes.io/version: "latest"
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: api
-spec:
-  refreshInterval: "30m"
-  secretStoreRef:
-    name: cluster-store
-    kind: ClusterSecretStore
-  target:
-    name: groundplan-ai
-    creationPolicy: Owner
-  data:
-    - secretKey: AI_API_KEY
-      remoteRef:
-        key: "groundplan/ai-api-key"
 ---
 # Source: groundplan/templates/migrate-job.yaml
 apiVersion: batch/v1
@@ -405,7 +510,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: ghcr.io/asteriusit/groundplan-backend:1.0.0
+          image: ghcr.io/asteriusit/groundplan-backend:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -421,7 +526,7 @@ spec:
                   name: groundplan-db
                   key: password
             - name: DATABASE_URL
-              value: "postgres://groundplan:$(DB_PASSWORD)@db.internal.example.com:5432/groundplan?sslmode=require"
+              value: "postgres://groundplan:$(DB_PASSWORD)@db.example.internal:5432/groundplan"
           resources:
             requests:
               cpu: 100m

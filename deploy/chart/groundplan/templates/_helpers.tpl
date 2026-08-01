@@ -148,6 +148,26 @@ Cross-value validation — included from the api Deployment (always rendered),
 so an impossible combination fails `helm template`/`install` with a sentence,
 never a half-deployed release.
 */}}
+{{/*
+A Go-style duration ("6h", "30m", "600s") as milliseconds, because the API
+reads milliseconds and a chart value nobody can read is a chart value nobody
+sets correctly. Only whole units — a catalog TTL is hours, not 90 seconds.
+*/}}
+{{- define "groundplan.durationMs" -}}
+{{- $value := . | toString -}}
+{{- if hasSuffix "ms" $value -}}
+{{- trimSuffix "ms" $value | int64 -}}
+{{- else if hasSuffix "h" $value -}}
+{{- mul (trimSuffix "h" $value | int64) 3600000 -}}
+{{- else if hasSuffix "m" $value -}}
+{{- mul (trimSuffix "m" $value | int64) 60000 -}}
+{{- else if hasSuffix "s" $value -}}
+{{- mul (trimSuffix "s" $value | int64) 1000 -}}
+{{- else -}}
+{{- fail (printf "%q is not a duration: use 500ms, 30s, 30m or 6h" $value) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "groundplan.validate" -}}
 {{- if and .Values.ingress.enabled (not .Values.ingress.host) -}}
 {{- fail "ingress.enabled requires ingress.host (the public hostname the app is served on)" -}}

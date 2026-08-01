@@ -127,6 +127,34 @@ compose file from the domains — you don't set them directly:
 | Backend `CORS_ORIGIN`        | `https://${APP_DOMAIN}`                             |
 | Backend `PUBLIC_BASE_URL`    | `https://${APP_DOMAIN}`                             |
 
+### The resource catalog (optional worker)
+
+The visual builder composes against real provider schemas. Every release bundles
+a snapshot of them in the API image, so a fresh install has the complete builder
+immediately and needs nothing else.
+
+Tracking new provider versions adds one container, under its own profile:
+
+```sh
+docker compose --env-file .env.prod -f docker-compose.prod.yml --profile catalog up -d
+```
+
+It runs `terraform` against a **generated empty configuration** pinning one
+allowlisted public provider, and asks that provider to describe itself — never
+against your infrastructure, your state or your code. It holds no cloud
+credentials, and deliberately does not get the API's environment: a database URL
+and the catalog's own settings are its whole configuration.
+
+`CATALOG_PROVIDERS` is an allowlist, not a preference: a provider is an
+executable that `terraform init` downloads and runs, so nothing outside that
+list is ever fetched. Its egress should be restricted to
+`registry.terraform.io` and `releases.hashicorp.com`.
+
+For an air-gapped host set `CATALOG_REFRESH=disabled` and do not start the
+profile. Nothing outbound is attempted anywhere in the stack, the builder serves
+the bundled snapshot, and the interface labels it **pinned** rather than
+current.
+
 ### Frontend runtime config
 
 The frontend is configured at **runtime**, not build time. It fetches

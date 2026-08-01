@@ -61,6 +61,13 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=build --chown=node:node /prod ./
 
+# The bundled catalog snapshot (GP-239), when the release pipeline produced one.
+# On the first boot of an empty catalog the API imports it, so an air-gapped
+# install has the full visual builder without ever reaching the network. A
+# checkout has no snapshot and the directory carries only its README — the
+# builder then falls back to its curated resources and says so.
+COPY --chown=node:node deploy/catalog/ ./
+
 USER node
 EXPOSE 3000
 

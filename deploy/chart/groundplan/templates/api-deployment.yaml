@@ -66,6 +66,15 @@ spec:
               value: {{ include "groundplan.publicUrl" . | quote }}
             - name: SINGLE_ORG
               value: {{ .Values.api.singleOrg | quote }}
+            # The catalog (GP-233). The API never extracts — it reads what is
+            # stored and, on a fresh install, seeds it from the snapshot bundled
+            # in the image. `disabled` means it makes no outbound call at all.
+            - name: CATALOG_REFRESH
+              value: {{ .Values.catalog.refresh | quote }}
+            - name: CATALOG_PROVIDERS
+              value: {{ .Values.catalog.providers | quote }}
+            - name: CATALOG_TTL_MS
+              value: {{ include "groundplan.durationMs" .Values.catalog.ttl | quote }}
             {{- if include "groundplan.aiEnabled" . }}
             - name: AI_API_KEY
               valueFrom:

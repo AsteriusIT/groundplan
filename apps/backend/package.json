@@ -9,6 +9,7 @@
     "build": "tsc --build",
     "start": "node dist/index.js",
     "catalog:worker": "tsx src/catalog-worker.ts",
+    "catalog:snapshot": "tsx src/catalog/snapshot.cli.ts",
     "test": "NODE_ENV=test node --import tsx --test-global-setup=./src/test-global-setup.ts --test \"src/**/*.test.ts\"",
     "migrate": "tsx src/db/migrate.cli.ts",
     "seed:examples": "tsx src/db/seed-examples.cli.ts",

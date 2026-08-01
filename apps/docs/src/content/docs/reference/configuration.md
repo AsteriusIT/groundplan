@@ -92,6 +92,7 @@ to describe itself. Never against your infrastructure, your state or your code.
 | `CATALOG_EXTRACT_TIMEOUT_MS` | `600000` (10m) | Wall clock for one extraction command, read by the catalog worker. On expiry the process group is killed, the version is recorded as failed, and the previous one keeps being served. |
 | `TERRAFORM_BIN` | `terraform` | The binary the catalog worker runs. Only the worker image ships one; the API never spawns it. |
 | `TF_PLUGIN_CACHE_DIR` | a temp directory | Terraform's shared plugin cache, mounted as a volume in the worker. Without it every pass re-downloads the provider — hundreds of megabytes for `azurerm`. |
+| `CATALOG_SNAPSHOT` | `catalog-snapshot.json.gz` | The bundled snapshot the API seeds an empty catalog from on first boot, so a fresh install — air-gapped or not — has the complete builder immediately. A missing file is not an error: the builder falls back to its curated resources and says so. Empty disables the seeding. |
 
 ## Ingestion and polling
 

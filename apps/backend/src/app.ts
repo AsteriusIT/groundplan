@@ -260,6 +260,7 @@ export async function buildApp(
     mode: env.catalogRefresh,
     intervalMs: env.nodeEnv === "test" ? 0 : env.catalogRefreshIntervalMs,
     ttlMs: env.catalogTtlMs,
+    snapshotPath: env.catalogSnapshotPath,
     ...(opts.catalogRegistry ? { registry: opts.catalogRegistry } : {}),
     ...(opts.catalogExtractor ? { extractor: opts.catalogExtractor } : {}),
   });

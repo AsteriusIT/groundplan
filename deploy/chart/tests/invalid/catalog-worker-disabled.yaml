@@ -1,0 +1,15 @@
+# expect: catalog.worker.enabled requires catalog.refresh=auto
+externalDatabase:
+  host: db.example.internal
+  database: groundplan
+  user: groundplan
+  password: not-a-real-password
+oidc:
+  issuerUrl: https://id.example.com/realms/groundplan
+  audience: groundplan-api
+api:
+  encryptionKey: dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcyEh
+catalog:
+  refresh: disabled
+  worker:
+    enabled: true

@@ -179,6 +179,74 @@ ingress and drive the API directly the way CI does —
 without ingress, logs in via a port-forward and pushes a plan through the
 webhook; it doubles as a runnable example of the whole flow.
 
+## The resource catalog
+
+The visual builder composes against the real provider schemas. Where those come
+from is worth stating precisely, because it is the one place this product runs
+Terraform at all:
+
+> A worker runs `terraform` against a **generated empty configuration** that
+> pins one allowlisted public provider, and asks that provider to describe
+> itself. Never against your infrastructure, your state or your code. It holds
+> no cloud credentials, because there are none to hold.
+
+Every release bundles a snapshot of those schemas in the API image, so a fresh
+install has the complete builder from the first request. Running the worker is
+optional, and adds one thing: tracking new provider versions as they ship.
+
+```yaml
+catalog:
+  refresh: auto            # `disabled` = no outbound call anywhere
+  providers: ""            # allowlist; empty = azurerm, aws, google, kubernetes
+  ttl: 6h
+  worker:
+    enabled: true
+    persistence:
+      enabled: true        # Terraform's plugin cache; without it every pass
+      size: 8Gi            # re-downloads hundreds of megabytes
+    networkPolicy:
+      enabled: true
+```
+
+`catalog.providers` is an **allowlist, not a preference**. A Terraform provider
+is an executable that `terraform init` downloads and runs, so nothing outside
+this list is ever fetched, and the check happens before any process is spawned.
+
+### Air-gapped clusters
+
+Set `catalog.refresh: disabled` and leave `catalog.worker.enabled` false. The
+API seeds its catalog from the bundled snapshot and makes no outbound
+connection at any point; the interface labels the catalog **pinned** rather than
+passing it off as current. The builder is complete — it is simply the version
+the release shipped with.
+
+To move a newer snapshot in by hand, build one on a connected machine and import
+it:
+
+```sh
+# connected
+pnpm --filter @groundplan/backend catalog:snapshot --out catalog-snapshot.json.gz
+# air-gapped, with DATABASE_URL pointing at the cluster's Postgres
+pnpm --filter @groundplan/backend catalog:snapshot --in catalog-snapshot.json.gz
+```
+
+### Egress
+
+The worker needs DNS, the cluster's Postgres, and HTTPS to
+`registry.terraform.io` and `releases.hashicorp.com`. Nothing else, ever.
+
+`catalog.worker.networkPolicy.enabled` emits a NetworkPolicy that bounds it to
+those *ports* — no ingress at all, DNS, 5432 in-cluster, 443 out. It cannot
+name the two hosts: Kubernetes NetworkPolicy has no notion of a hostname.
+Narrowing it further needs one of:
+
+* a CNI with FQDN policies (Cilium `toFQDNs`, Calico `domains`), or
+* an egress proxy, with `catalog.worker.networkPolicy.allowedCIDRs` set to the
+  proxy alone and `HTTPS_PROXY` passed through.
+
+If neither is available and unrestricted egress on 443 is unacceptable, run
+air-gapped: the bundled snapshot is the supported answer, not a fallback.
+
 ## Feeding it from CI
 
 groundplan ingests `terraform show -json` output posted by your pipeline —

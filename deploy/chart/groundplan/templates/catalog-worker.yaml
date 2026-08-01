@@ -1,0 +1,160 @@
+{{- if .Values.catalog.worker.enabled }}
+{{- if eq .Values.catalog.refresh "disabled" }}
+{{- fail "catalog.worker.enabled requires catalog.refresh=auto — a worker with the refresh disabled would make no call and extract nothing" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "groundplan.fullname" . }}-catalog-worker
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: catalog-worker
+spec:
+  # Always one. Extraction is single-flight through the database anyway, so a
+  # second replica would only ever lose the claim and idle.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "groundplan.selectorLabels" (dict "root" . "component" "catalog-worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "groundplan.selectorLabels" (dict "root" . "component" "catalog-worker") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: catalog-worker
+          image: {{ include "groundplan.image" (dict "root" . "name" "groundplan-catalog-worker") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          # Deliberately NOT the api's environment: this container has no
+          # business holding ENCRYPTION_KEY, an AI key or an OAuth secret. A
+          # database and the catalog's own settings is the whole list.
+          env:
+            - name: NODE_ENV
+              value: production
+            {{- include "groundplan.databaseEnv" . | nindent 12 }}
+            - name: CATALOG_REFRESH
+              value: {{ .Values.catalog.refresh | quote }}
+            - name: CATALOG_PROVIDERS
+              value: {{ .Values.catalog.providers | quote }}
+            - name: CATALOG_TTL_MS
+              value: {{ include "groundplan.durationMs" .Values.catalog.ttl | quote }}
+            - name: CATALOG_REFRESH_INTERVAL_MS
+              value: {{ include "groundplan.durationMs" .Values.catalog.worker.interval | quote }}
+            - name: CATALOG_EXTRACT_TIMEOUT_MS
+              value: {{ include "groundplan.durationMs" .Values.catalog.worker.timeout | quote }}
+            - name: TF_PLUGIN_CACHE_DIR
+              value: /var/cache/terraform-plugins
+          volumeMounts:
+            - name: plugin-cache
+              mountPath: /var/cache/terraform-plugins
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.catalog.worker.resources | nindent 12 }}
+      volumes:
+        - name: plugin-cache
+          {{- if .Values.catalog.worker.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "groundplan.fullname" . }}-catalog-plugins
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        # Extractions unpack a provider into a temp directory and delete it
+        # again; it is scratch, and it is bounded by the extraction timeout.
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.catalog.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.catalog.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.catalog.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if .Values.catalog.worker.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "groundplan.fullname" . }}-catalog-plugins
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: catalog-worker
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.catalog.worker.persistence.size }}
+  {{- with .Values.catalog.worker.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}
+{{- if .Values.catalog.worker.networkPolicy.enabled }}
+---
+# Egress bound for the worker (GP-236). It needs DNS, the database, and HTTPS to
+# the Terraform registry and release host.
+#
+# Kubernetes NetworkPolicy has no notion of a hostname, so this is a port-level
+# bound and not the FQDN allowlist the story asks for. Narrowing it to
+# registry.terraform.io and releases.hashicorp.com needs a CNI with FQDN
+# policies (Cilium, Calico) or an egress proxy — see docs/install-kubernetes.md.
+# Stating that here beats a policy that looks tighter than it is.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "groundplan.fullname" . }}-catalog-worker
+  labels:
+    {{- include "groundplan.labels" . | nindent 4 }}
+    app.kubernetes.io/component: catalog-worker
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "groundplan.selectorLabels" (dict "root" . "component" "catalog-worker") | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  # Nothing may reach it: it serves no port.
+  ingress: []
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        {{- range .Values.catalog.worker.networkPolicy.allowedCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
+{{- end }}

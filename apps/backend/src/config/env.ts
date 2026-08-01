@@ -148,6 +148,13 @@ export type AppEnv = {
    */
   catalogExtractTimeoutMs: number;
   /**
+   * Where the bundled catalog snapshot lives (GP-239). Imported on the first
+   * boot of an empty catalog so a fresh install — air-gapped or not — has the
+   * full builder immediately, instead of a warming state it may never leave.
+   * Empty disables the seeding; a missing file is simply not seeded.
+   */
+  catalogSnapshotPath: string;
+  /**
    * How often the ref poller runs `git ls-remote` per repository (GP-107), in
    * milliseconds. Defaults to 60s. `0` disables the background timer entirely —
    * which is what tests do, so they can drive a tick by hand with no clock.
@@ -242,6 +249,10 @@ export function loadEnv(): AppEnv {
       process.env.CATALOG_EXTRACT_TIMEOUT_MS,
       10 * 60_000,
     ),
+    // Relative to the process's working directory, which in the images is the
+    // application root the snapshot is copied into.
+    catalogSnapshotPath:
+      process.env.CATALOG_SNAPSHOT ?? "catalog-snapshot.json.gz",
     refPollIntervalMs: readInt(process.env.REF_POLL_INTERVAL_MS, 60_000),
     githubAppId: process.env.GITHUB_APP_ID ?? "",
     githubAppPrivateKey: readPem(process.env.GITHUB_APP_PRIVATE_KEY),

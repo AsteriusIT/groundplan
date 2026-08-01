@@ -528,16 +528,6 @@ export function catalogRepository(db: NodePgDatabase) {
     return row ?? null;
   }
 
-  /** Is there anything at all in the catalog? What first-boot seeding asks (GP-239). */
-  async function isEmpty(): Promise<boolean> {
-    const [row] = await db
-      .select({ id: catalogProviderVersions.id })
-      .from(catalogProviderVersions)
-      .where(eq(catalogProviderVersions.status, "ready"))
-      .limit(1);
-    return row === undefined;
-  }
-
   return {
     ensureProvider,
     findProvider,
@@ -553,6 +543,5 @@ export function catalogRepository(db: NodePgDatabase) {
     claimExtraction,
     saveSchemas,
     failExtraction,
-    isEmpty,
   };
 }

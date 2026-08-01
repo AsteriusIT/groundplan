@@ -32,6 +32,7 @@ import {
   catalogRepository,
   type CatalogRepository,
 } from "../catalog/repository.js";
+import { seedFromSnapshot } from "../catalog/seed.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -52,6 +53,8 @@ export type CatalogPluginOptions = {
   mode: CatalogRefreshMode;
   /** How often the refresh loop runs. `0` = no timer (tests, and the worker). */
   intervalMs: number;
+  /** The bundled snapshot to seed an empty catalog from. "" = no seeding. */
+  snapshotPath: string;
   /** How long a registry answer is trusted. */
   ttlMs: number;
   /** Inject a registry client (tests). Defaults to the real HTTP one. */
@@ -94,6 +97,20 @@ export const catalogPlugin = fp<CatalogPluginOptions>(async (app, opts) => {
   };
 
   app.decorate("refreshCatalogOnce", tick);
+
+  // Seed from the bundled snapshot (GP-239) before anything can be read, so a
+  // fresh install never shows a warming catalog it has the answer to. Ready
+  // after the first boot, so this is one row read from then on — and it runs
+  // whatever the refresh mode is, because an air-gapped instance is precisely
+  // the one that needs it.
+  app.addHook("onReady", async () => {
+    await seedFromSnapshot({
+      path: opts.snapshotPath,
+      repo,
+      allowlist,
+      log: app.log,
+    });
+  });
 
   if (opts.intervalMs > 0 && opts.mode !== "disabled") {
     const timer = setInterval(() => void tick(), opts.intervalMs);

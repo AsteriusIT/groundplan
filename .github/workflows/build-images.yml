@@ -29,7 +29,72 @@ env:
   REGISTRY: rg.fr-par.scw.cloud/asteriusit
 
 jobs:
+  # Build the catalog snapshot the API image bundles (GP-239).
+  #
+  # It is produced the only honest way: run the real extraction worker against a
+  # throwaway Postgres, then export what it stored. That means the release ships
+  # the schemas of the provider versions that were current when it was cut, and
+  # an air-gapped install gets the full visual builder with no outbound call.
+  #
+  # `continue-on-error`: a registry outage must not block a release. The images
+  # then ship without a snapshot, the builder falls back to its curated
+  # resources and says so — degraded, honestly, rather than not released.
+  catalog-snapshot:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: groundplan
+          POSTGRES_PASSWORD: groundplan
+          POSTGRES_DB: groundplan
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U groundplan"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://groundplan:groundplan@localhost:5432/groundplan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @groundplan/backend migrate
+
+      # One pass per provider, sequential, with the plugin cache warm between
+      # them. A large provider is a few hundred megabytes to download.
+      - name: Extract provider schemas
+        env:
+          TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/tf-plugins
+          CATALOG_TTL_MS: "0"
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          pnpm --filter @groundplan/backend catalog:worker --once
+
+      - name: Export the snapshot
+        run: |
+          mkdir -p deploy/catalog
+          pnpm --filter @groundplan/backend catalog:snapshot \
+            --out deploy/catalog/catalog-snapshot.json.gz
+          sha256sum deploy/catalog/catalog-snapshot.json.gz | tee deploy/catalog/catalog-snapshot.json.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-snapshot
+          path: deploy/catalog/catalog-snapshot.json.gz*
+          retention-days: 30
+
   build:
+    needs: catalog-snapshot
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -48,6 +113,16 @@ jobs:
             dockerfile: keycloak/Dockerfile
     steps:
       - uses: actions/checkout@v4
+
+      # Into the build context, so the API image bundles it (GP-239). Optional
+      # on purpose: `continue-on-error` above means the artefact may not exist,
+      # and an image without a snapshot is a supported, honest state.
+      - name: Fetch the catalog snapshot
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-snapshot
+          path: deploy/catalog
 
       - uses: docker/setup-buildx-action@v3
 
