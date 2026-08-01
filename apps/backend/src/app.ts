@@ -61,6 +61,7 @@ import { aiStudioRoutes } from "./routes/ai-studio.js";
 import { driftIngestionRoutes } from "./routes/drift.js";
 import { gitWebhookRoutes } from "./routes/git-webhooks.js";
 import { builderRoutes, builderStatusRoutes } from "./routes/builder.js";
+import { catalogRoutes } from "./routes/catalog.js";
 import { healthRoutes } from "./routes/health.js";
 import { healthzRoutes } from "./routes/healthz.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
@@ -250,6 +251,19 @@ export async function buildApp(
     keyResolver: opts.jwks,
   });
 
+  // The resource catalog (GP-234/235): the store, the allowlist and the version
+  // watcher. Before the routes, because the read API is decorated from here;
+  // nothing on the request path waits on the refresh, which is a background
+  // enhancement an air-gapped instance turns off entirely.
+  await app.register(catalogPlugin, {
+    providers: env.catalogProviders,
+    mode: env.catalogRefresh,
+    intervalMs: env.nodeEnv === "test" ? 0 : env.catalogRefreshIntervalMs,
+    ttlMs: env.catalogTtlMs,
+    ...(opts.catalogRegistry ? { registry: opts.catalogRegistry } : {}),
+    ...(opts.catalogExtractor ? { extractor: opts.catalogExtractor } : {}),
+  });
+
   // Readiness probe (with DB check) at the conventional root path.
   await app.register(healthzRoutes);
 
@@ -275,6 +289,9 @@ export async function buildApp(
   await app.register(sharePublicRoutes, { prefix: "/api/v1" });
   await app.register(aiStatusRoutes, { prefix: "/api/v1" });
   await app.register(builderStatusRoutes, { prefix: "/api/v1" });
+  // The resource catalog (GP-237): global reads, like the status routes above —
+  // a provider schema is public information, identical for every tenant.
+  await app.register(catalogRoutes, { prefix: "/api/v1" });
   // Playground (GP-123): user-scoped, org-free — parse is ephemeral, drafts
   // belong to their author alone, so none of it sits under /orgs/:orgId.
   await app.register(playgroundRoutes, { prefix: "/api/v1" });
@@ -289,19 +306,6 @@ export async function buildApp(
   // annotations, AI generation, exports, tours, dashboard — lives under
   // `/api/v1/orgs/:orgId`, behind the org-scope guard (membership + ownership).
   await app.register(orgScopePlugin, { prefix: "/api/v1/orgs/:orgId" });
-
-  // The resource catalog (GP-234/235): the store, the allowlist and the version
-  // watcher. Registered after the routes because nothing on the request path
-  // waits on it — a read answers from what is stored, and the refresh is a
-  // background enhancement that an air-gapped instance turns off entirely.
-  await app.register(catalogPlugin, {
-    providers: env.catalogProviders,
-    mode: env.catalogRefresh,
-    intervalMs: env.nodeEnv === "test" ? 0 : env.catalogRefreshIntervalMs,
-    ttlMs: env.catalogTtlMs,
-    ...(opts.catalogRegistry ? { registry: opts.catalogRegistry } : {}),
-    ...(opts.catalogExtractor ? { extractor: opts.catalogExtractor } : {}),
-  });
 
   // Ref poller (GP-107): the background `git ls-remote` loop that keeps docs and
   // PR state in sync with the git remote. `pollRefsOnce` is always available;

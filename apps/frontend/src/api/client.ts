@@ -11,6 +11,9 @@ import type {
   AiStatus,
   BuilderGraphInput,
   BuilderStatus,
+  CatalogProviders,
+  CatalogResourceList,
+  CatalogResourceSchemaResponse,
   Annotation,
   AnnotationStatus,
   Cluster,
@@ -1101,6 +1104,44 @@ export function generateBuilderTerraform(
     method: "POST",
     body: { graph },
   });
+}
+
+// --- Resource catalog (GP-237) ----------------------------------------------
+// Global, like the status probes: a provider schema is public information about
+// a public artefact, identical for every tenant, so none of this is org-scoped.
+
+/** Every allowlisted provider, what is being served, and when it was read. */
+export function getCatalogProviders(): Promise<CatalogProviders> {
+  return request<CatalogProviders>("/catalog/providers");
+}
+
+/**
+ * One provider's resource types, filtered and paged **server-side** — a large
+ * provider has fifteen hundred of them, which is not a list to ship to a browser
+ * on every keystroke.
+ */
+export function listCatalogResources(
+  provider: string,
+  opts: { q?: string; limit?: number; offset?: number } = {},
+): Promise<CatalogResourceList> {
+  const params = new URLSearchParams();
+  if (opts.q) params.set("q", opts.q);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.offset !== undefined) params.set("offset", String(opts.offset));
+  const query = params.toString();
+  return request<CatalogResourceList>(
+    `/catalog/providers/${provider}/resources${query ? `?${query}` : ""}`,
+  );
+}
+
+/** One type's schema. Fetched when a resource is selected, never in bulk. */
+export function getCatalogResourceSchema(
+  provider: string,
+  type: string,
+): Promise<CatalogResourceSchemaResponse> {
+  return request<CatalogResourceSchemaResponse>(
+    `/catalog/providers/${provider}/resources/${encode(type)}`,
+  );
 }
 
 /**

@@ -2,6 +2,10 @@
  * Types mirroring the backend base models, field-for-field with the JSON the
  * API actually returns (GP-3, GP-6). Timestamps are ISO strings over the wire.
  */
+import type {
+  ProviderResourceSchema,
+  ProviderResourceSummary,
+} from "@groundplan/builder";
 
 export type Provider = "github" | "gitlab" | "azure_devops" | "generic";
 
@@ -1000,6 +1004,55 @@ export interface BuilderGraphInput {
     position: { x: number; y: number };
   }[];
   references: { from: string; to: string; attribute: string }[];
+}
+
+/**
+ * The resource catalog (GP-237). The schema shapes themselves live in
+ * `@groundplan/builder` (`ProviderResourceSchema`, `ProviderResourceSummary`) —
+ * the package both sides already share — so only the envelopes are mirrored
+ * here. What they all carry is a version and a date: a catalog surface that did
+ * not say which provider version it is showing, and when it was read, would be
+ * the one place in this product that hides its own staleness.
+ */
+export interface CatalogProvider {
+  /** `hashicorp/azurerm`. */
+  provider: string;
+  namespace: string;
+  name: string;
+  /** The version being served; null while nothing has been extracted yet. */
+  version: string | null;
+  /** When that version was read. ISO string, null while warming. */
+  readAt: string | null;
+  /** The newest stable version the registry watcher saw, if it ever looked. */
+  latestKnownVersion: string | null;
+  lastCheckedAt: string | null;
+  status: "ready" | "warming";
+}
+
+export interface CatalogProviders {
+  /** `disabled` = this deployment makes no outbound catalog call; pinned. */
+  refresh: "auto" | "disabled";
+  providers: CatalogProvider[];
+  /** Providers with stored schemas that the allowlist no longer offers. */
+  retired: string[];
+}
+
+export interface CatalogResourceList {
+  provider: string;
+  version: string;
+  readAt: string;
+  /** How many types the filter matched, not how many were returned. */
+  total: number;
+  limit: number;
+  offset: number;
+  resources: ProviderResourceSummary[];
+}
+
+export interface CatalogResourceSchemaResponse {
+  provider: string;
+  version: string;
+  readAt: string;
+  schema: ProviderResourceSchema;
 }
 
 /** Prose the backend has already generated and cached for a snapshot. */

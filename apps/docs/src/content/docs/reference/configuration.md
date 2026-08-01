@@ -69,13 +69,29 @@ What the model does and does not see is on [The AI layer](/ai/).
 | --- | --- | --- |
 | `BUILDER_ENABLED` | `false` | Opt-in. Turns on Build mode in the playground: compose Azure resources on a canvas and generate Terraform from what you composed. Unset, the feature does not exist — the status endpoint reports it disabled, the generation route answers `404`, and the playground shows no Build surface. Anything but `true` leaves it off. |
 
-The catalog is a curated set of `azurerm` resource types, so Build mode is
-Azure-only. Generation is deterministic and runs on the server with no model
-involved and no cloud access: the same composition produces the same files.
+Generation is deterministic and runs on the server with no model involved and no
+cloud access: the same composition produces the same files.
 
 It is one-way scaffolding. The generated files land in the playground, and from
 there the Terraform is the source of truth; editing it does not move the sketch,
 and existing Terraform is never read back into the builder.
+
+## The resource catalog
+
+Build mode composes against the real provider schemas, read from the providers
+themselves by a separate worker: it runs Terraform against a generated empty
+configuration that pins one allowlisted public provider, and asks that provider
+to describe itself. Never against your infrastructure, your state or your code.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CATALOG_PROVIDERS` | the four below | Comma-separated `namespace/name` allowlist of the providers whose schemas may be read. This is a security boundary, not a preference: a provider is an executable, so nothing outside this list is ever downloaded, and a malformed entry is dropped rather than trusted. Empty means `hashicorp/azurerm`, `hashicorp/aws`, `hashicorp/google`, `hashicorp/kubernetes`. |
+| `CATALOG_REFRESH` | `auto` | `disabled` makes the deployment air-gapped as far as the catalog goes: no outbound call at all, and what is stored is served and labelled as pinned rather than passed off as current. Anything other than `disabled` is `auto`. |
+| `CATALOG_TTL_MS` | `21600000` (6h) | How long an answer from the provider registry is trusted before asking again. A provider ships a few times a month. |
+| `CATALOG_REFRESH_INTERVAL_MS` | `1800000` (30m) | How often the refresh loop runs. Each pass only asks the registry if `CATALOG_TTL_MS` has elapsed, so this is a heartbeat, not a schedule. `0` disables the timer. |
+| `CATALOG_EXTRACT_TIMEOUT_MS` | `600000` (10m) | Wall clock for one extraction command, read by the catalog worker. On expiry the process group is killed, the version is recorded as failed, and the previous one keeps being served. |
+| `TERRAFORM_BIN` | `terraform` | The binary the catalog worker runs. Only the worker image ships one; the API never spawns it. |
+| `TF_PLUGIN_CACHE_DIR` | a temp directory | Terraform's shared plugin cache, mounted as a volume in the worker. Without it every pass re-downloads the provider — hundreds of megabytes for `azurerm`. |
 
 ## Ingestion and polling
 
