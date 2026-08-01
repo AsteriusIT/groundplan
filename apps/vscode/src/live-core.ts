@@ -95,6 +95,50 @@ export async function postWhileCurrent<M>(
   }
 }
 
+/**
+ * Tracks the `postSignature` last confirmed sent to the webview, so a
+ * `refresh()` that recomputes an identical payload can skip a free re-post.
+ * Pulled out of `LivePreview` as its own primitive (rather than a raw
+ * field) because the `ready` contract — "the webview holds nothing" — is a
+ * rule about this state specifically, and is worth pinning with `node:test`
+ * independent of the `vscode.WebviewPanel` plumbing that drives it.
+ */
+export type SignatureTracker = {
+  /** Whether `signature` differs from what was last confirmed sent — the
+   * caller re-posts only when this is true; a re-post the webview already
+   * has costs the canvas a full ELK re-layout for nothing. */
+  shouldPost: (signature: string) => boolean;
+  /** Record that `signature` was just sent. Call only after every message
+   * for it actually went out — see `postWhileCurrent`; marking it sooner
+   * lets a run superseded mid-sequence claim a payload the panel only
+   * half-received. */
+  markSent: (signature: string) => void;
+  /**
+   * The webview declared it holds nothing: a first mount that missed
+   * everything posted before its `message` listener existed (the bundle is
+   * 2+ MB and mounts asynchronously), or a reload (dragged to another
+   * editor group, `Developer: Reload Webviews`). Forget what this host
+   * believes was delivered, or the next `shouldPost` wrongly answers
+   * "already sent" for a webview that received nothing.
+   */
+  reset: () => void;
+};
+
+/** A fresh tracker: nothing has been sent yet, so the first `shouldPost` is
+ * always true. */
+export function createSignatureTracker(): SignatureTracker {
+  let lastSignature: string | null = null;
+  return {
+    shouldPost: (signature) => signature !== lastSignature,
+    markSent: (signature) => {
+      lastSignature = signature;
+    },
+    reset: () => {
+      lastSignature = null;
+    },
+  };
+}
+
 export type Debouncer = {
   schedule: () => void;
   dispose: () => void;

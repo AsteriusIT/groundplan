@@ -1637,3 +1637,75 @@ git commit -m "docs: the VS Code preview performance spec and plan"
 **Type consistency:** `ReadFile` is defined in Task 2 and consumed by name in Tasks 3 and 7. `TfFileCache` method names (`prime`/`set`/`read`/`remove`/`files`/`candidates`) are used identically in Tasks 3 and 7. `candidatesFrom(tfPaths, sourced)` takes file paths (not directories) in Task 1 and is called with `entry.path` in Task 2. `resolveFromCandidates` replaces `resolveRootDir` in `extension.ts` only; `resolveRootDir` survives for the `BaselineProvider` callback, which is why Task 3 keeps both in the import. `PostPayload`/`postSignature` are defined in Task 4 and used only there. The `BaselineProvider` fifth constructor parameter added in Task 5 is passed positionally in that task's tests, consistent with the existing `new BaselineProvider(dir, undefined, undefined, () => root)` style.
 
 **One deliberate trade-off, flagged:** re-priming whenever the panel becomes visible costs a full re-glob and re-read (190 ms on a 2700-file workspace) per tab switch back to the preview. It buys the only honest answer to `files.watcherExclude` — VS Code will not report changes under an excluded path, and the old code self-healed by re-globbing every refresh. If tab-switching latency turns out to bite, the fix is to re-prime on a timer or on window focus instead, not to drop it.
+
+## Deviations during implementation
+
+Two mechanisms shipped that are absent from this plan's code blocks — a
+reader following the steps above would wrongly conclude they do not exist:
+
+- **`TfFileCache` gained `activePrimes`** (`src/tf-files.ts`): per-`prime()`-call
+  tracking (one `Set<string>` per in-flight call, not a single shared field),
+  so overlapping `prime()` calls — a `reveal()` racing the panel's own first
+  refresh, say — cannot discard a concurrent `set()`/`remove()`'s decision
+  about a path either of them also touched. Covered by
+  `tf-files.test.ts`'s overlap cases ("a set() during an in-flight prime
+  survives it", "a set() landing between two overlapping primes survives
+  both commits", and the equivalent `remove()` cases).
+- **The `onDidChangeTextDocument` handler gained a path guard that runs
+  *before* `e.document.getText()`** (`src/extension.ts`): the plan's Task 3
+  Step 4 code block calls `getText()` unconditionally and only checks
+  `cache.set()`'s own return value. Shipped code rejects on `scheme`,
+  folder-membership and `isDiagramTf` first — a keystroke in a large
+  non-`.tf` open file (a lockfile, a rendered `.tfstate`) never materializes
+  its text, which is the exact per-keystroke cost this cache exists to
+  remove, just relocated to that call site if left unguarded.
+
+### Final review fix wave (2026-08-01)
+
+A whole-branch review after Task 7 found five issues, all fixed in one
+follow-up commit, scope limited to `apps/vscode/` and `docs/`:
+
+- **Critical — the `ready` handshake was defeated by the post-suppression
+  from Task 4.** The webview's `message` listener only exists after its
+  ~2.2 MB bundle mounts (a React `useEffect`); anything posted before that is
+  dropped, which is why the webview posts `ready` on mount. But a refresh
+  landing before the mount (a `.tf` touched on disk, or a git ref moved, in
+  the same second as "Groundplan: Open Preview") posted into an empty
+  listener and still recorded the signature as sent — so when the webview
+  then mounted and asked again via `ready`, the suppression check saw an
+  "unchanged" signature and stayed quiet, leaving the panel stuck on
+  "Reading Terraform…" until a content-changing edit or a reopen. Same
+  failure on any webview reload (dragging the panel to another editor group,
+  `Developer: Reload Webviews`). Fixed by extracting the signature-tracking
+  state out of a raw `lastSignature` field into `live-core.ts`'s
+  `createSignatureTracker()` (`shouldPost` / `markSent` / `reset`), so the
+  `ready` handler's `reset()` — "the webview holds nothing" — is a rule
+  `node:test` can pin without a `vscode` stub; the `ready` handler also
+  clears `lastPosted`. Regression tests in `live-core.test.ts`.
+- **Minor — `primed` was a boolean written after two awaits**
+  (`findTfPaths` then `cache.prime`), so a git-watcher invalidation landing
+  mid-prime could be overwritten by the in-flight prime's own completion,
+  silently dropping the re-glob request (two ref movements in quick
+  succession, as a `git pull` or a rebase produces). Replaced with a
+  request/done counter pair (`primeWanted` / `primeDone`): the value being
+  serviced is captured before the await, and `primeDone` only ever advances
+  to what was actually serviced, so a bump arriving mid-await is never lost.
+- **Minor — the broken-parse branch never cleared `pendingWhileHidden`**,
+  so once a hidden refresh set it, an outstanding syntax error kept it set
+  (that branch returns early). Since `onDidChangeViewState` also fires on
+  `active` changes, every editor↔panel focus click then re-triggered a full
+  workspace re-glob for as long as the error stood. Fixed by clearing the
+  flag on the visible broken-parse path too, matching the normal path.
+- **Minor — `lastSignature` (now the signature tracker) was marked sent
+  before the messages were actually posted.** If a run was superseded
+  between message 1 and message 2, the tracker claimed a payload the panel
+  only half-received; a later run recomputing the identical signature would
+  then wrongly stay quiet, leaving `diffState`/`outOfSync` stale. Fixed by
+  calling `markSent` only after `postWhileCurrent` completes *and* the
+  run is still current — a superseded run leaves the signature available so
+  the run that follows still posts.
+- **Record — this plan's cache section doesn't state its memory cost.** The
+  design spec (`docs/superpowers/specs/2026-07-29-vscode-preview-performance-design.md`)
+  now says so where the cache is introduced: every `.tf` body stays resident
+  for the panel's lifetime, roughly 11 MB at 2700 files — the deliberate
+  trade for zero I/O per keystroke.

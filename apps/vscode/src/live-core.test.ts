@@ -5,6 +5,7 @@ import type { Diagnostic } from "@groundplan/graph-parser";
 
 import {
   createDebouncer,
+  createSignatureTracker,
   hasParseErrors,
   postSignature,
   postWhileCurrent,
@@ -96,6 +97,36 @@ test("every field the panel is told about moves the signature", () => {
     assert.notEqual(postSignature(next), base, `field ${index} was dropped`);
   }
 });
+
+test("createSignatureTracker: a fresh tracker posts, then suppresses a repeat", () => {
+  const tracker = createSignatureTracker();
+  assert.equal(tracker.shouldPost("S1"), true);
+  tracker.markSent("S1");
+  assert.equal(tracker.shouldPost("S1"), false, "an unchanged signature is suppressed");
+  assert.equal(tracker.shouldPost("S2"), true, "a different signature still posts");
+});
+
+test(
+  "createSignatureTracker: reset() un-suppresses the identical signature — " +
+    "the `ready` regression. A `ready` message means the webview holds " +
+    "nothing (a first mount that missed everything posted before its " +
+    "listener existed, or a reload), so the very next refresh must post " +
+    "even when it recomputes the signature this host already believes it " +
+    "delivered; without reset() the panel is stuck on 'Reading Terraform…' " +
+    "until a content-changing edit or a reopen.",
+  () => {
+    const tracker = createSignatureTracker();
+    tracker.markSent("S1");
+    assert.equal(tracker.shouldPost("S1"), false, "sanity: suppressed before reset");
+
+    tracker.reset();
+    assert.equal(
+      tracker.shouldPost("S1"),
+      true,
+      "the identical signature must post again after a ready reset",
+    );
+  },
+);
 
 test(
   "postWhileCurrent: a run overtaken mid-post stops before its remaining " +

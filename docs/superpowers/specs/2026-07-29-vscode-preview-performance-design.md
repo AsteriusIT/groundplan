@@ -63,6 +63,10 @@ A cache holding `fsPath → { path, content }`, primed once by `findFiles`,
 then maintained by the events the extension already subscribes to. Typing
 costs **zero** I/O because the changed text arrives inside the event.
 
+The trade this makes is memory, not time: every `.tf` body stays resident
+for the panel's lifetime, roughly 11 MB at 2700 files — the deliberate cost
+of buying zero I/O per keystroke.
+
 - `onDidChangeTextDocument` → store `e.document.getText()` directly.
 - watcher `onDidCreate` / `onDidChange` → read that one file, **unless** an
   open document owns the path (the document event already carried it —

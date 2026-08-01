@@ -24,11 +24,13 @@ import {
 } from "./git-baseline";
 import {
   createDebouncer,
+  createSignatureTracker,
   hasParseErrors,
   postSignature,
   postWhileCurrent,
   toFileDiagnostics,
   type Debouncer,
+  type SignatureTracker,
 } from "./live-core";
 import { nodeAtPosition, sourceOf } from "./locate";
 import type {
@@ -134,13 +136,24 @@ class LivePreview {
 
   /** The workspace's `.tf` files, kept warm — typing must not re-read them. */
   private readonly cache: TfFileCache;
-  /** False until the first glob, and again when the watcher may have missed
-   * events (a reveal, a git change): the next refresh re-globs. */
-  private primed = false;
+  /**
+   * Bumped by every invalidation that means the watcher may have missed
+   * something (the git watcher, `reveal()`, `onDidChangeViewState`) — the
+   * next refresh re-globs. A request/done counter pair rather than a
+   * boolean: a boolean written by `refresh()` after two awaits (`findTfPaths`
+   * then `cache.prime`) can have a bump that landed mid-await overwritten by
+   * the in-flight prime's own completion, silently swallowing the request —
+   * exactly what two ref movements in quick succession (a `git pull`, a
+   * rebase) produce.
+   */
+  private primeWanted = 1;
+  /** The highest `primeWanted` a completed prime has actually serviced. */
+  private primeDone = 0;
   /** Bumped per refresh; a run overtaken by a newer one drops its result. */
   private generation = 0;
-  /** The signature of what the panel was last told (live-core.postSignature). */
-  private lastSignature: string | null = null;
+  /** What the panel was last told (live-core.postSignature) — `ready` resets
+   * this, since it means the webview holds nothing. */
+  private readonly signatureTracker: SignatureTracker = createSignatureTracker();
   /** A refresh landed while the panel was hidden — post it on reveal. */
   private pendingWhileHidden = false;
 
@@ -195,7 +208,7 @@ class LivePreview {
           this.baseline.invalidate();
           // A checkout can add and remove files wholesale: re-glob, don't trust
           // the incremental events to have covered it.
-          this.primed = false;
+          this.primeWanted += 1;
           this.reparse.schedule();
         })
       : null;
@@ -267,7 +280,16 @@ class LivePreview {
     );
 
     this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
-      if (message.type === "ready") void this.refresh();
+      if (message.type === "ready") {
+        // `ready` means the webview holds nothing: a reload, or a first
+        // mount that missed everything posted before its listener existed
+        // (the bundle is 2+ MB and mounts asynchronously). Forget what we
+        // believe it has, or the suppression check would answer "already
+        // sent" and the panel would sit on "Reading Terraform…" forever.
+        this.signatureTracker.reset();
+        this.lastPosted = null;
+        void this.refresh();
+      }
       // Node → code (GP-149): a click in the diagram opens the block.
       if (message.type === "nodeSelected") {
         this.lastSelected = message.address;
@@ -306,7 +328,7 @@ class LivePreview {
     this.disposables.push(
       this.panel.onDidChangeViewState(() => {
         if (!this.panel.visible || !this.pendingWhileHidden) return;
-        this.primed = false;
+        this.primeWanted += 1;
         void this.refresh();
       }),
     );
@@ -332,7 +354,7 @@ class LivePreview {
     this.panel.reveal(vscode.ViewColumn.Beside, true);
     // The user is already waiting: take the chance to re-glob, since a
     // workspace can change without an event (`files.watcherExclude`).
-    this.primed = false;
+    this.primeWanted += 1;
     void this.refresh();
   }
 
@@ -385,9 +407,15 @@ class LivePreview {
   /** Re-parse the folder and reconcile panel + Problems with the result. */
   private async refresh(): Promise<void> {
     const generation = ++this.generation;
-    if (!this.primed) {
+    if (this.primeDone < this.primeWanted) {
+      // Captured before the await: a bump that lands during it (a second git
+      // event, say) asked for a re-glob this prime cannot have captured, and
+      // must not be lost under the request that arrived first.
+      const servicing = this.primeWanted;
       await this.cache.prime(await findTfPaths(this.folder));
-      this.primed = true;
+      // Never move backwards — a concurrent prime servicing a higher request
+      // may already have finished first.
+      this.primeDone = Math.max(this.primeDone, servicing);
     }
     // A newer refresh started while the prime was in flight: our result is
     // already stale, so posting it would race the run that superseded us.
@@ -410,10 +438,19 @@ class LivePreview {
 
     if (hasParseErrors(diagnostics) && this.lastGood) {
       // Mid-edit broken state: the reader keeps the graph they had.
-      if (this.panel.visible) await this.post({ type: "outOfSync", value: true });
-      else this.pendingWhileHidden = true;
+      if (this.panel.visible) {
+        await this.post({ type: "outOfSync", value: true });
+        // Delivered — nothing is owed to a hidden panel anymore, even though
+        // the error is still standing. Settle the flag like the normal path
+        // does below, or every later view-state change (an editor↔panel
+        // focus click included, not just a visibility flip) re-triggers a
+        // full re-glob for as long as the error stands.
+        this.pendingWhileHidden = false;
+      } else {
+        this.pendingWhileHidden = true;
+      }
       // The panel now shows something the signature does not describe.
-      this.lastSignature = null;
+      this.signatureTracker.reset();
       return;
     }
     if (!hasParseErrors(diagnostics)) this.lastGood = snapshot;
@@ -472,8 +509,8 @@ class LivePreview {
 
     // Superseded since the last check, before this run's shared-state
     // writes land: a newer refresh may already own lastPosted / panel.title
-    // / lastSignature (or be about to write them), and this run must not
-    // clobber that with a stale stack's graph and title.
+    // / the signature tracker (or be about to write them), and this run must
+    // not clobber that with a stale stack's graph and title.
     if (generation !== this.generation) return;
 
     this.lastPosted = posted;
@@ -484,8 +521,7 @@ class LivePreview {
 
     // Nothing the panel renders moved: stay quiet. A re-post would cost a
     // full ELK re-layout to draw exactly what is already on screen.
-    if (signature !== this.lastSignature) {
-      this.lastSignature = signature;
+    if (this.signatureTracker.shouldPost(signature)) {
       const messages: HostMessage[] = [
         { type: "snapshot", snapshot: posted, folder, multiRoot, rootDir },
         { type: "diffState", state },
@@ -499,8 +535,14 @@ class LivePreview {
       await postWhileCurrent(generation, () => this.generation, messages, (m) =>
         this.post(m),
       );
-      // The last message itself may be the one that got superseded.
+      // The last message itself may be the one that got superseded — only a
+      // run that delivered every message may claim the signature as sent.
+      // Marking it earlier would let a superseded run claim a payload the
+      // panel only half-received; a later run recomputing the identical
+      // signature would then wrongly stay quiet, leaving diffState/
+      // outOfSync stale until the next real edit.
       if (generation !== this.generation) return;
+      this.signatureTracker.markSent(signature);
     }
     this.pendingWhileHidden = false;
 
