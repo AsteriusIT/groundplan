@@ -12,6 +12,21 @@ import tailwindcss from "@tailwindcss/vite";
 // hashes (two providers both ship a kms.svg) and resolve via the <base> tag.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // The preview renders no AI prose, but the canvas barrel re-exports
+  // AiResponse and Rollup cannot shake a barrel re-export out — so ~350 KB of
+  // micromark/mdast/unified rode along in a bundle that never ran it. The
+  // stubs throw, so the assumption fails loudly if it ever stops holding.
+  // Guarded by src/bundle.test.ts.
+  resolve: {
+    alias: {
+      "react-markdown": fileURLToPath(
+        new URL("./webview/stubs/react-markdown.ts", import.meta.url),
+      ),
+      "remark-gfm": fileURLToPath(
+        new URL("./webview/stubs/remark-gfm.ts", import.meta.url),
+      ),
+    },
+  },
   build: {
     outDir: "dist/webview",
     emptyOutDir: true,
