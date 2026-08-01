@@ -37,6 +37,7 @@ import { BuildMode } from "@/builder/build-mode";
 import { GenerateDialog } from "@/builder/generate-dialog";
 import { ModeSwitch, type PlaygroundMode } from "@/builder/mode-switch";
 import { useBuilderGraph } from "@/builder/use-builder-graph";
+import { useCatalog } from "@/builder/use-catalog";
 import { GraphCanvas } from "@/components/graph-canvas";
 import { HclEditor } from "@/components/hcl-editor";
 import { IacSwitch } from "@/components/iac-switch";
@@ -209,7 +210,12 @@ export function PlaygroundPage() {
   const builderStatus = useBuilderStatus();
   const builderEnabled = builderStatus?.enabled === true;
   const [mode, setMode] = useState<PlaygroundMode>("edit");
-  const builder = useBuilderGraph();
+  // The provider catalog (GP-238): the curated entries, plus whatever schemas
+  // have been fetched. Owned here rather than inside Build mode for the same
+  // reason the composition is — a trip through Edit HCL must not throw away a
+  // schema somebody already waited for.
+  const catalog = useCatalog();
+  const builder = useBuilderGraph(catalog.defs);
   const building = builderEnabled && mode === "build";
   // The generation flow (GP-135): the preview, what the server refused, and
   // the note that says which of the two artefacts is now the truth.
@@ -708,6 +714,7 @@ export function PlaygroundPage() {
       {building && (
         <BuildMode
           builder={builder}
+          catalog={catalog}
           extraIssues={serverIssues}
           actions={
             <Button

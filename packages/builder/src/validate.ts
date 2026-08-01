@@ -9,6 +9,7 @@
 import type { BuilderGraph, BuilderNode, BuilderValue } from "./builder-graph.js";
 import { addressOf } from "./builder-graph.js";
 import {
+  attributeKey,
   CATALOG,
   referenceSlot,
   resourceDef,
@@ -83,7 +84,7 @@ export function attributeValue(
   def: AttributeDef,
   node: BuilderNode,
 ): BuilderValue | undefined {
-  const own = node.attributes[def.name];
+  const own = node.attributes[attributeKey(def)];
   if (!isBlank(own)) return own;
   const fallback = def.default;
   if (fallback === undefined) return undefined;
@@ -128,7 +129,7 @@ function validateAttribute(
     if (attribute.required) {
       issues.push({
         nodeId: node.id,
-        attribute: attribute.name,
+        attribute: attributeKey(attribute),
         reason: "missing_required",
         message: `${attribute.label} is required`,
       });
@@ -138,7 +139,7 @@ function validateAttribute(
   if (!fitsKind(attribute, value)) {
     issues.push({
       nodeId: node.id,
-      attribute: attribute.name,
+      attribute: attributeKey(attribute),
       reason: "invalid_value",
       message:
         attribute.kind === "enum"
@@ -157,7 +158,7 @@ function validateNode(
 ): void {
   validateName(node, def.label, nameOwners, issues);
 
-  const known = new Set(def.attributes.map((a) => a.name));
+  const known = new Set(def.attributes.map(attributeKey));
   for (const name of Object.keys(node.attributes)) {
     if (!known.has(name)) {
       issues.push({

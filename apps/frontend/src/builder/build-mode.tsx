@@ -5,11 +5,15 @@
  * The playground owns the controller so the composition survives a trip
  * through Edit HCL; this component is what it looks like.
  */
-import { resourceDef, type BuilderIssue } from "@groundplan/builder";
+import { useCallback } from "react";
+
+import { CATALOG, resourceDef, type BuilderIssue } from "@groundplan/builder";
 
 import { BuilderCanvas } from "./builder-canvas";
 import { BuilderForm } from "./builder-form";
+import { CUSTOM_TYPE } from "./builder-ops";
 import { BuilderPalette } from "./builder-palette";
+import type { CatalogState } from "./use-catalog";
 import type { BuilderController } from "./use-builder-graph";
 
 /** "3 resources · ready" / "2 problems to fix" — the state of the sketch. */
@@ -25,10 +29,13 @@ export function compositionStatus(
 
 export function BuildMode({
   builder,
+  catalog,
   actions,
   extraIssues = [],
 }: Readonly<{
   builder: BuilderController;
+  /** The catalog the picker searches and the form renders from (GP-238). */
+  catalog: CatalogState;
   /** The generate control (GP-135), rendered in the status bar. */
   actions?: React.ReactNode;
   /**
@@ -39,10 +46,36 @@ export function BuildMode({
   extraIssues?: readonly BuilderIssue[];
 }>) {
   const issues = [...builder.issues, ...extraIssues];
+
+  /**
+   * Placing a resource is "fetch its schema, then add it" (GP-238). The curated
+   * entries resolve without a network call, so the common path is unchanged;
+   * anything else waits for the one schema it needs, and the palette entry
+   * shows it is waiting. A type whose schema cannot be fetched is not added —
+   * a card the form has nothing to say about would be worse than nothing.
+   */
+  const addResource = useCallback(
+    (type: string, position?: { x: number; y: number }) => {
+      // The escape hatch has no schema to fetch — that is what makes it one —
+      // and a curated type is already compiled in. Both are placed in this
+      // tick: waiting on a promise nobody is waiting for would turn a click
+      // into a frame of nothing happening.
+      if (type === CUSTOM_TYPE || resourceDef(type, CATALOG)) {
+        builder.addNode(type, position);
+        return;
+      }
+      void catalog.ensure(type).then((def) => {
+        if (def) builder.addNode(type, position, def);
+      });
+    },
+    [catalog, builder],
+  );
   const selected = builder.graph.nodes.find((n) => n.id === builder.selectedId);
   // A custom resource has no definition, and that is what makes it custom.
   const selectedDef =
-    selected && !selected.custom ? resourceDef(selected.type) : undefined;
+    selected && !selected.custom
+      ? resourceDef(selected.type, catalog.defs)
+      : undefined;
   const selectedIssues = issues.filter(
     (issue) => issue.nodeId === builder.selectedId,
   );
@@ -50,7 +83,7 @@ export function BuildMode({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1">
-        <BuilderPalette onAdd={builder.addNode} />
+        <BuilderPalette onAdd={addResource} catalog={catalog} />
 
         <div className="relative min-h-0 flex-1">
           {builder.graph.nodes.length === 0 && (
@@ -64,6 +97,7 @@ export function BuildMode({
           )}
           <BuilderCanvas
             graph={builder.graph}
+            catalog={catalog.defs}
             issues={issues}
             selectedId={builder.selectedId}
             onSelect={builder.select}
@@ -71,7 +105,7 @@ export function BuildMode({
             onConnect={builder.connect}
             onDisconnect={builder.disconnect}
             onDelete={builder.remove}
-            onDrop={builder.addNode}
+            onDrop={addResource}
           />
         </div>
 
@@ -79,6 +113,7 @@ export function BuildMode({
           <BuilderForm
             node={selected}
             def={selectedDef}
+            catalog={catalog.defs}
             graph={builder.graph}
             issues={selectedIssues}
             onRename={(name) => builder.rename(selected.id, name)}

@@ -10,8 +10,11 @@
 import { useState } from "react";
 
 import {
+  attributeKey,
   attributeValue,
+  CATALOG,
   canConnect,
+  isBlank,
   isNameIssue,
   isTypeIssue,
   type AttributeDef,
@@ -53,15 +56,26 @@ function AttributeField({
   issues: readonly BuilderIssue[];
   onChange: (value: BuilderValue | undefined) => void;
 }>) {
-  const id = `attr-${node.id}-${attribute.name}`;
+  // The storage key, not the HCL name: a schema-derived type can carry the same
+  // argument name at the top level and inside a required block (GP-238).
+  const key = attributeKey(attribute);
+  const id = `attr-${node.id}-${key}`;
   const value = attributeValue(attribute, node);
-  const problem = messageFor(issues, attribute.name);
+  const problem = messageFor(issues, key);
 
   return (
     <div className="space-y-1">
       <Label htmlFor={id} className="text-[11px]">
         {attribute.label}
         {attribute.required && <span className="text-destructive"> *</span>}
+        {/* The provider called this sensitive (GP-238). The builder writes
+            literals into a file somebody is about to commit, so the field says
+            so where the value is typed — not in a footnote. */}
+        {attribute.sensitive && (
+          <span className="text-impacted ml-1.5 font-mono text-[10px] tracking-[0.08em] uppercase">
+            sensitive
+          </span>
+        )}
       </Label>
       {(() => {
         if (attribute.kind === "enum") {
@@ -131,6 +145,12 @@ function AttributeField({
           />
         );
       })()}
+      {attribute.sensitive && !problem && (
+        <p className="text-muted-foreground text-[11px]">
+          Written into the generated file as a literal. Replace it with a
+          variable or a Key Vault reference before committing.
+        </p>
+      )}
       {problem ? (
         <p className="text-destructive text-[11px]">{problem}</p>
       ) : (
@@ -146,6 +166,7 @@ function SlotField({
   slot,
   node,
   graph,
+  catalog,
   issues,
   onConnect,
   onDisconnect,
@@ -153,6 +174,7 @@ function SlotField({
   slot: ReferenceSlot;
   node: BuilderNode;
   graph: BuilderGraph;
+  catalog: readonly ResourceDef[];
   issues: readonly BuilderIssue[];
   onConnect: (attribute: string, to: string) => void;
   onDisconnect: (attribute: string, to: string) => void;
@@ -165,7 +187,7 @@ function SlotField({
   const candidates = graph.nodes.filter(
     (candidate) =>
       candidate.id !== node.id &&
-      canConnect(node.type, slot.attribute, candidate.type) &&
+      canConnect(node.type, slot.attribute, candidate.type, catalog) &&
       !targets.some((t) => t.id === candidate.id),
   );
 
@@ -400,6 +422,7 @@ function CustomFields({
 export function BuilderForm({
   node,
   def,
+  catalog = CATALOG,
   graph,
   issues,
   onRename,
@@ -414,6 +437,8 @@ export function BuilderForm({
   node: BuilderNode;
   /** The catalog definition; absent on a custom resource. */
   def?: ResourceDef;
+  /** Everything the builder can compose with, for the slot candidate lists. */
+  catalog?: readonly ResourceDef[];
   graph: BuilderGraph;
   issues: readonly BuilderIssue[];
   onRename: (name: string) => void;
@@ -428,6 +453,15 @@ export function BuilderForm({
   // The Terraform name's problems are the ones about the name, not the ones
   // about an attribute that happens to be called `name` (most types have one).
   const nameProblem = issues.find(isNameIssue)?.message;
+
+  // Required first, in catalog order; everything else folded below. A curated
+  // type has a handful of each; a type read from a provider can have ninety
+  // optional arguments, and the required ones are what makes it valid.
+  const required = (def?.attributes ?? []).filter((a) => a.required);
+  const optional = (def?.attributes ?? []).filter((a) => !a.required);
+  const optionalFilled = optional.filter(
+    (a) => !isBlank(node.attributes[attributeKey(a)]),
+  ).length;
 
   return (
     <aside
@@ -482,13 +516,13 @@ export function BuilderForm({
           />
         ) : (
           <>
-            {def.attributes.map((attribute) => (
+            {required.map((attribute) => (
               <AttributeField
                 key={attribute.name}
                 attribute={attribute}
                 node={node}
                 issues={issues}
-                onChange={(value) => onAttribute(attribute.name, value)}
+                onChange={(value) => onAttribute(attributeKey(attribute), value)}
               />
             ))}
 
@@ -498,11 +532,39 @@ export function BuilderForm({
                 slot={slot}
                 node={node}
                 graph={graph}
+                catalog={catalog}
                 issues={issues}
                 onConnect={onConnect}
                 onDisconnect={onDisconnect}
               />
             ))}
+
+            {/* A type read from the provider can have ninety optional
+                arguments (GP-238). They are all here — nothing is hidden — but
+                folded away, because a form that opens on ninety empty fields
+                is a form nobody reads. What is required, and what is
+                connected, is what a resource needs to be valid. */}
+            {optional.length > 0 && (
+              <details className="border-border border-t pt-3">
+                <summary className="text-muted-foreground cursor-pointer text-[11px] select-none">
+                  Optional arguments ({optional.length})
+                  {optionalFilled > 0 && ` · ${optionalFilled} set`}
+                </summary>
+                <div className="space-y-4 pt-3">
+                  {optional.map((attribute) => (
+                    <AttributeField
+                      key={attribute.name}
+                      attribute={attribute}
+                      node={node}
+                      issues={issues}
+                      onChange={(value) =>
+                        onAttribute(attributeKey(attribute), value)
+                      }
+                    />
+                  ))}
+                </div>
+              </details>
+            )}
           </>
         )}
       </div>

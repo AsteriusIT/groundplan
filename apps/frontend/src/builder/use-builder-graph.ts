@@ -9,11 +9,14 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
+  CATALOG,
   emptyBuilderGraph,
+  mergeCatalog,
   validateBuilderGraph,
   type BuilderGraph,
   type BuilderIssue,
   type BuilderValue,
+  type ResourceDef,
 } from "@groundplan/builder";
 
 import { NEW_REFERENCE_HANDLE } from "./builder-node";
@@ -26,8 +29,17 @@ export type BuilderController = {
   valid: boolean;
   selectedId: string | null;
   select: (id: string | null) => void;
-  /** Add a resource — at a dropped position, or below what is already there. */
-  addNode: (type: string, position?: { x: number; y: number }) => void;
+  /**
+   * Add a resource — at a dropped position, or below what is already there.
+   * `def` is the definition of a type whose schema has just arrived (GP-238):
+   * it is used for this call without waiting for the catalog prop to come round
+   * again, which would be a render too late.
+   */
+  addNode: (
+    type: string,
+    position?: { x: number; y: number },
+    def?: ResourceDef,
+  ) => void;
   rename: (id: string, name: string) => void;
   /** Retype a custom resource (the only node whose type the user writes). */
   retype: (id: string, type: string) => void;
@@ -50,23 +62,41 @@ export type BuilderController = {
   disconnect: (from: string, attribute: string, to: string) => void;
 };
 
-export function useBuilderGraph(): BuilderController {
+/**
+ * `catalog` is what the composition is checked against (GP-238): the curated
+ * entries plus whatever the provider catalog has loaded so far. It changes as
+ * schemas arrive, and every rule — prefilled defaults, which connections are
+ * allowed, what validation complains about — reads the current one, so a
+ * resource added before its schema arrived is judged by it the moment it does.
+ */
+export function useBuilderGraph(
+  catalog: readonly ResourceDef[] = CATALOG,
+): BuilderController {
   const [graph, setGraph] = useState<BuilderGraph>(emptyBuilderGraph);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Counted, not random: a stable id makes a composition reproducible in a
   // test, and the id never leaves the session anyway.
   const nextId = useRef(1);
 
-  const issues = useMemo(() => validateBuilderGraph(graph), [graph]);
+  const issues = useMemo(
+    () => validateBuilderGraph(graph, catalog),
+    [graph, catalog],
+  );
+
+  // Read by the callbacks, so adding a resource or drawing a connection always
+  // uses the catalog as it stands rather than the one a stale closure captured.
+  const current = useRef(catalog);
+  current.current = catalog;
 
   const addNode = useCallback(
-    (type: string, position?: { x: number; y: number }) => {
+    (type: string, position?: { x: number; y: number }, def?: ResourceDef) => {
     const id = `n${nextId.current++}`;
-    setGraph((current) => {
-      const next = ops.addNode(current, type, id, position);
+    setGraph((graph) => {
+      const known = def ? mergeCatalog([def], current.current) : current.current;
+      const next = ops.addNode(graph, type, id, position, known);
       // A type the catalog does not know adds nothing — and selecting an id
       // that was never created would leave an empty form open.
-      if (next !== current) setSelectedId(id);
+      if (next !== graph) setSelectedId(id);
       return next;
     });
     },
@@ -95,12 +125,12 @@ export function useBuilderGraph(): BuilderController {
 
   const connect = useCallback(
     (from: string, attribute: string, to: string) => {
-      setGraph((current) =>
+      setGraph((graph) =>
         // A custom resource has no slot to connect into, so the connection
         // makes one and names it after what it points at.
         attribute === NEW_REFERENCE_HANDLE
-          ? ops.connectCustom(current, from, to)
-          : ops.connect(current, from, attribute, to),
+          ? ops.connectCustom(graph, from, to)
+          : ops.connect(graph, from, attribute, to, current.current),
       );
     },
     [],

@@ -17,7 +17,18 @@
 export type AttributeKind = "string" | "number" | "bool" | "enum" | "list";
 
 export type AttributeDef = {
+  /** The HCL argument name, as it is written into the generated file. */
   name: string;
+  /**
+   * Where the value is kept on the node, when that cannot be `name`.
+   *
+   * A schema-derived type can have the same argument name twice — a Kubernetes
+   * cluster has a `name`, and so does its required `default_node_pool` block —
+   * and two fields writing to one key would silently overwrite each other. The
+   * generated HCL still says `name` in both places; only the storage key is
+   * qualified. Absent on every curated entry, where no such collision exists.
+   */
+  key?: string;
   label: string;
   kind: AttributeKind;
   required: boolean;
@@ -28,6 +39,13 @@ export type AttributeDef = {
   hint?: string;
   /** Emit inside this block instead of at the top level (see `BlockDef`). */
   block?: string;
+  /**
+   * The provider marked this argument sensitive (GP-238). It changes nothing
+   * about generation — a literal in a `.tf` file is a literal — and everything
+   * about how the form presents it: the field says so, out loud, because the
+   * builder's output is a file somebody is about to commit.
+   */
+  sensitive?: boolean;
 };
 
 /**
@@ -67,9 +85,21 @@ export type ResourceCategory = "foundation" | "network" | "compute" | "data";
 export type ResourceDef = {
   type: string;
   label: string;
-  category: ResourceCategory;
+  /**
+   * The curated grouping. Absent on a definition derived from a provider schema
+   * (GP-238): a category is an editorial judgement about what a resource is
+   * *for*, and a schema does not contain one. Inventing a category for fifteen
+   * hundred types would be inventing fifteen hundred judgements.
+   */
+  category?: ResourceCategory;
   /** One line in the palette: what this resource is for. */
   description: string;
+  /**
+   * Which file this type is generated into, overriding the category's. Set on
+   * derived definitions (`azurerm.tf`), because a type with no category still
+   * has to land somewhere predictable.
+   */
+  file?: string;
   attributes: readonly AttributeDef[];
   references: readonly ReferenceSlot[];
   blocks?: readonly BlockDef[];
@@ -445,6 +475,11 @@ export function resourceDef(
   catalog: readonly ResourceDef[] = CATALOG,
 ): ResourceDef | undefined {
   return catalog.find((def) => def.type === type);
+}
+
+/** Where an attribute's value lives on a node. */
+export function attributeKey(attribute: AttributeDef): string {
+  return attribute.key ?? attribute.name;
 }
 
 /** The slot an attribute name names on a type, if it is a slot at all. */

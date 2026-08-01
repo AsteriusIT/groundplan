@@ -36,7 +36,11 @@ describe("resource catalog (GP-132)", () => {
     for (const def of CATALOG) {
       assert.equal(seen.has(def.type), false, `${def.type} is declared twice`);
       seen.add(def.type);
-      assert.ok(CATEGORIES.includes(def.category), `${def.type}: ${def.category}`);
+      // A *curated* entry always has one: the category is the editorial
+      // judgement that makes it curated. Only schema-derived definitions
+      // (GP-238) go without, and none of those live in this list.
+      assert.ok(def.category, `${def.type} has no category`);
+      assert.ok(CATEGORIES.includes(def.category!), `${def.type}: ${def.category}`);
     }
   });
 

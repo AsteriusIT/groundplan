@@ -8,13 +8,16 @@
  * without a canvas.
  */
 import {
+  attributeKey,
   attributeValue,
+  CATALOG,
   canConnect,
   referenceSlot,
   resourceDef,
   type BuilderGraph,
   type BuilderNode,
   type BuilderValue,
+  type ResourceDef,
 } from "@groundplan/builder";
 
 /** The palette entry that stands for "a resource the catalog does not have". */
@@ -61,6 +64,7 @@ export function newNode(
   type: string,
   id: string,
   position?: { x: number; y: number },
+  catalog: readonly ResourceDef[] = CATALOG,
 ): BuilderNode | null {
   // A custom resource starts with no type at all: the form asks for it, and
   // validation says so until it is given one.
@@ -74,7 +78,7 @@ export function newNode(
       position: position ?? nextPosition(graph),
     };
   }
-  const def = resourceDef(type);
+  const def = resourceDef(type, catalog);
   if (!def) return null;
   const node: BuilderNode = {
     id,
@@ -85,7 +89,7 @@ export function newNode(
   };
   for (const attribute of def.attributes) {
     const value = attributeValue(attribute, node);
-    if (value !== undefined) node.attributes[attribute.name] = value;
+    if (value !== undefined) node.attributes[attributeKey(attribute)] = value;
   }
   return node;
 }
@@ -95,8 +99,9 @@ export function addNode(
   type: string,
   id: string,
   position?: { x: number; y: number },
+  catalog: readonly ResourceDef[] = CATALOG,
 ): BuilderGraph {
-  const node = newNode(graph, type, id, position);
+  const node = newNode(graph, type, id, position, catalog);
   return node ? { ...graph, nodes: [...graph.nodes, node] } : graph;
 }
 
@@ -253,14 +258,15 @@ export function canAttach(
   from: string,
   attribute: string,
   to: string,
+  catalog: readonly ResourceDef[] = CATALOG,
 ): boolean {
   if (from === to) return false;
   const source = graph.nodes.find((n) => n.id === from);
   const target = graph.nodes.find((n) => n.id === to);
   if (!source || !target) return false;
-  if (!canConnect(source.type, attribute, target.type)) return false;
+  if (!canConnect(source.type, attribute, target.type, catalog)) return false;
 
-  const def = resourceDef(source.type);
+  const def = resourceDef(source.type, catalog);
   const slot = def ? referenceSlot(def, attribute) : undefined;
   if (!slot) return false;
 
@@ -278,8 +284,9 @@ export function connect(
   from: string,
   attribute: string,
   to: string,
+  catalog: readonly ResourceDef[] = CATALOG,
 ): BuilderGraph {
-  if (!canAttach(graph, from, attribute, to)) return graph;
+  if (!canAttach(graph, from, attribute, to, catalog)) return graph;
   return { ...graph, references: [...graph.references, { from, to, attribute }] };
 }
 

@@ -17,6 +17,8 @@ import {
   type BuilderIssue,
 } from "@groundplan/builder";
 
+import { catalogForGraph } from "../services/builder-catalog.js";
+
 // A composition is something a person drew, not an ingestion path — the caps
 // are the playground's spirit: far below what a webhook may cost the server.
 export const MAX_BUILDER_NODES = 200;
@@ -163,7 +165,25 @@ export const builderRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const graph = toBuilderGraph(wire);
-      const issues = validateBuilderGraph(graph);
+
+      // The composition is checked against what the providers themselves say
+      // (GP-238), assembled for the types on this canvas alone.
+      const { catalog, versions, warming } = await catalogForGraph(graph, {
+        repo: app.catalog,
+        allowlist: app.catalogAllowlist,
+      });
+      if (warming.length > 0) {
+        // Refusing beats guessing: a graph checked against a catalog we do not
+        // have is a graph checked against nothing, and "looks fine" would be
+        // the one dishonest answer this endpoint could give.
+        return reply.code(503).send({
+          error: "Service Unavailable",
+          code: "catalog_warming",
+          message: `the ${warming.join(", ")} catalog is still being read`,
+        });
+      }
+
+      const issues = validateBuilderGraph(graph, catalog);
       if (issues.length > 0) {
         // Every offending node, never just the first: the canvas badges them
         // all at once, and nothing is written anywhere.
@@ -174,7 +194,7 @@ export const builderRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
-      return { files: generateTerraform(graph) };
+      return { files: generateTerraform(graph, { catalog, versions }) };
     },
   );
 };

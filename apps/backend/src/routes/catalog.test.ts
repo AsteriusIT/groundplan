@@ -9,17 +9,11 @@
 import { test, before, describe } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { Pool } from "pg";
-
-import {
-  parseProviderSchema,
-  type RawProvidersSchema,
-} from "@groundplan/builder";
 
 import { buildApp } from "../app.js";
 import { catalogRepository } from "../catalog/repository.js";
@@ -33,15 +27,7 @@ const pool = new Pool({ connectionString: env.databaseUrl });
 const db = drizzle(pool);
 const repo = catalogRepository(db);
 
-const SCHEMAS = parseProviderSchema(
-  JSON.parse(
-    readFileSync(
-      new URL("../catalog/__fixtures__/azurerm-4.81.0-subset.json", import.meta.url),
-      "utf8",
-    ),
-  ) as RawProvidersSchema,
-  { provider: "hashicorp/azurerm", version: "4.81.0" },
-);
+import { AZURERM_SCHEMAS as SCHEMAS } from "../catalog/__fixtures__/azurerm.js";
 
 before(async () => {
   await runMigrations(env.databaseUrl);

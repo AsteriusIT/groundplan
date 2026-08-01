@@ -46,9 +46,9 @@ describe("self-host, FAQ, meta & footer", () => {
     const cta = html.lastIndexOf('aria-label="Get started"');
     expect(cta).toBeGreaterThan(-1);
     const block = html.slice(cta);
-    expect(block).toMatch(/href="https:\/\/app\.groundplan\.qcs\.ovh\/"/);
+    expect(block).toMatch(/href="https:\/\/groundplan\.asteriusit\.fr\/"/);
     expect(block).toMatch(/href="\/security\/"/);
-    expect(block.indexOf("app.groundplan")).toBeLessThan(block.indexOf("/security/"));
+    expect(block.indexOf("groundplan.asteriusit.fr")).toBeLessThan(block.indexOf("/security/"));
   });
 
   it("uses the §14 paragraph as the meta description", () => {

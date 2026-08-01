@@ -28,11 +28,13 @@ import {
 } from "@xyflow/react";
 
 import {
+  CATALOG,
   issuesByNode,
   resourceDef,
   type BuilderGraph,
   type BuilderIssue,
   type BuilderNode,
+  type ResourceDef,
 } from "@groundplan/builder";
 
 import { canAttach } from "./builder-ops";
@@ -52,6 +54,8 @@ export const PALETTE_MIME = "application/x-groundplan-resource";
 
 export type BuilderCanvasProps = {
   graph: BuilderGraph;
+  /** What the canvas draws slots and connection rules from (GP-238). */
+  catalog?: readonly ResourceDef[];
   issues: readonly BuilderIssue[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -68,6 +72,7 @@ function inputsOf(
   node: BuilderNode,
   graph: BuilderGraph,
   names: Map<string, string>,
+  catalog: readonly ResourceDef[],
 ): BuilderInput[] {
   const targetsOf = (attribute: string) =>
     graph.references
@@ -92,7 +97,7 @@ function inputsOf(
       });
   }
 
-  const def = resourceDef(node.type);
+  const def = resourceDef(node.type, catalog);
   return (def?.references ?? []).map((slot) => ({
     attribute: slot.attribute,
     label: slot.label,
@@ -108,6 +113,7 @@ function edgeId(from: string, attribute: string, to: string): string {
 
 function Canvas({
   graph,
+  catalog = CATALOG,
   issues,
   selectedId,
   onSelect,
@@ -133,12 +139,12 @@ function Canvas({
       selected: node.id === selectedId,
       data: {
         node,
-        def: resourceDef(node.type),
+        def: resourceDef(node.type, catalog),
         issues: byNode.get(node.id) ?? [],
-        inputs: inputsOf(node, graph, names),
+        inputs: inputsOf(node, graph, names, catalog),
       },
     }));
-  }, [graph, byNode, selectedId]);
+  }, [graph, byNode, selectedId, catalog]);
 
   // Keep the canvas in step with the document, without ever yanking a card out
   // from under the pointer: a node the canvas already has keeps its position.
@@ -185,9 +191,10 @@ function Canvas({
         connection.target,
         connection.targetHandle,
         connection.source,
+        catalog,
       );
     },
-    [graph],
+    [graph, catalog],
   );
 
   const handleConnect = useCallback(

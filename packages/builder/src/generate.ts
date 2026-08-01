@@ -39,25 +39,84 @@ export const GENERATED_FILES: readonly string[] = [
 ];
 
 /**
- * The provider preamble, at the top of `main.tf`. No credentials and no
- * backend: this deployment never holds either, and a generated file that
- * pretended otherwise would be teaching the wrong thing.
+ * Which providers a composition needs, and where each comes from. Derived from
+ * the type prefixes on the canvas (GP-238) rather than assumed: the builder is
+ * no longer Azure-only, and a preamble that named `azurerm` for a graph of
+ * Kubernetes objects would be a file that does not plan.
+ *
+ * `hashicorp` is the namespace for anything not listed, which is right for
+ * every provider the catalog allowlists and wrong for nothing it can compose.
  */
-const HEADER = `# Generated from the visual builder. Edit it freely: from here on this file is
-# the source of truth, and the sketch it came from is only a sketch.
+const PROVIDER_NAMESPACES: Record<string, string> = {
+  azurerm: "hashicorp",
+  aws: "hashicorp",
+  google: "hashicorp",
+  kubernetes: "hashicorp",
+  random: "hashicorp",
+  null: "hashicorp",
+};
 
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-  }
+/**
+ * The major to pin when no catalog version is known — the one the curated
+ * entries were written against. Anything not listed gets no `version` at all,
+ * which is the honest constraint: we did not read a version, so we do not
+ * pretend to have picked one.
+ */
+const CURATED_MAJOR: Record<string, string> = { azurerm: "4" };
+
+/** The provider a type belongs to: `azurerm_subnet` → `azurerm`. */
+function providerOf(type: string): string {
+  const at = type.indexOf("_");
+  return at === -1 ? type : type.slice(0, at);
 }
 
-provider "azurerm" {
-  features {}
-}`;
+/**
+ * `provider "x" {}` blocks the generated files need. `azurerm` is the one that
+ * cannot be omitted — its `features` block is mandatory — and the rest are
+ * emitted empty, which is the correct declaration when there are no
+ * credentials to put in one. There never are: this deployment holds none.
+ */
+function providerBlock(name: string): string {
+  return name === "azurerm"
+    ? `provider "azurerm" {\n  features {}\n}`
+    : `provider "${name}" {}`;
+}
+
+/**
+ * The preamble, at the top of `main.tf`. No credentials and no backend: this
+ * deployment never holds either, and a generated file that pretended otherwise
+ * would be teaching the wrong thing.
+ *
+ * Versions are pinned to the major the catalog read, as a `~>` constraint — the
+ * builder composed against a real schema and the file should say which one.
+ */
+export function header(
+  providers: readonly { name: string; version?: string }[],
+): string {
+  const required = providers.map(({ name, version }) => {
+    const namespace = PROVIDER_NAMESPACES[name] ?? "hashicorp";
+    const major = version?.split(".")[0] ?? CURATED_MAJOR[name];
+    return [
+      `    ${name} = {`,
+      `      source  = "${namespace}/${name}"`,
+      ...(major ? [`      version = "~> ${major}.0"`] : []),
+      "    }",
+    ].join("\n");
+  });
+
+  return [
+    "# Generated from the visual builder. Edit it freely: from here on this file is",
+    "# the source of truth, and the sketch it came from is only a sketch.",
+    "",
+    "terraform {",
+    "  required_providers {",
+    ...required,
+    "  }",
+    "}",
+    "",
+    ...providers.map((provider) => providerBlock(provider.name)),
+  ].join("\n");
+}
 
 /** One `key = value` line, before alignment. */
 type Line = { key: string; value: string };
@@ -248,9 +307,50 @@ export function renderResource(
   ].join("\n");
 }
 
+/** Which file a definition's resources are written into. */
+export function fileOf(def: ResourceDef): string {
+  if (def.file) return def.file;
+  return def.category ? FILE_OF_CATEGORY[def.category] : CUSTOM_FILE;
+}
+
 /**
- * The `.tf` files a builder graph becomes. Resources are grouped by their
- * catalog category and sorted by (type, name) inside each file, so neither the
+ * Every provider the composition needs, in a stable order, each with the
+ * version the catalog read for it. Derived from what is on the canvas — a
+ * composition of Kubernetes objects must not declare `azurerm`.
+ */
+function providersOf(
+  graph: BuilderGraph,
+  catalog: readonly ResourceDef[],
+  versions: Readonly<Record<string, string>>,
+): { name: string; version?: string }[] {
+  const names = new Set<string>();
+  for (const node of graph.nodes) {
+    // A custom resource's provider counts too: the user typed a real Terraform
+    // type, and the file it lands in needs that provider declared.
+    if (!node.custom && !resourceDef(node.type, catalog)) continue;
+    if (node.type.trim() === "") continue;
+    names.add(providerOf(node.type));
+  }
+  return [...names].sort().map((name) => ({
+    name,
+    ...(versions[name] ? { version: versions[name] } : {}),
+  }));
+}
+
+export type GenerateOptions = {
+  /** The catalog to render against. Defaults to the curated one. */
+  catalog?: readonly ResourceDef[];
+  /**
+   * Provider name → the version the catalog read, so the generated
+   * `required_providers` pins the major that was actually composed against.
+   */
+  versions?: Readonly<Record<string, string>>;
+};
+
+/**
+ * The `.tf` files a builder graph becomes. Resources go to their definition's
+ * file — the curated category's, or the provider's own for a type derived from
+ * a schema — and are sorted by (type, name) inside each one, so neither the
  * order nodes were created in nor where they sit on the canvas can change a
  * byte of the output.
  *
@@ -260,8 +360,16 @@ export function renderResource(
  */
 export function generateTerraform(
   graph: BuilderGraph,
-  catalog: readonly ResourceDef[] = CATALOG,
+  options: readonly ResourceDef[] | GenerateOptions = {},
 ): GeneratedFile[] {
+  // The second argument used to be the catalog itself (GP-134); accepting both
+  // keeps every existing caller and test working while the options grow.
+  const opts: GenerateOptions = Array.isArray(options)
+    ? { catalog: options }
+    : (options as GenerateOptions);
+  const catalog = opts.catalog ?? CATALOG;
+  const versions = opts.versions ?? {};
+
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const byFile = new Map<string, string[]>();
 
@@ -281,19 +389,27 @@ export function generateTerraform(
     }
     const def = resourceDef(node.type, catalog);
     if (!def) continue;
-    const path = FILE_OF_CATEGORY[def.category];
+    const path = fileOf(def);
     byFile.set(path, [
       ...(byFile.get(path) ?? []),
       renderResource(node, def, graph, byId),
     ]);
   }
 
+  // The curated files first, in their fixed order, then any provider file a
+  // derived type introduced — sorted, so the set of paths is a function of the
+  // graph and never of the order the nodes were added in.
+  const derived = [...byFile.keys()]
+    .filter((path) => !GENERATED_FILES.includes(path))
+    .sort((a, b) => a.localeCompare(b));
+
   const files: GeneratedFile[] = [];
-  for (const path of GENERATED_FILES) {
+  for (const path of [...GENERATED_FILES, ...derived]) {
     const blocks = byFile.get(path) ?? [];
-    const header = path === "main.tf" ? [HEADER] : [];
-    if (blocks.length === 0 && header.length === 0) continue;
-    files.push({ path, content: `${[...header, ...blocks].join("\n\n")}\n` });
+    const preamble =
+      path === "main.tf" ? [header(providersOf(graph, catalog, versions))] : [];
+    if (blocks.length === 0 && preamble.length === 0) continue;
+    files.push({ path, content: `${[...preamble, ...blocks].join("\n\n")}\n` });
   }
   return files;
 }

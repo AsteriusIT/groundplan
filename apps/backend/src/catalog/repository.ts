@@ -312,6 +312,26 @@ export function catalogRepository(db: NodePgDatabase) {
     };
   }
 
+  /**
+   * Every resource type name of a version. Small (a few tens of kilobytes even
+   * for a large provider) and needed whole: the builder's reference derivation
+   * decides whether `subnet_id` means a subnet by asking whether the provider
+   * has an `azurerm_subnet`, which is a question about the *whole* list.
+   */
+  async function listTypeNames(versionId: string): Promise<string[]> {
+    const rows = await db
+      .select({ name: catalogResourceTypes.name })
+      .from(catalogResourceTypes)
+      .where(
+        and(
+          eq(catalogResourceTypes.versionId, versionId),
+          eq(catalogResourceTypes.kind, "resource"),
+        ),
+      )
+      .orderBy(asc(catalogResourceTypes.name));
+    return rows.map((row) => row.name);
+  }
+
   /** One type's schema, or null when the version does not carry that type. */
   async function getResourceSchema(
     versionId: string,
@@ -527,6 +547,7 @@ export function catalogRepository(db: NodePgDatabase) {
     getLatestReadyVersion,
     listProviders,
     listResourceTypes,
+    listTypeNames,
     getResourceSchema,
     getResourceSchemas,
     claimExtraction,

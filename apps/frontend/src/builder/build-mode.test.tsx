@@ -1,13 +1,37 @@
 import { expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
+import { CATALOG, type ResourceDef } from "@groundplan/builder";
+
 import { BuildMode } from "./build-mode";
 import { useBuilderGraph } from "./use-builder-graph";
+import type { CatalogState } from "./use-catalog";
+
+/**
+ * A catalog with no provider behind it (GP-238). The curated entries are
+ * compiled in, so this is exactly what Build mode looks like on a deployment
+ * that never enabled the catalog worker — and every test below therefore also
+ * proves the builder still works without one.
+ */
+export function offlineCatalog(over: Partial<CatalogState> = {}): CatalogState {
+  return {
+    providers: null,
+    active: null,
+    defs: [...CATALOG] as ResourceDef[],
+    warming: false,
+    pinned: false,
+    unavailable: false,
+    search: async () => [],
+    ensure: async (type) => CATALOG.find((def) => def.type === type) ?? null,
+    loading: new Set(),
+    ...over,
+  };
+}
 
 /** The real controller, wired to the real mode — this is the feature. */
-function Harness() {
-  const builder = useBuilderGraph();
-  return <BuildMode builder={builder} />;
+function Harness({ catalog = offlineCatalog() }: { catalog?: CatalogState } = {}) {
+  const builder = useBuilderGraph(catalog.defs);
+  return <BuildMode builder={builder} catalog={catalog} />;
 }
 
 /** Add a resource from the palette by its label. */

@@ -9,17 +9,12 @@
 import { test, before, describe } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 import { Pool } from "pg";
 
-import {
-  parseProviderSchema,
-  type ProviderResourceSchema,
-  type RawProvidersSchema,
-} from "@groundplan/builder";
+import type { ProviderResourceSchema } from "@groundplan/builder";
 
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
@@ -36,21 +31,12 @@ import {
 } from "./refresh.js";
 import type { RegistryClient } from "./registry.js";
 import { catalogRepository } from "./repository.js";
+import { AZURERM_SCHEMAS as SCHEMAS } from "./__fixtures__/azurerm.js";
 
 const env = loadEnv();
 const pool = new Pool({ connectionString: env.databaseUrl });
 const db = drizzle(pool);
 const repo = catalogRepository(db);
-
-const SCHEMAS = parseProviderSchema(
-  JSON.parse(
-    readFileSync(
-      new URL("./__fixtures__/azurerm-4.81.0-subset.json", import.meta.url),
-      "utf8",
-    ),
-  ) as RawProvidersSchema,
-  { provider: "hashicorp/azurerm", version: "4.81.0" },
-);
 
 const TTL_MS = 60 * 60 * 1000;
 

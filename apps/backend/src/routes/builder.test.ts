@@ -189,7 +189,13 @@ test("POST /builder/generate: 422 naming every offending node", async () => {
 });
 
 test("POST /builder/generate: an unknown resource type is refused, not skipped", async () => {
-  const app = await buildApp(builderEnv, { pool: poisonedPool() });
+  // A provider this deployment does not allowlist has no catalog and never
+  // will, so the type is unknowable rather than merely unknown — and the
+  // poisoned pool proves the refusal cost no query.
+  const app = await buildApp(
+    { ...builderEnv, catalogProviders: "hashicorp/azurerm" },
+    { pool: poisonedPool() },
+  );
   try {
     const res = await app.inject({
       method: "POST",

@@ -11,17 +11,11 @@
  */
 import { test, before, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 import { Pool } from "pg";
-
-import {
-  parseProviderSchema,
-  type RawProvidersSchema,
-} from "@groundplan/builder";
 
 import { loadEnv } from "../config/env.js";
 import { runMigrations } from "../db/migrate.js";
@@ -29,23 +23,13 @@ import { catalogProviders, catalogProviderVersions } from "../db/schema.js";
 import { packSchema, unpackSchema } from "./compress.js";
 import { catalogRepository, EXTRACTION_LEASE_MS } from "./repository.js";
 import type { ProviderRef } from "./providers.js";
+import { AZURERM_SCHEMAS as SCHEMAS } from "./__fixtures__/azurerm.js";
 
 const env = loadEnv();
 const pool = new Pool({ connectionString: env.databaseUrl });
 const db = drizzle(pool);
 const repo = catalogRepository(db);
 
-const RAW = JSON.parse(
-  readFileSync(
-    new URL("./__fixtures__/azurerm-4.81.0-subset.json", import.meta.url),
-    "utf8",
-  ),
-) as RawProvidersSchema;
-
-const SCHEMAS = parseProviderSchema(RAW, {
-  provider: "hashicorp/azurerm",
-  version: "4.81.0",
-});
 
 before(async () => {
   await runMigrations(env.databaseUrl);
