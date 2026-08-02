@@ -66,18 +66,29 @@ it("highlights the active route and not the others", () => {
   );
 });
 
-it("puts Clusters beside Projects — a cluster is not inside one", () => {
-  renderSidebar({}, "/clusters");
-
-  const clusters = screen.getByRole("link", { name: "Clusters" });
-  expect(clusters).toHaveAttribute("href", "/clusters");
-  expect(clusters).toHaveAttribute("aria-current", "page");
+it("navigates within Documentation mode only (GP-242)", () => {
+  renderSidebar({}, "/projects");
 
   // Settings left NAV for the user-card menu (GP-186); Policies joined it as a
-  // place of its own rather than a settings section (GP-201).
+  // place of its own rather than a settings section (GP-201). Clusters,
+  // Playground and AI Studio left it for the mode switcher (GP-242).
+  expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
+    "Dashboard",
+    "Projects",
+    "Policies",
+  ]);
+  for (const gone of ["Clusters", "Playground", "AI Studio"]) {
+    expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument();
+  }
+});
+
+it("shows no mode-local navigation in a mode that is one place (GP-242)", () => {
+  renderSidebar({}, "/clusters");
+  expect(screen.queryAllByRole("link")).toHaveLength(0);
+  // The switcher still says where you are.
   expect(
-    screen.getAllByRole("link").map((a) => a.textContent),
-  ).toEqual(["Dashboard", "Projects", "Clusters", "Policies", "Playground"]);
+    screen.getByRole("button", { name: "Mode: Kubernetes Clusters" }),
+  ).toBeInTheDocument();
 });
 
 it("gives Policies a place of its own, out of Settings", () => {

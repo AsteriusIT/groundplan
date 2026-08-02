@@ -120,7 +120,7 @@ export function StudioPage() {
   }
 
   // No AI surface when the layer is off — the page only says why it is empty
-  // (reachable by URL; the sidebar never links here with AI disabled).
+  // (reachable by URL; the mode switcher never lists it with AI disabled).
   if (ai && !ai.enabled) {
     return (
       <div className="bg-background fixed inset-0 z-40 grid place-items-center p-4">

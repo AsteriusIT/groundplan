@@ -201,9 +201,13 @@ Run from the repo root. Package manager is **pnpm** (v10). Node **>= 22**
 - Auth: OIDC Authorization Code + PKCE (`src/auth/`), auto-redirect to the IdP
   (no `/login` page). New protected pages just render inside the guarded
   layout — don't re-check auth per page.
-- App shell: `AppLayout` sidebar + flat `<Outlet>`; nav is Dashboard /
-  Projects / **Clusters** / **Policies** / Playground. Settings left the nav
-  for the user-card menu (GP-186). `/policies` is the rule catalogue — a place,
+- App shell: `AppLayout` sidebar + flat `<Outlet>`. The four **modes**
+  (Documentation / Playground / AI Studio / Kubernetes Clusters) live in a
+  switcher beside the logo (`lib/app-mode.ts` declares them; the mode is
+  *derived from the URL*, never stored), and the sidebar is navigation *within*
+  the active mode — Dashboard / Projects / **Policies** in Documentation, the
+  two views in Playground, nothing in a mode that is one place (GP-242).
+  Settings left the nav for the user-card menu (GP-186). `/policies` is the rule catalogue — a place,
   not a settings section: it is the standard the estate is graded against, read
   by people who never open Settings. Where each repository *stands* is the
   dashboard's, so compliance keeps one home. `.blueprint-grid` paper is
