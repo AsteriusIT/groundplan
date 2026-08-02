@@ -44,6 +44,21 @@ if (!("ResizeObserver" in globalThis)) {
   };
 }
 
+// React Flow reads the viewport's zoom out of its CSS transform matrix when it
+// measures a node's handles — which it does for a card that sits inside a
+// frame (GP-247). jsdom has no DOMMatrixReadOnly, and identity is the honest
+// answer for a canvas that never paints and never zooms.
+if (!("DOMMatrixReadOnly" in globalThis)) {
+  globalThis.DOMMatrixReadOnly = class {
+    readonly m11 = 1;
+    readonly m12 = 0;
+    readonly m21 = 0;
+    readonly m22 = 1;
+    readonly m41 = 0;
+    readonly m42 = 0;
+  } as unknown as typeof DOMMatrixReadOnly;
+}
+
 Element.prototype.scrollIntoView ??= () => {};
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};

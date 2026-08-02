@@ -185,7 +185,7 @@ function Canvas({
           ? { parentId: node.parentId, extent: "parent" as const }
           : {}),
       };
-      if (drawsAsContainer(graph, node.id, catalog)) {
+      if (drawsAsContainer(graph, node.id)) {
         const box = boxes.get(node.id);
         return {
           ...shared,
@@ -332,13 +332,25 @@ function Canvas({
       // under the pointer wins rather than the one under a corner.
       onNodeDrag={(event, node) => {
         const point = screenToFlowPosition(pointerOf(event));
-        setDropTarget(containerAt(graph, boxes, point, node.id) ?? null);
+        const dragged = graph.nodes.find((n) => n.id === node.id);
+        setDropTarget(
+          containerAt(graph, boxes, point, {
+            ignore: node.id,
+            catalog,
+            childType: dragged?.type,
+          }) ?? null,
+        );
       }}
       onNodeDragStop={(event, node) => {
         dragging.current = false;
         setDropTarget(null);
         const point = screenToFlowPosition(pointerOf(event));
-        const target = containerAt(graph, boxes, point, node.id);
+        const dragged = graph.nodes.find((n) => n.id === node.id);
+        const target = containerAt(graph, boxes, point, {
+          ignore: node.id,
+          catalog,
+          childType: dragged?.type,
+        });
         const current = graph.nodes.find((n) => n.id === node.id)?.parentId;
         onMove(node.id, absoluteOf(node.id, node.position));
         if (target !== current) onNest(node.id, target);
@@ -369,7 +381,10 @@ function Canvas({
           x: event.clientX,
           y: event.clientY,
         });
-        const parentId = containerAt(graph, boxes, point);
+        const parentId = containerAt(graph, boxes, point, {
+          catalog,
+          childType: type,
+        });
         const parent = parentId ? boxes.get(parentId) : undefined;
         // Dropped into a frame: keep the point, but never under its own label.
         const position = parent

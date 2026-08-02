@@ -4,12 +4,12 @@ import { emptyBuilderGraph, type BuilderGraph } from "@groundplan/builder";
 
 import {
   absoluteBoxes,
+  acceptsDrop,
   byDepth,
-  CARD_HEIGHT,
+  cardHeight,
   CARD_WIDTH,
   containerAt,
   CONTAINER_MIN_HEIGHT,
-  CONTAINER_MIN_WIDTH,
   CONTAINER_PADDING,
   drawsAsContainer,
   relativePosition,
@@ -27,21 +27,37 @@ function nested(): BuilderGraph {
 }
 
 describe("build editor geometry (GP-247)", () => {
-  it("draws a card as a card and a container as a frame", () => {
+  it("draws a frame only around something", () => {
     const graph = nested();
     expect(drawsAsContainer(graph, "rg")).toBe(true);
-    // A vnet is a frame before anything is in it: it is somewhere to drop.
-    expect(drawsAsContainer(graph, "vnet")).toBe(true);
+    // A virtual network with nothing in it yet is still a card — a frame is
+    // what a resource becomes when it holds something.
+    expect(drawsAsContainer(graph, "vnet")).toBe(false);
 
     const withVm = addNode(graph, "azurerm_linux_virtual_machine", "vm");
     expect(drawsAsContainer(withVm, "vm")).toBe(false);
   });
 
-  it("sizes an empty frame to a place worth dropping into", () => {
+  it("takes a drop on the strength of the catalog, not of what it holds", () => {
+    let graph = addNode(emptyBuilderGraph(), "azurerm_resource_group", "rg");
+    graph = addNode(graph, "azurerm_subnet", "snet");
+    // The resource group is empty, and still where a network belongs…
+    expect(acceptsDrop(graph, "rg", undefined, "azurerm_virtual_network")).toBe(
+      true,
+    );
+    // …while a subnet is no home for a storage account, empty or not.
+    expect(acceptsDrop(graph, "snet", undefined, "azurerm_storage_account")).toBe(
+      false,
+    );
+  });
+
+  it("sizes an empty resource as the card it is drawn as", () => {
     const graph = addNode(emptyBuilderGraph(), "azurerm_resource_group", "rg");
     const box = absoluteBoxes(graph).get("rg");
-    expect(box?.width).toBe(CONTAINER_MIN_WIDTH);
-    expect(box?.height).toBe(CONTAINER_MIN_HEIGHT);
+    expect(box?.width).toBe(CARD_WIDTH);
+    expect(box?.height).toBe(cardHeight(graph, "rg"));
+    // A resource group needs nothing, so its card is all head and no rows.
+    expect(box?.height).toBeLessThan(CONTAINER_MIN_HEIGHT);
   });
 
   it("grows a frame around what is in it, without moving it", () => {
@@ -52,20 +68,19 @@ describe("build editor geometry (GP-247)", () => {
     // The frame's origin is still where the user left it.
     expect(box?.x).toBe(0);
     expect(box?.y).toBe(0);
-    // …and it reaches past the vnet's own frame, with room to spare.
-    expect(box?.width).toBe(400 + CONTAINER_MIN_WIDTH + CONTAINER_PADDING);
-    expect(box?.height).toBe(300 + CONTAINER_MIN_HEIGHT + CONTAINER_PADDING);
+    // …and it reaches past the vnet's card, with room to spare.
+    expect(box?.width).toBe(400 + CARD_WIDTH + CONTAINER_PADDING);
+    expect(box?.height).toBe(
+      300 + cardHeight(graph, "vnet") + CONTAINER_PADDING,
+    );
   });
 
-  it("gives a leaf its card's footprint", () => {
-    const graph = addNode(
-      emptyBuilderGraph(),
-      "azurerm_linux_virtual_machine",
-      "vm",
-    );
-    const box = absoluteBoxes(graph).get("vm");
-    expect(box?.width).toBe(CARD_WIDTH);
-    expect(box?.height).toBe(CARD_HEIGHT);
+  it("measures a card by the rows it shows", () => {
+    let graph = addNode(emptyBuilderGraph(), "azurerm_resource_group", "rg");
+    graph = addNode(graph, "azurerm_subnet", "snet");
+    // A resource group asks for nothing; a subnet asks for two things.
+    expect(cardHeight(graph, "snet")).toBeGreaterThan(cardHeight(graph, "rg"));
+    expect(absoluteBoxes(graph).get("snet")?.width).toBe(CARD_WIDTH);
   });
 
   it("hands React Flow a position relative to the frame, never under its label", () => {
@@ -105,7 +120,19 @@ describe("build editor geometry (GP-247)", () => {
     // Outside everything.
     expect(containerAt(graph, boxes, { x: 9999, y: 9999 })).toBeUndefined();
     // A node being dragged never counts as its own destination.
-    expect(containerAt(graph, boxes, { x: 100, y: 120 }, "vnet")).toBe("rg");
+    expect(containerAt(graph, boxes, { x: 100, y: 120 }, { ignore: "vnet" })).toBe(
+      "rg",
+    );
+    // And a frame that cannot take what is being dragged is not offered: a
+    // virtual network is no home for a resource group.
+    expect(
+      containerAt(
+        graph,
+        boxes,
+        { x: 100, y: 120 },
+        { childType: "azurerm_resource_group" },
+      ),
+    ).toBeUndefined();
   });
 
   it("survives a parent cycle rather than hanging on it", () => {
