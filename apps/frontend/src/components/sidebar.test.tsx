@@ -1,7 +1,15 @@
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, getAiStatus: vi.fn(), getBuilderStatus: vi.fn() };
+});
+
+import { getAiStatus, getBuilderStatus } from "@/api/client";
+import { resetAiStatus } from "@/lib/use-ai-status";
+import { resetBuilderStatus } from "@/lib/use-builder-status";
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context";
 import { OrgContext, type OrgContextValue } from "@/org/org-context";
 import { ThemeProvider } from "@/theme/theme-provider";
@@ -14,6 +22,13 @@ const orgValue: OrgContextValue = {
   singleOrg: true,
   switchOrg: vi.fn(),
 };
+
+beforeEach(() => {
+  resetAiStatus();
+  resetBuilderStatus();
+  vi.mocked(getAiStatus).mockResolvedValue({ enabled: false, model: null });
+  vi.mocked(getBuilderStatus).mockResolvedValue({ enabled: false });
+});
 
 function renderSidebar(
   auth: Partial<AuthContextValue> = {},
@@ -80,6 +95,31 @@ it("navigates within Documentation mode only (GP-242)", () => {
   for (const gone of ["Clusters", "Playground", "AI Studio"]) {
     expect(screen.queryByRole("link", { name: gone })).not.toBeInTheDocument();
   }
+});
+
+it("navigates between the two Playground views (GP-244)", async () => {
+  vi.mocked(getBuilderStatus).mockResolvedValue({ enabled: true });
+  renderSidebar({}, "/playground/build");
+
+  expect(await screen.findByRole("link", { name: /Build Editor/ })).toHaveAttribute(
+    "href",
+    "/playground/build",
+  );
+  expect(screen.getByRole("link", { name: "Editor" })).toHaveAttribute(
+    "href",
+    "/playground/editor",
+  );
+  // Experimental, and said so where it is chosen.
+  expect(screen.getByText("Experimental")).toBeInTheDocument();
+});
+
+it("offers no Build Editor where the builder is not configured (GP-133)", async () => {
+  renderSidebar({}, "/playground/editor");
+
+  expect(await screen.findByRole("link", { name: "Editor" })).toBeInTheDocument();
+  expect(
+    screen.queryByRole("link", { name: /Build Editor/ }),
+  ).not.toBeInTheDocument();
 });
 
 it("shows no mode-local navigation in a mode that is one place (GP-242)", () => {

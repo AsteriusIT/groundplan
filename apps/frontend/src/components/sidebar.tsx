@@ -2,6 +2,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 
 import { appMode, modeForPath } from "@/lib/app-mode";
+import { useBuilderStatus } from "@/lib/use-builder-status";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/ui/chip";
 import { Logo } from "./logo";
@@ -30,6 +31,12 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const mode = appMode(modeForPath(pathname));
   const { collapsed, toggle } = useSidebarPrefs();
+  // One cached probe per session (the `useAiStatus` shape): a deployment
+  // without the builder has no Build Editor to navigate to.
+  const builder = useBuilderStatus();
+  const nav = mode.nav.filter(
+    (entry) => !entry.requiresBuilder || builder?.enabled === true,
+  );
 
   return (
     <aside
@@ -76,7 +83,7 @@ export function Sidebar() {
 
       <ModeSwitcher collapsed={collapsed} />
 
-      {mode.nav.length > 0 && (
+      {nav.length > 0 && (
         <nav
           className={cn("flex-1 py-2", collapsed ? "px-2" : "px-3")}
           aria-label={mode.label}
@@ -87,7 +94,7 @@ export function Sidebar() {
             </p>
           )}
           <ul className="space-y-0.5">
-            {mode.nav.map(({ to, label, icon: Icon, tag }) => (
+            {nav.map(({ to, label, icon: Icon, tag }) => (
               <li key={to}>
                 <NavLink
                   to={to}
@@ -121,7 +128,7 @@ export function Sidebar() {
         </nav>
       )}
       {/* A mode that is one place keeps the switcher and the user area apart. */}
-      {mode.nav.length === 0 && <div className="flex-1" />}
+      {nav.length === 0 && <div className="flex-1" />}
 
       {/* The theme picker lives in Settings only — the sidebar is navigation. */}
       <OrgSwitcher collapsed={collapsed} />

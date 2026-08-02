@@ -13,7 +13,9 @@
  */
 import type { ComponentType } from "react";
 import {
+  Blocks,
   Boxes,
+  FileCode2,
   FlaskConical,
   LayoutDashboard,
   ShieldCheck,
@@ -30,6 +32,11 @@ export type NavEntry = {
   icon: ComponentType<{ className?: string }>;
   /** Small trailing tag (e.g. "Experimental") — accent, never a status hue. */
   tag?: string;
+  /**
+   * Gated on `BUILDER_ENABLED` (GP-133's posture): absent entirely where the
+   * deployment has no builder, rather than present and disabled.
+   */
+  requiresBuilder?: boolean;
 };
 
 export type AppMode = {
@@ -78,7 +85,16 @@ export const APP_MODES: readonly AppMode[] = [
     icon: FlaskConical,
     root: "/playground",
     paths: ["/playground"],
-    nav: [],
+    nav: [
+      { to: "/playground/editor", label: "Editor", icon: FileCode2 },
+      {
+        to: "/playground/build",
+        label: "Build Editor",
+        icon: Blocks,
+        tag: "Experimental",
+        requiresBuilder: true,
+      },
+    ],
   },
   {
     id: "studio",

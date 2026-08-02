@@ -15,7 +15,7 @@ import { OnboardingPage } from "@/pages/onboarding-page";
 import { OrgLandingPage } from "@/pages/org-landing-page";
 import { IntegrationCallbackPage } from "@/pages/integration-callback-page";
 import { OrgSettingsPage } from "@/pages/org-settings-page";
-import { PlaygroundPage } from "@/pages/playground-page";
+import { PlaygroundRoutes } from "@/playground/playground-routes";
 import { PoliciesPage } from "@/pages/policies-page";
 import { ProjectDetailPage } from "@/pages/project-detail-page";
 import { ProjectsPage } from "@/pages/projects-page";
@@ -135,7 +135,9 @@ function App() {
             the estate is graded against, read by people who never open
             Settings. */}
         <Route path="/policies" element={<PoliciesPage />} />
-        <Route path="/playground" element={<PlaygroundPage />} />
+        {/* The Playground is a mode with two views of its own (GP-244): a
+            real editor and the experimental Build Editor, each a route. */}
+        <Route path="/playground/*" element={<PlaygroundRoutes />} />
         {/* Personal settings (GP-187): Account + Appearance, every user. */}
         <Route path="/settings" element={<SettingsPage />} />
         {/* Organization settings (GP-188): org-scoped sections, per active org. */}

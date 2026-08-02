@@ -399,11 +399,19 @@ in, so the twelve work with no catalog at all — warming, unreachable, or never
 configured. Wording rule: **never write "never runs `terraform`" unqualified**
 (GP-240).
 
-**Visual builder (GP-131..135, flagged).** `BUILDER_ENABLED=true` adds a
-**Build** mode to the playground: compose Azure resources on a canvas, then
-generate Terraform from them. Off by default — the `AI_API_KEY` posture applied
-to a boolean: `/builder/status` reports it, `POST /builder/generate` 404s, and
-the frontend renders no Build surface. `packages/builder` holds everything both
+**Playground (GP-122, GP-244).** A mode with two routed views under
+`frontend/src/playground/`: `/playground/editor` (files → diagram) and
+`/playground/build` (the visual builder). Not header tabs — each is a place you
+can link to, and an unknown `/playground/…` lands in the Editor. The layout owns
+the document (`use-playground-document.ts`: files, parse, draft, composition,
+catalog) so walking between the views loses nothing; the views bring their own
+toolbars.
+
+**Visual builder (GP-131..135, flagged).** `BUILDER_ENABLED=true` adds the
+**Build Editor** view to the playground: compose Azure resources on a canvas,
+then generate Terraform from them. Off by default — the `AI_API_KEY` posture
+applied to a boolean: `/builder/status` reports it, `POST /builder/generate`
+404s, the route redirects to the Editor and the sidebar offers no entry. `packages/builder` holds everything both
 sides need, so the browser composes against the same rules the server generates
 from. `catalog.ts` is now the **curated** dozen (labels, categories, scaffold
 blocks, defaults) rather than the whole list — since GP-238 the rest comes from

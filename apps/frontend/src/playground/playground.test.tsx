@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { axe } from "vitest-axe";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -19,7 +19,7 @@ vi.mock("@/api/client", async (importOriginal) => {
 });
 
 // The real editor (CodeMirror) is covered by hcl-editor.test.tsx; here a
-// textarea stand-in keeps the page tests black-box and jsdom-simple.
+// textarea stand-in keeps the view tests black-box and jsdom-simple.
 vi.mock("@/components/hcl-editor", () => ({
   HclEditor: ({
     value,
@@ -72,7 +72,7 @@ import type {
   PlaygroundSnapshot,
 } from "@/api/types";
 import { resetBuilderStatus } from "@/lib/use-builder-status";
-import { PlaygroundPage } from "./playground-page";
+import { PlaygroundRoutes } from "./playground-routes";
 
 const parsePlaygroundMock = vi.mocked(parsePlayground);
 const builderStatusMock = vi.mocked(getBuilderStatus);
@@ -124,16 +124,45 @@ function snap(nodeCount: number): PlaygroundSnapshot {
   };
 }
 
-function renderPage() {
+let lastPath = "";
+function LocationProbe() {
+  lastPath = useLocation().pathname;
+  return null;
+}
+
+/**
+ * The mode's own navigation is the sidebar's (GP-242), tested there. Here two
+ * links stand in for it, so a test can walk between the views the way somebody
+ * does — the point being that walking between them keeps the document.
+ */
+function renderPlayground(path = "/playground/editor") {
   return render(
-    <MemoryRouter initialEntries={["/playground"]}>
-      <PlaygroundPage />
+    <MemoryRouter initialEntries={[path]}>
+      <nav aria-label="Playground views">
+        <Link to="/playground/editor">Editor</Link>
+        <Link to="/playground/build">Build Editor</Link>
+      </nav>
+      {/* AppLayout's `<main>`, so the landmark story is the app's (GP-244). */}
+      <main>
+        <Routes>
+          <Route path="/playground/*" element={<PlaygroundRoutes />} />
+        </Routes>
+      </main>
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
 
+function goTo(view: "Editor" | "Build Editor") {
+  fireEvent.click(
+    within(
+      screen.getByRole("navigation", { name: "Playground views" }),
+    ).getByRole("link", { name: view }),
+  );
+}
+
 beforeEach(() => {
-  // Build mode is opt-in (GP-133): off unless a test turns it on.
+  // The Build Editor is opt-in (GP-133): off unless a test turns it on.
   resetBuilderStatus();
   builderStatusMock.mockReset().mockResolvedValue({ enabled: false });
   generateMock.mockReset();
@@ -145,8 +174,74 @@ beforeEach(() => {
   deleteDraftMock.mockReset();
 });
 
+// ---------------------------------------------------------------------------
+// Routing (GP-244): two views, each a place you can link to.
+// ---------------------------------------------------------------------------
+
+it("sends the bare Playground URL to the Editor", async () => {
+  renderPlayground("/playground");
+  await waitFor(() => expect(lastPath).toBe("/playground/editor"));
+  expect(screen.getByLabelText("Playground files")).toBeInTheDocument();
+});
+
+it("sends an unknown Playground route to the Editor, not out of the mode", async () => {
+  renderPlayground("/playground/nonsense");
+  await waitFor(() => expect(lastPath).toBe("/playground/editor"));
+});
+
+it("deep links into the Build Editor where the builder is configured", async () => {
+  builderStatusMock.mockResolvedValue({ enabled: true });
+  renderPlayground("/playground/build");
+
+  expect(await screen.findByLabelText("Resource palette")).toBeInTheDocument();
+  // A full view of its own, not a tab beside the editor.
+  expect(screen.queryByLabelText("Playground files")).not.toBeInTheDocument();
+  expect(lastPath).toBe("/playground/build");
+});
+
+it("has no Build Editor at all where the builder is not configured (GP-133)", async () => {
+  renderPlayground("/playground/build");
+
+  // Not a disabled view, not a hint: it redirects to the one that exists.
+  await waitFor(() => expect(lastPath).toBe("/playground/editor"));
+  expect(screen.queryByLabelText("Resource palette")).not.toBeInTheDocument();
+});
+
+it("keeps the whole document while walking between the two views", async () => {
+  builderStatusMock.mockResolvedValue({ enabled: true });
+  renderPlayground();
+
+  fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+    target: { value: "# edited here" },
+  });
+
+  goTo("Build Editor");
+  fireEvent.click(
+    within(await screen.findByLabelText("Resource palette")).getByRole(
+      "button",
+      { name: /Resource group/i },
+    ),
+  );
+  expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
+
+  // Back to the Editor: the files are as they were…
+  goTo("Editor");
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", {
+    name: /file content/i,
+  });
+  expect(editor.value).toBe("# edited here");
+
+  // …and the composition survived the trip (GP-133's acceptance criterion).
+  goTo("Build Editor");
+  expect(await screen.findByTestId("builder-node-n1")).toBeInTheDocument();
+});
+
+// ---------------------------------------------------------------------------
+// The Editor view (GP-125..129).
+// ---------------------------------------------------------------------------
+
 it("preloads a small Azure example so the page is never empty", () => {
-  renderPage();
+  renderPlayground();
 
   expect(screen.getByText("main.tf")).toBeInTheDocument();
   expect(screen.getByText("network.tf")).toBeInTheDocument();
@@ -159,7 +254,7 @@ it("preloads a small Azure example so the page is never empty", () => {
 
 it("Visualize parses the current files and renders the canvas", async () => {
   parsePlaygroundMock.mockResolvedValue(snap(4));
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
 
@@ -171,7 +266,7 @@ it("Visualize parses the current files and renders the canvas", async () => {
 
 it("a parse failure names the file, marks it, and keeps the last good diagram", async () => {
   parsePlaygroundMock.mockResolvedValueOnce(snap(2));
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
   expect(await screen.findByTestId("canvas")).toHaveTextContent("2 nodes");
@@ -196,7 +291,7 @@ it("hands the parse error's line to the failing file's editor (GP-127)", async (
       { field: "main.tf", message: "unbalanced braces at line 3" },
     ]),
   );
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
   await screen.findByRole("alert");
@@ -212,7 +307,7 @@ it("does not mark the editor when the error is in another file", async () => {
       { field: "network.tf", message: "unbalanced braces at line 2" },
     ]),
   );
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
   await screen.findByRole("alert");
@@ -230,7 +325,7 @@ function openAddMenu() {
 }
 
 it("adds a new file from the + menu, all in local state", async () => {
-  renderPage();
+  renderPlayground();
 
   openAddMenu();
   fireEvent.click(
@@ -240,7 +335,7 @@ it("adds a new file from the + menu, all in local state", async () => {
 });
 
 it("deletes a file only after an inline confirmation (GP-128)", async () => {
-  renderPage();
+  renderPlayground();
 
   openAddMenu();
   fireEvent.click(
@@ -261,7 +356,7 @@ it("deletes a file only after an inline confirmation (GP-128)", async () => {
 
 it("marks a file modified since the last Visualize, cleared by the next one", async () => {
   parsePlaygroundMock.mockResolvedValue(snap(1));
-  renderPage();
+  renderPlayground();
 
   // No Visualize yet — nothing to be modified *since*.
   expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument();
@@ -284,7 +379,7 @@ it("marks a file modified since the last Visualize, cleared by the next one", as
 });
 
 it("identifies the selected file and follows selection", () => {
-  renderPage();
+  renderPlayground();
 
   expect(screen.getByRole("button", { name: "main.tf" })).toHaveAttribute(
     "aria-current",
@@ -301,7 +396,7 @@ it("identifies the selected file and follows selection", () => {
 });
 
 it("collapses the files panel to a rail and expands it back", () => {
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(
     screen.getByRole("button", { name: /collapse files panel/i }),
@@ -313,7 +408,7 @@ it("collapses the files panel to a rail and expands it back", () => {
 });
 
 it("resizes the files panel from its edge handle", () => {
-  renderPage();
+  renderPlayground();
 
   const handle = screen.getByRole("separator", {
     name: /resize files panel/i,
@@ -326,7 +421,7 @@ it("resizes the files panel from its edge handle", () => {
 });
 
 it("renames a file inline", async () => {
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /rename main\.tf/i }));
   const input = screen.getByRole("textbox", { name: /new name/i });
@@ -339,7 +434,7 @@ it("renames a file inline", async () => {
 
 it("editing the active file feeds the next parse", async () => {
   parsePlaygroundMock.mockResolvedValue(snap(1));
-  renderPage();
+  renderPlayground();
 
   const editor = screen.getByRole("textbox", { name: /file content/i });
   fireEvent.change(editor, { target: { value: "# rewritten" } });
@@ -351,7 +446,7 @@ it("editing the active file feeds the next parse", async () => {
 });
 
 it("uploads .tf files through the file input", async () => {
-  renderPage();
+  renderPlayground();
 
   const input = screen.getByLabelText(/upload files/i, { selector: "input" });
   const file = new File([`resource "a" "b" {}`], "uploaded.tf", {
@@ -363,7 +458,7 @@ it("uploads .tf files through the file input", async () => {
 });
 
 it("has no axe violations", async () => {
-  const { baseElement } = renderPage();
+  const { baseElement } = renderPlayground();
   await waitFor(async () => {
     const results = await axe(baseElement);
     expect(results.violations).toEqual([]);
@@ -373,6 +468,7 @@ it("has no axe violations", async () => {
 // ---------------------------------------------------------------------------
 // Drafts (GP-126) through the draft-centric header (GP-129): the grouped menu,
 // the editable title, the actionable save status, Ctrl+S — and the dirty guard.
+// They live in the mode's shell now (GP-244), above both views.
 // ---------------------------------------------------------------------------
 
 /** Open the grouped draft menu (shows "Drafts", or the open draft's name). */
@@ -394,7 +490,7 @@ async function saveAsDraft(name: string) {
 }
 
 it("titles an unsaved playground Untitled, with the status by the actions", () => {
-  renderPage();
+  renderPlayground();
 
   expect(
     screen.getByRole("heading", { name: /untitled/i }),
@@ -404,13 +500,26 @@ it("titles an unsaved playground Untitled, with the status by the actions", () =
   ).toBeInTheDocument();
 });
 
+it("keeps the draft header in both views", async () => {
+  builderStatusMock.mockResolvedValue({ enabled: true });
+  renderPlayground("/playground/build");
+
+  await screen.findByLabelText("Resource palette");
+  expect(
+    screen.getByRole("heading", { name: /untitled/i }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /draft actions/i }),
+  ).toBeInTheDocument();
+});
+
 it("saves as a named draft from the menu and titles the page with it", async () => {
   createDraftMock.mockImplementation(async (input) => ({
     ...DRAFT,
     name: input.name,
     files: input.files,
   }));
-  renderPage();
+  renderPlayground();
 
   await saveAsDraft("my stack");
 
@@ -429,7 +538,7 @@ it("Save from the menu updates the current draft — no duplication", async () =
     files: input.files,
   }));
   updateDraftMock.mockResolvedValue(DRAFT);
-  renderPage();
+  renderPlayground();
 
   await saveAsDraft("my stack");
 
@@ -449,7 +558,7 @@ it("Save from the menu updates the current draft — no duplication", async () =
 });
 
 it("clicking the Unsaved status starts the Save as flow", async () => {
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /unsaved changes/i }));
   expect(await screen.findByLabelText(/draft name/i)).toBeInTheDocument();
@@ -462,7 +571,7 @@ it("clicking the status with a dirty draft saves it", async () => {
     files: input.files,
   }));
   updateDraftMock.mockResolvedValue(DRAFT);
-  renderPage();
+  renderPlayground();
 
   await saveAsDraft("my stack");
   expect(screen.getByRole("button", { name: /^saved$/i })).toBeInTheDocument();
@@ -482,7 +591,7 @@ it("renames the current draft from its title, inline", async () => {
     files: input.files,
   }));
   updateDraftMock.mockResolvedValue({ ...DRAFT, name: "renamed" });
-  renderPage();
+  renderPlayground();
 
   await saveAsDraft("my stack");
 
@@ -506,7 +615,7 @@ it("Ctrl+S saves the current draft; unsaved, it opens Save as", async () => {
     files: input.files,
   }));
   updateDraftMock.mockResolvedValue(DRAFT);
-  renderPage();
+  renderPlayground();
 
   // No draft yet: the shortcut opens the naming dialog.
   fireEvent.keyDown(window, { key: "s", ctrlKey: true });
@@ -523,7 +632,7 @@ it("Ctrl+S saves the current draft; unsaved, it opens Save as", async () => {
 });
 
 it("disables Rename and Delete in the menu until a draft is open", async () => {
-  renderPage();
+  renderPlayground();
 
   openDraftMenu();
   expect(
@@ -542,7 +651,7 @@ it("deletes the current draft from the menu, behind a confirmation", async () =>
     files: input.files,
   }));
   deleteDraftMock.mockResolvedValue(undefined);
-  renderPage();
+  renderPlayground();
 
   await saveAsDraft("my stack");
 
@@ -563,7 +672,7 @@ it("opens a draft: files restored, parse re-runs automatically", async () => {
   listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
   getDraftMock.mockResolvedValue(DRAFT);
   parsePlaygroundMock.mockResolvedValue(snap(1));
-  renderPage();
+  renderPlayground();
 
   openDraftMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
@@ -589,7 +698,7 @@ it("a draft that no longer parses still opens, error on display", async () => {
       { field: "saved.tf", message: "unbalanced braces" },
     ]),
   );
-  renderPage();
+  renderPlayground();
 
   openDraftMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
@@ -608,7 +717,7 @@ it("a draft that no longer parses still opens, error on display", async () => {
 it("renames a draft from the list", async () => {
   listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
   updateDraftMock.mockResolvedValue({ ...DRAFT, name: "renamed" });
-  renderPage();
+  renderPlayground();
 
   openDraftMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
@@ -627,7 +736,7 @@ it("renames a draft from the list", async () => {
 it("deletes a draft from the list only after confirmation", async () => {
   listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
   deleteDraftMock.mockResolvedValue(undefined);
-  renderPage();
+  renderPlayground();
 
   openDraftMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
@@ -641,7 +750,7 @@ it("deletes a draft from the list only after confirmation", async () => {
 });
 
 it("warns before unload only when there are unsaved changes", () => {
-  renderPage();
+  renderPlayground();
 
   const pristine = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(pristine);
@@ -658,8 +767,8 @@ it("warns before unload only when there are unsaved changes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Kubernetes mode: the centered stack switch, per-mode snapshots, and the
-// mode-deriving draft open.
+// Kubernetes: the stack switch, per-mode snapshots, and the mode-deriving
+// draft open.
 // ---------------------------------------------------------------------------
 
 const K8S_DRAFT: PlaygroundDraft = {
@@ -677,7 +786,7 @@ const K8S_DRAFT: PlaygroundDraft = {
 };
 
 it("renders both switch sides; Kubernetes is disabled without .yaml files", () => {
-  renderPage();
+  renderPlayground();
 
   const tf = screen.getByRole("button", { name: "Terraform" });
   const k8s = screen.getByRole("button", { name: "Kubernetes" });
@@ -687,7 +796,7 @@ it("renders both switch sides; Kubernetes is disabled without .yaml files", () =
 });
 
 it("New manifest enables the Kubernetes side; switching mutes the .tf files", async () => {
-  renderPage();
+  renderPlayground();
 
   openAddMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
@@ -706,7 +815,7 @@ it("New manifest enables the Kubernetes side; switching mutes the .tf files", as
 
 it("Visualize sends the active iacType and keeps one snapshot per mode", async () => {
   parsePlaygroundMock.mockResolvedValue(snap(2));
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
   await screen.findByTestId("canvas");
@@ -732,7 +841,7 @@ it("opening a manifests-only draft lands in Kubernetes mode and parses it as suc
   ]);
   getDraftMock.mockResolvedValue(K8S_DRAFT);
   parsePlaygroundMock.mockResolvedValue(snap(1));
-  renderPage();
+  renderPlayground();
 
   openDraftMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
@@ -751,7 +860,7 @@ it("opening a manifests-only draft lands in Kubernetes mode and parses it as suc
 });
 
 // ---------------------------------------------------------------------------
-// Views: Global / Network / IAM on a Terraform snapshot; diagram-only for
+// Lenses: Global / Network / IAM on a Terraform snapshot; diagram-only for
 // Kubernetes (the GP-105 rule, kept consistent).
 // ---------------------------------------------------------------------------
 
@@ -777,7 +886,7 @@ function iamSnap(): PlaygroundSnapshot {
 
 it("a Terraform snapshot offers Global/Network/IAM; IAM renders the table", async () => {
   parsePlaygroundMock.mockResolvedValue(iamSnap());
-  renderPage();
+  renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
   await screen.findByTestId("canvas");
@@ -795,7 +904,7 @@ it("a Terraform snapshot offers Global/Network/IAM; IAM renders the table", asyn
 
 it("a Kubernetes snapshot gets the diagram and nothing else", async () => {
   parsePlaygroundMock.mockResolvedValue(snap(1));
-  renderPage();
+  renderPlayground();
 
   openAddMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
@@ -809,62 +918,22 @@ it("a Kubernetes snapshot gets the diagram and nothing else", async () => {
   expect(screen.queryByRole("button", { name: "IAM" })).not.toBeInTheDocument();
 });
 
-it("shows no Build surface where the builder is not configured (GP-133)", async () => {
-  renderPage();
-
-  // Not a disabled switch, not a hint: a deployment without the builder shows
-  // no trace of it at all.
-  await waitFor(() => expect(builderStatusMock).toHaveBeenCalled());
-  expect(screen.queryByLabelText("Playground mode")).not.toBeInTheDocument();
-  expect(screen.queryByLabelText("Resource palette")).not.toBeInTheDocument();
-});
-
-it("offers Build mode where BUILDER_ENABLED is on, and composes into it (GP-133)", async () => {
-  builderStatusMock.mockResolvedValue({ enabled: true });
-  renderPage();
-
-  const mode = await screen.findByLabelText("Playground mode");
-  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
-
-  // The palette replaces the file panel; the composition starts empty.
-  expect(screen.getByLabelText("Resource palette")).toBeInTheDocument();
-  expect(screen.queryByLabelText("Playground files")).not.toBeInTheDocument();
-  expect(screen.getByRole("status")).toHaveTextContent("Nothing composed yet");
-
-  fireEvent.click(
-    within(screen.getByLabelText("Resource palette")).getByRole("button", {
-      name: /Resource group/i,
-    }),
-  );
-  expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
-
-  // Back to Edit HCL: the files are exactly as they were…
-  fireEvent.click(within(mode).getByRole("button", { name: "Edit HCL" }));
-  expect(screen.getByText("main.tf")).toBeInTheDocument();
-
-  // …and the composition survived the trip (GP-133's acceptance criterion).
-  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
-  expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
-});
-
 // --- The generate flow (GP-135) ---------------------------------------------
 
-/** Build mode, with one valid resource composed. */
+/** The Build Editor, with one valid resource composed. */
 async function composeOneResource() {
   builderStatusMock.mockResolvedValue({ enabled: true });
-  renderPage();
-  const mode = await screen.findByLabelText("Playground mode");
-  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
+  renderPlayground("/playground/build");
   fireEvent.click(
-    within(screen.getByLabelText("Resource palette")).getByRole("button", {
-      name: /Resource group/i,
-    }),
+    within(await screen.findByLabelText("Resource palette")).getByRole(
+      "button",
+      { name: /Resource group/i },
+    ),
   );
   fireEvent.change(
     within(screen.getByLabelText("Resource details")).getByLabelText(/Azure name/),
     { target: { value: "rg-demo" } },
   );
-  return mode;
 }
 
 const GENERATED = [
@@ -873,13 +942,12 @@ const GENERATED = [
 
 it("will not generate an incomplete composition (GP-135)", async () => {
   builderStatusMock.mockResolvedValue({ enabled: true });
-  renderPage();
-  const mode = await screen.findByLabelText("Playground mode");
-  fireEvent.click(within(mode).getByRole("button", { name: "Build" }));
+  renderPlayground("/playground/build");
   fireEvent.click(
-    within(screen.getByLabelText("Resource palette")).getByRole("button", {
-      name: /Resource group/i,
-    }),
+    within(await screen.findByLabelText("Resource palette")).getByRole(
+      "button",
+      { name: /Resource group/i },
+    ),
   );
 
   // The resource is missing its Azure name, and the node already says so —
@@ -900,12 +968,13 @@ it("previews the generated files before writing them (GP-135)", async () => {
       nodes: [expect.objectContaining({ type: "azurerm_resource_group" })],
     }),
   );
-  // Nothing has been written yet: the file panel is still the example set.
+  // Nothing has been written yet, and nothing has moved.
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.queryByText("generated.tf")).not.toBeInTheDocument();
+  expect(lastPath).toBe("/playground/build");
 });
 
-it("writes the files, returns to Edit HCL and visualizes them (GP-135)", async () => {
+it("writes the files, returns to the Editor and visualizes them (GP-135)", async () => {
   generateMock.mockResolvedValue({ files: GENERATED });
   parsePlaygroundMock.mockResolvedValue(snap(1));
   await composeOneResource();
@@ -914,19 +983,18 @@ it("writes the files, returns to Edit HCL and visualizes them (GP-135)", async (
   await screen.findByText("Generated Terraform");
   fireEvent.click(screen.getByRole("button", { name: "Write to playground" }));
 
-  // The file landed beside the others, the editor is back, and Visualize ran
+  // The file landed beside the others, the Editor took over, and the parse ran
   // on the merged set — the loop closes on the diagram.
   await waitFor(() => expect(parsePlaygroundMock).toHaveBeenCalled());
-  expect(screen.getByText("generated.tf")).toBeInTheDocument();
+  expect(lastPath).toBe("/playground/editor");
+  expect(await screen.findByText("generated.tf")).toBeInTheDocument();
   expect(screen.getByLabelText("Playground files")).toBeInTheDocument();
   const [written] = parsePlaygroundMock.mock.calls.at(-1) ?? [];
   expect((written as PlaygroundFile[]).map((f) => f.path)).toContain(
     "generated.tf",
   );
   // And the one-way rule is said out loud, once.
-  expect(
-    screen.getByText(/Build mode never reads Terraform back/),
-  ).toBeInTheDocument();
+  expect(screen.getByText(/never reads Terraform back/)).toBeInTheDocument();
 });
 
 it("names the files a generation would replace, and cancels cleanly (GP-135)", async () => {
@@ -943,11 +1011,7 @@ it("names the files a generation would replace, and cancels cleanly (GP-135)", a
 
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   // The example main.tf is untouched: cancelling wrote nothing.
-  fireEvent.click(
-    within(await screen.findByLabelText("Playground mode")).getByRole("button", {
-      name: "Edit HCL",
-    }),
-  );
+  goTo("Editor");
   const editor = screen.getByLabelText("File content") as HTMLTextAreaElement;
   expect(editor.value).toContain('resource "azurerm_resource_group" "demo"');
   expect(editor.value).not.toContain("# generated");
