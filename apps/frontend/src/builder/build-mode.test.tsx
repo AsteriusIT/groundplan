@@ -410,3 +410,10 @@ it("keeps a variable out of what a variable could point at", () => {
   // They are named apart, in their own namespace.
   expect(within(panel).getByLabelText(/Terraform name/)).toHaveValue("variable_2");
 });
+
+/*
+ * Selecting a wire and deleting it is verified in a browser, not here: React
+ * Flow draws an edge only once it has measured the handles at both ends, and
+ * jsdom measures everything as zero — so there is no edge in this DOM to click
+ * on. What the gesture ends in, `disconnect`, is covered in `builder-ops`.
+ */

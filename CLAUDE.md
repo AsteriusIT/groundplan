@@ -407,7 +407,7 @@ the document (`use-playground-document.ts`: files, parse, draft, composition,
 catalog) so walking between the views loses nothing; the views bring their own
 toolbars.
 
-**Visual builder (GP-131..135, GP-247..250, flagged).** `BUILDER_ENABLED=true` adds
+**Visual builder (GP-131..135, GP-247..251, flagged).** `BUILDER_ENABLED=true` adds
 the **Build Editor** view to the playground: compose Azure resources on a canvas,
 then generate Terraform from them. Off by default — the `AI_API_KEY` posture
 applied to a boolean: `/builder/status` reports it, `POST /builder/generate`
@@ -445,7 +445,10 @@ bound argument grows a row on the card. A wire let go anywhere on a node
 (GP-250) opens a menu of everything on it that `canAttach` allows — arguments
 and slots alike, required first — because an unbound argument has no handle to
 aim at; the node under the pointer comes from `nodeAt`, since React Flow only
-reports a `toNode` when a handle was within reach. A composition saves into a playground draft beside the
+reports a `toNode` when a handle was within reach. A wire is selectable and
+Delete/Backspace removes it (GP-251) — which needs `onEdgesChange`, since a
+controlled `edges` prop without it can never record a selection for the key to
+act on. A composition saves into a playground draft beside the
 files (`playground_drafts.composition`) — two documents, neither derived from
 the other (ADR #5). `packages/builder` holds everything both
 sides need, so the browser composes against the same rules the server generates
@@ -539,7 +542,7 @@ wording) · GP-241 app modes & Playground revamp (GP-242..247: mode switcher,
 collapsible rail, two Playground routes, the real editor, the layout toggle,
 containment in the Build Editor) · GP-248 data lookups in the Build Editor ·
 GP-249 variables in the Build Editor · GP-250 drop a wire on a node and pick
-what it fills.
+what it fills · GP-251 select a wire and delete it.
 
 **Open:**
 

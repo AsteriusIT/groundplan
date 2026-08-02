@@ -29,6 +29,7 @@ import {
   Controls,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
   useNodesState,
   useReactFlow,
   type Connection,
@@ -278,7 +279,7 @@ function Canvas({
    * already drawn — as the frame the node sits in — and drawing it twice would
    * be a wire from a card to the box around it.
    */
-  const edges = useMemo<Edge[]>(() => {
+  const wires = useMemo<Edge[]>(() => {
     const ancestors = new Map(
       graph.nodes.map((n) => [n.id, new Set(ancestorsOf(graph, n.id).map((a) => a.id))]),
     );
@@ -295,6 +296,41 @@ function Canvas({
         labelStyle: { fontSize: 10 },
       }));
   }, [graph]);
+
+  /**
+   * The edges React Flow holds, so one can be *selected* — which is what the
+   * Delete key acts on (GP-251). They are derived from the document like the
+   * nodes are, and a rebuild keeps whatever was selected: losing the selection
+   * every time the graph changed would mean nothing could ever be deleted, and
+   * that is exactly what a controlled `edges` prop with no `onEdgesChange` was
+   * doing.
+   */
+  const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  /**
+   * A selected wire has to look selected — it is what Delete will take. React
+   * Flow's own selected stroke is a mid grey that says nothing on any of this
+   * app's themes, and the colour is set here rather than in a stylesheet
+   * because this is the one place that knows which wire it is.
+   */
+  const drawn = useMemo(
+    () =>
+      flowEdges.map((edge) =>
+        edge.selected
+          ? { ...edge, style: { stroke: "var(--primary)", strokeWidth: 2 } }
+          : edge,
+      ),
+    [flowEdges],
+  );
+  useEffect(() => {
+    setFlowEdges((current) => {
+      const selected = new Set(
+        current.filter((edge) => edge.selected).map((edge) => edge.id),
+      );
+      return wires.map((edge) =>
+        selected.has(edge.id) ? { ...edge, selected: true } : edge,
+      );
+    });
+  }, [wires, setFlowEdges]);
 
   /** Where a node's top-left is on the canvas, parents included. */
   const absoluteOf = useCallback(
@@ -381,9 +417,10 @@ function Canvas({
     <div ref={surface} className="relative h-full w-full">
     <ReactFlow
       nodes={flowNodes}
-      edges={edges}
+      edges={drawn}
       nodeTypes={nodeTypes}
       onNodesChange={handleNodesChange}
+      onEdgesChange={onEdgesChange}
       // Where a node is let go decides both things: where it sits, and what it
       // is now inside. The pointer is what the user aimed with, so the frame
       // under the pointer wins rather than the one under a corner.
