@@ -1191,6 +1191,68 @@ async function composeOneResource() {
   );
 }
 
+it("saves the composition into the draft, and reopens it (GP-247)", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+    composition: input.composition ?? null,
+  }));
+  await composeOneResource();
+
+  await saveAsDraft("composed");
+
+  // The canvas went with the draft — nodes, and the frame each sits in.
+  const saved = createDraftMock.mock.calls[0]?.[0];
+  expect(saved?.composition?.nodes).toEqual([
+    expect.objectContaining({ id: "n1", type: "azurerm_resource_group" }),
+  ]);
+  expect(screen.getByRole("button", { name: /^Saved$/ })).toBeInTheDocument();
+
+  // Reopened, it is composed again rather than empty.
+  const stored = createDraftMock.mock.results[0]?.value as Promise<PlaygroundDraft>;
+  listDraftsMock.mockResolvedValue([{ ...DRAFT_SUMMARY, name: "composed" }]);
+  getDraftMock.mockResolvedValue(await stored);
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /open composed/i }));
+
+  expect(await screen.findByTestId("builder-node-n1")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("1 resource");
+});
+
+it("a draft saved before there were compositions reopens with an empty canvas", async () => {
+  builderStatusMock.mockResolvedValue({ enabled: true });
+  listDraftsMock.mockResolvedValue([DRAFT_SUMMARY]);
+  getDraftMock.mockResolvedValue(DRAFT);
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPlayground("/playground/build");
+  await screen.findByLabelText("Resource palette");
+
+  openDraftMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /open draft/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /open azure sketch/i }),
+  );
+
+  await waitFor(() =>
+    expect(screen.getByRole("status")).toHaveTextContent("Nothing composed yet"),
+  );
+});
+
+it("exposes no way to draw an edge, and says it is experimental (GP-247)", async () => {
+  await composeOneResource();
+  expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
+
+  expect(screen.getByText("Experimental")).toBeInTheDocument();
+  // React Flow's connection handles are what an edge is drawn from. A resource
+  // group is a frame you drop things into, and there is nothing to grab.
+  expect(document.querySelectorAll(".react-flow__handle")).toHaveLength(0);
+  expect(
+    document.querySelectorAll(".react-flow__pane.connectable"),
+  ).toHaveLength(0);
+});
+
 const GENERATED = [
   { path: "generated.tf", content: 'resource "azurerm_resource_group" "rg" {}\n' },
 ];

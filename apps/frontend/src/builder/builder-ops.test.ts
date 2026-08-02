@@ -5,14 +5,17 @@ import { emptyBuilderGraph, type BuilderGraph } from "@groundplan/builder";
 import {
   addNode,
   canAttach,
+  canNest,
   connect,
   connectCustom,
   connectedTo,
   CUSTOM_TYPE,
   disconnect,
   freeName,
+  removeBranch,
   removeNode,
   renameNode,
+  reparent,
   renameReference,
   retypeNode,
   setAttribute,
@@ -177,5 +180,105 @@ describe("custom resources and dropped positions (GP-133 follow-up)", () => {
     graph = retypeNode(graph, "snet", "aws_instance");
     expect(graph.nodes[0]?.type).toBe("azurerm_management_lock");
     expect(graph.nodes[1]?.type).toBe("azurerm_subnet");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Containment (GP-247): the Build Editor draws relationships as space, and the
+// space *is* the reference.
+// ---------------------------------------------------------------------------
+
+describe("containment (GP-247)", () => {
+  /** rg ⊃ vnet ⊃ subnet, drawn rather than wired. */
+  function nested(): BuilderGraph {
+    let graph = threeNodes();
+    graph = reparent(graph, "n2", "n1");
+    return reparent(graph, "n3", "n2");
+  }
+
+  it("nesting fills the slot that takes the container", () => {
+    const graph = reparent(threeNodes(), "n2", "n1");
+    expect(graph.nodes.find((n) => n.id === "n2")?.parentId).toBe("n1");
+    expect(graph.references).toEqual([
+      { from: "n2", to: "n1", attribute: "resource_group_name" },
+    ]);
+  });
+
+  it("fills every slot the whole chain answers", () => {
+    const graph = nested();
+    // The subnet is in the vnet, and the vnet is in the resource group — so
+    // both of the subnet's required references are answered by where it sits.
+    expect(
+      graph.references
+        .filter((r) => r.from === "n3")
+        .map((r) => `${r.attribute}→${r.to}`)
+        .sort(),
+    ).toEqual(["resource_group_name→n1", "virtual_network_name→n2"]);
+  });
+
+  it("refuses a nesting the catalog has no slot for", () => {
+    const graph = threeNodes();
+    // A resource group inside a subnet is not a thing.
+    expect(reparent(graph, "n1", "n3")).toBe(graph);
+    expect(canNest(graph, "n1", "n3")).toBe(false);
+  });
+
+  it("refuses to put a container inside its own descendant", () => {
+    const graph = nested();
+    expect(canNest(graph, "n1", "n3")).toBe(false);
+    expect(reparent(graph, "n1", "n3")).toBe(graph);
+    // And nothing contains itself.
+    expect(canNest(graph, "n2", "n2")).toBe(false);
+  });
+
+  it("moving to another container retargets rather than accumulating", () => {
+    let graph = nested();
+    graph = addNode(graph, "azurerm_virtual_network", "n4");
+    graph = reparent(graph, "n4", "n1");
+    graph = reparent(graph, "n3", "n4");
+
+    const subnet = graph.references.filter((r) => r.from === "n3");
+    expect(subnet.map((r) => `${r.attribute}→${r.to}`).sort()).toEqual([
+      "resource_group_name→n1",
+      "virtual_network_name→n4",
+    ]);
+  });
+
+  it("dragging back onto the canvas empties what the container filled", () => {
+    const graph = reparent(nested(), "n3", undefined);
+    expect(graph.nodes.find((n) => n.id === "n3")?.parentId).toBeUndefined();
+    expect(graph.references.filter((r) => r.from === "n3")).toEqual([]);
+  });
+
+  it("leaves a reference somebody made by hand alone", () => {
+    let graph = threeNodes();
+    graph = connect(graph, "n2", "resource_group_name", "n1");
+    graph = reparent(graph, "n2", "n1");
+    // One reference, not two: the slot was already answered.
+    expect(graph.references).toHaveLength(1);
+  });
+
+  it("deleting a container takes the branch, or keeps it one level up", () => {
+    const graph = nested();
+
+    const gone = removeBranch(graph, "n2", "delete");
+    expect(gone.nodes.map((n) => n.id)).toEqual(["n1"]);
+    expect(gone.references).toEqual([]);
+
+    const kept = removeBranch(graph, "n2", "promote");
+    expect(kept.nodes.map((n) => n.id)).toEqual(["n1", "n3"]);
+    expect(kept.nodes.find((n) => n.id === "n3")?.parentId).toBe("n1");
+    // The vnet's slot went with the vnet; the resource group's remains.
+    expect(kept.references.map((r) => `${r.attribute}→${r.to}`)).toEqual([
+      "resource_group_name→n1",
+    ]);
+  });
+
+  it("promoting out of the outermost container leaves the node on the canvas", () => {
+    const graph = reparent(threeNodes(), "n2", "n1");
+    const kept = removeBranch(graph, "n1", "promote");
+    expect(kept.nodes.map((n) => n.id)).toEqual(["n2", "n3"]);
+    expect(kept.nodes.find((n) => n.id === "n2")?.parentId).toBeUndefined();
+    expect(kept.references).toEqual([]);
   });
 });

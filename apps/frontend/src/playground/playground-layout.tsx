@@ -230,6 +230,7 @@ export function PlaygroundLayout() {
           open={doc.saveOpen}
           onOpenChange={doc.setSaveOpen}
           files={doc.files}
+          composition={doc.builder.graph}
           onSaved={doc.handleSaved}
         />
         <DraftsDialog

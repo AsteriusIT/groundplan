@@ -1,8 +1,15 @@
 /**
- * The builder's canvas (GP-133) — a React Flow editor, deliberately not the
- * read-only `@groundplan/canvas` one. Creating, connecting and deleting is a
- * different job from rendering a snapshot, and that canvas is also the VS Code
- * webview's.
+ * The builder's canvas (GP-133, containment in GP-247) — a React Flow editor,
+ * deliberately not the read-only `@groundplan/canvas` one. Creating, nesting and
+ * deleting is a different job from rendering a snapshot, and that canvas is also
+ * the VS Code webview's.
+ *
+ * Hierarchy is drawn as **space, not arrows**: a subnet inside a virtual network
+ * inside a resource group. There is no edge tool, because there is nothing an
+ * edge would say that the nesting does not — dropping a node into a frame fills
+ * the reference slot that takes that frame's type (see `builder-ops.reparent`).
+ * References the nesting cannot express — a public IP on a NIC — are still
+ * drawn, and still made in the form: they are shown, never dragged.
  *
  * Positions live in React Flow while a node is being dragged and land in the
  * document when the drag ends. Feeding every frame back through the document
@@ -12,7 +19,7 @@
  * No layout engine either: positions are the user's, and an ELK pass that moved
  * a card somebody placed would be the tool arguing with its user.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -21,13 +28,12 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
-  type Connection,
   type Edge,
-  type IsValidConnection,
   type NodeChange,
 } from "@xyflow/react";
 
 import {
+  ancestorsOf,
   CATALOG,
   issuesByNode,
   resourceDef,
@@ -37,34 +43,51 @@ import {
   type ResourceDef,
 } from "@groundplan/builder";
 
-import { canAttach } from "./builder-ops";
+import {
+  BuilderContainerNode,
+  type BuilderContainerFlowNode,
+} from "./builder-container-node";
+import {
+  absoluteBoxes,
+  byDepth,
+  containerAt,
+  CONTAINER_HEADER,
+  CONTAINER_PADDING,
+  drawsAsContainer,
+  relativePosition,
+} from "./builder-layout";
 import {
   BuilderResourceNode,
-  NEW_REFERENCE_HANDLE,
   type BuilderFlowNode,
   type BuilderInput,
 } from "./builder-node";
 
 import "@xyflow/react/dist/style.css";
 
-const nodeTypes = { builder: BuilderResourceNode };
+const nodeTypes = { builder: BuilderResourceNode, container: BuilderContainerNode };
+
+type FlowNode = BuilderFlowNode | BuilderContainerFlowNode;
 
 /** The drag-and-drop payload: which catalog type is being dropped. */
 export const PALETTE_MIME = "application/x-groundplan-resource";
 
 export type BuilderCanvasProps = {
   graph: BuilderGraph;
-  /** What the canvas draws slots and connection rules from (GP-238). */
+  /** What the canvas draws slots and nesting rules from (GP-238). */
   catalog?: readonly ResourceDef[];
   issues: readonly BuilderIssue[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, position: { x: number; y: number }) => void;
-  onConnect: (from: string, attribute: string, to: string) => void;
-  onDisconnect: (from: string, attribute: string, to: string) => void;
+  /** Draw a node inside a container, or (no parent) back onto the canvas. */
+  onNest: (id: string, parentId: string | undefined) => void;
   onDelete: (id: string) => void;
-  /** A palette entry dropped on the canvas, at the point it was dropped. */
-  onDrop: (type: string, position: { x: number; y: number }) => void;
+  /** A palette entry dropped on the canvas, in whatever it was dropped into. */
+  onDrop: (
+    type: string,
+    position: { x: number; y: number },
+    parentId?: string,
+  ) => void;
 };
 
 /** The input rows of a node: its catalog slots, or a custom node's references. */
@@ -111,6 +134,13 @@ function edgeId(from: string, attribute: string, to: string): string {
   return `${from}|${attribute}|${to}`;
 }
 
+/** Where the pointer is, mouse or finger — React Flow hands over either. */
+function pointerOf(event: MouseEvent | TouchEvent): { x: number; y: number } {
+  if ("clientX" in event) return { x: event.clientX, y: event.clientY };
+  const touch = event.changedTouches[0] ?? event.touches[0];
+  return { x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 };
+}
+
 function Canvas({
   graph,
   catalog = CATALOG,
@@ -118,33 +148,59 @@ function Canvas({
   selectedId,
   onSelect,
   onMove,
-  onConnect,
-  onDisconnect,
+  onNest,
   onDelete,
   onDrop,
 }: Readonly<BuilderCanvasProps>) {
   const byNode = useMemo(() => issuesByNode(issues), [issues]);
   const { screenToFlowPosition } = useReactFlow();
   const [flowNodes, setFlowNodes, onNodesChangeInternal] =
-    useNodesState<BuilderFlowNode>([]);
+    useNodesState<FlowNode>([]);
   // The document's positions are authoritative except while a drag is running.
   const dragging = useRef(false);
+  // The frame a dragged node would land in, so the drop can be seen coming.
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
-  const built = useMemo<BuilderFlowNode[]>(() => {
+  const boxes = useMemo(() => absoluteBoxes(graph, catalog), [graph, catalog]);
+
+  const built = useMemo<FlowNode[]>(() => {
     const names = new Map(graph.nodes.map((n) => [n.id, n.name]));
-    return graph.nodes.map((node) => ({
-      id: node.id,
-      type: "builder" as const,
-      position: node.position,
-      selected: node.id === selectedId,
-      data: {
-        node,
-        def: resourceDef(node.type, catalog),
-        issues: byNode.get(node.id) ?? [],
-        inputs: inputsOf(node, graph, names, catalog),
-      },
-    }));
-  }, [graph, byNode, selectedId, catalog]);
+    return byDepth(graph).map((node) => {
+      const shared = {
+        id: node.id,
+        position: relativePosition(boxes, node),
+        selected: node.id === selectedId,
+        ...(node.parentId && names.has(node.parentId)
+          ? { parentId: node.parentId, extent: "parent" as const }
+          : {}),
+      };
+      if (drawsAsContainer(graph, node.id, catalog)) {
+        const box = boxes.get(node.id);
+        return {
+          ...shared,
+          type: "container" as const,
+          // A frame is sized by what it holds; React Flow needs that in pixels.
+          style: { width: box?.width, height: box?.height },
+          data: {
+            node,
+            issues: byNode.get(node.id) ?? [],
+            depth: ancestorsOf(graph, node.id).length,
+            dropping: dropTarget === node.id,
+          },
+        };
+      }
+      return {
+        ...shared,
+        type: "builder" as const,
+        data: {
+          node,
+          def: resourceDef(node.type, catalog),
+          issues: byNode.get(node.id) ?? [],
+          inputs: inputsOf(node, graph, names, catalog),
+        },
+      };
+    });
+  }, [graph, boxes, byNode, selectedId, catalog, dropTarget]);
 
   // Keep the canvas in step with the document, without ever yanking a card out
   // from under the pointer: a node the canvas already has keeps its position.
@@ -160,55 +216,42 @@ function Canvas({
     });
   }, [built, setFlowNodes]);
 
-  const edges = useMemo<Edge[]>(
-    () =>
-      graph.references.map((reference) => ({
+  /**
+   * Edges are what containment cannot say. A reference to an ancestor is
+   * already drawn — as the frame the node sits in — and drawing it twice would
+   * be a wire from a card to the box around it.
+   */
+  const edges = useMemo<Edge[]>(() => {
+    const ancestors = new Map(
+      graph.nodes.map((n) => [n.id, new Set(ancestorsOf(graph, n.id).map((a) => a.id))]),
+    );
+    return graph.references
+      .filter((reference) => !ancestors.get(reference.from)?.has(reference.to))
+      .map((reference) => ({
         id: edgeId(reference.from, reference.attribute, reference.to),
         // The referenced resource is the source: the wire leaves what is
         // offered and arrives at what needs it.
         source: reference.to,
         target: reference.from,
-        targetHandle: reference.attribute,
         label: reference.attribute,
         labelStyle: { fontSize: 10 },
-      })),
-    [graph.references],
-  );
+      }));
+  }, [graph]);
 
-  // The one place a connection is judged, and the reason an incompatible one
-  // cannot be made rather than being explained after the fact.
-  const isValidConnection = useCallback<IsValidConnection>(
-    (connection) => {
-      if (!connection.source || !connection.target || !connection.targetHandle) {
-        return false;
-      }
-      // A custom resource takes any reference — it has no slots to disagree.
-      if (connection.targetHandle === NEW_REFERENCE_HANDLE) {
-        return connection.source !== connection.target;
-      }
-      return canAttach(
-        graph,
-        connection.target,
-        connection.targetHandle,
-        connection.source,
-        catalog,
-      );
+  /** Where a node's top-left is on the canvas, parents included. */
+  const absoluteOf = useCallback(
+    (id: string, position: { x: number; y: number }) => {
+      const node = graph.nodes.find((n) => n.id === id);
+      const parent = node?.parentId ? boxes.get(node.parentId) : undefined;
+      return parent
+        ? { x: parent.x + position.x, y: parent.y + position.y }
+        : position;
     },
-    [graph, catalog],
-  );
-
-  const handleConnect = useCallback(
-    (connection: Connection) => {
-      if (!connection.source || !connection.target || !connection.targetHandle) {
-        return;
-      }
-      onConnect(connection.target, connection.targetHandle, connection.source);
-    },
-    [onConnect],
+    [graph, boxes],
   );
 
   const handleNodesChange = useCallback(
-    (changes: NodeChange<BuilderFlowNode>[]) => {
+    (changes: NodeChange<FlowNode>[]) => {
       // Applied locally first, so a drag is as smooth as React Flow can make it.
       onNodesChangeInternal(changes);
       for (const change of changes) {
@@ -222,31 +265,31 @@ function Canvas({
     [onNodesChangeInternal, onDelete, onSelect],
   );
 
-  const handleEdgesDelete = useCallback(
-    (removed: Edge[]) => {
-      for (const edge of removed) {
-        if (edge.targetHandle) {
-          onDisconnect(edge.target, edge.targetHandle, edge.source);
-        }
-      }
-    },
-    [onDisconnect],
-  );
-
   return (
     <ReactFlow
       nodes={flowNodes}
       edges={edges}
       nodeTypes={nodeTypes}
       onNodesChange={handleNodesChange}
-      // The position the user let go of is the one worth recording.
-      onNodeDragStop={(_event, node) => {
-        dragging.current = false;
-        onMove(node.id, node.position);
+      // Where a node is let go decides both things: where it sits, and what it
+      // is now inside. The pointer is what the user aimed with, so the frame
+      // under the pointer wins rather than the one under a corner.
+      onNodeDrag={(event, node) => {
+        const point = screenToFlowPosition(pointerOf(event));
+        setDropTarget(containerAt(graph, boxes, point, node.id) ?? null);
       }}
-      onEdgesDelete={handleEdgesDelete}
-      onConnect={handleConnect}
-      isValidConnection={isValidConnection}
+      onNodeDragStop={(event, node) => {
+        dragging.current = false;
+        setDropTarget(null);
+        const point = screenToFlowPosition(pointerOf(event));
+        const target = containerAt(graph, boxes, point, node.id);
+        const current = graph.nodes.find((n) => n.id === node.id)?.parentId;
+        onMove(node.id, absoluteOf(node.id, node.position));
+        if (target !== current) onNest(node.id, target);
+      }}
+      // No connection is dragged in this editor: hierarchy is containment, and
+      // the references containment cannot express are made in the form.
+      nodesConnectable={false}
       // Both keys, because both are "delete this" depending on the keyboard:
       // Backspace is React Flow's default and the only one a Mac laptop has,
       // Delete is what everyone else reaches for. Safe next to the form and
@@ -265,13 +308,22 @@ function Canvas({
         const type = event.dataTransfer.getData(PALETTE_MIME);
         if (!type) return;
         event.preventDefault();
-        onDrop(
-          type,
-          screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-        );
+        const point = screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        const parentId = containerAt(graph, boxes, point);
+        const parent = parentId ? boxes.get(parentId) : undefined;
+        // Dropped into a frame: keep the point, but never under its own label.
+        const position = parent
+          ? {
+              x: Math.max(parent.x + CONTAINER_PADDING, point.x),
+              y: Math.max(parent.y + CONTAINER_HEADER, point.y),
+            }
+          : point;
+        onDrop(type, position, parentId);
       }}
       nodesDraggable
-      nodesConnectable
       fitView
       proOptions={{ hideAttribution: true }}
       aria-label="Builder canvas"

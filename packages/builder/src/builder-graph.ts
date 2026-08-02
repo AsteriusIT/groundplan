@@ -33,6 +33,15 @@ export type BuilderNode = {
   attributes: Record<string, BuilderValue>;
   position: BuilderPosition;
   /**
+   * The node this one is drawn inside (GP-247) — a resource group holding a
+   * virtual network holding a subnet. Containment is the Build Editor's way of
+   * expressing a relationship the catalog already knows about: nesting a node
+   * fills the reference slot that takes its container, so this field is where
+   * the *drawing* lives and `references` stays the model. Generation never
+   * reads it, which is why a graph that lost it still generates the same files.
+   */
+  parentId?: string;
+  /**
    * A resource the catalog does not describe: the user typed the type and the
    * attributes themselves. It composes and generates like any other node, but
    * nothing about it is checked beyond syntax — there is no schema to check it

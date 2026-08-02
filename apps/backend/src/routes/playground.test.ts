@@ -332,6 +332,79 @@ test("drafts: create → list → get → update → delete, scoped to the autho
   }
 });
 
+test("drafts: a composition round-trips beside the files (GP-247)", async () => {
+  const app = await buildTestApp();
+  const sub = `pg-comp-${Date.now()}`;
+  try {
+    await provision(app, sub);
+    const headers = await authHeader({ sub });
+
+    // A resource group with a virtual network drawn inside it, and no files
+    // generated from it yet: the sketch is the document.
+    const composition = {
+      nodes: [
+        {
+          id: "n1",
+          type: "azurerm_resource_group",
+          name: "rg",
+          attributes: { name: "rg-demo", location: "westeurope" },
+          position: { x: 0, y: 0 },
+        },
+        {
+          id: "n2",
+          type: "azurerm_virtual_network",
+          name: "vnet",
+          attributes: { name: "vnet-demo" },
+          position: { x: 20, y: 40 },
+          parentId: "n1",
+        },
+      ],
+      references: [
+        { from: "n2", to: "n1", attribute: "resource_group_name" },
+      ],
+    };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/drafts",
+      payload: { name: "composed", files: [], composition },
+      headers,
+    });
+    assert.equal(created.statusCode, 201);
+    const id = created.json().id as string;
+
+    const fetched = await app.inject({
+      method: "GET",
+      url: `/api/v1/playground/drafts/${id}`,
+      headers,
+    });
+    // Faithfully, nesting included — the drawing is part of the document.
+    assert.deepEqual(fetched.json().composition, composition);
+    assert.deepEqual(fetched.json().files, []);
+
+    // Emptying the canvas is a thing you can do, and it sticks.
+    const cleared = await app.inject({
+      method: "PUT",
+      url: `/api/v1/playground/drafts/${id}`,
+      payload: { composition: null },
+      headers,
+    });
+    assert.equal(cleared.statusCode, 200);
+    assert.equal(cleared.json().composition, null);
+
+    // A draft saved before GP-247 simply has none.
+    const plain = await app.inject({
+      method: "POST",
+      url: "/api/v1/playground/drafts",
+      payload: { name: "files only", files: DRAFT_FILES },
+      headers,
+    });
+    assert.equal(plain.json().composition, null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("drafts: another user's draft is a 404, never a 403, and never listed", async () => {
   const app = await buildTestApp();
   const ownerSub = `pg-a-${Date.now()}`;

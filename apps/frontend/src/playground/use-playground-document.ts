@@ -24,7 +24,11 @@ import type {
   PlaygroundFile,
   PlaygroundSnapshot,
 } from "@/api/types";
-import type { BuilderIssue } from "@groundplan/builder";
+import {
+  emptyBuilderGraph,
+  type BuilderGraph,
+  type BuilderIssue,
+} from "@groundplan/builder";
 
 import { useBuilderGraph } from "@/builder/use-builder-graph";
 import { useCatalog } from "@/builder/use-catalog";
@@ -90,6 +94,12 @@ export function usePlaygroundDocument() {
   const [savedSerial, setSavedSerial] = useState<string>(() =>
     JSON.stringify(EXAMPLE_FILES),
   );
+  // The composition as the draft last had it (GP-247). Kept apart from the
+  // files' baseline because they are two documents, and an edit to either is
+  // an unsaved change to the draft that holds both.
+  const [savedComposition, setSavedComposition] = useState<string>(() =>
+    JSON.stringify(emptyBuilderGraph()),
+  );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -120,7 +130,9 @@ export function usePlaygroundDocument() {
     terraform: files.some((f) => fileIacType(f.path) === "terraform"),
     kubernetes: files.some((f) => fileIacType(f.path) === "kubernetes"),
   };
-  const dirty = JSON.stringify(files) !== savedSerial;
+  const dirty =
+    JSON.stringify(files) !== savedSerial ||
+    JSON.stringify(builder.graph) !== savedComposition;
   // A scratch playground is never "Saved" — it has nowhere to be saved to.
   const unsaved = !draft || dirty;
 
@@ -230,8 +242,12 @@ export function usePlaygroundDocument() {
     setSaving(true);
     setSaveError(null);
     try {
-      await updatePlaygroundDraft(draft.id, { files });
+      await updatePlaygroundDraft(draft.id, {
+        files,
+        composition: builder.graph,
+      });
       setSavedSerial(JSON.stringify(files));
+      setSavedComposition(JSON.stringify(builder.graph));
     } catch (err) {
       setSaveError(
         err instanceof ApiError ? err.message : "Could not save the draft.",
@@ -239,7 +255,7 @@ export function usePlaygroundDocument() {
     } finally {
       setSaving(false);
     }
-  }, [draft, files]);
+  }, [draft, files, builder.graph]);
 
   /** Save, or start the Save as flow when nothing is saved yet (GP-129). */
   const save = useCallback(() => {
@@ -294,6 +310,9 @@ export function usePlaygroundDocument() {
   const handleSaved = useCallback((saved: PlaygroundDraft) => {
     setDraft({ id: saved.id, name: saved.name });
     setSavedSerial(JSON.stringify(saved.files));
+    setSavedComposition(
+      JSON.stringify(saved.composition ?? emptyBuilderGraph()),
+    );
   }, []);
 
   /** Restore a draft's files and redraw — an invalid draft still opens. The
@@ -306,10 +325,16 @@ export function usePlaygroundDocument() {
       setActivePath(opened.files[0]?.path ?? "");
       setDraft({ id: opened.id, name: opened.name });
       setSavedSerial(JSON.stringify(opened.files));
+      // The canvas is part of the draft (GP-247): a draft saved from the Build
+      // Editor reopens composed, and one saved before it reopens empty.
+      const composition = (opened.composition ??
+        emptyBuilderGraph()) as BuilderGraph;
+      builder.load(composition);
+      setSavedComposition(JSON.stringify(composition));
       setSaveError(null);
-      void runParse(opened.files, mode);
+      if (opened.files.length > 0) void runParse(opened.files, mode);
     },
-    [iacType, runParse],
+    [iacType, runParse, builder],
   );
 
   const addFile = useCallback(
@@ -528,6 +553,7 @@ export function usePlaygroundDocument() {
     runParse,
     draft,
     unsaved,
+    savedComposition,
     saving,
     saveError,
     save,

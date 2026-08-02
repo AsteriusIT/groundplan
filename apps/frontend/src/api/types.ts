@@ -703,12 +703,18 @@ export interface PlaygroundDraftSummary {
   fileCount: number;
 }
 
-/** A saved playground (GP-124): the HCL sources verbatim — no snapshot. */
+/**
+ * A saved playground (GP-124): the HCL sources verbatim — no snapshot — and
+ * since GP-247 whatever the Build Editor has on its canvas. Two documents in
+ * one draft, neither derived from the other: the builder is one-way (ADR #5),
+ * so generating files from a composition does not make them the same thing.
+ */
 export interface PlaygroundDraft {
   id: string;
   userId: string;
   name: string;
   files: PlaygroundFile[];
+  composition?: BuilderGraphInput | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -716,12 +722,15 @@ export interface PlaygroundDraft {
 export interface CreatePlaygroundDraftInput {
   name: string;
   files: PlaygroundFile[];
+  composition?: BuilderGraphInput | null;
 }
 
 /** A rename sends `name`; a save sends `files` (always the full set). */
 export interface UpdatePlaygroundDraftInput {
   name?: string;
   files?: PlaygroundFile[];
+  /** `null` clears it: an emptied canvas is not an untouched one. */
+  composition?: BuilderGraphInput | null;
 }
 
 // --- Docs snapshot diff (GP-40) --------------------------------------------
@@ -1002,8 +1011,16 @@ export interface BuilderGraphInput {
     name: string;
     attributes: Record<string, string | number | boolean | string[]>;
     position: { x: number; y: number };
+    /** What it is drawn inside (GP-247). Ignored by generation. */
+    parentId?: string;
+    custom?: boolean;
   }[];
-  references: { from: string; to: string; attribute: string }[];
+  references: {
+    from: string;
+    to: string;
+    attribute: string;
+    targetAttribute?: string;
+  }[];
 }
 
 /**

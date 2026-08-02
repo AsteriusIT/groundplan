@@ -407,11 +407,20 @@ the document (`use-playground-document.ts`: files, parse, draft, composition,
 catalog) so walking between the views loses nothing; the views bring their own
 toolbars.
 
-**Visual builder (GP-131..135, flagged).** `BUILDER_ENABLED=true` adds the
-**Build Editor** view to the playground: compose Azure resources on a canvas,
+**Visual builder (GP-131..135, GP-247, flagged).** `BUILDER_ENABLED=true` adds
+the **Build Editor** view to the playground: compose Azure resources on a canvas,
 then generate Terraform from them. Off by default — the `AI_API_KEY` posture
 applied to a boolean: `/builder/status` reports it, `POST /builder/generate`
-404s, the route redirects to the Editor and the sidebar offers no entry. `packages/builder` holds everything both
+404s, the route redirects to the Editor and the sidebar offers no entry.
+Hierarchy is **containment, not arrows** (GP-247): a node drawn inside a frame
+fills the reference slot that takes that frame's type, so there is no edge tool
+at all. The rules are *derived* from the catalog (`containment.ts`: a container
+is a type some single-valued slot points at — a list slot cannot be space, since
+a node sits in one place), never listed, so adding a resource type adds its
+nesting with it. `parentId` is the drawing; `references` stays the model and is
+all generation reads. A composition saves into a playground draft beside the
+files (`playground_drafts.composition`) — two documents, neither derived from
+the other (ADR #5). `packages/builder` holds everything both
 sides need, so the browser composes against the same rules the server generates
 from. `catalog.ts` is now the **curated** dozen (labels, categories, scaffold
 blocks, defaults) rather than the whole list — since GP-238 the rest comes from

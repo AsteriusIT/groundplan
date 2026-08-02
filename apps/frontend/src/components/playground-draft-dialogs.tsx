@@ -11,6 +11,7 @@ import {
   updatePlaygroundDraft,
 } from "@/api/client";
 import type {
+  BuilderGraphInput,
   PlaygroundDraft,
   PlaygroundDraftSummary,
   PlaygroundFile,
@@ -37,11 +38,14 @@ export function SaveDraftDialog({
   open,
   onOpenChange,
   files,
+  composition,
   onSaved,
 }: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   files: PlaygroundFile[];
+  /** What the Build Editor has on its canvas (GP-247), saved beside them. */
+  composition?: BuilderGraphInput | null;
   onSaved: (draft: PlaygroundDraft) => void;
 }>) {
   const [name, setName] = useState("");
@@ -63,7 +67,11 @@ export function SaveDraftDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const draft = await createPlaygroundDraft({ name: name.trim(), files });
+      const draft = await createPlaygroundDraft({
+        name: name.trim(),
+        files,
+        ...(composition !== undefined ? { composition } : {}),
+      });
       onSaved(draft);
       handleOpenChange(false);
     } catch (err) {

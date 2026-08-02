@@ -60,13 +60,29 @@ const draftParamsSchema = {
   properties: { id: { type: "string", pattern: UUID_PATTERN } },
 };
 
+/**
+ * A draft's files, unlike a parse's, may be none: the Build Editor saves a
+ * composition with nothing generated from it yet (GP-247), and refusing that
+ * would mean the only way to keep a sketch is to generate code from it first.
+ */
+const draftFilesSchema = { ...playgroundFilesSchema, minItems: 0 };
+
+/**
+ * The Build Editor's canvas (GP-247), stored opaquely. A draft may hold a
+ * composition that is not ready to generate for the same reason it may hold
+ * HCL that does not parse: it is a draft. `validateBuilderGraph` judges it when
+ * something is asked of it, and `POST /builder/generate` refuses it there.
+ */
+const compositionSchema = { type: ["object", "null"] };
+
 const createDraftSchema = {
   type: "object",
   required: ["name", "files"],
   additionalProperties: false,
   properties: {
     name: { type: "string", minLength: 1, maxLength: 200 },
-    files: playgroundFilesSchema,
+    files: draftFilesSchema,
+    composition: compositionSchema,
   },
 };
 
@@ -78,7 +94,8 @@ const updateDraftSchema = {
   minProperties: 1,
   properties: {
     name: { type: "string", minLength: 1, maxLength: 200 },
-    files: playgroundFilesSchema,
+    files: draftFilesSchema,
+    composition: compositionSchema,
   },
 };
 
@@ -265,9 +282,10 @@ export const playgroundRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const user = requireUser(request, reply);
       if (!user) return;
-      const { name, files } = request.body as {
+      const { name, files, composition } = request.body as {
         name: string;
         files: HclFile[];
+        composition?: Record<string, unknown> | null;
       };
       // Same limits as parse — a draft is the parse endpoint's future input.
       // The HCL itself is NOT validated: a draft may hold files that don't
@@ -275,7 +293,12 @@ export const playgroundRoutes: FastifyPluginAsync = async (app) => {
       if (rejectInvalidFiles(files, reply)) return;
       const [row] = await app.db
         .insert(playgroundDrafts)
-        .values({ userId: user.id, name, files })
+        .values({
+          userId: user.id,
+          name,
+          files,
+          ...(composition !== undefined ? { composition } : {}),
+        })
         .returning();
       return reply.code(201).send(row);
     },
@@ -329,9 +352,10 @@ export const playgroundRoutes: FastifyPluginAsync = async (app) => {
       const user = requireUser(request, reply);
       if (!user) return;
       const { id } = request.params as { id: string };
-      const { name, files } = request.body as {
+      const { name, files, composition } = request.body as {
         name?: string;
         files?: HclFile[];
+        composition?: Record<string, unknown> | null;
       };
       if (files && rejectInvalidFiles(files, reply)) return;
       const [row] = await app.db
@@ -339,6 +363,9 @@ export const playgroundRoutes: FastifyPluginAsync = async (app) => {
         .set({
           ...(name !== undefined ? { name } : {}),
           ...(files !== undefined ? { files } : {}),
+          // Explicit null clears it: a composition somebody emptied is not the
+          // same as one they never touched.
+          ...(composition !== undefined ? { composition } : {}),
           updatedAt: new Date(),
         })
         .where(

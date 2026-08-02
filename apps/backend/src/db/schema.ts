@@ -1547,6 +1547,13 @@ export function toPublicAiGeneration(row: AiGenerationRow): PublicAiGeneration {
  * re-parsed on load (determinism, ADR #3), so stored drafts never migrate.
  * Strictly user-owned: no org, no project, no repository. A draft may hold HCL
  * that does not parse; validity is the parse endpoint's concern, not storage's.
+ *
+ * Since GP-247 it may also hold a **composition**: what the Build Editor has on
+ * its canvas. That is a second document, not a second copy of the first — the
+ * builder is one-way (ADR #5), so a draft's files and its composition are
+ * whatever the user left in each, and neither is derived from the other. It is
+ * stored opaquely for the same reason the HCL is: a draft may be half-finished,
+ * and validity is the generate endpoint's concern.
  */
 export const playgroundDrafts = pgTable("playground_drafts", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1557,6 +1564,7 @@ export const playgroundDrafts = pgTable("playground_drafts", {
   files: jsonb("files")
     .$type<{ path: string; content: string }[]>()
     .notNull(),
+  composition: jsonb("composition").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

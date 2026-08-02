@@ -330,6 +330,13 @@
       "when": 1785620315366,
       "tag": "0046_complete_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1785662802523,
+      "tag": "0047_yummy_kabuki",
+      "breakpoints": true
     }
   ]
 }

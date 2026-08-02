@@ -8,10 +8,19 @@
  * without a canvas.
  */
 import {
+  absoluteBoxes,
+  CONTAINER_HEADER,
+  CONTAINER_PADDING,
+} from "./builder-layout";
+import {
+  ancestorsOf,
   attributeKey,
   attributeValue,
   CATALOG,
   canConnect,
+  canContain,
+  containmentSlot,
+  descendantsOf,
   referenceSlot,
   resourceDef,
   type BuilderGraph,
@@ -155,6 +164,178 @@ export function removeNode(graph: BuilderGraph, id: string): BuilderGraph {
   };
 }
 
+/**
+ * Deleting a container (GP-247) is two different intentions: take the whole
+ * branch, or keep what is inside it. Neither is a safe default, so the canvas
+ * asks and passes the answer here.
+ *
+ * `"promote"` re-parents the children one level up rather than orphaning them —
+ * a subnet whose vnet goes still belongs to the resource group — and takes the
+ * references to the deleted node with it, because a slot pointing at nothing is
+ * worse than an empty one.
+ */
+export function removeBranch(
+  graph: BuilderGraph,
+  id: string,
+  children: "delete" | "promote",
+  catalog: readonly ResourceDef[] = CATALOG,
+): BuilderGraph {
+  if (children === "delete") {
+    const doomed = new Set([id, ...descendantsOf(graph, id).map((n) => n.id)]);
+    return {
+      nodes: graph.nodes.filter((n) => !doomed.has(n.id)),
+      references: graph.references.filter(
+        (r) => !doomed.has(r.from) && !doomed.has(r.to),
+      ),
+    };
+  }
+  const removed = graph.nodes.find((n) => n.id === id);
+  const grandparent = removed?.parentId;
+  let next: BuilderGraph = {
+    nodes: graph.nodes.map((n) =>
+      n.parentId === id
+        ? { ...n, ...(grandparent ? { parentId: grandparent } : { parentId: undefined }) }
+        : n,
+    ),
+    references: graph.references,
+  };
+  next = removeNode(next, id);
+  // Re-seat each promoted child: the grandparent may fill a slot of its own.
+  for (const child of next.nodes.filter((n) => n.parentId === grandparent)) {
+    if (grandparent) next = fillFromAncestors(next, child.id, catalog);
+  }
+  return next;
+}
+
+/**
+ * Fill every reference slot an ancestor can fill (GP-247). Nesting a subnet in
+ * a vnet that sits in a resource group answers both of the subnet's required
+ * slots — the nearest ancestor of a matching type wins, and a slot somebody
+ * already filled by hand is left alone.
+ */
+function fillFromAncestors(
+  graph: BuilderGraph,
+  id: string,
+  catalog: readonly ResourceDef[] = CATALOG,
+): BuilderGraph {
+  const node = graph.nodes.find((n) => n.id === id);
+  const def = node ? resourceDef(node.type, catalog) : undefined;
+  if (!node || !def) return graph;
+  let next = graph;
+  for (const ancestor of ancestorsOf(graph, id)) {
+    const slot = containmentSlot(node.type, ancestor.type, catalog);
+    if (!slot) continue;
+    const filled = next.references.some(
+      (r) => r.from === id && r.attribute === slot.attribute,
+    );
+    if (filled) continue;
+    next = {
+      ...next,
+      references: [
+        ...next.references,
+        { from: id, to: ancestor.id, attribute: slot.attribute },
+      ],
+    };
+  }
+  return next;
+}
+
+/**
+ * May `childId` be drawn inside `parentId`? The catalog decides the type rule;
+ * the graph decides the rest — nothing may contain itself, and nothing may be
+ * dropped into its own descendant.
+ */
+export function canNest(
+  graph: BuilderGraph,
+  childId: string,
+  parentId: string,
+  catalog: readonly ResourceDef[] = CATALOG,
+): boolean {
+  if (childId === parentId) return false;
+  const child = graph.nodes.find((n) => n.id === childId);
+  const parent = graph.nodes.find((n) => n.id === parentId);
+  if (!child || !parent) return false;
+  if (descendantsOf(graph, childId).some((n) => n.id === parentId)) return false;
+  return canContain(parent.type, child.type, catalog);
+}
+
+/**
+ * Draw `childId` inside `parentId` — or, with no parent, back out onto the
+ * canvas. The containment *is* the reference: nesting fills the slot that takes
+ * the container, un-nesting empties it, and a move between containers of the
+ * same type retargets it rather than leaving both.
+ *
+ * A nesting the rules refuse returns the graph untouched; the canvas has
+ * already said no visually, and a rejected drop should change nothing.
+ */
+export function reparent(
+  graph: BuilderGraph,
+  childId: string,
+  parentId: string | undefined,
+  catalog: readonly ResourceDef[] = CATALOG,
+): BuilderGraph {
+  const child = graph.nodes.find((n) => n.id === childId);
+  if (!child) return graph;
+  if (parentId && !canNest(graph, childId, parentId, catalog)) return graph;
+  if ((child.parentId ?? undefined) === (parentId ?? undefined)) return graph;
+
+  // The references the old chain filled are the old chain's; they go with it.
+  const stale = new Set(
+    ancestorsOf(graph, childId).flatMap((ancestor) => {
+      const slot = containmentSlot(child.type, ancestor.type, catalog);
+      return slot ? [`${slot.attribute}|${ancestor.id}`] : [];
+    }),
+  );
+  let next: BuilderGraph = {
+    nodes: graph.nodes.map((n) =>
+      n.id === childId ? { ...n, parentId } : n,
+    ),
+    references: graph.references.filter(
+      (r) => r.from !== childId || !stale.has(`${r.attribute}|${r.to}`),
+    ),
+  };
+  if (parentId) next = placeInside(next, childId, parentId, catalog);
+  return fillFromAncestors(next, childId, catalog);
+}
+
+/**
+ * Put a node somewhere sensible inside its new frame — but only if it is not
+ * already in it. A node dragged into a container was dropped where its owner
+ * meant it; a node nested from the form was never anywhere near it, and
+ * leaving it outside would stretch the frame across the canvas to reach it.
+ */
+function placeInside(
+  graph: BuilderGraph,
+  childId: string,
+  parentId: string,
+  catalog: readonly ResourceDef[] = CATALOG,
+): BuilderGraph {
+  const boxes = absoluteBoxes(graph, catalog);
+  const parent = boxes.get(parentId);
+  const child = boxes.get(childId);
+  if (!parent || !child) return graph;
+  const inside =
+    child.x >= parent.x &&
+    child.y >= parent.y &&
+    child.x < parent.x + parent.width &&
+    child.y < parent.y + parent.height;
+  if (inside) return graph;
+
+  // Under the frame's label, below whatever is already in there.
+  const siblings = graph.nodes.filter(
+    (n) => n.parentId === parentId && n.id !== childId,
+  );
+  const bottom = siblings.reduce((lowest, sibling) => {
+    const box = boxes.get(sibling.id);
+    return box ? Math.max(lowest, box.y + box.height) : lowest;
+  }, parent.y + CONTAINER_HEADER);
+  const position = {
+    x: parent.x + CONTAINER_PADDING,
+    y: bottom + (siblings.length > 0 ? CONTAINER_PADDING : 0),
+  };
+  return moveNode(graph, childId, position);
+}
+
 /** Retype a custom resource — the one node whose type is the user's to write. */
 export function retypeNode(
   graph: BuilderGraph,
@@ -278,7 +459,14 @@ export function canAttach(
   return slot.list ? true : filled.length === 0;
 }
 
-/** Make a connection, or return the graph untouched when it is not allowed. */
+/**
+ * Make a connection, or return the graph untouched when it is not allowed.
+ *
+ * A connection the *nesting* could express is also drawn as nesting (GP-247):
+ * choosing a resource group in the form puts the resource inside that resource
+ * group's frame. The canvas and the form are two ways of saying one thing, and
+ * they must not be able to disagree about it.
+ */
 export function connect(
   graph: BuilderGraph,
   from: string,
@@ -287,7 +475,18 @@ export function connect(
   catalog: readonly ResourceDef[] = CATALOG,
 ): BuilderGraph {
   if (!canAttach(graph, from, attribute, to, catalog)) return graph;
-  return { ...graph, references: [...graph.references, { from, to, attribute }] };
+  const connected: BuilderGraph = {
+    ...graph,
+    references: [...graph.references, { from, to, attribute }],
+  };
+  const source = graph.nodes.find((n) => n.id === from);
+  const target = graph.nodes.find((n) => n.id === to);
+  const nests =
+    source &&
+    target &&
+    containmentSlot(source.type, target.type, catalog)?.attribute === attribute &&
+    canNest(connected, from, to, catalog);
+  return nests ? reparent(connected, from, to, catalog) : connected;
 }
 
 export function disconnect(

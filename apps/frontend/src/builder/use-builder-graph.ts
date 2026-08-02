@@ -10,6 +10,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   CATALOG,
+  descendantsOf,
   emptyBuilderGraph,
   mergeCatalog,
   validateBuilderGraph,
@@ -39,6 +40,8 @@ export type BuilderController = {
     type: string,
     position?: { x: number; y: number },
     def?: ResourceDef,
+    /** The container it was dropped into (GP-247), if it was dropped into one. */
+    parentId?: string,
   ) => void;
   rename: (id: string, name: string) => void;
   /** Retype a custom resource (the only node whose type the user writes). */
@@ -58,6 +61,22 @@ export type BuilderController = {
   ) => void;
   move: (id: string, position: { x: number; y: number }) => void;
   remove: (id: string) => void;
+  /**
+   * Draw a node inside a container, or back onto the canvas (GP-247). The
+   * nesting fills the reference slot that takes the container's type, so this
+   * is how most connections are made now.
+   */
+  nest: (id: string, parentId: string | undefined) => void;
+  /** Delete a container: with what is inside it, or keeping it one level up. */
+  removeBranch: (id: string, children: "delete" | "promote") => void;
+  /** What is drawn inside this node, at any depth. */
+  childrenOf: (id: string) => string[];
+  /**
+   * Replace the whole composition — opening a draft that has one (GP-247).
+   * The id counter moves past whatever the draft used, so the next resource
+   * placed cannot collide with one that came back from storage.
+   */
+  load: (graph: BuilderGraph) => void;
   connect: (from: string, attribute: string, to: string) => void;
   disconnect: (from: string, attribute: string, to: string) => void;
 };
@@ -89,15 +108,23 @@ export function useBuilderGraph(
   current.current = catalog;
 
   const addNode = useCallback(
-    (type: string, position?: { x: number; y: number }, def?: ResourceDef) => {
+    (
+      type: string,
+      position?: { x: number; y: number },
+      def?: ResourceDef,
+      parentId?: string,
+    ) => {
     const id = `n${nextId.current++}`;
     setGraph((graph) => {
       const known = def ? mergeCatalog([def], current.current) : current.current;
-      const next = ops.addNode(graph, type, id, position, known);
+      const added = ops.addNode(graph, type, id, position, known);
       // A type the catalog does not know adds nothing — and selecting an id
       // that was never created would leave an empty form open.
-      if (next !== graph) setSelectedId(id);
-      return next;
+      if (added === graph) return graph;
+      setSelectedId(id);
+      // Dropped into a frame: the nesting fills the slot that takes it, so a
+      // subnet dropped into a vnet arrives already connected to it.
+      return parentId ? ops.reparent(added, id, parentId, known) : added;
     });
     },
     [],
@@ -107,6 +134,28 @@ export function useBuilderGraph(
     setGraph((current) => ops.removeNode(current, id));
     setSelectedId((current) => (current === id ? null : current));
   }, []);
+
+  const load = useCallback((next: BuilderGraph) => {
+    const highest = next.nodes.reduce((top, node) => {
+      const counted = /^n(\d+)$/.exec(node.id);
+      return counted?.[1] ? Math.max(top, Number(counted[1])) : top;
+    }, 0);
+    nextId.current = highest + 1;
+    setSelectedId(null);
+    setGraph(next);
+  }, []);
+
+  const nest = useCallback((id: string, parentId: string | undefined) => {
+    setGraph((graph) => ops.reparent(graph, id, parentId, current.current));
+  }, []);
+
+  const removeBranch = useCallback(
+    (id: string, children: "delete" | "promote") => {
+      setGraph((graph) => ops.removeBranch(graph, id, children, current.current));
+      setSelectedId((selected) => (selected === id ? null : selected));
+    },
+    [],
+  );
 
   const rename = useCallback((id: string, name: string) => {
     setGraph((current) => ops.renameNode(current, id, name));
@@ -177,6 +226,11 @@ export function useBuilderGraph(
     setAttribute,
     move,
     remove,
+    nest,
+    removeBranch,
+    load,
+    childrenOf: (id: string) =>
+      descendantsOf(graph, id).map((node) => node.id),
     connect,
     disconnect,
   };

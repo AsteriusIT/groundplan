@@ -95,9 +95,12 @@ it("only offers connections the catalog allows, and records the one made", () =>
   fireEvent.change(select, { target: { value: "n1" } });
 
   expect(screen.getByRole("status")).toHaveTextContent("2 resources · ready");
+  // The connection is recorded, and — since a resource group is somewhere a
+  // network can be *drawn* (GP-247) — it is recorded as containment: the
+  // network is now inside that resource group's frame.
   expect(
-    within(screen.getByTestId("builder-node-n2")).getByText(
-      "resource_group",
+    within(screen.getByLabelText("Resource details")).getByText(
+      "azurerm_resource_group.resource_group",
     ),
   ).toBeInTheDocument();
 });
@@ -118,9 +121,11 @@ it("keeps the graph consistent when a resource is deleted", () => {
   fireEvent.change(field(/Azure name/), { target: { value: "vnet-demo" } });
   fireEvent.change(field(/Resource group/), { target: { value: "n1" } });
 
-  // Delete the resource group the virtual network points at.
+  // Delete the resource group the virtual network is drawn inside. Something
+  // is in it, so the question is what happens to that (GP-247).
   fireEvent.click(screen.getByTestId("builder-node-n1"));
   fireEvent.click(screen.getByLabelText("Delete resource_group"));
+  fireEvent.click(screen.getByRole("button", { name: "Keep them" }));
 
   expect(screen.queryByTestId("builder-node-n1")).not.toBeInTheDocument();
   // The connection went with it, and the virtual network says what it now owes.
@@ -151,7 +156,7 @@ it("deletes the selected resource with the Delete key, and with Backspace", asyn
   }
 });
 
-it("takes the deleted resource's connections with it", async () => {
+it("takes the whole branch when that is the answer given (GP-247)", async () => {
   render(<Harness />);
   addFromPalette("Resource group");
   fireEvent.change(field(/Azure name/), { target: { value: "rg-demo" } });
@@ -164,10 +169,14 @@ it("takes the deleted resource's connections with it", async () => {
   fireEvent.click(screen.getByTestId("builder-node-n1"));
   fireEvent.keyDown(document, { key: "Delete" });
 
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Delete everything inside" }),
+  );
   await waitFor(() =>
     expect(screen.queryByTestId("builder-node-n1")).not.toBeInTheDocument(),
   );
-  expect(screen.getByRole("status")).toHaveTextContent("1 resource · 1 problem");
+  // The network was inside it, and "delete everything inside" meant it.
+  expect(screen.getByRole("status")).toHaveTextContent("Nothing composed yet");
 });
 
 it("never deletes a resource while its own fields are being edited", async () => {

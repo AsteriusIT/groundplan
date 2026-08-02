@@ -1,0 +1,1 @@
+ALTER TABLE "playground_drafts" ADD COLUMN "composition" jsonb;
