@@ -44,7 +44,6 @@ import {
   resourceDef,
   type BuilderGraph,
   type BuilderIssue,
-  type BuilderNode,
   type ResourceDef,
 } from "@groundplan/builder";
 
@@ -55,10 +54,12 @@ import {
 import {
   absoluteBoxes,
   byDepth,
+  cardWidth,
   containerAt,
   CONTAINER_HEADER,
   CONTAINER_PADDING,
   drawsAsContainer,
+  inputsOf,
   relativePosition,
 } from "./builder-layout";
 import { canAttach } from "./builder-ops";
@@ -66,7 +67,6 @@ import {
   BuilderResourceNode,
   NEW_REFERENCE_HANDLE,
   type BuilderFlowNode,
-  type BuilderInput,
 } from "./builder-node";
 
 import "@xyflow/react/dist/style.css";
@@ -77,6 +77,22 @@ type FlowNode = BuilderFlowNode | BuilderContainerFlowNode;
 
 /** The drag-and-drop payload: which catalog type is being dropped. */
 export const PALETTE_MIME = "application/x-groundplan-resource";
+
+/**
+ * Frames below, cards above. React Flow raises a child one step above its own
+ * parent, which leaves the case that actually goes wrong: a card and a frame
+ * that overlap without being related, where whichever was built last wins and
+ * a resource disappears behind a box it has nothing to do with. A hundred is
+ * simply more nesting than a composition will ever have.
+ */
+const FRAME_Z = 0;
+const CARD_Z = 100;
+/**
+ * …and the one in your hand above its own kind. Selection is what a drag
+ * begins with, so this is the card being moved: it has to stay visible while
+ * it crosses another, without ever climbing over the frames.
+ */
+const HELD = 1;
 
 export type BuilderCanvasProps = {
   graph: BuilderGraph;
@@ -98,45 +114,6 @@ export type BuilderCanvasProps = {
     parentId?: string,
   ) => void;
 };
-
-/** The input rows of a node: its catalog slots, or a custom node's references. */
-function inputsOf(
-  node: BuilderNode,
-  graph: BuilderGraph,
-  names: Map<string, string>,
-  catalog: readonly ResourceDef[],
-): BuilderInput[] {
-  const targetsOf = (attribute: string) =>
-    graph.references
-      .filter((r) => r.from === node.id && r.attribute === attribute)
-      .flatMap((r) => {
-        const name = names.get(r.to);
-        return name ? [name] : [];
-      });
-
-  if (node.custom) {
-    const seen = new Set<string>();
-    return graph.references
-      .filter((r) => r.from === node.id && !seen.has(r.attribute))
-      .map((r) => {
-        seen.add(r.attribute);
-        return {
-          attribute: r.attribute,
-          label: r.attribute,
-          required: false,
-          targets: targetsOf(r.attribute),
-        };
-      });
-  }
-
-  const def = resourceDef(node.type, catalog);
-  return (def?.references ?? []).map((slot) => ({
-    attribute: slot.attribute,
-    label: slot.label,
-    required: slot.required,
-    targets: targetsOf(slot.attribute),
-  }));
-}
 
 /** `from|attribute|to` — an edge id that says exactly which slot it fills. */
 function edgeId(from: string, attribute: string, to: string): string {
@@ -175,13 +152,14 @@ function Canvas({
   const boxes = useMemo(() => absoluteBoxes(graph, catalog), [graph, catalog]);
 
   const built = useMemo<FlowNode[]>(() => {
-    const names = new Map(graph.nodes.map((n) => [n.id, n.name]));
+    const ids = new Set(graph.nodes.map((n) => n.id));
     return byDepth(graph).map((node) => {
+      const held = node.id === selectedId ? HELD : 0;
       const shared = {
         id: node.id,
         position: relativePosition(boxes, node),
         selected: node.id === selectedId,
-        ...(node.parentId && names.has(node.parentId)
+        ...(node.parentId && ids.has(node.parentId)
           ? { parentId: node.parentId, extent: "parent" as const }
           : {}),
       };
@@ -192,10 +170,15 @@ function Canvas({
           type: "container" as const,
           // A frame is sized by what it holds; React Flow needs that in pixels.
           style: { width: box?.width, height: box?.height },
+          // Frames are the ground everything else stands on. React Flow lifts
+          // a child above its own parent by itself, but says nothing about a
+          // card and the unrelated frame it happens to overlap — so a card is
+          // put above every frame, and a nested frame above the one it is in.
+          zIndex: FRAME_Z + held,
           data: {
             node,
             issues: byNode.get(node.id) ?? [],
-            inputs: inputsOf(node, graph, names, catalog),
+            inputs: inputsOf(graph, node, catalog),
             depth: ancestorsOf(graph, node.id).length,
             dropping: dropTarget === node.id,
           },
@@ -204,11 +187,15 @@ function Canvas({
       return {
         ...shared,
         type: "builder" as const,
+        // A card is as wide as what is written on it, and the geometry that
+        // sizes the frames around it is told the same number.
+        style: { width: cardWidth(graph, node.id, catalog) },
+        zIndex: CARD_Z + held,
         data: {
           node,
           def: resourceDef(node.type, catalog),
           issues: byNode.get(node.id) ?? [],
-          inputs: inputsOf(node, graph, names, catalog),
+          inputs: inputsOf(graph, node, catalog),
         },
       };
     });
@@ -359,6 +346,10 @@ function Canvas({
       onConnect={handleConnect}
       isValidConnection={isValidConnection}
       nodesConnectable
+      // Selecting is not a reason to reorder the canvas: React Flow's default
+      // lifts a selected node a thousand levels, which would float a clicked
+      // frame over the cards that are meant to sit on top of it.
+      elevateNodesOnSelect={false}
       // Both keys, because both are "delete this" depending on the keyboard:
       // Backspace is React Flow's default and the only one a Mac laptop has,
       // Delete is what everyone else reaches for. Safe next to the form and

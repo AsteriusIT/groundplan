@@ -9,7 +9,12 @@
  * what a resource *needs* comes in on the left, and what it *offers* other
  * resources leaves on the right. So a virtual network's right edge feeds a
  * subnet's "Virtual network" row on its left, and the wire points the way the
- * dependency does.
+ * dependency does. A card is the only thing on this canvas that can be wired:
+ * a frame's connections are made by what is put inside it (GP-247).
+ *
+ * Nothing here is truncated. The card was measured from these exact strings
+ * (`builder-layout.cardWidth`), so it is as wide as its longest line — a name
+ * cut down to fit is a diagram that has stopped telling the truth.
  */
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
@@ -20,22 +25,15 @@ import { isTypeIssue } from "@groundplan/builder";
 import { ResourceIcon } from "@groundplan/canvas";
 import { cn } from "@/lib/utils";
 
+import {
+  azureName,
+  slotValue,
+  typeLabel,
+  type BuilderInput,
+} from "./builder-layout";
+
 /** The handle a connection lands on to create a custom node's next reference. */
 export const NEW_REFERENCE_HANDLE = "__new__";
-
-/** The shortest honest label for a type on a card. */
-export function shortResourceType(type: string): string {
-  return type.replace(/^azurerm_/, "");
-}
-
-/** One input row on a card: a slot, or a custom node's named reference. */
-export type BuilderInput = {
-  attribute: string;
-  label: string;
-  required: boolean;
-  /** The names connected into it, in order. */
-  targets: string[];
-};
 
 export type BuilderNodeData = {
   node: BuilderNode;
@@ -46,12 +44,6 @@ export type BuilderNodeData = {
 };
 
 export type BuilderFlowNode = Node<BuilderNodeData, "builder">;
-
-/** The Azure name the resource will carry, when it has been filled in. */
-function azureName(node: BuilderNode): string | null {
-  const value = node.attributes.name;
-  return typeof value === "string" && value.trim() !== "" ? value : null;
-}
 
 function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
   const { node, issues, inputs } = data;
@@ -64,7 +56,9 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
       title={node.type}
       data-testid={`builder-node-${node.id}`}
       className={cn(
-        "bg-card w-60 rounded-lg border shadow-sm transition-shadow",
+        // As wide as the canvas measured it, and never narrower than what is
+        // written on it — whichever of the two turns out to be larger.
+        "bg-card w-max min-w-full rounded-lg border shadow-sm transition-shadow",
         selected ? "border-primary ring-primary/40 ring-2" : "border-border",
         invalid && !selected && "border-destructive/60",
       )}
@@ -78,23 +72,21 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
 
       <div className="flex items-center gap-2 px-3 py-2">
         <ResourceIcon type={node.type} className="size-4 shrink-0" />
-        <div className="min-w-0 flex-1">
+        <div className="flex-1">
           <p
             className={cn(
-              "truncate font-mono text-xs font-semibold",
+              "font-mono text-xs font-semibold whitespace-nowrap",
               typeProblem ? "text-destructive" : "text-ink",
             )}
           >
-            {node.type === ""
-              ? "custom resource"
-              : shortResourceType(node.type)}
+            {typeLabel(node)}
           </p>
           {/* The name it will carry, then the Terraform label underneath — the
               two names a reader needs, and they are rarely the same. */}
-          <p className="text-ink truncate font-mono text-[11px]">
+          <p className="text-ink font-mono text-[11px] whitespace-nowrap">
             {name ?? <span className="text-faint">unnamed</span>}
           </p>
-          <p className="text-faint truncate font-mono text-[10px]">
+          <p className="text-faint font-mono text-[10px] whitespace-nowrap">
             .{node.name}
           </p>
         </div>
@@ -135,14 +127,11 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
                 </span>
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate text-right font-mono text-[10px]",
+                    "flex-1 text-right font-mono text-[10px] whitespace-nowrap",
                     input.targets.length > 0 ? "text-ink" : "text-faint",
                   )}
                 >
-                  {(() => {
-                    if (input.targets.length > 0) return input.targets.join(", ");
-                    return input.required ? "required" : "optional";
-                  })()}
+                  {slotValue(input)}
                 </span>
                 {problem && (
                   <span
@@ -166,7 +155,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
                 className="!bg-muted-foreground !size-2 !border-0"
               />
               <Plus className="text-faint size-3 shrink-0" />
-              <span className="text-faint min-w-0 flex-1 truncate font-mono text-[10px]">
+              <span className="text-faint flex-1 font-mono text-[10px] whitespace-nowrap">
                 connect a reference
               </span>
             </li>

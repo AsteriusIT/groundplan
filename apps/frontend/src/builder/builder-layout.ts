@@ -1,10 +1,17 @@
 /**
- * Where the Build Editor's containers are and how big they are (GP-247).
+ * What the Build Editor's nodes say, and how big that makes them (GP-247).
  *
  * The document stores one absolute position per node — where the user put it —
  * and React Flow wants a child's position relative to its parent plus an
  * explicit size for every frame. This is the conversion, kept pure so the
  * geometry can be reasoned about without a canvas.
+ *
+ * Size follows content, in both directions. A card is as wide as the longest
+ * thing written on it, so a name is never cut short or broken across lines, and
+ * a frame is as wide as the label on its edge and everything inside it. Text is
+ * measured rather than laid out: every string on a card is monospace, so its
+ * width is its length — which is why the strings themselves are derived here,
+ * beside the measuring, and the components draw what this module measured.
  *
  * A container is sized to hold what is in it, never the other way round:
  * nothing moves because something else was dropped, which is the difference
@@ -16,13 +23,116 @@ import {
   isContainerType,
   resourceDef,
   type BuilderGraph,
+  type BuilderNode,
   type ResourceDef,
 } from "@groundplan/builder";
 
 export type Box = { x: number; y: number; width: number; height: number };
 
-/** A resource card's footprint — the node component's own size (`w-60`). */
-export const CARD_WIDTH = 240;
+// --- what a node says ------------------------------------------------------
+
+/** The shortest honest label for a type on a card. */
+export function shortResourceType(type: string): string {
+  return type.replace(/^azurerm_/, "");
+}
+
+/** The Azure name the resource will carry, when it has been filled in. */
+export function azureName(node: BuilderNode): string | null {
+  const value = node.attributes.name;
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/** A card's type line: a resource type, or the absence of one. */
+export function typeLabel(node: BuilderNode): string {
+  return node.type === "" ? "custom resource" : shortResourceType(node.type);
+}
+
+/** One input row on a card: a slot, or a custom node's named reference. */
+export type BuilderInput = {
+  attribute: string;
+  label: string;
+  required: boolean;
+  /** The names connected into it, in order. */
+  targets: string[];
+};
+
+/** The input rows of a node: its catalog slots, or a custom node's references. */
+export function inputsOf(
+  graph: BuilderGraph,
+  node: BuilderNode,
+  catalog?: readonly ResourceDef[],
+): BuilderInput[] {
+  const names = new Map(graph.nodes.map((n) => [n.id, n.name]));
+  const targetsOf = (attribute: string) =>
+    graph.references
+      .filter((r) => r.from === node.id && r.attribute === attribute)
+      .flatMap((r) => {
+        const name = names.get(r.to);
+        return name ? [name] : [];
+      });
+
+  if (node.custom) {
+    // One row per attribute, however many things are connected into it.
+    const attributes = [
+      ...new Set(
+        graph.references.filter((r) => r.from === node.id).map((r) => r.attribute),
+      ),
+    ];
+    return attributes.map((attribute) => ({
+      attribute,
+      label: attribute,
+      required: false,
+      targets: targetsOf(attribute),
+    }));
+  }
+
+  const def = resourceDef(node.type, catalog);
+  return (def?.references ?? []).map((slot) => ({
+    attribute: slot.attribute,
+    label: slot.label,
+    required: slot.required,
+    targets: targetsOf(slot.attribute),
+  }));
+}
+
+/** What a slot row says on its right: what fills it, or what it is waiting for. */
+export function slotValue(input: BuilderInput): string {
+  if (input.targets.length > 0) return input.targets.join(", ");
+  return input.required ? "required" : "optional";
+}
+
+// --- how wide that makes it ------------------------------------------------
+
+/**
+ * How much of its size a monospace glyph advances. IBM Plex Mono — the app's
+ * `font-mono` — advances 0.6em exactly; the rest is room for a fallback face
+ * that is a little wider, since a card that is a few pixels roomier than its
+ * text is invisible and one a few pixels short is not.
+ */
+export const MONO_ADVANCE = 0.62;
+
+/** How wide a run of monospace text is, at a size and (rarely) a tracking. */
+export function textWidth(text: string, fontSize: number, tracking = 0): number {
+  return Math.ceil(text.length * (fontSize * MONO_ADVANCE + tracking));
+}
+
+/** `px-3`. */
+const PADDING = 12;
+/** `gap-2`. */
+const GAP = 8;
+/** The vendor icon, `size-4`. */
+const ICON = 16;
+/**
+ * Room for the problem badge, kept whether or not there is a problem: a card
+ * that changed size on becoming invalid would shove its neighbours around at
+ * the worst possible moment.
+ */
+const BADGE = 34;
+/** The same reservation for a slot row's problem dot. */
+const DOT = 14;
+
+/** The narrowest a card is drawn, however little it has to say. */
+export const CARD_MIN_WIDTH = 240;
 /** Icon, type, both names — the card's head, before any slot rows. */
 export const CARD_HEAD_HEIGHT = 76;
 /** One slot row. */
@@ -67,6 +177,44 @@ export function acceptsDrop(
     : isContainerType(node.type);
 }
 
+/**
+ * How wide a card is: whatever its longest line needs. Names are the reason —
+ * a resource carries the name its owner gave it, and `st-prod-weu-payments-01`
+ * cut down to `st-prod-weu-pa…` is a card that has stopped being a diagram.
+ */
+export function cardWidth(
+  graph: BuilderGraph,
+  id: string,
+  catalog?: readonly ResourceDef[],
+): number {
+  const node = graph.nodes.find((n) => n.id === id);
+  if (!node) return CARD_MIN_WIDTH;
+
+  const head =
+    PADDING +
+    ICON +
+    GAP +
+    Math.max(
+      textWidth(typeLabel(node), 12),
+      textWidth(azureName(node) ?? "unnamed", 11),
+      textWidth(`.${node.name}`, 10),
+    ) +
+    BADGE +
+    PADDING;
+
+  const rows = inputsOf(graph, node, catalog).map(
+    (input) =>
+      PADDING +
+      textWidth(input.label, 10) +
+      GAP +
+      textWidth(slotValue(input), 10) +
+      DOT +
+      PADDING,
+  );
+
+  return Math.max(CARD_MIN_WIDTH, head, ...rows);
+}
+
 /** How tall a card is: its head, plus a row per slot it shows. */
 export function cardHeight(
   graph: BuilderGraph,
@@ -75,10 +223,39 @@ export function cardHeight(
 ): number {
   const node = graph.nodes.find((n) => n.id === id);
   if (!node) return CARD_HEAD_HEIGHT;
-  const rows = node.custom
-    ? graph.references.filter((r) => r.from === id).length + 1
-    : (resourceDef(node.type, catalog)?.references.length ?? 0);
+  const rows = inputsOf(graph, node, catalog).length + (node.custom ? 1 : 0);
   return CARD_HEAD_HEIGHT + rows * CARD_ROW_HEIGHT;
+}
+
+/** `left-3`, and the same again on the right so the label ends inside. */
+const CHIP_INSET = 12;
+/** `px-2`. */
+const CHIP_PADDING = 8;
+/** `gap-1.5`. */
+const CHIP_GAP = 6;
+/** `size-3.5`. */
+const CHIP_ICON = 14;
+/** `tracking-[0.14em]` at 10px, on the type only. */
+const CHIP_TRACKING = 1.4;
+
+/**
+ * How wide a frame's label chip is. A frame is never drawn narrower than this:
+ * a label running off the end of the box it names reads as a broken diagram.
+ */
+export function frameLabelWidth(node: BuilderNode): number {
+  return (
+    CHIP_INSET +
+    CHIP_PADDING * 2 +
+    CHIP_ICON +
+    CHIP_GAP +
+    textWidth(typeLabel(node), 10, CHIP_TRACKING) +
+    CHIP_GAP +
+    textWidth(azureName(node) ?? "unnamed", 10) +
+    CHIP_GAP +
+    textWidth(`.${node.name}`, 10) +
+    BADGE +
+    CHIP_INSET
+  );
 }
 
 /** Every node's absolute box, containers sized around what they hold. */
@@ -94,11 +271,15 @@ export function absoluteBoxes(
     if (known) return known;
     const node = graph.nodes.find((n) => n.id === id);
     if (!node) {
-      return { x: 0, y: 0, width: CARD_WIDTH, height: CARD_HEAD_HEIGHT };
+      return { x: 0, y: 0, width: CARD_MIN_WIDTH, height: CARD_HEAD_HEIGHT };
     }
     // Broken data (a parent cycle) must not hang the canvas.
     if (walking.has(id)) {
-      return { ...node.position, width: CARD_WIDTH, height: CARD_HEAD_HEIGHT };
+      return {
+        ...node.position,
+        width: CARD_MIN_WIDTH,
+        height: CARD_HEAD_HEIGHT,
+      };
     }
     walking.add(id);
 
@@ -107,7 +288,7 @@ export function absoluteBoxes(
     if (children.length === 0) {
       box = {
         ...node.position,
-        width: CARD_WIDTH,
+        width: cardWidth(graph, id, catalog),
         height: cardHeight(graph, id, catalog),
       };
     } else {
@@ -118,6 +299,7 @@ export function absoluteBoxes(
         ...node.position,
         width: Math.max(
           CONTAINER_MIN_WIDTH,
+          frameLabelWidth(node),
           right - node.position.x + CONTAINER_PADDING,
         ),
         height: Math.max(

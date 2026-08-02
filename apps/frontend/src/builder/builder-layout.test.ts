@@ -7,14 +7,18 @@ import {
   acceptsDrop,
   byDepth,
   cardHeight,
-  CARD_WIDTH,
+  cardWidth,
+  CARD_MIN_WIDTH,
   containerAt,
   CONTAINER_MIN_HEIGHT,
+  CONTAINER_MIN_WIDTH,
   CONTAINER_PADDING,
   drawsAsContainer,
+  frameLabelWidth,
   relativePosition,
+  textWidth,
 } from "./builder-layout";
-import { addNode, moveNode, reparent } from "./builder-ops";
+import { addNode, moveNode, renameNode, reparent, setAttribute } from "./builder-ops";
 
 /** A resource group at the origin holding a vnet 40/60 into it. */
 function nested(): BuilderGraph {
@@ -54,7 +58,7 @@ describe("build editor geometry (GP-247)", () => {
   it("sizes an empty resource as the card it is drawn as", () => {
     const graph = addNode(emptyBuilderGraph(), "azurerm_resource_group", "rg");
     const box = absoluteBoxes(graph).get("rg");
-    expect(box?.width).toBe(CARD_WIDTH);
+    expect(box?.width).toBe(CARD_MIN_WIDTH);
     expect(box?.height).toBe(cardHeight(graph, "rg"));
     // A resource group needs nothing, so its card is all head and no rows.
     expect(box?.height).toBeLessThan(CONTAINER_MIN_HEIGHT);
@@ -69,7 +73,7 @@ describe("build editor geometry (GP-247)", () => {
     expect(box?.x).toBe(0);
     expect(box?.y).toBe(0);
     // …and it reaches past the vnet's card, with room to spare.
-    expect(box?.width).toBe(400 + CARD_WIDTH + CONTAINER_PADDING);
+    expect(box?.width).toBe(400 + cardWidth(graph, "vnet") + CONTAINER_PADDING);
     expect(box?.height).toBe(
       300 + cardHeight(graph, "vnet") + CONTAINER_PADDING,
     );
@@ -80,7 +84,45 @@ describe("build editor geometry (GP-247)", () => {
     graph = addNode(graph, "azurerm_subnet", "snet");
     // A resource group asks for nothing; a subnet asks for two things.
     expect(cardHeight(graph, "snet")).toBeGreaterThan(cardHeight(graph, "rg"));
-    expect(absoluteBoxes(graph).get("snet")?.width).toBe(CARD_WIDTH);
+    expect(absoluteBoxes(graph).get("snet")?.width).toBe(CARD_MIN_WIDTH);
+  });
+
+  it("widens a card around a long name rather than cutting it", () => {
+    let graph = addNode(emptyBuilderGraph(), "azurerm_storage_account", "sa");
+    expect(cardWidth(graph, "sa")).toBe(CARD_MIN_WIDTH);
+
+    const long = "st-production-westeurope-payments-ledger-01";
+    graph = setAttribute(graph, "sa", "name", long);
+
+    // Wide enough for the name itself, with the icon, the padding and the
+    // badge's room still on either side of it.
+    expect(cardWidth(graph, "sa")).toBeGreaterThan(textWidth(long, 11) + 60);
+    expect(absoluteBoxes(graph).get("sa")?.width).toBe(cardWidth(graph, "sa"));
+
+    // The Terraform label is a line of its own, so a long one counts too.
+    const labelled = renameNode(
+      addNode(emptyBuilderGraph(), "azurerm_storage_account", "sa2"),
+      "sa2",
+      "storage_for_the_quarterly_settlement_exports",
+    );
+    expect(cardWidth(labelled, "sa2")).toBeGreaterThan(CARD_MIN_WIDTH);
+  });
+
+  it("never draws a frame narrower than the label on its edge", () => {
+    let graph = nested();
+    graph = setAttribute(
+      graph,
+      "rg",
+      "name",
+      "rg-production-westeurope-platform-shared-01",
+    );
+    const rg = graph.nodes.find((n) => n.id === "rg")!;
+    const box = absoluteBoxes(graph).get("rg");
+
+    // The vnet inside is nowhere near the right-hand edge, so without the
+    // label the frame would be its minimum — and the label would run off it.
+    expect(frameLabelWidth(rg)).toBeGreaterThan(CONTAINER_MIN_WIDTH);
+    expect(box?.width).toBe(frameLabelWidth(rg));
   });
 
   it("hands React Flow a position relative to the frame, never under its label", () => {

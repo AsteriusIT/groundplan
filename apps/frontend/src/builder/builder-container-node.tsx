@@ -8,9 +8,13 @@
  * network view's meaning of the levels: there, depth is vnet ⊃ subnet; here it
  * is however deep the catalog's slots go.
  *
- * A frame is still a resource, so it keeps a resource's handles: what it offers
- * leaves on the right, what it needs comes in on the left. Being drawn as a
- * place to put things must not cost it the ability to be wired to.
+ * A frame offers no handle to drag a wire from or to. Connecting *is* putting
+ * something inside it, so a second way to say the same thing would be a second
+ * thing to keep in step — and a dot that starts a wire on a box you are meant
+ * to drop into is an invitation to fight the drag you actually want. Its slots
+ * still exist as anchors, invisible and unconnectable, because a reference that
+ * containment cannot express is drawn as a wire and that wire has to land
+ * somewhere honest.
  */
 import { memo } from "react";
 import { AlertCircle } from "lucide-react";
@@ -20,12 +24,15 @@ import type { BuilderIssue, BuilderNode } from "@groundplan/builder";
 import { ResourceIcon } from "@groundplan/canvas";
 import { cn } from "@/lib/utils";
 
-import { shortResourceType, type BuilderInput } from "./builder-node";
+import { azureName, typeLabel, type BuilderInput } from "./builder-layout";
+
+/** An anchor for a wire, not a place to start one. */
+const ANCHOR = "!size-2 !border-0 !bg-transparent !opacity-0";
 
 export type BuilderContainerData = {
   node: BuilderNode;
   issues: BuilderIssue[];
-  /** The slots a wire can land on — the card's rows, along the frame's edge. */
+  /** The slots an existing wire can land on, along the frame's left edge. */
   inputs: BuilderInput[];
   /** How deep this frame is nested, for its weight. */
   depth: number;
@@ -38,10 +45,7 @@ export type BuilderContainerFlowNode = Node<BuilderContainerData, "container">;
 function ContainerFrame({ data, selected }: NodeProps<BuilderContainerFlowNode>) {
   const { node, issues, inputs, dropping } = data;
   const outer = data.depth === 0;
-  const name =
-    typeof node.attributes.name === "string" && node.attributes.name.trim()
-      ? node.attributes.name
-      : null;
+  const name = azureName(node);
 
   return (
     <div
@@ -57,23 +61,33 @@ function ContainerFrame({ data, selected }: NodeProps<BuilderContainerFlowNode>)
         issues.length > 0 && !selected && "border-destructive/60",
       )}
     >
-      {/* What this resource offers others: its id, its name, its location. */}
+      {/* Anchors, not handles — see the note at the top of this file. */}
       <Handle
         type="source"
         position={Position.Right}
-        className="!bg-primary !size-2 !border-0"
+        isConnectable={false}
+        className={ANCHOR}
       />
+      {inputs.map((input, index) => (
+        <Handle
+          key={input.attribute}
+          id={input.attribute}
+          type="target"
+          position={Position.Left}
+          isConnectable={false}
+          className={ANCHOR}
+          style={{ top: 28 + index * 14 }}
+        />
+      ))}
 
       <span
         className={cn(
-          "text-muted-foreground border-border bg-canvas absolute left-3 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[10px] leading-none font-medium",
+          "text-muted-foreground border-border bg-canvas absolute left-3 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[10px] leading-none font-medium whitespace-nowrap",
           outer ? "-top-3" : "-top-2.5",
         )}
       >
         <ResourceIcon type={node.type} className="size-3.5 shrink-0" />
-        <span className="tracking-[0.14em] uppercase">
-          {shortResourceType(node.type)}
-        </span>
+        <span className="tracking-[0.14em] uppercase">{typeLabel(node)}</span>
         <span className="text-ink font-semibold">
           {name ?? <span className="text-faint">unnamed</span>}
         </span>
@@ -90,37 +104,6 @@ function ContainerFrame({ data, selected }: NodeProps<BuilderContainerFlowNode>)
         )}
       </span>
 
-      {/* What it needs, down the outside of its left edge — the card's rows,
-          turned sideways so they never sit on top of what is inside. */}
-      {inputs.length > 0 && (
-        <ul className="absolute top-6 -left-1 flex flex-col gap-2">
-          {inputs.map((input) => (
-            <li key={input.attribute} className="relative flex items-center">
-              <Handle
-                id={input.attribute}
-                type="target"
-                position={Position.Left}
-                className={cn(
-                  "!size-2 !border-0",
-                  input.targets.length > 0
-                    ? "!bg-primary"
-                    : "!bg-muted-foreground",
-                )}
-              />
-              <span
-                className={cn(
-                  "bg-canvas border-border ml-2 rounded border px-1 py-0.5 font-mono text-[9px] leading-none",
-                  input.targets.length > 0
-                    ? "text-muted-foreground"
-                    : "text-faint",
-                )}
-              >
-                {input.label}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

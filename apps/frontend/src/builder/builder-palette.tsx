@@ -31,7 +31,7 @@ import { ResourceIcon } from "@groundplan/canvas";
 import { Input } from "@/components/ui/input";
 
 import { PALETTE_MIME } from "./builder-canvas";
-import { shortResourceType } from "./builder-node";
+import { shortResourceType } from "./builder-layout";
 import { CUSTOM_TYPE } from "./builder-ops";
 import type { CatalogState } from "./use-catalog";
 

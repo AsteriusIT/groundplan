@@ -105,6 +105,56 @@ it("only offers connections the catalog allows, and records the one made", () =>
   ).toBeInTheDocument();
 });
 
+it("wires cards, and leaves a frame to be filled by what goes into it (GP-247)", () => {
+  render(<Harness />);
+  addFromPalette("Resource group");
+  addFromPalette("Virtual network");
+  fireEvent.change(field(/Resource group/), { target: { value: "n1" } });
+
+  // The resource group holds the network now, so it is drawn as a frame — and
+  // a frame is not something you drag a wire from or to: you put things in it.
+  const frame = screen.getByTestId("builder-node-n1");
+  expect(frame.querySelectorAll(".react-flow__handle.connectable")).toHaveLength(
+    0,
+  );
+  // The card inside it keeps every handle it had, so a reference containment
+  // cannot express is still one drag away.
+  const card = screen.getByTestId("builder-node-n2");
+  expect(
+    card.querySelectorAll(".react-flow__handle.connectable").length,
+  ).toBeGreaterThan(0);
+});
+
+it("keeps every card above every frame, related or not (GP-247)", () => {
+  render(<Harness />);
+  addFromPalette("Resource group");
+  addFromPalette("Virtual network");
+  fireEvent.change(field(/Resource group/), { target: { value: "n1" } });
+  // A third resource, in nobody's frame and free to be dragged over one.
+  addFromPalette("Storage account");
+
+  const depth = (id: string) =>
+    Number(
+      screen
+        .getByTestId(`builder-node-${id}`)
+        .closest<HTMLElement>(".react-flow__node")?.style.zIndex ?? 0,
+    );
+
+  // Overlapping a frame must never hide a resource behind it.
+  expect(depth("n3")).toBeGreaterThan(depth("n1"));
+  // And what is inside the frame stays inside it, on top.
+  expect(depth("n2")).toBeGreaterThan(depth("n1"));
+  // The storage account is the selected one — the one a drag has hold of —
+  // so it passes over the other card rather than under it.
+  expect(depth("n3")).toBeGreaterThan(depth("n2"));
+
+  // Select the frame instead: it comes forward among frames, and stays under
+  // every card, which is the whole point of the two levels.
+  fireEvent.click(screen.getByTestId("builder-node-n1"));
+  expect(depth("n1")).toBeLessThan(depth("n2"));
+  expect(depth("n1")).toBeLessThan(depth("n3"));
+});
+
 it("says a slot has nothing to connect to rather than offering nonsense", () => {
   render(<Harness />);
   addFromPalette("Subnet");
