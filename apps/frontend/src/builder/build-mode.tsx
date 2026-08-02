@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CATALOG,
   defFor,
+  isVariable,
   resourceDef,
   schemaKindOf,
   type BuilderIssue,
@@ -29,20 +30,30 @@ import {
 
 import { BuilderCanvas } from "./builder-canvas";
 import { BuilderForm } from "./builder-form";
-import { CUSTOM_TYPE } from "./builder-ops";
+import { CUSTOM_TYPE, VARIABLE_TYPE } from "./builder-ops";
 import { BuilderPalette } from "./builder-palette";
 import type { CatalogState } from "./use-catalog";
 import type { BuilderController } from "./use-builder-graph";
 
-/** "3 resources · ready" / "2 problems to fix" — the state of the sketch. */
+/**
+ * "3 resources · ready" / "2 resources · 1 variable · 2 problems to fix" — the
+ * state of the sketch. Variables are counted apart because they are not
+ * resources: nothing is created for one, and calling three inputs "three
+ * resources" would be the status line telling its first lie (GP-249).
+ */
 export function compositionStatus(
-  nodeCount: number,
+  nodes: readonly { mode?: BuilderMode }[],
   issueCount: number,
 ): string {
-  if (nodeCount === 0) return "Nothing composed yet";
-  const resources = `${nodeCount} resource${nodeCount === 1 ? "" : "s"}`;
-  if (issueCount === 0) return `${resources} · ready to generate`;
-  return `${resources} · ${issueCount} problem${issueCount === 1 ? "" : "s"} to fix`;
+  if (nodes.length === 0) return "Nothing composed yet";
+  const variables = nodes.filter(isVariable).length;
+  const resources = nodes.length - variables;
+  const counted = [
+    ...(resources > 0 ? [`${resources} resource${resources === 1 ? "" : "s"}`] : []),
+    ...(variables > 0 ? [`${variables} variable${variables === 1 ? "" : "s"}`] : []),
+  ].join(" · ");
+  if (issueCount === 0) return `${counted} · ready to generate`;
+  return `${counted} · ${issueCount} problem${issueCount === 1 ? "" : "s"} to fix`;
 }
 
 export function BuildMode({
@@ -78,7 +89,11 @@ export function BuildMode({
       // and a curated type is already compiled in. Both are placed in this
       // tick: waiting on a promise nobody is waiting for would turn a click
       // into a frame of nothing happening.
-      if (type === CUSTOM_TYPE || resourceDef(type, CATALOG)) {
+      if (
+        type === CUSTOM_TYPE ||
+        type === VARIABLE_TYPE ||
+        resourceDef(type, CATALOG)
+      ) {
         builder.addNode(type, position, undefined, parentId);
         return;
       }
@@ -196,9 +211,14 @@ export function BuildMode({
             catalog={catalog.defs}
             graph={builder.graph}
             issues={selectedIssues}
-            onSetMode={(mode) => setMode(selected.id, selected.type, mode)}
-            modeBusy={switching}
-            modeError={modeError}
+            {...(selected.mode === "variable"
+              ? {}
+              : {
+                  onSetMode: (mode: BuilderMode) =>
+                    setMode(selected.id, selected.type, mode),
+                  modeBusy: switching,
+                  modeError,
+                })}
             onRename={(name) => builder.rename(selected.id, name)}
             onRetype={(type) => builder.retype(selected.id, type)}
             onAttribute={(attribute, value) =>
@@ -278,7 +298,7 @@ export function BuildMode({
             className="text-muted-foreground font-mono text-[11px]"
             role="status"
           >
-            {compositionStatus(builder.graph.nodes.length, issues.length)}
+            {compositionStatus(builder.graph.nodes, issues.length)}
           </p>
         </div>
         {actions}

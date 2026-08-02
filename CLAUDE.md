@@ -407,7 +407,7 @@ the document (`use-playground-document.ts`: files, parse, draft, composition,
 catalog) so walking between the views loses nothing; the views bring their own
 toolbars.
 
-**Visual builder (GP-131..135, GP-247, GP-248, flagged).** `BUILDER_ENABLED=true` adds
+**Visual builder (GP-131..135, GP-247..249, flagged).** `BUILDER_ENABLED=true` adds
 the **Build Editor** view to the playground: compose Azure resources on a canvas,
 then generate Terraform from them. Off by default — the `AI_API_KEY` posture
 applied to a boolean: `/builder/status` reports it, `POST /builder/generate`
@@ -432,7 +432,16 @@ every definition is identified by (kind, type) — `defFor(node, catalog)` is th
 one place that asks. No schema, no lookup: a resource's arguments are not a
 data source's, and writing `location` into a `data "azurerm_resource_group"`
 would generate a file Terraform rejects, so the toggle says what it cannot do
-rather than inventing one. A composition saves into a playground draft beside the
+rather than inventing one. `mode: "variable"` (GP-249) is the third block: no
+provider type, no schema to fetch, described by a built-in definition derived
+from the variable itself (`variableDef` — the control for its `default` follows
+its declared `type`), generated into `variables.tf` by its own renderer because
+`type = string` is a type expression and not a quoted string. **Pointing at one
+is a reference**: `references` already means "this argument is not a literal, it
+is that thing over there", so a reference to a variable renders `var.<name>`
+with no attribute suffix and may fill a typed slot *or* a plain argument — which
+is why `canAttach` is the one rule the form and the canvas both ask, and why a
+bound argument grows a row on the card. A composition saves into a playground draft beside the
 files (`playground_drafts.composition`) — two documents, neither derived from
 the other (ADR #5). `packages/builder` holds everything both
 sides need, so the browser composes against the same rules the server generates
@@ -524,7 +533,8 @@ provider catalog (GP-234..240: model & store, registry watcher, sandboxed
 extraction worker, read API, schema-driven builder, bundled snapshot, trust-model
 wording) · GP-241 app modes & Playground revamp (GP-242..247: mode switcher,
 collapsible rail, two Playground routes, the real editor, the layout toggle,
-containment in the Build Editor) · GP-248 data lookups in the Build Editor.
+containment in the Build Editor) · GP-248 data lookups in the Build Editor ·
+GP-249 variables in the Build Editor.
 
 **Open:**
 

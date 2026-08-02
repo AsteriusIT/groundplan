@@ -4,15 +4,21 @@
  * (ADR #3). The templates *are* the catalog entries — this file knows how to
  * render an attribute, a reference and a block, and nothing about azurerm.
  *
- * The output is a scaffold: literal values, no variables, no `count`, no
- * modules. Once written it is ordinary Terraform, and the only truth there is
- * about the infrastructure it describes (ADR #5).
+ * The output is a scaffold: no `count`, no `for_each`, no modules. An argument
+ * is a literal, or a pointer at something else on the canvas — a resource, a
+ * lookup, or a variable the composition takes in (GP-249). Once written it is
+ * ordinary Terraform, and the only truth there is about the infrastructure it
+ * describes (ADR #5).
  */
 import type { BuilderGraph, BuilderNode, BuilderValue } from "./builder-graph.js";
-import { addressOf } from "./builder-graph.js";
+import { addressOf, isVariable } from "./builder-graph.js";
 import {
+  attributeKey,
   CATALOG,
   defFor,
+  variableDef,
+  variableType,
+  VARIABLES_FILE,
   type AttributeDef,
   type ReferenceSlot,
   type ResourceCategory,
@@ -33,9 +39,13 @@ export const FILE_OF_CATEGORY: Record<ResourceCategory, string> = {
 /** Where resources the catalog does not describe are written. */
 export const CUSTOM_FILE = "custom.tf";
 
-/** Every file the builder can write — what the collision check compares against. */
+/**
+ * Every file the builder can write — what the collision check compares against.
+ * Variables lead: they are what the rest of the composition is written in terms
+ * of, and `variables.tf` is where a reader looks first.
+ */
 export const GENERATED_FILES: readonly string[] = [
-  ...new Set([...Object.values(FILE_OF_CATEGORY), CUSTOM_FILE]),
+  ...new Set([VARIABLES_FILE, ...Object.values(FILE_OF_CATEGORY), CUSTOM_FILE]),
 ];
 
 /**
@@ -143,9 +153,16 @@ export function renderValue(value: BuilderValue): string {
   return `[${value.map(quote).join(", ")}]`;
 }
 
-/** `azurerm_virtual_network.this.name` — a reference, never a copied string. */
-function renderReference(target: BuilderNode, slot: ReferenceSlot): string {
-  return `${addressOf(target)}.${slot.targetAttribute}`;
+/**
+ * `azurerm_virtual_network.this.name` — a reference, never a copied string.
+ *
+ * A variable is the whole expression on its own: `var.location` has no
+ * attribute to read, and `var.location.name` is not a thing (GP-249).
+ */
+function renderReference(target: BuilderNode, targetAttribute: string): string {
+  return isVariable(target)
+    ? addressOf(target)
+    : `${addressOf(target)}.${targetAttribute}`;
 }
 
 /** Pad every key to the widest, the way `terraform fmt` aligns a block. */
@@ -185,6 +202,21 @@ function attributeLine(attribute: AttributeDef, node: BuilderNode): Line | null 
   return { key: attribute.name, value: renderValue(value) };
 }
 
+/**
+ * An argument somebody pointed at a variable instead of typing a value into
+ * (GP-249): the variable *is* the value, so whatever literal the node still
+ * carries is not written. Only a variable can be bound this way — validation
+ * refuses anything else — which is why there is no attribute to read off it.
+ */
+function boundLine(
+  attribute: AttributeDef,
+  targets: readonly BuilderNode[],
+): Line | null {
+  const [target] = targets;
+  if (!target) return null;
+  return { key: attribute.name, value: renderReference(target, "id") };
+}
+
 /** The line a slot contributes, given what is connected to it. */
 function slotLine(
   slot: ReferenceSlot,
@@ -192,7 +224,7 @@ function slotLine(
 ): Line | null {
   if (targets.length === 0) return null;
   const rendered = targets
-    .map((target) => renderReference(target, slot))
+    .map((target) => renderReference(target, slot.targetAttribute))
     // Sorted, so the order connections were drawn in cannot change the file.
     .sort((a, b) => a.localeCompare(b));
   return {
@@ -235,7 +267,11 @@ function renderBlock(
   }
   for (const attribute of def.attributes) {
     if (attribute.block !== name) continue;
-    const line = attributeLine(attribute, node);
+    const bound = bySlot.get(attributeKey(attribute)) ?? [];
+    const line =
+      bound.length > 0
+        ? boundLine(attribute, bound)
+        : attributeLine(attribute, node);
     if (line) lines.push(line);
   }
   for (const slot of def.references) {
@@ -271,7 +307,7 @@ function renderCustomResource(
       return [
         {
           key: reference.attribute,
-          value: `${addressOf(target)}.${reference.targetAttribute}`,
+          value: renderReference(target, reference.targetAttribute),
         },
       ];
     })
@@ -295,7 +331,11 @@ export function renderResource(
   const lines: Line[] = [];
   for (const attribute of def.attributes) {
     if (attribute.block) continue;
-    const line = attributeLine(attribute, node);
+    const bound = bySlot.get(attributeKey(attribute)) ?? [];
+    const line =
+      bound.length > 0
+        ? boundLine(attribute, bound)
+        : attributeLine(attribute, node);
     if (line) lines.push(line);
   }
   for (const slot of def.references) {
@@ -314,6 +354,28 @@ export function renderResource(
     ...blocks.flatMap((block) => (body.length > 0 ? ["", block] : [block])),
     "}",
   ].join("\n");
+}
+
+/**
+ * A `variable` block (GP-249) — its own renderer, because `type = string` is an
+ * HCL *type expression* and not a string. Quoting it would be wrong, and the
+ * one rule that says so is easier to keep here than to encode in a catalog.
+ */
+export function renderVariable(node: BuilderNode): string {
+  const lines: Line[] = [];
+  for (const attribute of variableDef(node).attributes) {
+    const value = attributeValue(attribute, node);
+    if (value === undefined || isBlank(value)) continue;
+    // `sensitive = false` is Terraform's own default, and a file that states
+    // every default is a file nobody reads.
+    if (attribute.name === "sensitive" && value === false) continue;
+    lines.push(
+      attribute.name === "type"
+        ? { key: "type", value: variableType(node) }
+        : { key: attribute.name, value: renderValue(value) },
+    );
+  }
+  return [`variable ${quote(node.name)} {`, ...align(lines, "  "), "}"].join("\n");
 }
 
 /** Which file a definition's resources are written into. */
@@ -392,6 +454,13 @@ export function generateTerraform(
   });
 
   for (const node of ordered) {
+    if (isVariable(node)) {
+      byFile.set(VARIABLES_FILE, [
+        ...(byFile.get(VARIABLES_FILE) ?? []),
+        renderVariable(node),
+      ]);
+      continue;
+    }
     if (node.custom) {
       byFile.set(CUSTOM_FILE, [
         ...(byFile.get(CUSTOM_FILE) ?? []),

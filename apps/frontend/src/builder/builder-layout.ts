@@ -19,9 +19,12 @@
  * pass — positions are the user's).
  */
 import {
+  attributeKey,
   canContain,
   defFor,
   isContainerType,
+  isVariable,
+  variableType,
   type BuilderGraph,
   type BuilderNode,
   type ResourceDef,
@@ -42,9 +45,24 @@ export function azureName(node: BuilderNode): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
-/** A card's type line: a resource type, or the absence of one. */
+/** A card's type line: a resource type, a variable, or the absence of one. */
 export function typeLabel(node: BuilderNode): string {
+  if (isVariable(node)) return "variable";
   return node.type === "" ? "custom resource" : shortResourceType(node.type);
+}
+
+/**
+ * A card's middle line: the name the resource will carry in Azure — or, for a
+ * variable, what it holds (GP-249). "unnamed" is a real answer for a resource
+ * that has not been named yet; a variable has no such name, and printing one
+ * would be inventing a field it does not have.
+ */
+export function subtitleOf(node: BuilderNode): { text: string; faint: boolean } {
+  if (isVariable(node)) return { text: variableType(node), faint: false };
+  const name = azureName(node);
+  return name === null
+    ? { text: "unnamed", faint: true }
+    : { text: name, faint: false };
 }
 
 /** The word a lookup carries on its card and its frame (GP-248). */
@@ -95,12 +113,29 @@ export function inputsOf(
   }
 
   const def = defFor(node, catalog);
-  return (def?.references ?? []).map((slot) => ({
+  const slots = (def?.references ?? []).map((slot) => ({
     attribute: slot.attribute,
     label: slot.label,
     required: slot.required,
     targets: targetsOf(slot.attribute),
   }));
+
+  // An ordinary argument pointed at a variable is a row too (GP-249): the card
+  // says what is parameterised, and a wire drawn to it has somewhere to land.
+  const bound = (def?.attributes ?? [])
+    .filter((attribute) =>
+      graph.references.some(
+        (r) => r.from === node.id && r.attribute === attributeKey(attribute),
+      ),
+    )
+    .map((attribute) => ({
+      attribute: attributeKey(attribute),
+      label: attribute.label,
+      required: attribute.required,
+      targets: targetsOf(attributeKey(attribute)),
+    }));
+
+  return [...slots, ...bound];
 }
 
 /** What a slot row says on its right: what fills it, or what it is waiting for. */
@@ -206,7 +241,7 @@ export function cardWidth(
     GAP +
     Math.max(
       textWidth(typeLabel(node), 12) + (isLookup(node) ? MARK : 0),
-      textWidth(azureName(node) ?? "unnamed", 11),
+      textWidth(subtitleOf(node).text, 11),
       textWidth(`.${node.name}`, 10),
     ) +
     BADGE +
@@ -261,7 +296,7 @@ export function frameLabelWidth(node: BuilderNode): number {
     textWidth(typeLabel(node), 10, CHIP_TRACKING) +
     (isLookup(node) ? MARK : 0) +
     CHIP_GAP +
-    textWidth(azureName(node) ?? "unnamed", 10) +
+    textWidth(subtitleOf(node).text, 10) +
     CHIP_GAP +
     textWidth(`.${node.name}`, 10) +
     BADGE +

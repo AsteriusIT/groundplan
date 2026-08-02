@@ -26,10 +26,10 @@ import { ResourceIcon } from "@groundplan/canvas";
 import { cn } from "@/lib/utils";
 
 import {
-  azureName,
   DATA_MARK,
   isLookup,
   slotValue,
+  subtitleOf,
   typeLabel,
   type BuilderInput,
 } from "./builder-layout";
@@ -50,7 +50,7 @@ export type BuilderFlowNode = Node<BuilderNodeData, "builder">;
 function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
   const { node, issues, inputs } = data;
   const invalid = issues.length > 0;
-  const name = azureName(node);
+  const subtitle = subtitleOf(node);
   const typeProblem = issues.find(isTypeIssue);
 
   return (
@@ -92,8 +92,13 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
           </p>
           {/* The name it will carry, then the Terraform label underneath — the
               two names a reader needs, and they are rarely the same. */}
-          <p className="text-ink font-mono text-[11px] whitespace-nowrap">
-            {name ?? <span className="text-faint">unnamed</span>}
+          <p
+            className={cn(
+              "font-mono text-[11px] whitespace-nowrap",
+              subtitle.faint ? "text-faint" : "text-ink",
+            )}
+          >
+            {subtitle.text}
           </p>
           <p className="text-faint font-mono text-[10px] whitespace-nowrap">
             .{node.name}

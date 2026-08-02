@@ -16,7 +16,7 @@
  * has turned the refresh off. A catalog that hid its own age would be the one
  * surface in this product that does.
  */
-import { Loader2, Search, Shapes } from "lucide-react";
+import { Braces, Loader2, Search, Shapes } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -32,7 +32,7 @@ import { Input } from "@/components/ui/input";
 
 import { PALETTE_MIME } from "./builder-canvas";
 import { shortResourceType } from "./builder-layout";
-import { CUSTOM_TYPE } from "./builder-ops";
+import { CUSTOM_TYPE, VARIABLE_TYPE } from "./builder-ops";
 import { catalogKey, type CatalogState } from "./use-catalog";
 
 const ENTRY =
@@ -261,13 +261,23 @@ export function BuilderPalette({
         )}
       </div>
 
-      {/* The escape hatch: a resource no provider in the catalog describes.
-          It costs the typed slots and the checked attributes — the type and the
-          fields are the user's word — which is the honest trade for reaching a
-          resource the catalog cannot see. */}
+      {/* Not resources: a value the composition takes in (GP-249), and the
+          escape hatch for a resource no provider in the catalog describes —
+          which costs the typed slots and the checked attributes, the honest
+          trade for reaching something the catalog cannot see. */}
       <section className="border-border border-t py-1">
         <h3 className={SECTION_HEADING}>Anything else</h3>
         <ul>
+          <li>
+            <PaletteEntry
+              type={VARIABLE_TYPE}
+              label="Variable"
+              hint="var"
+              title="A value this composition takes in. Point any argument at it instead of typing a literal."
+              icon={<Braces className="text-muted-foreground size-4 shrink-0" />}
+              onAdd={onAdd}
+            />
+          </li>
           <li>
             <PaletteEntry
               type={CUSTOM_TYPE}

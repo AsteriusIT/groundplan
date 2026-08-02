@@ -3,10 +3,10 @@ import { describe, it } from "node:test";
 
 import { parse } from "@groundplan/graph-parser";
 
-import type { BuilderGraph } from "./builder-graph.js";
+import type { BuilderGraph, BuilderValue } from "./builder-graph.js";
 import { addressOf } from "./builder-graph.js";
 import { CATALOG, resourceDef, type ResourceDef } from "./catalog.js";
-import { generateTerraform } from "./generate.js";
+import { generateTerraform, renderVariable } from "./generate.js";
 import { mergeCatalog } from "./schema-def.js";
 import { validateBuilderGraph } from "./validate.js";
 import { demoGraph } from "./__fixtures__/demo-graph.js";
@@ -403,6 +403,207 @@ describe("data lookups (GP-248)", () => {
     assert.deepEqual(
       validateBuilderGraph(clash, catalog).map((i) => i.reason),
       ["duplicate_name", "duplicate_name"],
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Variables (GP-249): the values a composition takes in, and the arguments
+// that point at them instead of carrying a literal.
+// ---------------------------------------------------------------------------
+
+/** A location everything shares, a network in a group somebody else owns. */
+function parameterised(): BuilderGraph {
+  return {
+    nodes: [
+      {
+        id: "loc",
+        type: "",
+        mode: "variable",
+        name: "location",
+        attributes: {
+          type: "string",
+          description: "Where everything goes",
+          default: "westeurope",
+        },
+        position: { x: 0, y: 0 },
+      },
+      {
+        id: "rgname",
+        type: "",
+        mode: "variable",
+        name: "resource_group",
+        attributes: { type: "string" },
+        position: { x: 0, y: 120 },
+      },
+      {
+        id: "vnet",
+        type: "azurerm_virtual_network",
+        name: "app",
+        attributes: {
+          name: "vnet-app",
+          location: "eastus",
+          address_space: ["10.0.0.0/16"],
+        },
+        position: { x: 0, y: 240 },
+      },
+    ],
+    references: [
+      // An ordinary argument, pointed at a variable…
+      { from: "vnet", to: "loc", attribute: "location" },
+      // …and a typed slot, pointed at one too.
+      { from: "vnet", to: "rgname", attribute: "resource_group_name" },
+    ],
+  };
+}
+
+describe("variables (GP-249)", () => {
+  it("writes variables.tf, with the type unquoted", () => {
+    const graph = parameterised();
+    assert.deepEqual(validateBuilderGraph(graph), []);
+
+    const files = filesOf(graph);
+    assert.equal(
+      files.get("variables.tf"),
+      [
+        'variable "location" {',
+        "  type        = string",
+        '  description = "Where everything goes"',
+        '  default     = "westeurope"',
+        "}",
+        "",
+        'variable "resource_group" {',
+        "  type = string",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("points an argument and a slot at a variable, and never at var.x.id", () => {
+    const network = filesOf(parameterised()).get("network.tf") ?? "";
+    // The literal the node still carries is not what is written.
+    assert.match(network, /location {12}= var\.location/);
+    assert.doesNotMatch(network, /"eastus"/);
+    assert.match(network, /resource_group_name = var\.resource_group/);
+    // A variable is the whole expression: there is nothing to read off it.
+    assert.doesNotMatch(network, /var\.\w+\./);
+  });
+
+  it("renders a default as the type it declared", () => {
+    const of = (attributes: Record<string, BuilderValue>) =>
+      renderVariable({
+        id: "v",
+        type: "",
+        mode: "variable",
+        name: "v",
+        attributes,
+        position: { x: 0, y: 0 },
+      });
+
+    assert.match(of({ type: "number", default: 3 }), /default = 3\n/);
+    assert.match(of({ type: "bool", default: true }), /default = true\n/);
+    assert.match(
+      of({ type: "list(string)", default: ["a", "b"] }),
+      /default = \["a", "b"\]\n/,
+    );
+    // Terraform's own default, so saying it would be noise.
+    assert.doesNotMatch(of({ type: "string", sensitive: false }), /sensitive/);
+    assert.match(of({ type: "string", sensitive: true }), /sensitive = true/);
+    // No default at all is a variable somebody must supply, which is a choice.
+    assert.doesNotMatch(of({ type: "string" }), /default/);
+  });
+
+  it("checks a default against the type the variable declared", () => {
+    const graph: BuilderGraph = {
+      nodes: [
+        {
+          id: "v",
+          type: "",
+          mode: "variable",
+          name: "replicas",
+          attributes: { type: "number", default: "three" },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      references: [],
+    };
+    assert.deepEqual(
+      validateBuilderGraph(graph).map((i) => `${i.attribute}: ${i.message}`),
+      ["default: Default must be a number"],
+    );
+  });
+
+  it("refuses two variables of one name, and allows a resource to share it", () => {
+    const one = (id: string, name: string): BuilderGraph["nodes"][number] => ({
+      id,
+      type: "",
+      mode: "variable",
+      name,
+      attributes: { type: "string" },
+      position: { x: 0, y: 0 },
+    });
+    const clash: BuilderGraph = {
+      nodes: [one("a", "location"), one("b", "location")],
+      references: [],
+    };
+    assert.deepEqual(
+      validateBuilderGraph(clash).map((i) => i.reason),
+      ["duplicate_name", "duplicate_name"],
+    );
+
+    // `var.location` and `azurerm_resource_group.location` are two addresses.
+    const beside: BuilderGraph = {
+      nodes: [
+        one("a", "location"),
+        {
+          id: "rg",
+          type: "azurerm_resource_group",
+          name: "location",
+          attributes: { name: "rg-x", location: "westeurope" },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      references: [],
+    };
+    assert.deepEqual(validateBuilderGraph(beside), []);
+  });
+
+  it("refuses to point an argument at anything but a variable", () => {
+    const graph = parameterised();
+    const wrong: BuilderGraph = {
+      ...graph,
+      references: [{ from: "vnet", to: "rgname", attribute: "name" }],
+    };
+    assert.deepEqual(
+      validateBuilderGraph({
+        ...wrong,
+        nodes: wrong.nodes.map((n) =>
+          n.id === "rgname" ? { ...n, mode: undefined, type: "azurerm_resource_group" } : n,
+        ),
+      })
+        .filter((i) => i.nodeId === "vnet" && i.reason === "wrong_target_type")
+        .map((i) => i.message),
+      ["Azure name can only be given a value or a variable"],
+    );
+  });
+
+  it("holds the golden invariant, variables and all", () => {
+    const graph = parameterised();
+    const { snapshot, diagnostics } = parse(generateTerraform(graph));
+    assert.deepEqual(
+      diagnostics.filter((d) => d.severity === "error"),
+      [],
+    );
+    // A variable is not infrastructure, so the diagram has one node: the
+    // network. `var.x` is a value, not a dependency, and is drawn as neither.
+    assert.deepEqual(
+      snapshot.nodes.map((n) => n.id),
+      ["azurerm_virtual_network.app"],
+    );
+    assert.deepEqual(
+      snapshot.edges.filter((e) => e.kind === "depends_on"),
+      [],
     );
   });
 });

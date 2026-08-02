@@ -7,7 +7,7 @@
  * read, fix, generate again, once per mistake.
  */
 import type { BuilderGraph, BuilderNode, BuilderValue } from "./builder-graph.js";
-import { addressOf } from "./builder-graph.js";
+import { addressOf, isVariable } from "./builder-graph.js";
 import {
   attributeKey,
   CATALOG,
@@ -246,13 +246,26 @@ function validateReference(
   }
   const def = defFor(from, catalog);
   if (!def) return; // already reported as unknown_type
+  const to = byId.get(reference.to);
   const slot = referenceSlot(def, reference.attribute);
   if (!slot) {
+    // Not a slot, but possibly an ordinary argument pointed at a variable
+    // (GP-249): `location = var.location` is a value like any other, and the
+    // form offers it wherever a literal could go.
+    const bound = def.attributes.find(
+      (a) => attributeKey(a) === reference.attribute,
+    );
+    if (bound && to && isVariable(to)) {
+      filled.set(slotKey(from.id, reference.attribute), 1);
+      return;
+    }
     issues.push({
       nodeId: from.id,
       attribute: reference.attribute,
-      reason: "unknown_slot",
-      message: `${def.label} has no "${reference.attribute}" connection`,
+      reason: bound ? "wrong_target_type" : "unknown_slot",
+      message: bound
+        ? `${bound.label} can only be given a value or a variable`
+        : `${def.label} has no "${reference.attribute}" connection`,
     });
     return;
   }
@@ -263,7 +276,6 @@ function validateReference(
   const count = (filled.get(key) ?? 0) + 1;
   filled.set(key, count);
 
-  const to = byId.get(reference.to);
   if (!to) {
     issues.push({
       nodeId: from.id,
@@ -273,7 +285,9 @@ function validateReference(
     });
     return;
   }
-  if (!slot.targetTypes.includes(to.type)) {
+  // A variable may fill any slot: `subnet_id = var.subnet_id` is ordinary
+  // Terraform, and what the variable holds is between its author and the plan.
+  if (!isVariable(to) && !slot.targetTypes.includes(to.type)) {
     issues.push({
       nodeId: from.id,
       attribute: reference.attribute,

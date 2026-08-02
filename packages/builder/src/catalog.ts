@@ -499,11 +499,100 @@ export function resourceDef(
   );
 }
 
-/** The definition that describes a node — its type, read as its own kind. */
+/** The types a variable may declare — the scalars a form can offer honestly. */
+export const VARIABLE_TYPES = ["string", "number", "bool", "list(string)"] as const;
+export type VariableType = (typeof VARIABLE_TYPES)[number];
+
+/** What the `default` of a variable of this type is entered as. */
+const DEFAULT_KIND: Record<VariableType, AttributeKind> = {
+  string: "string",
+  number: "number",
+  bool: "bool",
+  "list(string)": "list",
+};
+
+/** The declared type of a variable node, defaulting to the commonest. */
+export function variableType(node: {
+  attributes: Record<string, unknown>;
+}): VariableType {
+  const declared = node.attributes.type;
+  return VARIABLE_TYPES.includes(declared as VariableType)
+    ? (declared as VariableType)
+    : "string";
+}
+
+/**
+ * What describes a variable (GP-249). No provider has an opinion about one, so
+ * this is the definition, written here — the same shape as everything else, so
+ * the form, validation and generation need to know nothing new.
+ *
+ * It is derived from the node rather than fixed, because a variable's `default`
+ * is entered as whatever it declared itself to be: a checkbox for a `bool`, a
+ * number field for a `number`. Declaring the type is therefore the first thing
+ * the form asks, and everything below it follows.
+ */
+export function variableDef(node: {
+  attributes: Record<string, unknown>;
+}): ResourceDef {
+  return {
+    type: "",
+    label: "Variable",
+    description: "A value this composition takes in, rather than declares.",
+    file: VARIABLES_FILE,
+    attributes: [
+      {
+        name: "type",
+        label: "Type",
+        kind: "enum",
+        required: true,
+        values: VARIABLE_TYPES,
+        default: "string",
+        hint: "What kind of value this holds",
+      },
+      {
+        name: "description",
+        label: "Description",
+        kind: "string",
+        required: false,
+        hint: "What it is for — read by whoever supplies it",
+      },
+      {
+        name: "default",
+        label: "Default",
+        kind: DEFAULT_KIND[variableType(node)],
+        required: false,
+        hint: "Leave empty to make it required at plan time",
+      },
+      {
+        name: "sensitive",
+        label: "Sensitive",
+        kind: "bool",
+        required: false,
+        hint: "Keep its value out of Terraform's output",
+      },
+    ],
+    references: [],
+  };
+}
+
+/** Where variables are written. Named by Terraform convention, not by category. */
+export const VARIABLES_FILE = "variables.tf";
+
+/**
+ * The definition that describes a node — its type, read as its own kind, or
+ * the built-in one when the node is a variable and no provider has a say.
+ */
 export function defFor(
-  node: { type: string; mode?: "resource" | "data" },
+  node: {
+    type: string;
+    mode?: "resource" | "data" | "variable";
+    attributes?: Record<string, unknown>;
+  },
   catalog: readonly ResourceDef[] = CATALOG,
 ): ResourceDef | undefined {
+  if (node.mode === "variable") {
+    return variableDef({ attributes: node.attributes ?? {} });
+  }
   return resourceDef(
     node.type,
     catalog,

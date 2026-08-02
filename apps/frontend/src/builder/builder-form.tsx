@@ -14,11 +14,10 @@ import {
   attributeKey,
   attributeValue,
   CATALOG,
-  canConnect,
   isBlank,
   isNameIssue,
   isTypeIssue,
-  schemaKindOf,
+  isVariable,
   type AttributeDef,
   type BuilderGraph,
   type BuilderIssue,
@@ -35,9 +34,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-import { connectedTo } from "./builder-ops";
+import { canAttach, connectedTo } from "./builder-ops";
 
 const FIELD = "border-input bg-background h-8 w-full rounded-md border px-2 text-xs";
+
+/**
+ * How many optional arguments are shown outright before they are folded away.
+ * The fold is for the ninety a provider schema can carry, not for the three a
+ * hand-written definition has — and folding those hid the one field a variable
+ * exists to have (GP-249).
+ */
+const FOLD_ABOVE = 4;
 
 /** The message for a field, when validation has one for it. */
 function messageFor(
@@ -52,12 +59,22 @@ function AttributeField({
   attribute,
   node,
   issues,
+  variables,
+  boundTo,
   onChange,
+  onBind,
+  onUnbind,
 }: Readonly<{
   attribute: AttributeDef;
   node: BuilderNode;
   issues: readonly BuilderIssue[];
+  /** The variables on the canvas — what this argument could point at instead. */
+  variables: readonly BuilderNode[];
+  /** The variable it already points at, if it does. */
+  boundTo?: BuilderNode;
   onChange: (value: BuilderValue | undefined) => void;
+  onBind: (variableId: string) => void;
+  onUnbind: (variableId: string) => void;
 }>) {
   // The storage key, not the HCL name: a schema-derived type can carry the same
   // argument name at the top level and inside a required block (GP-238).
@@ -65,6 +82,34 @@ function AttributeField({
   const id = `attr-${node.id}-${key}`;
   const value = attributeValue(attribute, node);
   const problem = messageFor(issues, key);
+
+  // Bound to a variable (GP-249): the variable *is* the value, so the control
+  // for typing one is not shown at all — there is nothing it could mean.
+  if (boundTo) {
+    return (
+      <div className="space-y-1">
+        <Label className="text-[11px]">
+          {attribute.label}
+          {attribute.required && <span className="text-destructive"> *</span>}
+        </Label>
+        <div className="flex items-center gap-1">
+          <span className="bg-muted min-w-0 flex-1 truncate rounded px-2 py-1 font-mono text-[11px]">
+            {addressOf(boundTo)}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={`Stop using ${boundTo.name} for ${attribute.label}`}
+            onClick={() => onUnbind(boundTo.id)}
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
+        {problem && <p className="text-destructive text-[11px]">{problem}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1">
@@ -148,10 +193,28 @@ function AttributeField({
           />
         );
       })()}
+      {/* …or point it at a variable instead of typing anything (GP-249). */}
+      {variables.length > 0 && (
+        <select
+          className={cn(FIELD, "text-muted-foreground")}
+          aria-label={`Use a variable for ${attribute.label}`}
+          value=""
+          onChange={(e) => {
+            if (e.target.value) onBind(e.target.value);
+          }}
+        >
+          <option value="">Use a variable…</option>
+          {variables.map((variable) => (
+            <option key={variable.id} value={variable.id}>
+              {addressOf(variable)}
+            </option>
+          ))}
+        </select>
+      )}
       {attribute.sensitive && !problem && (
         <p className="text-muted-foreground text-[11px]">
-          Written into the generated file as a literal. Replace it with a
-          variable or a Key Vault reference before committing.
+          Written into the generated file as a literal. Point it at a variable,
+          or replace it with a Key Vault reference, before committing.
         </p>
       )}
       {problem ? (
@@ -185,19 +248,11 @@ function SlotField({
   const id = `slot-${node.id}-${slot.attribute}`;
   const targets = connectedTo(graph, node.id, slot.attribute);
   const problem = messageFor(issues, slot.attribute);
-  // Only what the catalog allows is ever offered — the same rule the canvas
-  // enforces while dragging, asked of the same function.
-  const candidates = graph.nodes.filter(
-    (candidate) =>
-      candidate.id !== node.id &&
-      canConnect(
-        node.type,
-        slot.attribute,
-        candidate.type,
-        catalog,
-        schemaKindOf(node),
-      ) &&
-      !targets.some((t) => t.id === candidate.id),
+  // Only what the rules allow is ever offered — literally the same function
+  // the canvas asks while a wire is being dragged, so the two cannot disagree.
+  // It is also what lets a variable stand in for any of them (GP-249).
+  const candidates = graph.nodes.filter((candidate) =>
+    canAttach(graph, node.id, slot.attribute, candidate.id, catalog),
   );
 
   return (
@@ -533,6 +588,34 @@ export function BuilderForm({
     (a) => !isBlank(node.attributes[attributeKey(a)]),
   ).length;
 
+  // What any argument could point at instead of holding a literal (GP-249).
+  // A variable cannot point at anything itself, so its own form offers none.
+  const variables = isVariable(node)
+    ? []
+    : graph.nodes.filter((n) => isVariable(n));
+  const boundTo = (attribute: AttributeDef): BuilderNode | undefined => {
+    const reference = graph.references.find(
+      (r) => r.from === node.id && r.attribute === attributeKey(attribute),
+    );
+    return reference
+      ? graph.nodes.find((n) => n.id === reference.to)
+      : undefined;
+  };
+  /** One argument's field, wherever it is rendered from. */
+  const attributeField = (attribute: AttributeDef) => (
+    <AttributeField
+      key={attributeKey(attribute)}
+      attribute={attribute}
+      node={node}
+      issues={issues}
+      variables={variables}
+      {...(boundTo(attribute) ? { boundTo: boundTo(attribute) } : {})}
+      onChange={(value) => onAttribute(attributeKey(attribute), value)}
+      onBind={(variableId) => onConnect(attributeKey(attribute), variableId)}
+      onUnbind={(variableId) => onDisconnect(attributeKey(attribute), variableId)}
+    />
+  );
+
   return (
     <aside
       aria-label="Resource details"
@@ -599,15 +682,7 @@ export function BuilderForm({
           />
         ) : (
           <>
-            {required.map((attribute) => (
-              <AttributeField
-                key={attribute.name}
-                attribute={attribute}
-                node={node}
-                issues={issues}
-                onChange={(value) => onAttribute(attributeKey(attribute), value)}
-              />
-            ))}
+            {required.map(attributeField)}
 
             {def.references.map((slot) => (
               <SlotField
@@ -622,29 +697,25 @@ export function BuilderForm({
               />
             ))}
 
+            {/* A handful is not a wall: a variable's description and default
+                are two of its four arguments and one of them is the point of
+                having it, so they are simply shown (GP-249). */}
+            {optional.length > 0 && optional.length <= FOLD_ABOVE &&
+              optional.map(attributeField)}
+
             {/* A type read from the provider can have ninety optional
                 arguments (GP-238). They are all here — nothing is hidden — but
                 folded away, because a form that opens on ninety empty fields
                 is a form nobody reads. What is required, and what is
                 connected, is what a resource needs to be valid. */}
-            {optional.length > 0 && (
+            {optional.length > FOLD_ABOVE && (
               <details className="border-border border-t pt-3">
                 <summary className="text-muted-foreground cursor-pointer text-[11px] select-none">
                   Optional arguments ({optional.length})
                   {optionalFilled > 0 && ` · ${optionalFilled} set`}
                 </summary>
                 <div className="space-y-4 pt-3">
-                  {optional.map((attribute) => (
-                    <AttributeField
-                      key={attribute.name}
-                      attribute={attribute}
-                      node={node}
-                      issues={issues}
-                      onChange={(value) =>
-                        onAttribute(attributeKey(attribute), value)
-                      }
-                    />
-                  ))}
+                  {optional.map(attributeField)}
                 </div>
               </details>
             )}

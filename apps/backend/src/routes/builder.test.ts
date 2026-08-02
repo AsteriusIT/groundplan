@@ -307,3 +307,52 @@ test("the builder routes sit behind the global auth hook", async () => {
     await app.close();
   }
 });
+
+test("POST /builder/generate: a variable, and an argument that points at it (GP-249)", async () => {
+  const app = await buildApp(builderEnv, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/builder/generate",
+      payload: {
+        graph: {
+          nodes: [
+            {
+              id: "loc",
+              // A variable has no provider type: nothing to look up, and the
+              // poisoned pool proves nothing was looked up.
+              type: "",
+              mode: "variable",
+              name: "location",
+              attributes: { type: "string", default: "westeurope" },
+              position: { x: 0, y: 0 },
+            },
+            {
+              id: "rg",
+              type: "azurerm_resource_group",
+              name: "this",
+              attributes: { name: "rg-demo", location: "eastus" },
+              position: { x: 0, y: 160 },
+            },
+          ],
+          references: [{ from: "rg", to: "loc", attribute: "location" }],
+        },
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const { files } = res.json() as { files: { path: string; content: string }[] };
+    assert.deepEqual(
+      files.map((f) => f.path),
+      ["variables.tf", "main.tf"],
+    );
+    assert.match(
+      files[0]?.content ?? "",
+      /variable "location" \{\n {2}type {4}= string\n {2}default = "westeurope"\n\}/,
+    );
+    // The literal the node still carries is not what is written.
+    assert.match(files[1]?.content ?? "", /location = var\.location/);
+    assert.doesNotMatch(files[1]?.content ?? "", /"eastus"/);
+  } finally {
+    await app.close();
+  }
+});

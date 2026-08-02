@@ -209,7 +209,7 @@ it("says a sensitive argument is written into the file as a literal", () => {
 
   expect(within(form).getAllByText("sensitive").length).toBeGreaterThan(0);
   expect(
-    within(form).getAllByText(/Replace it with a variable/).length,
+    within(form).getAllByText(/Point it at a variable/).length,
   ).toBeGreaterThan(0);
 });
 

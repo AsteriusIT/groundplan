@@ -17,14 +17,17 @@
 export type BuilderValue = string | number | boolean | string[];
 
 /**
- * Which Terraform block a node becomes (GP-248): one this composition declares,
- * or one it merely looks up.
+ * Which Terraform block a node becomes: one this composition declares, one it
+ * merely looks up (GP-248), or one it takes as an input (GP-249).
  *
- * Nothing else changes with it. A lookup sits on the same canvas, fills the
- * same slots and is drawn as the same frame — the difference is that Terraform
- * will not create it, and that its address is `data.<type>.<name>`.
+ * Little else changes with it. A lookup sits on the same canvas, fills the same
+ * slots and is drawn as the same frame — the difference is that Terraform will
+ * not create it, and that its address is `data.<type>.<name>`. A variable has
+ * no provider type at all: it is a value somebody supplies, addressed as
+ * `var.<name>`, and what makes it worth having is that any argument can point
+ * at one instead of carrying a literal.
  */
-export type BuilderMode = "resource" | "data";
+export type BuilderMode = "resource" | "data" | "variable";
 
 /** Where a node sits on the builder canvas. Ignored by generation. */
 export type BuilderPosition = { x: number; y: number };
@@ -40,11 +43,13 @@ export type BuilderNode = {
   /** The Terraform local name — the `this` in `resource "azurerm_subnet" "this"`. */
   name: string;
   /**
-   * `resource` (absent, and the default) or `data` (GP-248) — infrastructure
-   * this composition declares, or infrastructure it only points at. A lookup is
-   * described by the provider's *data source* schema, which is a different set
-   * of arguments: what identifies an existing resource group is its name, and
-   * everything else about it is read, not written.
+   * `resource` (absent, and the default), `data` (GP-248) or `variable`
+   * (GP-249) — infrastructure this composition declares, infrastructure it only
+   * points at, or a value somebody supplies. A lookup is described by the
+   * provider's *data source* schema, which is a different set of arguments:
+   * what identifies an existing resource group is its name, and everything else
+   * about it is read, not written. A variable is described by no provider
+   * schema at all.
    */
   mode?: BuilderMode;
   /** Catalog attribute name → value. Absent = not filled in yet. */
@@ -105,11 +110,21 @@ export function emptyBuilderGraph(): BuilderGraph {
  * a name; two resources of a type may not.
  */
 export function addressOf(node: Pick<BuilderNode, "type" | "name" | "mode">): string {
+  if (node.mode === "variable") return `var.${node.name}`;
   const address = `${node.type}.${node.name}`;
   return node.mode === "data" ? `data.${address}` : address;
 }
 
-/** The schema kind a node is described by: a lookup reads the data source's. */
+/** An input the composition takes, rather than a resource it describes. */
+export function isVariable(node: Pick<BuilderNode, "mode">): boolean {
+  return node.mode === "variable";
+}
+
+/**
+ * The schema kind a node is described by: a lookup reads the data source's.
+ * A variable is described by neither — nothing in a provider schema is a
+ * variable — so nobody asks this about one (see `defFor`).
+ */
 export function schemaKindOf(
   node: Pick<BuilderNode, "mode">,
 ): "resource" | "data_source" {

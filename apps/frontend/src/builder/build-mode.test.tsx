@@ -326,3 +326,62 @@ it("composes a resource the catalog does not have", () => {
     screen.getByText(/checked against a provider schema/),
   ).toBeInTheDocument();
 });
+
+// --- Variables (GP-249) ----------------------------------------------------
+
+it("composes a variable and points an argument at it", () => {
+  render(<Harness />);
+  addFromPalette("Resource group");
+  fireEvent.change(field(/Azure name/), { target: { value: "rg-demo" } });
+
+  addFromPalette("Variable");
+  // It is not a resource: no provider type, and the form asks what it holds.
+  const card = screen.getByTestId("builder-node-n2");
+  expect(within(card).getByText("variable")).toBeInTheDocument();
+  fireEvent.change(field(/Terraform name/), { target: { value: "location" } });
+  fireEvent.change(field(/^Default/), { target: { value: "westeurope" } });
+
+  // Back to the resource group: its location can point at that variable
+  // instead of carrying a literal.
+  fireEvent.click(screen.getByTestId("builder-node-n1"));
+  fireEvent.change(field(/Use a variable for Location/), {
+    target: { value: "n2" },
+  });
+
+  // The field is gone — the variable is the value now — and says which one.
+  const panel = screen.getByLabelText("Resource details");
+  expect(within(panel).queryByLabelText(/^Location/)).not.toBeInTheDocument();
+  expect(
+    within(panel).getByLabelText("Stop using location for Location"),
+  ).toBeInTheDocument();
+  // A variable is not a resource: nothing is created for it, and the status
+  // line counts it apart.
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "1 resource · 1 variable · ready to generate",
+  );
+  // And the card grew a row for it, so the diagram says what is parameterised.
+  expect(
+    within(screen.getByTestId("builder-node-n1")).getByText("location"),
+  ).toBeInTheDocument();
+
+  // Unbinding gives the literal field back.
+  fireEvent.click(
+    within(panel).getByLabelText("Stop using location for Location"),
+  );
+  expect(field(/^Location/)).toHaveValue("westeurope");
+});
+
+it("keeps a variable out of what a variable could point at", () => {
+  render(<Harness />);
+  addFromPalette("Variable");
+  addFromPalette("Variable");
+
+  // Two variables, and neither offers to point at the other: Terraform does
+  // not allow it, so the form does not pretend it might.
+  const panel = screen.getByLabelText("Resource details");
+  expect(
+    within(panel).queryByLabelText(/Use a variable for/),
+  ).not.toBeInTheDocument();
+  // They are named apart, in their own namespace.
+  expect(within(panel).getByLabelText(/Terraform name/)).toHaveValue("variable_2");
+});

@@ -47,14 +47,19 @@ const graphSchema = {
         additionalProperties: false,
         properties: {
           id: { type: "string", minLength: 1, maxLength: 200 },
-          type: { type: "string", minLength: 1, maxLength: 200 },
+          // Bounded, not required: a variable has no provider type at all
+          // (GP-249) and a custom resource starts without one. Whether an
+          // empty type is legal for *this* node is the validator's call, and
+          // it can say why — a schema refusal here would only say "too short".
+          type: { type: "string", maxLength: 200 },
           // The Terraform local name is checked properly by the validator,
           // which can say *why* it is wrong; the schema only bounds it.
           name: { type: "string", maxLength: 200 },
-          // Declared, or looked up (GP-248). Anything a node carries has to be
+          // Declared, looked up (GP-248) or taken in (GP-249). Anything a
+          // node carries has to be
           // named here: Ajv is configured to *remove* what a schema does not
           // declare, so an omission is not a rejection — it is a silent loss.
-          mode: { type: "string", enum: ["resource", "data"] },
+          mode: { type: "string", enum: ["resource", "data", "variable"] },
           // A type the catalog does not describe, validated as syntax alone.
           custom: { type: "boolean" },
           // The drawing (GP-247). Generation never reads it; it rides along so

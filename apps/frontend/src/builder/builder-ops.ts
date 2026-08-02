@@ -22,6 +22,7 @@ import {
   containmentSlot,
   defFor,
   descendantsOf,
+  isVariable,
   referenceSlot,
   resourceDef,
   schemaKindOf,
@@ -34,6 +35,8 @@ import {
 
 /** The palette entry that stands for "a resource the catalog does not have". */
 export const CUSTOM_TYPE = "__custom__";
+/** The palette entry that stands for "a value this composition takes in" (GP-249). */
+export const VARIABLE_TYPE = "__variable__";
 
 /** Where a new node lands when the palette, not the pointer, decided. */
 const COLUMN_X = 40;
@@ -41,6 +44,7 @@ const ROW_HEIGHT = 150;
 
 /** `azurerm_linux_web_app` → `web_app`: the readable half of a type. */
 export function nameStem(type: string): string {
+  if (type === VARIABLE_TYPE) return "variable";
   if (type === CUSTOM_TYPE || type === "") return "resource";
   const withoutProvider = type.replace(/^[a-z0-9]+_/, "");
   return withoutProvider || type;
@@ -48,9 +52,13 @@ export function nameStem(type: string): string {
 
 /** A Terraform local name free among the nodes of that type. */
 export function freeName(graph: BuilderGraph, type: string): string {
-  const taken = new Set(
-    graph.nodes.filter((n) => n.type === type).map((n) => n.name),
-  );
+  // Variables share one namespace of their own — `var.x` is unique across the
+  // composition, whatever the resources are called (GP-249).
+  const mine =
+    type === VARIABLE_TYPE
+      ? (node: BuilderNode) => node.mode === "variable"
+      : (node: BuilderNode) => node.type === type && node.mode !== "variable";
+  const taken = new Set(graph.nodes.filter(mine).map((n) => n.name));
   const stem = nameStem(type);
   if (!taken.has(stem)) return stem;
   let n = 2;
@@ -78,6 +86,19 @@ export function newNode(
   position?: { x: number; y: number },
   catalog: readonly ResourceDef[] = CATALOG,
 ): BuilderNode | null {
+  // A variable is not a resource at all (GP-249): no provider type, no schema
+  // to fetch, and a built-in definition that describes it. It starts as a
+  // string, which is what most of them are.
+  if (type === VARIABLE_TYPE) {
+    return {
+      id,
+      type: "",
+      mode: "variable",
+      name: freeName(graph, VARIABLE_TYPE),
+      attributes: { type: "string" },
+      position: position ?? nextPosition(graph),
+    };
+  }
   // A custom resource starts with no type at all: the form asks for it, and
   // validation says so until it is given one.
   if (type === CUSTOM_TYPE) {
@@ -521,21 +542,34 @@ export function canAttach(
   const source = graph.nodes.find((n) => n.id === from);
   const target = graph.nodes.find((n) => n.id === to);
   if (!source || !target) return false;
-  if (
-    !canConnect(source.type, attribute, target.type, catalog, schemaKindOf(source))
-  ) {
-    return false;
-  }
+  // A variable refers to nothing — not even to another variable. Terraform
+  // does not allow it, and a canvas that offered it would be lying (GP-249).
+  if (isVariable(source)) return false;
 
   const def = defFor(source, catalog);
-  const slot = def ? referenceSlot(def, attribute) : undefined;
-  if (!slot) return false;
+  if (!def) return false;
 
   const filled = graph.references.filter(
     (r) => r.from === from && r.attribute === attribute,
   );
   // The same connection twice is a no-op, not a second one.
   if (filled.some((r) => r.to === to)) return false;
+
+  const slot = referenceSlot(def, attribute);
+  if (!slot) {
+    // Not a slot: an ordinary argument, and the only thing that may stand in
+    // for a literal is a variable.
+    if (!isVariable(target)) return false;
+    const known = def.attributes.some((a) => attributeKey(a) === attribute);
+    return known && filled.length === 0;
+  }
+  // A variable may fill any slot; anything else must be a type the slot takes.
+  if (
+    !isVariable(target) &&
+    !canConnect(source.type, attribute, target.type, catalog, schemaKindOf(source))
+  ) {
+    return false;
+  }
   return slot.list ? true : filled.length === 0;
 }
 
