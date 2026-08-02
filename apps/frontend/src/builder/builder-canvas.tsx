@@ -38,14 +38,26 @@ import {
 } from "@xyflow/react";
 
 import {
+  addressOf,
   ancestorsOf,
+  attributeKey,
   CATALOG,
   defFor,
   issuesByNode,
   type BuilderGraph,
   type BuilderIssue,
+  type BuilderNode,
   type ResourceDef,
 } from "@groundplan/builder";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import {
   BuilderContainerNode,
@@ -60,6 +72,7 @@ import {
   CONTAINER_PADDING,
   drawsAsContainer,
   inputsOf,
+  nodeAt,
   relativePosition,
 } from "./builder-layout";
 import { canAttach } from "./builder-ops";
@@ -120,6 +133,40 @@ function edgeId(from: string, attribute: string, to: string): string {
   return `${from}|${attribute}|${to}`;
 }
 
+/** One thing a dropped wire could be attached to, on the node it landed on. */
+export type Bindable = { attribute: string; label: string; required: boolean };
+
+/**
+ * Everything on `target` that `source` may be attached to (GP-250): its typed
+ * slots, and — since an argument can point at a variable rather than hold a
+ * literal (GP-249) — its ordinary arguments too. `canAttach` decides each one,
+ * so this list is exactly what the form would offer and what a wire onto a
+ * handle would be allowed to do.
+ */
+export function bindableOn(
+  graph: BuilderGraph,
+  target: BuilderNode,
+  sourceId: string,
+  catalog: readonly ResourceDef[] = CATALOG,
+): Bindable[] {
+  const def = defFor(target, catalog);
+  if (!def) return [];
+  return [
+    ...def.attributes.map((a) => ({
+      attribute: attributeKey(a),
+      label: a.label,
+      required: a.required,
+    })),
+    ...def.references.map((slot) => ({
+      attribute: slot.attribute,
+      label: slot.label,
+      required: slot.required,
+    })),
+  ]
+    .filter((row) => canAttach(graph, target.id, row.attribute, sourceId, catalog))
+    .sort((a, b) => Number(b.required) - Number(a.required));
+}
+
 /** Where the pointer is, mouse or finger — React Flow hands over either. */
 function pointerOf(event: MouseEvent | TouchEvent): { x: number; y: number } {
   if ("clientX" in event) return { x: event.clientX, y: event.clientY };
@@ -148,6 +195,14 @@ function Canvas({
   const dragging = useRef(false);
   // The frame a dragged node would land in, so the drop can be seen coming.
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // A wire let go over a node rather than on one of its handles (GP-250): which
+  // of that node's arguments was meant is the question, and this is the asking.
+  const [binding, setBinding] = useState<{
+    from: string;
+    to: string;
+    at: { x: number; y: number };
+  } | null>(null);
+  const surface = useRef<HTMLDivElement>(null);
 
   const boxes = useMemo(() => absoluteBoxes(graph, catalog), [graph, catalog]);
 
@@ -282,6 +337,17 @@ function Canvas({
     [onConnect],
   );
 
+  /** What the open menu offers, recomputed from the graph it will change. */
+  const bindable = useMemo<Bindable[]>(() => {
+    if (!binding) return [];
+    const target = graph.nodes.find((n) => n.id === binding.to);
+    return target ? bindableOn(graph, target, binding.from, catalog) : [];
+  }, [binding, graph, catalog]);
+
+  const source = binding
+    ? graph.nodes.find((n) => n.id === binding.from)
+    : undefined;
+
   const handleEdgesDelete = useCallback(
     (removed: Edge[]) => {
       for (const edge of removed) {
@@ -309,6 +375,7 @@ function Canvas({
   );
 
   return (
+    <div ref={surface} className="relative h-full w-full">
     <ReactFlow
       nodes={flowNodes}
       edges={edges}
@@ -344,6 +411,52 @@ function Canvas({
       }}
       onEdgesDelete={handleEdgesDelete}
       onConnect={handleConnect}
+      // A wire dropped anywhere on a node, rather than exactly on a handle.
+      // React Flow only reports a `toNode` when a handle was within reach, so
+      // the node under the pointer is found the same way a dropped card finds
+      // its frame — from the geometry this canvas already keeps.
+      onConnectEnd={(event, state) => {
+        if (state.isValid) return;
+        const fromHandle = state.fromHandle;
+        const fromNode = state.fromNode;
+        if (!fromHandle || !fromNode) return;
+        const point = screenToFlowPosition(pointerOf(event));
+        const landed = nodeAt(graph, boxes, point);
+        if (!landed || landed === fromNode.id) return;
+
+        // Dragged *from* an argument: which one is not in question, so the
+        // wire simply lands if the rules allow it.
+        if (fromHandle.type === "target") {
+          const attribute = fromHandle.id;
+          if (attribute === NEW_REFERENCE_HANDLE) {
+            onConnect(fromNode.id, NEW_REFERENCE_HANDLE, landed);
+          } else if (
+            attribute &&
+            canAttach(graph, fromNode.id, attribute, landed, catalog)
+          ) {
+            onConnect(fromNode.id, attribute, landed);
+          }
+          return;
+        }
+
+        // A resource the catalog does not describe has no arguments to choose
+        // between: it grows one named after what was dropped on it.
+        const target = graph.nodes.find((n) => n.id === landed);
+        if (target?.custom) {
+          onConnect(landed, NEW_REFERENCE_HANDLE, fromNode.id);
+          return;
+        }
+        const box = surface.current?.getBoundingClientRect();
+        const pointer = pointerOf(event);
+        setBinding({
+          from: fromNode.id,
+          to: landed,
+          at: {
+            x: pointer.x - (box?.left ?? 0),
+            y: pointer.y - (box?.top ?? 0),
+          },
+        });
+      }}
       isValidConnection={isValidConnection}
       nodesConnectable
       // Selecting is not a reason to reorder the canvas: React Flow's default
@@ -399,6 +512,64 @@ function Canvas({
         className="[&>button]:!border-border [&>button]:!bg-card [&>button]:!fill-foreground [&>button:hover]:!bg-accent"
       />
     </ReactFlow>
+
+      {/* Dropped on the node, not on one of its arguments — so the menu opens
+          where the wire was let go and asks which one was meant (GP-250). The
+          trigger has no size of its own: it is only what the menu is anchored
+          to, which is how a menu ends up at a pointer rather than at a
+          control. */}
+      <DropdownMenu
+        open={binding !== null}
+        onOpenChange={(open) => {
+          if (!open) setBinding(null);
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute size-0"
+            style={{ left: binding?.at.x ?? 0, top: binding?.at.y ?? 0 }}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuLabel className="text-[11px] font-normal">
+            {source ? (
+              <>
+                Use{" "}
+                <span className="text-ink font-mono">{addressOf(source)}</span>{" "}
+                for…
+              </>
+            ) : (
+              "Connect…"
+            )}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {bindable.length === 0 ? (
+            <DropdownMenuItem disabled className="text-[11px]">
+              Nothing here takes it
+            </DropdownMenuItem>
+          ) : (
+            bindable.map((row) => (
+              <DropdownMenuItem
+                key={row.attribute}
+                className="text-xs"
+                onSelect={() => {
+                  if (binding) onConnect(binding.to, row.attribute, binding.from);
+                  setBinding(null);
+                }}
+              >
+                <span className="flex-1">{row.label}</span>
+                {row.required && (
+                  <span className="text-faint font-mono text-[10px]">
+                    required
+                  </span>
+                )}
+              </DropdownMenuItem>
+            ))
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 

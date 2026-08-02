@@ -399,6 +399,32 @@ export function byDepth(graph: BuilderGraph): BuilderGraph["nodes"] {
 }
 
 /**
+ * Which node a point lands on at all — the innermost, by the same rule as
+ * {@link containerAt}, but with nothing filtered out. What a wire was let go
+ * over (GP-250), rather than what a drag may be dropped into.
+ */
+export function nodeAt(
+  graph: BuilderGraph,
+  boxes: Map<string, Box>,
+  point: { x: number; y: number },
+): string | undefined {
+  let best: { id: string; area: number } | undefined;
+  for (const node of graph.nodes) {
+    const box = boxes.get(node.id);
+    if (!box) continue;
+    const inside =
+      point.x >= box.x &&
+      point.x <= box.x + box.width &&
+      point.y >= box.y &&
+      point.y <= box.y + box.height;
+    if (!inside) continue;
+    const area = box.width * box.height;
+    if (!best || area < best.area) best = { id: node.id, area };
+  }
+  return best?.id;
+}
+
+/**
  * Which container a point lands in: the innermost one that holds it, so
  * dropping into a subnet drawn inside a vnet means the subnet.
  */
