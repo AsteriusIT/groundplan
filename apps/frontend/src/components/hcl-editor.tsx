@@ -112,6 +112,23 @@ const editorTheme = EditorView.theme({
   ".cm-cursor": { borderLeftColor: "var(--foreground)" },
 });
 
+/**
+ * The caret follows the text, in every theme.
+ *
+ * There is no `drawSelection` here, so the cursor is the browser's own and its
+ * colour comes from `caret-color` — which CodeMirror's base theme sets to
+ * *black* on any editor not registered as dark. This editor is neither: the app
+ * has three themes and the token already knows which one is on, so the honest
+ * rule is "the same colour as the text". It has to be a **base** theme to say
+ * it: `&light`/`&dark` mean nothing in `EditorView.theme`, and beating a rule
+ * of the library's own base theme means matching its specificity from a sheet
+ * mounted after it.
+ */
+const caretTheme = EditorView.baseTheme({
+  "&light .cm-content": { caretColor: "var(--foreground)" },
+  "&dark .cm-content": { caretColor: "var(--foreground)" },
+});
+
 export function HclEditor({
   value,
   onChange,
@@ -180,6 +197,7 @@ export function HclEditor({
       }
     }),
     editorTheme,
+    caretTheme,
   ];
 
   // One EditorView per mount. Documents come and go through `docId`.
