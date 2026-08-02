@@ -19,13 +19,23 @@ WORKDIR /repo
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .npmrc ./
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY packages/canvas/package.json packages/canvas/package.json
+# @groundplan/builder is a frontend dependency since the visual builder became
+# a playground view (GP-131, GP-244); without its manifest the workspace
+# install cannot resolve it.
+COPY packages/builder/package.json packages/builder/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @groundplan/frontend...
 
 # @groundplan/canvas is consumed from source (its exports point at src/), so
 # copying it is all the "build" it needs.
 COPY packages/canvas/ packages/canvas/
+COPY packages/builder/ packages/builder/
 COPY apps/frontend/ apps/frontend/
+
+# @groundplan/builder, unlike canvas, resolves to dist/ outside of TypeScript
+# (its `default` export condition): `tsc --noEmit` reads its sources, Vite reads
+# its build output, so the package has to be compiled before the SPA is bundled.
+RUN pnpm --filter @groundplan/builder build
 
 # No build-time config: nothing environment-specific is inlined. The bundled
 # apps/frontend/public/config.json becomes the image's default /config.json
