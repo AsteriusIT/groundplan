@@ -206,7 +206,9 @@ Run from the repo root. Package manager is **pnpm** (v10). Node **>= 22**
   switcher beside the logo (`lib/app-mode.ts` declares them; the mode is
   *derived from the URL*, never stored), and the sidebar is navigation *within*
   the active mode — Dashboard / Projects / **Policies** in Documentation, the
-  two views in Playground, nothing in a mode that is one place (GP-242).
+  two views in Playground, nothing in a mode that is one place (GP-242). It
+  folds to a logo-only rail (Ctrl/Cmd+B, `components/sidebar-prefs.tsx`,
+  persisted per device) with every control still reachable, icon-only (GP-243).
   Settings left the nav for the user-card menu (GP-186). `/policies` is the rule catalogue — a place,
   not a settings section: it is the standard the estate is graded against, read
   by people who never open Settings. Where each repository *stands* is the

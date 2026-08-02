@@ -12,6 +12,7 @@ import "@fontsource/ibm-plex-mono/600.css";
 import { AuthProvider } from "@/auth/auth-provider";
 import { OrgProvider } from "@/org/org-provider";
 import { PanelPrefsProvider } from "@/panel/panel-prefs";
+import { SidebarPrefsProvider } from "@/components/sidebar-prefs";
 import { ThemeProvider } from "@/theme/theme-provider";
 import { TourStyleProvider } from "@/tour/tour-style";
 import { loadConfig } from "@/config";
@@ -34,13 +35,15 @@ async function bootstrap(container: HTMLElement): Promise<void> {
       <ThemeProvider>
         <TourStyleProvider>
           <PanelPrefsProvider>
-            <BrowserRouter>
-              <AuthProvider>
-                <OrgProvider>
-                  <App />
-                </OrgProvider>
-              </AuthProvider>
-            </BrowserRouter>
+            <SidebarPrefsProvider>
+              <BrowserRouter>
+                <AuthProvider>
+                  <OrgProvider>
+                    <App />
+                  </OrgProvider>
+                </AuthProvider>
+              </BrowserRouter>
+            </SidebarPrefsProvider>
           </PanelPrefsProvider>
         </TourStyleProvider>
       </ThemeProvider>
