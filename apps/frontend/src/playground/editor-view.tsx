@@ -9,12 +9,15 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import {
+  Columns2,
   FilePlus2,
   FolderPlus,
   Loader2,
   Play,
   Plus,
+  SquareCode,
   Upload,
+  Workflow,
 } from "lucide-react";
 
 import type { GraphNode } from "@/api/types";
@@ -39,19 +42,21 @@ import { networkProjection } from "@/lib/graph-layout";
 import { cn } from "@/lib/utils";
 
 import { EditorTabs } from "./editor-tabs";
+import {
+  clampSplit,
+  SPLIT_MAX,
+  SPLIT_MIN,
+  useEditorLayout,
+  type EditorLayout,
+} from "./editor-layout";
 import { FileTreePanel } from "./file-tree-panel";
 import { usePlayground } from "./playground-context";
 import { ALLOWED_EXTENSIONS } from "./playground-files";
 
-/** How much of the width the editor takes, and how far that can be dragged. */
-export const SPLIT_MIN = 20;
-export const SPLIT_MAX = 80;
-export const SPLIT_DEFAULT = 50;
-
 export function PlaygroundEditorView() {
   const doc = usePlayground();
   const uploadRef = useRef<HTMLInputElement>(null);
-  const [split, setSplit] = useState(SPLIT_DEFAULT);
+  const { layout, setLayout, split, setSplit } = useEditorLayout();
   // Where the diagram sent us (GP-245): the line of the selected node's block,
   // in the file it was declared in.
   const [located, setLocated] = useState<{ path: string; line: number } | null>(
@@ -254,6 +259,7 @@ export function PlaygroundEditorView() {
           onChange={doc.switchIacType}
           present={doc.present}
         />
+        <LayoutToggle value={layout} onChange={setLayout} />
         <Button
           variant="outline"
           onClick={() => void doc.visualize()}
@@ -269,12 +275,25 @@ export function PlaygroundEditorView() {
         </Button>
       </div>
 
+      {/* Both panes stay mounted whatever the layout is: hiding the editor
+          must not cost the open tabs, the cursors or an unsaved edit, and
+          hiding the diagram must not cost the camera. `hidden` takes them out
+          of the accessibility tree without taking them out of React. */}
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 min-w-0" style={{ width: `${split}%` }}>
+        <div
+          className={cn("flex min-h-0 min-w-0", layout === "editor" && "flex-1")}
+          style={layout === "split" ? { width: `${split}%` } : undefined}
+          hidden={layout === "preview"}
+        >
           {editorPane}
         </div>
-        <SplitHandle value={split} onChange={setSplit} />
-        {previewPane}
+        {layout === "split" && <SplitHandle value={split} onChange={setSplit} />}
+        <div
+          className="flex min-h-0 min-w-0 flex-1"
+          hidden={layout === "editor"}
+        >
+          {previewPane}
+        </div>
       </div>
     </div>
   );
@@ -293,8 +312,7 @@ function SplitHandle({
     null,
   );
 
-  const clamp = (percent: number) =>
-    Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(percent)));
+  const clamp = clampSplit;
 
   const moved = (clientX: number) => {
     if (!drag.current) return value;
@@ -339,5 +357,53 @@ function SplitHandle({
         if (e.key === "ArrowLeft") onChange(clamp(value - 5));
       }}
     />
+  );
+}
+
+/**
+ * All editor / both / all diagram (GP-246). Three states, one control, in the
+ * toolbar of the view it lays out — and the same three the keyboard cycles.
+ */
+const LAYOUTS: readonly {
+  id: EditorLayout;
+  label: string;
+  icon: typeof Columns2;
+}[] = [
+  { id: "editor", label: "Editor", icon: SquareCode },
+  { id: "split", label: "Split", icon: Columns2 },
+  { id: "preview", label: "Preview", icon: Workflow },
+];
+
+function LayoutToggle({
+  value,
+  onChange,
+}: Readonly<{
+  value: EditorLayout;
+  onChange: (layout: EditorLayout) => void;
+}>) {
+  return (
+    <fieldset
+      aria-label="Editor layout"
+      className="border-border bg-background flex items-center gap-0.5 rounded-lg border p-0.5"
+    >
+      {LAYOUTS.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={value === id}
+          title={`${label} (Ctrl+Alt+L cycles)`}
+          onClick={() => onChange(id)}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            value === id
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Icon className="size-3.5" />
+          {label}
+        </button>
+      ))}
+    </fieldset>
   );
 }
