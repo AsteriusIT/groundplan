@@ -247,6 +247,13 @@ function Canvas({
       onEdgesDelete={handleEdgesDelete}
       onConnect={handleConnect}
       isValidConnection={isValidConnection}
+      // Both keys, because both are "delete this" depending on the keyboard:
+      // Backspace is React Flow's default and the only one a Mac laptop has,
+      // Delete is what everyone else reaches for. Safe next to the form and
+      // the palette search — React Flow ignores key events that originate
+      // inside an input, so backspacing through an attribute value never
+      // deletes the resource being edited.
+      deleteKeyCode={["Delete", "Backspace"]}
       onPaneClick={() => onSelect(null)}
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes(PALETTE_MIME)) {

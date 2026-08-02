@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { CATALOG, type ResourceDef } from "@groundplan/builder";
 
@@ -128,6 +128,62 @@ it("keeps the graph consistent when a resource is deleted", () => {
   expect(
     screen.getByLabelText("virtual_network has 1 problem"),
   ).toBeInTheDocument();
+});
+
+it("deletes the selected resource with the Delete key, and with Backspace", async () => {
+  for (const key of ["Delete", "Backspace"]) {
+    const view = render(<Harness />);
+    addFromPalette("Resource group");
+    expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key });
+
+    // Awaited, not asserted straight away: React Flow's deletion is async
+    // (it may consult `onBeforeDelete`), so the node goes a microtask later.
+    await waitFor(() =>
+      expect(screen.queryByTestId("builder-node-n1")).not.toBeInTheDocument(),
+    );
+    // The form went with it: an open panel for a resource that no longer
+    // exists is worse than no panel.
+    expect(screen.queryByLabelText("Resource details")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Nothing composed yet");
+    view.unmount();
+  }
+});
+
+it("takes the deleted resource's connections with it", async () => {
+  render(<Harness />);
+  addFromPalette("Resource group");
+  fireEvent.change(field(/Azure name/), { target: { value: "rg-demo" } });
+  addFromPalette("Virtual network");
+  fireEvent.change(field(/Azure name/), { target: { value: "vnet-demo" } });
+  fireEvent.change(field(/Resource group/), { target: { value: "n1" } });
+
+  // Select the resource group the virtual network points at, then delete it
+  // with the key rather than the button — the same rules, the other route in.
+  fireEvent.click(screen.getByTestId("builder-node-n1"));
+  fireEvent.keyDown(document, { key: "Delete" });
+
+  await waitFor(() =>
+    expect(screen.queryByTestId("builder-node-n1")).not.toBeInTheDocument(),
+  );
+  expect(screen.getByRole("status")).toHaveTextContent("1 resource · 1 problem");
+});
+
+it("never deletes a resource while its own fields are being edited", async () => {
+  render(<Harness />);
+  addFromPalette("Resource group");
+  const name = field(/Azure name/);
+  fireEvent.change(name, { target: { value: "rg" } });
+
+  // Backspacing through a value is the single most common thing a person does
+  // in this form, and it must not remove what they are editing.
+  fireEvent.keyDown(name, { key: "Backspace" });
+  fireEvent.keyDown(name, { key: "Delete" });
+
+  // Given the same chance to happen as a real deletion gets, and it must not.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
 });
 
 it("refuses to leave two resources of a type sharing a name", () => {
