@@ -514,6 +514,52 @@ describe("variables (GP-249)", () => {
     assert.doesNotMatch(of({ type: "string" }), /default/);
   });
 
+  it("counts an argument pointed at a variable as answered", () => {
+    // The bug this pins: a required argument with no default stayed "required"
+    // after being bound, because filling it in and pointing it somewhere were
+    // being asked of two different places. `name = var.project` is a name.
+    const graph: BuilderGraph = {
+      nodes: [
+        {
+          id: "v",
+          type: "",
+          mode: "variable",
+          name: "project",
+          attributes: { type: "string" },
+          position: { x: 0, y: 0 },
+        },
+        {
+          id: "rg",
+          type: "azurerm_resource_group",
+          name: "this",
+          // No `name` of its own, and none needed: the variable is the name.
+          attributes: { location: "westeurope" },
+          position: { x: 0, y: 160 },
+        },
+      ],
+      references: [{ from: "rg", to: "v", attribute: "name" }],
+    };
+    assert.deepEqual(validateBuilderGraph(graph), []);
+    assert.match(
+      filesOf(graph).get("main.tf") ?? "",
+      /name {5}= var\.project/,
+    );
+
+    // …and a literal left behind under a binding is not judged either, since
+    // it is not what will be written.
+    const leftover: BuilderGraph = {
+      ...graph,
+      nodes: graph.nodes.map((n) =>
+        n.id === "rg" ? { ...n, attributes: { ...n.attributes, name: 42 } } : n,
+      ),
+    };
+    assert.deepEqual(validateBuilderGraph(leftover), []);
+    assert.match(
+      filesOf(leftover).get("main.tf") ?? "",
+      /name {5}= var\.project/,
+    );
+  });
+
   it("checks a default against the type the variable declared", () => {
     const graph: BuilderGraph = {
       nodes: [

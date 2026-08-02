@@ -25,7 +25,6 @@ import { ResourceIcon } from "@groundplan/canvas";
 import { cn } from "@/lib/utils";
 
 import {
-  azureName,
   DATA_MARK,
   isLookup,
   typeLabel,
@@ -40,6 +39,8 @@ export type BuilderContainerData = {
   issues: BuilderIssue[];
   /** The slots an existing wire can land on, along the frame's left edge. */
   inputs: BuilderInput[];
+  /** The name it will carry, or the variable that will be it (GP-249). */
+  subtitle: { text: string; faint: boolean };
   /** How deep this frame is nested, for its weight. */
   depth: number;
   /** A valid drop is being dragged over it. */
@@ -49,9 +50,8 @@ export type BuilderContainerData = {
 export type BuilderContainerFlowNode = Node<BuilderContainerData, "container">;
 
 function ContainerFrame({ data, selected }: NodeProps<BuilderContainerFlowNode>) {
-  const { node, issues, inputs, dropping } = data;
+  const { node, issues, inputs, dropping, subtitle } = data;
   const outer = data.depth === 0;
-  const name = azureName(node);
 
   return (
     <div
@@ -100,8 +100,8 @@ function ContainerFrame({ data, selected }: NodeProps<BuilderContainerFlowNode>)
             {DATA_MARK}
           </span>
         )}
-        <span className="text-ink font-semibold">
-          {name ?? <span className="text-faint">unnamed</span>}
+        <span className={subtitle.faint ? "text-faint" : "text-ink font-semibold"}>
+          {subtitle.text}
         </span>
         <span className="text-faint">.{node.name}</span>
         {issues.length > 0 && (

@@ -29,7 +29,6 @@ import {
   DATA_MARK,
   isLookup,
   slotValue,
-  subtitleOf,
   typeLabel,
   type BuilderInput,
 } from "./builder-layout";
@@ -43,14 +42,19 @@ export type BuilderNodeData = {
   def?: ResourceDef;
   issues: BuilderIssue[];
   inputs: BuilderInput[];
+  /**
+   * The middle line: the name it will carry, or the variable that will be it
+   * (GP-249). Computed on the canvas, which is the only place that holds the
+   * graph — and by the same function that measured the card.
+   */
+  subtitle: { text: string; faint: boolean };
 };
 
 export type BuilderFlowNode = Node<BuilderNodeData, "builder">;
 
 function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
-  const { node, issues, inputs } = data;
+  const { node, issues, inputs, subtitle } = data;
   const invalid = issues.length > 0;
-  const subtitle = subtitleOf(node);
   const typeProblem = issues.find(isTypeIssue);
 
   return (

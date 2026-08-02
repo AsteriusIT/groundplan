@@ -74,6 +74,7 @@ import {
   inputsOf,
   nodeAt,
   relativePosition,
+  subtitleOf,
 } from "./builder-layout";
 import { canAttach } from "./builder-ops";
 import {
@@ -234,6 +235,7 @@ function Canvas({
             node,
             issues: byNode.get(node.id) ?? [],
             inputs: inputsOf(graph, node, catalog),
+            subtitle: subtitleOf(graph, node),
             depth: ancestorsOf(graph, node.id).length,
             dropping: dropTarget === node.id,
           },
@@ -251,6 +253,7 @@ function Canvas({
           def: defFor(node, catalog),
           issues: byNode.get(node.id) ?? [],
           inputs: inputsOf(graph, node, catalog),
+          subtitle: subtitleOf(graph, node),
         },
       };
     });

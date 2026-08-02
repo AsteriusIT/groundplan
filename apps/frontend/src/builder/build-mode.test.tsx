@@ -371,6 +371,31 @@ it("composes a variable and points an argument at it", () => {
   expect(field(/^Location/)).toHaveValue("westeurope");
 });
 
+it("counts an argument pointed at a variable as answered", () => {
+  render(<Harness />);
+  addFromPalette("Resource group");
+  addFromPalette("Variable");
+  fireEvent.change(field(/Terraform name/), { target: { value: "project" } });
+
+  // The resource group has no name of its own and does not need one: point
+  // its name at the variable and it is answered, badge and all.
+  fireEvent.click(screen.getByTestId("builder-node-n1"));
+  fireEvent.change(field(/Use a variable for Azure name/), {
+    target: { value: "n2" },
+  });
+
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "1 resource · 1 variable · ready to generate",
+  );
+  expect(
+    screen.queryByLabelText(/resource_group has 1 problem/),
+  ).not.toBeInTheDocument();
+  // …and the card says what its name is, rather than that it has none.
+  const card = screen.getByTestId("builder-node-n1");
+  expect(within(card).queryByText("unnamed")).not.toBeInTheDocument();
+  expect(within(card).getByText("var.project")).toBeInTheDocument();
+});
+
 it("keeps a variable out of what a variable could point at", () => {
   render(<Harness />);
   addFromPalette("Variable");

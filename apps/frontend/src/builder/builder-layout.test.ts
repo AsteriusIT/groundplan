@@ -121,8 +121,8 @@ describe("build editor geometry (GP-247)", () => {
 
     // The vnet inside is nowhere near the right-hand edge, so without the
     // label the frame would be its minimum — and the label would run off it.
-    expect(frameLabelWidth(rg)).toBeGreaterThan(CONTAINER_MIN_WIDTH);
-    expect(box?.width).toBe(frameLabelWidth(rg));
+    expect(frameLabelWidth(graph, rg)).toBeGreaterThan(CONTAINER_MIN_WIDTH);
+    expect(box?.width).toBe(frameLabelWidth(graph, rg));
   });
 
   it("hands React Flow a position relative to the frame, never under its label", () => {

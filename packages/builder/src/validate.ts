@@ -118,12 +118,21 @@ function validateName(
   }
 }
 
-/** One attribute: filled in when required, and of the kind it declares. */
+/**
+ * One attribute: filled in when required, and of the kind it declares.
+ *
+ * `bound` is an argument pointed at a variable rather than given a literal
+ * (GP-249). It is filled — `name = var.project` is a name — and whatever
+ * literal the node still carries is not written, so checking that literal
+ * would be complaining about something the file will not contain.
+ */
 function validateAttribute(
   attribute: AttributeDef,
   node: BuilderNode,
   issues: BuilderIssue[],
+  bound: ReadonlySet<string>,
 ): void {
+  if (bound.has(attributeKey(attribute))) return;
   const value = attributeValue(attribute, node);
   if (value === undefined || isBlank(value)) {
     if (attribute.required) {
@@ -155,6 +164,7 @@ function validateNode(
   def: ResourceDef,
   nameOwners: Map<string, string[]>,
   issues: BuilderIssue[],
+  bound: ReadonlySet<string>,
 ): void {
   validateName(node, def.label, nameOwners, issues);
 
@@ -171,7 +181,7 @@ function validateNode(
   }
 
   for (const attribute of def.attributes) {
-    validateAttribute(attribute, node, issues);
+    validateAttribute(attribute, node, issues, bound);
   }
 }
 
@@ -318,6 +328,18 @@ export function validateBuilderGraph(
   const issues: BuilderIssue[] = [];
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
+  // Which arguments are answered by pointing somewhere rather than by holding
+  // a value (GP-249). Read before anything is judged, because "required" and
+  // "filled in" are the same question asked of two different places.
+  const bound = new Map<string, Set<string>>();
+  for (const reference of graph.references) {
+    const attributes = bound.get(reference.from) ?? new Set<string>();
+    attributes.add(reference.attribute);
+    bound.set(reference.from, attributes);
+  }
+  const boundOn = (id: string): ReadonlySet<string> =>
+    bound.get(id) ?? new Set<string>();
+
   // Terraform addresses are only unique per (type, name) — two subnets may not
   // share a name, a subnet and a vnet may.
   const nameOwners = new Map<string, string[]>();
@@ -343,7 +365,7 @@ export function validateBuilderGraph(
       });
       continue;
     }
-    validateNode(node, def, nameOwners, issues);
+    validateNode(node, def, nameOwners, issues, boundOn(node.id));
   }
 
   // Which slots ended up filled, so required-but-unconnected is reported on

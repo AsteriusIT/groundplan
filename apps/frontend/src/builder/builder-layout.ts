@@ -19,6 +19,7 @@
  * pass — positions are the user's).
  */
 import {
+  addressOf,
   attributeKey,
   canContain,
   defFor,
@@ -39,6 +40,13 @@ export function shortResourceType(type: string): string {
   return type.replace(/^azurerm_/, "");
 }
 
+/**
+ * The argument that holds the name a resource carries in the cloud. Every
+ * curated entry has one and so does every schema-derived type; `azureName` has
+ * always read it, and now so does the card when it is pointed somewhere.
+ */
+const NAME_ATTRIBUTE = "name";
+
 /** The Azure name the resource will carry, when it has been filled in. */
 export function azureName(node: BuilderNode): string | null {
   const value = node.attributes.name;
@@ -56,9 +64,23 @@ export function typeLabel(node: BuilderNode): string {
  * variable, what it holds (GP-249). "unnamed" is a real answer for a resource
  * that has not been named yet; a variable has no such name, and printing one
  * would be inventing a field it does not have.
+ *
+ * A name pointed at a variable is a name, and the card says which one: reading
+ * "unnamed" over a resource whose name is `var.project` is the same untruth as
+ * asking for a name it already has.
  */
-export function subtitleOf(node: BuilderNode): { text: string; faint: boolean } {
+export function subtitleOf(
+  graph: BuilderGraph,
+  node: BuilderNode,
+): { text: string; faint: boolean } {
   if (isVariable(node)) return { text: variableType(node), faint: false };
+
+  const bound = graph.references.find(
+    (r) => r.from === node.id && r.attribute === NAME_ATTRIBUTE,
+  );
+  const target = bound && graph.nodes.find((n) => n.id === bound.to);
+  if (target) return { text: addressOf(target), faint: false };
+
   const name = azureName(node);
   return name === null
     ? { text: "unnamed", faint: true }
@@ -241,7 +263,7 @@ export function cardWidth(
     GAP +
     Math.max(
       textWidth(typeLabel(node), 12) + (isLookup(node) ? MARK : 0),
-      textWidth(subtitleOf(node).text, 11),
+      textWidth(subtitleOf(graph, node).text, 11),
       textWidth(`.${node.name}`, 10),
     ) +
     BADGE +
@@ -287,7 +309,7 @@ const CHIP_TRACKING = 1.4;
  * How wide a frame's label chip is. A frame is never drawn narrower than this:
  * a label running off the end of the box it names reads as a broken diagram.
  */
-export function frameLabelWidth(node: BuilderNode): number {
+export function frameLabelWidth(graph: BuilderGraph, node: BuilderNode): number {
   return (
     CHIP_INSET +
     CHIP_PADDING * 2 +
@@ -296,7 +318,7 @@ export function frameLabelWidth(node: BuilderNode): number {
     textWidth(typeLabel(node), 10, CHIP_TRACKING) +
     (isLookup(node) ? MARK : 0) +
     CHIP_GAP +
-    textWidth(subtitleOf(node).text, 10) +
+    textWidth(subtitleOf(graph, node).text, 10) +
     CHIP_GAP +
     textWidth(`.${node.name}`, 10) +
     BADGE +
@@ -345,7 +367,7 @@ export function absoluteBoxes(
         ...node.position,
         width: Math.max(
           CONTAINER_MIN_WIDTH,
-          frameLabelWidth(node),
+          frameLabelWidth(graph, node),
           right - node.position.x + CONTAINER_PADDING,
         ),
         height: Math.max(
