@@ -265,6 +265,15 @@ export function canNest(
  * the container, un-nesting empties it, and a move between containers of the
  * same type retargets it rather than leaving both.
  *
+ * A move only rewrites the slots its new home answers. A node sits in one
+ * place, so containment can draw one of its references and no more — a private
+ * endpoint needs a subnet to sit in *and* a service to reach, and carrying it
+ * into the key vault's frame must not take away the subnet it still uses. That
+ * reference simply stops being a frame and becomes a wire.
+ *
+ * Taking something out onto the canvas is the other gesture, and it still
+ * empties: the frames were answering those slots and now nothing is.
+ *
  * A nesting the rules refuse returns the graph untouched; the canvas has
  * already said no visually, and a rejected drop should change nothing.
  */
@@ -279,17 +288,29 @@ export function reparent(
   if (parentId && !canNest(graph, childId, parentId, catalog)) return graph;
   if ((child.parentId ?? undefined) === (parentId ?? undefined)) return graph;
 
-  // The references the old chain filled are the old chain's; they go with it.
+  const moved = graph.nodes.map((n) =>
+    n.id === childId ? { ...n, parentId } : n,
+  );
+  // Which slots the new chain has an answer for — the only ones this move is
+  // entitled to rewrite.
+  const answered = new Set(
+    ancestorsOf({ ...graph, nodes: moved }, childId).flatMap((ancestor) => {
+      const slot = containmentSlot(child.type, ancestor.type, catalog);
+      return slot ? [slot.attribute] : [];
+    }),
+  );
+  // The references the old chain filled are the old chain's; they go with it
+  // where the new place has something to put in their stead.
   const stale = new Set(
     ancestorsOf(graph, childId).flatMap((ancestor) => {
       const slot = containmentSlot(child.type, ancestor.type, catalog);
-      return slot ? [`${slot.attribute}|${ancestor.id}`] : [];
+      if (!slot) return [];
+      const replaced = parentId === undefined || answered.has(slot.attribute);
+      return replaced ? [`${slot.attribute}|${ancestor.id}`] : [];
     }),
   );
   let next: BuilderGraph = {
-    nodes: graph.nodes.map((n) =>
-      n.id === childId ? { ...n, parentId } : n,
-    ),
+    nodes: moved,
     references: graph.references.filter(
       (r) => r.from !== childId || !stale.has(`${r.attribute}|${r.to}`),
     ),
@@ -466,6 +487,11 @@ export function canAttach(
  * choosing a resource group in the form puts the resource inside that resource
  * group's frame. The canvas and the form are two ways of saying one thing, and
  * they must not be able to disagree about it.
+ *
+ * Only one of them, though. A node already drawn inside something stays where
+ * it is, and this connection is a wire: a private endpoint that sits in its
+ * subnet must be able to reach a key vault without being carried out of the
+ * subnet to do it.
  */
 export function connect(
   graph: BuilderGraph,
@@ -481,9 +507,17 @@ export function connect(
   };
   const source = graph.nodes.find((n) => n.id === from);
   const target = graph.nodes.find((n) => n.id === to);
+  // The slot the frame it is already in is answering, if it is in one: a
+  // connection on that slot moves it, a connection on any other is a wire.
+  const home = graph.nodes.find((n) => n.id === source?.parentId);
+  const drawn =
+    source && home
+      ? containmentSlot(source.type, home.type, catalog)?.attribute
+      : undefined;
   const nests =
     source &&
     target &&
+    (drawn === undefined || drawn === attribute) &&
     containmentSlot(source.type, target.type, catalog)?.attribute === attribute &&
     canNest(connected, from, to, catalog);
   return nests ? reparent(connected, from, to, catalog) : connected;

@@ -244,6 +244,77 @@ describe("containment (GP-247)", () => {
     ]);
   });
 
+  /**
+   * The one shape containment cannot draw on its own: a private endpoint needs
+   * a subnet to sit in *and* a service to reach, and a node sits in one place.
+   */
+  function endpoint(): BuilderGraph {
+    let graph = addNode(emptyBuilderGraph(), "azurerm_resource_group", "rg");
+    graph = addNode(graph, "azurerm_virtual_network", "vnet");
+    graph = addNode(graph, "azurerm_subnet", "snet");
+    graph = addNode(graph, "azurerm_key_vault", "kv");
+    graph = addNode(graph, "azurerm_private_endpoint", "pe");
+    graph = reparent(graph, "vnet", "rg");
+    graph = reparent(graph, "snet", "vnet");
+    return reparent(graph, "kv", "rg");
+  }
+
+  const slotsOf = (graph: BuilderGraph, id: string) =>
+    graph.references
+      .filter((r) => r.from === id)
+      .map((r) => `${r.attribute}→${r.to}`)
+      .sort();
+
+  it("keeps the slots the new container has no answer for (GP-247)", () => {
+    let graph = reparent(endpoint(), "pe", "snet");
+    expect(slotsOf(graph, "pe")).toEqual([
+      "resource_group_name→rg",
+      "subnet_id→snet",
+    ]);
+
+    // Carried into the key vault's frame: it reaches the vault now, and it
+    // still uses the subnet it always used — that reference is simply drawn
+    // as a wire from here on, rather than as the box around it.
+    graph = reparent(graph, "pe", "kv");
+    expect(slotsOf(graph, "pe")).toEqual([
+      "private_connection_resource_id→kv",
+      "resource_group_name→rg",
+      "subnet_id→snet",
+    ]);
+
+    // And back the other way, which is the same trap in reverse.
+    graph = reparent(graph, "pe", "snet");
+    expect(slotsOf(graph, "pe")).toEqual([
+      "private_connection_resource_id→kv",
+      "resource_group_name→rg",
+      "subnet_id→snet",
+    ]);
+  });
+
+  it("connects a second slot without moving the node out of its frame", () => {
+    let graph = reparent(endpoint(), "pe", "snet");
+    graph = connect(graph, "pe", "private_connection_resource_id", "kv");
+
+    // The form filled the target service; the endpoint stayed in its subnet.
+    expect(graph.nodes.find((n) => n.id === "pe")?.parentId).toBe("snet");
+    expect(slotsOf(graph, "pe")).toEqual([
+      "private_connection_resource_id→kv",
+      "resource_group_name→rg",
+      "subnet_id→snet",
+    ]);
+  });
+
+  it("still moves a node when the connection is the slot it is drawn by", () => {
+    let graph = reparent(threeNodes(), "n2", "n1");
+    graph = addNode(graph, "azurerm_resource_group", "n4");
+    graph = disconnect(graph, "n2", "resource_group_name", "n1");
+    graph = connect(graph, "n2", "resource_group_name", "n4");
+
+    // Choosing another resource group is a move: the frame is that slot.
+    expect(graph.nodes.find((n) => n.id === "n2")?.parentId).toBe("n4");
+    expect(slotsOf(graph, "n2")).toEqual(["resource_group_name→n4"]);
+  });
+
   it("dragging back onto the canvas empties what the container filled", () => {
     const graph = reparent(nested(), "n3", undefined);
     expect(graph.nodes.find((n) => n.id === "n3")?.parentId).toBeUndefined();

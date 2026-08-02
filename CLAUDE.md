@@ -412,13 +412,18 @@ the **Build Editor** view to the playground: compose Azure resources on a canvas
 then generate Terraform from them. Off by default — the `AI_API_KEY` posture
 applied to a boolean: `/builder/status` reports it, `POST /builder/generate`
 404s, the route redirects to the Editor and the sidebar offers no entry.
-Hierarchy is **containment, not arrows** (GP-247): a node drawn inside a frame
-fills the reference slot that takes that frame's type, so there is no edge tool
-at all. The rules are *derived* from the catalog (`containment.ts`: a container
-is a type some single-valued slot points at — a list slot cannot be space, since
-a node sits in one place), never listed, so adding a resource type adds its
-nesting with it. `parentId` is the drawing; `references` stays the model and is
-all generation reads. A composition saves into a playground draft beside the
+Hierarchy is **containment first** (GP-247): a node drawn inside a frame fills
+the reference slot that takes that frame's type. The rules are *derived* from
+the catalog (`containment.ts`: a container is a type some single-valued slot
+points at — a list slot cannot be space, since a node sits in one place), never
+listed, so adding a resource type adds its nesting with it. Because a node sits
+in one place, containment draws **one** of its references and wires draw the
+rest: a private endpoint sits in its subnet *and* reaches a key vault. So a
+frame has no handles (dropping into it is the connection) while every card
+keeps them, a move rewrites only the slots its new home answers, and a
+connection made on any other slot stays a wire. Dragging a node out onto the
+canvas is still the gesture that empties what the frame filled. `parentId` is
+the drawing; `references` stays the model and is all generation reads. A composition saves into a playground draft beside the
 files (`playground_drafts.composition`) — two documents, neither derived from
 the other (ADR #5). `packages/builder` holds everything both
 sides need, so the browser composes against the same rules the server generates
