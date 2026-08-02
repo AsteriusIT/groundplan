@@ -508,7 +508,9 @@ foundation, IA, quickstart, both installs, configuration reference, CI, usage,
 Kubernetes, administration, AI, developer tools, help) · GP-233 dynamic
 provider catalog (GP-234..240: model & store, registry watcher, sandboxed
 extraction worker, read API, schema-driven builder, bundled snapshot, trust-model
-wording).
+wording) · GP-241 app modes & Playground revamp (GP-242..247: mode switcher,
+collapsible rail, two Playground routes, the real editor, the layout toggle,
+containment in the Build Editor).
 
 **Open:**
 
