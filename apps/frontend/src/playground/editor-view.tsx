@@ -1,22 +1,19 @@
 /**
- * The Playground's Editor view (GP-244): the files on the left, the diagram
- * they parse into on the right.
+ * The Playground's Editor view (GP-245): a real editing environment on the
+ * left — file tree, open-file tabs, CodeMirror — and the diagram they parse
+ * into on the right, redrawn a beat after you stop typing.
  *
- * It was the Playground page until the mode grew a second view; the panel, the
- * stack switch and the lenses are the same ones, now behind their own route so
- * a link can point at the editor rather than at "the playground, probably".
+ * The two panes are separated by a divider you can drag, because which of the
+ * two matters more changes every few minutes.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import {
   FilePlus2,
+  FolderPlus,
   Loader2,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Pencil,
   Play,
   Plus,
-  Trash2,
   Upload,
 } from "lucide-react";
 
@@ -37,33 +34,31 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { errorLineOf } from "@/lib/error-line";
 import { networkProjection } from "@/lib/graph-layout";
 import { cn } from "@/lib/utils";
 
+import { EditorTabs } from "./editor-tabs";
+import { FileTreePanel } from "./file-tree-panel";
 import { usePlayground } from "./playground-context";
-import {
-  ALLOWED_EXTENSIONS,
-  fileIacType,
-  NOT_IN_VIEW,
-} from "./playground-files";
+import { ALLOWED_EXTENSIONS } from "./playground-files";
 
-/** The files panel's width bounds (GP-128) — local state, never persisted. */
-const PANEL_MIN_WIDTH = 260;
-const PANEL_MAX_WIDTH = 640;
-const PANEL_DEFAULT_WIDTH = 400;
+/** How much of the width the editor takes, and how far that can be dragged. */
+export const SPLIT_MIN = 20;
+export const SPLIT_MAX = 80;
+export const SPLIT_DEFAULT = 50;
 
 export function PlaygroundEditorView() {
   const doc = usePlayground();
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
-  const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_WIDTH);
-  const [collapsed, setCollapsed] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const [split, setSplit] = useState(SPLIT_DEFAULT);
+  // Where the diagram sent us (GP-245): the line of the selected node's block,
+  // in the file it was declared in.
+  const [located, setLocated] = useState<{ path: string; line: number } | null>(
+    null,
+  );
 
-  const { files, active, activePath, failure, snapshot, iacType } = doc;
+  const { files, active, failure, snapshot, iacType } = doc;
   // The parse error naming the open file, if any — its line (when the message
   // carries one) is marked in the editor (GP-127).
   const activeError = active ? failure?.byFile.get(active.path) : undefined;
@@ -88,6 +83,22 @@ export function PlaygroundEditorView() {
     [setView],
   );
 
+  /**
+   * A node on the diagram is a block in a file (v8's `source`): selecting one
+   * opens that file and puts the cursor on it. A node the producer recorded no
+   * source for — a module, a Kubernetes object — simply does not navigate.
+   */
+  const openNodeSource = useCallback(
+    (node: GraphNode | null) => {
+      if (!node?.source) return;
+      const { file, start_line } = node.source;
+      if (!doc.files.some((f) => f.path === file)) return;
+      doc.setActivePath(file);
+      setLocated({ path: file, line: start_line });
+    },
+    [doc],
+  );
+
   function onUploadChange(event: ChangeEvent<HTMLInputElement>) {
     if (event.target.files) void doc.ingestUploads(event.target.files);
     event.target.value = "";
@@ -95,14 +106,145 @@ export function PlaygroundEditorView() {
 
   function onDrop(event: DragEvent) {
     event.preventDefault();
-    if (event.dataTransfer?.files) void doc.ingestUploads(event.dataTransfer.files);
+    if (event.dataTransfer?.files) {
+      void doc.ingestUploads(event.dataTransfer.files);
+    }
   }
 
-  function commitRename(oldPath: string) {
-    const next = renameValue.trim();
-    setRenaming(null);
-    doc.renameFile(oldPath, next);
-  }
+  const editorPane = (
+    <div className="flex min-h-0 min-w-0 flex-1">
+      <aside
+        className="bg-card border-border flex w-60 shrink-0 flex-col border-r"
+        onDrop={onDrop}
+        onDragOver={(e) => e.preventDefault()}
+        aria-label="Playground files"
+      >
+        <div className="border-border flex items-center justify-between gap-2 border-b px-4 py-1.5">
+          <span className="text-muted-foreground font-mono text-[11px] tracking-[0.12em] uppercase">
+            Files ({files.length})
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label="Add or upload files"
+                title="Add or upload files"
+              >
+                <Plus className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => doc.addFile("tf")}>
+                <FilePlus2 className="size-4" />
+                New Terraform file
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => doc.addFile("yaml")}>
+                <FilePlus2 className="size-4" />
+                New manifest
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => doc.addFolder("new-folder")}>
+                <FolderPlus className="size-4" />
+                New folder
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => uploadRef.current?.click()}>
+                <Upload className="size-4" />
+                Upload…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <input
+            ref={uploadRef}
+            type="file"
+            multiple
+            accept={ALLOWED_EXTENSIONS.join(",")}
+            onChange={onUploadChange}
+            className="sr-only"
+            aria-label="Upload files"
+          />
+        </div>
+        <FileTreePanel />
+      </aside>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <EditorTabs />
+        {active ? (
+          <HclEditor
+            docId={active.path}
+            value={active.content}
+            onChange={(content) => doc.updateContent(active.path, content)}
+            ariaLabel="File content"
+            errorLine={activeError ? errorLineOf(activeError) : null}
+            locatedLine={
+              located && located.path === active.path ? located.line : null
+            }
+          />
+        ) : (
+          <p className="text-muted-foreground flex-1 px-4 py-6 text-center text-sm">
+            Add or drop <span className="font-mono">.tf</span> or{" "}
+            <span className="font-mono">.yaml</span> files to begin.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+
+  const previewPane = (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* The lens tabs, once there is a snapshot to look through. In
+          Kubernetes mode the switcher removes itself, so no empty bar. */}
+      {snapshot && !kubernetes && (
+        <div className="bg-card border-border flex items-center border-b px-4 pt-2">
+          <ViewSwitcher variant="playground" kubernetes={kubernetes} />
+        </div>
+      )}
+      {/* The gridded paper is the diagram's surface — the IAM view is a
+          table and sits on plain background, as on the docs page. */}
+      <section
+        aria-label="Diagram"
+        className={cn(
+          "relative min-h-0 flex-1",
+          view !== "iam" && "blueprint-grid",
+        )}
+      >
+        {(() => {
+          if (!snapshot) {
+            return (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-muted-foreground max-w-sm text-center text-sm">
+                  Edit the files on the left and the diagram draws itself a
+                  moment later. Nothing is saved or sent anywhere else.
+                </p>
+              </div>
+            );
+          }
+          if (view === "iam") {
+            return (
+              <IamTable
+                graph={snapshot.graph}
+                variant="docs"
+                onViewInPlanImpact={viewOnCanvas}
+              />
+            );
+          }
+          return (
+            <GraphCanvas
+              // Each view keeps its own camera (GP-156).
+              key={view}
+              graph={network ? network.graph : snapshot.graph}
+              variant="docs"
+              containerIds={network?.containerIds}
+              stacks={network?.stacks}
+              chips={network?.chips}
+              focusNodeId={focusNodeId}
+              onNodeSelect={openNodeSource}
+            />
+          );
+        })()}
+      </section>
+    </div>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -113,8 +255,10 @@ export function PlaygroundEditorView() {
           present={doc.present}
         />
         <Button
+          variant="outline"
           onClick={() => void doc.visualize()}
           disabled={doc.parsing || files.length === 0}
+          title="Redraw now, without waiting for the pause"
         >
           {doc.parsing ? (
             <Loader2 className="size-4 animate-spin" />
@@ -126,341 +270,73 @@ export function PlaygroundEditorView() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {collapsed && (
-          <div className="bg-card border-border flex w-10 shrink-0 flex-col items-center border-r py-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Expand files panel"
-              title="Expand files panel"
-              onClick={() => setCollapsed(false)}
-            >
-              <PanelLeftOpen className="size-4" />
-            </Button>
-          </div>
-        )}
-        {!collapsed && (
-          <aside
-            className="bg-card border-border relative flex shrink-0 flex-col border-r"
-            style={{ width: panelWidth }}
-            onDrop={onDrop}
-            onDragOver={(e) => e.preventDefault()}
-            aria-label="Playground files"
-          >
-            <div className="border-border flex items-center justify-between gap-2 border-b px-4 py-1.5">
-              <span className="text-muted-foreground font-mono text-[11px] tracking-[0.12em] uppercase">
-                Files ({files.length})
-              </span>
-              <span className="flex items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      aria-label="Add or upload files"
-                      title="Add or upload files"
-                    >
-                      <Plus className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => doc.addFile("tf")}>
-                      <FilePlus2 className="size-4" />
-                      New Terraform file
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => doc.addFile("yaml")}>
-                      <FilePlus2 className="size-4" />
-                      New manifest
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() => uploadRef.current?.click()}
-                    >
-                      <Upload className="size-4" />
-                      Upload…
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  aria-label="Collapse files panel"
-                  title="Collapse files panel"
-                  onClick={() => setCollapsed(true)}
-                >
-                  <PanelLeftClose className="size-4" />
-                </Button>
-                <input
-                  ref={uploadRef}
-                  type="file"
-                  multiple
-                  accept={ALLOWED_EXTENSIONS.join(",")}
-                  onChange={onUploadChange}
-                  className="sr-only"
-                  aria-label="Upload files"
-                />
-              </span>
-            </div>
-
-            {/* Compact rows, auto height to ~40% of the panel: a dozen files are
-                a dozen visible lines, and the editor keeps the rest (GP-128). */}
-            <ul className="border-border max-h-[40%] shrink-0 overflow-y-auto border-b py-1">
-              {files.map((file) => {
-                const fileError = failure?.byFile.get(file.path);
-                const modified =
-                  doc.parsedContent !== null &&
-                  doc.parsedContent.get(file.path) !== file.content;
-                // A file of the other stack stays listed — muted, not hidden:
-                // deleting it because the switch moved would be data loss.
-                const inView = fileIacType(file.path) === iacType;
-                if (confirmingDelete === file.path) {
-                  return (
-                    <li
-                      key={file.path}
-                      className="flex h-6 items-center gap-2 px-4 text-xs"
-                    >
-                      <span className="text-muted-foreground min-w-0 flex-1 truncate">
-                        Delete <span className="font-mono">{file.path}</span>?
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Confirm delete ${file.path}`}
-                        onClick={() => {
-                          doc.removeFile(file.path);
-                          setConfirmingDelete(null);
-                        }}
-                        className="text-destructive text-xs font-medium"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Cancel delete"
-                        onClick={() => setConfirmingDelete(null)}
-                        className="text-muted-foreground hover:text-foreground text-xs"
-                      >
-                        Cancel
-                      </button>
-                    </li>
-                  );
-                }
-                return (
-                  <li
-                    key={file.path}
-                    className="group flex h-6 items-center pr-2"
-                  >
-                    {renaming === file.path ? (
-                      <Input
-                        autoFocus
-                        aria-label="New name"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={() => commitRename(file.path)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitRename(file.path);
-                          if (e.key === "Escape") setRenaming(null);
-                        }}
-                        className="mx-2 h-6 font-mono text-xs"
-                      />
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => doc.setActivePath(file.path)}
-                          aria-current={
-                            file.path === activePath ? "true" : undefined
-                          }
-                          className={cn(
-                            "flex h-full min-w-0 flex-1 items-center gap-2 border-l-2 pr-1 pl-3 text-left font-mono text-xs transition-colors",
-                            file.path === activePath
-                              ? "border-primary bg-accent text-foreground font-medium"
-                              : "text-muted-foreground hover:bg-accent/60 border-transparent",
-                            !inView && "opacity-60",
-                            fileError && "text-destructive",
-                          )}
-                          title={
-                            fileError ??
-                            (inView ? undefined : NOT_IN_VIEW[iacType])
-                          }
-                        >
-                          <span className="truncate">{file.path}</span>
-                        </button>
-                        {/* Status dots live beside the button, not inside it —
-                            an aria-label inside would leak into its name. */}
-                        {fileError && (
-                          <span
-                            className="bg-destructive size-1.5 shrink-0 rounded-full"
-                            aria-label={`${file.path} has a parse error`}
-                            title={fileError}
-                          />
-                        )}
-                        {modified && (
-                          <span
-                            className="bg-update size-1.5 shrink-0 rounded-full"
-                            aria-label={`${file.path} modified since last Visualize`}
-                            title="Modified since last Visualize"
-                          />
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          aria-label={`Rename ${file.path}`}
-                          onClick={() => {
-                            setRenaming(file.path);
-                            setRenameValue(file.path);
-                          }}
-                        >
-                          <Pencil className="size-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          aria-label={`Delete ${file.path}`}
-                          onClick={() => setConfirmingDelete(file.path)}
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-
-            {active ? (
-              <HclEditor
-                key={active.path}
-                value={active.content}
-                onChange={(content) => doc.updateContent(active.path, content)}
-                ariaLabel="File content"
-                errorLine={activeError ? errorLineOf(activeError) : null}
-              />
-            ) : (
-              <p className="text-muted-foreground flex-1 px-4 py-6 text-center text-sm">
-                Add or drop <span className="font-mono">.tf</span> or{" "}
-                <span className="font-mono">.yaml</span> files to begin.
-              </p>
-            )}
-
-            <PanelResizeHandle width={panelWidth} onResize={setPanelWidth} />
-          </aside>
-        )}
-
-        <div className="flex min-h-0 flex-1 flex-col">
-          {/* The lens tabs, once there is a snapshot to look through. In
-              Kubernetes mode the switcher removes itself, so no empty bar. */}
-          {snapshot && !kubernetes && (
-            <div className="bg-card border-border flex items-center border-b px-4 pt-2">
-              <ViewSwitcher variant="playground" kubernetes={kubernetes} />
-            </div>
-          )}
-          {/* The gridded paper is the diagram's surface — the IAM view is a
-              table and sits on plain background, as on the docs page. */}
-          <section
-            aria-label="Diagram"
-            className={cn(
-              "relative min-h-0 flex-1",
-              view !== "iam" && "blueprint-grid",
-            )}
-          >
-            {(() => {
-              if (!snapshot) {
-                return (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-muted-foreground max-w-sm text-center text-sm">
-                      Edit the files on the left, then click{" "}
-                      <span className="text-foreground font-medium">
-                        Visualize
-                      </span>{" "}
-                      to draw the diagram. Nothing is saved or sent anywhere
-                      else.
-                    </p>
-                  </div>
-                );
-              }
-              if (view === "iam") {
-                return (
-                  <IamTable
-                    graph={snapshot.graph}
-                    variant="docs"
-                    onViewInPlanImpact={viewOnCanvas}
-                  />
-                );
-              }
-              return (
-                <GraphCanvas
-                  // Each view keeps its own camera (GP-156).
-                  key={view}
-                  graph={network ? network.graph : snapshot.graph}
-                  variant="docs"
-                  containerIds={network?.containerIds}
-                  stacks={network?.stacks}
-                  chips={network?.chips}
-                  focusNodeId={focusNodeId}
-                />
-              );
-            })()}
-          </section>
+        <div className="flex min-h-0 min-w-0" style={{ width: `${split}%` }}>
+          {editorPane}
         </div>
+        <SplitHandle value={split} onChange={setSplit} />
+        {previewPane}
       </div>
     </div>
   );
 }
 
 /**
- * The files panel's right-edge grip (GP-128), after the detail panel's
- * (GP-121) — pointer drag with capture, arrow keys nudge by 16px. The panel
- * sits on the left, so right grows and left shrinks.
+ * The divider between the editor and the diagram — the files panel's grip
+ * (GP-128) applied to the split itself, in percent so the ratio survives a
+ * window resize.
  */
-function PanelResizeHandle({
-  width,
-  onResize,
-}: Readonly<{
-  width: number;
-  onResize: (width: number) => void;
-}>) {
-  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+function SplitHandle({
+  value,
+  onChange,
+}: Readonly<{ value: number; onChange: (percent: number) => void }>) {
+  const drag = useRef<{ startX: number; startValue: number; width: number } | null>(
+    null,
+  );
 
-  const clamp = (w: number) =>
-    Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, w));
+  const clamp = (percent: number) =>
+    Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(percent)));
+
+  const moved = (clientX: number) => {
+    if (!drag.current) return value;
+    const { startX, startValue, width } = drag.current;
+    return clamp(startValue + ((clientX - startX) / width) * 100);
+  };
 
   return (
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize files panel"
-      aria-valuenow={width}
-      aria-valuemin={PANEL_MIN_WIDTH}
-      aria-valuemax={PANEL_MAX_WIDTH}
+      aria-label="Resize editor"
+      aria-valuenow={value}
+      aria-valuemin={SPLIT_MIN}
+      aria-valuemax={SPLIT_MAX}
       tabIndex={0}
-      className="hover:bg-primary/40 focus-visible:bg-primary/60 absolute inset-y-0 -right-0.5 z-10 w-1 cursor-col-resize transition-colors outline-none"
+      className="hover:bg-primary/40 focus-visible:bg-primary/60 border-border w-1 shrink-0 cursor-col-resize border-l transition-colors outline-none"
       onPointerDown={(e) => {
-        drag.current = { startX: e.clientX, startWidth: width };
+        drag.current = {
+          startX: e.clientX,
+          startValue: value,
+          // The pane's parent is what 100% means; in jsdom it is 0, and a drag
+          // there is not a thing anyway.
+          width: e.currentTarget.parentElement?.clientWidth || window.innerWidth,
+        };
         // jsdom has no pointer capture; in browsers it routes the drag here.
         e.currentTarget.setPointerCapture?.(e.pointerId);
       }}
       onPointerMove={(e) => {
-        if (!drag.current) return;
-        onResize(
-          clamp(drag.current.startWidth + (e.clientX - drag.current.startX)),
-        );
+        if (drag.current) onChange(moved(e.clientX));
       }}
       onPointerUp={(e) => {
         if (!drag.current) return;
-        onResize(
-          clamp(drag.current.startWidth + (e.clientX - drag.current.startX)),
-        );
+        onChange(moved(e.clientX));
         drag.current = null;
       }}
       onPointerCancel={() => {
         drag.current = null;
       }}
       onKeyDown={(e) => {
-        if (e.key === "ArrowRight") onResize(clamp(width + 16));
-        if (e.key === "ArrowLeft") onResize(clamp(width - 16));
+        if (e.key === "ArrowRight") onChange(clamp(value + 5));
+        if (e.key === "ArrowLeft") onChange(clamp(value - 5));
       }}
     />
   );

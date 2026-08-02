@@ -399,7 +399,7 @@ in, so the twelve work with no catalog at all — warming, unreachable, or never
 configured. Wording rule: **never write "never runs `terraform`" unqualified**
 (GP-240).
 
-**Playground (GP-122, GP-244).** A mode with two routed views under
+**Playground (GP-122, GP-244/245).** A mode with two routed views under
 `frontend/src/playground/`: `/playground/editor` (files → diagram) and
 `/playground/build` (the visual builder). Not header tabs — each is a place you
 can link to, and an unknown `/playground/…` lands in the Editor. The layout owns

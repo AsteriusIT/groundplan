@@ -8,7 +8,7 @@
  * resource. The state was already shared when the two were modes of one page
  * (GP-133); making them routes changed the URL, not the document.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -41,6 +41,26 @@ export type ParseFailure = {
   byFile: Map<string, string>;
 };
 
+/**
+ * How long after the last keystroke the diagram redraws (GP-245) — the VS Code
+ * extension's pause, for the same reason: long enough that typing a word is one
+ * parse, short enough that stopping to think shows you what you wrote.
+ */
+export const PARSE_DEBOUNCE_MS = 1000;
+
+/** A folder path as the tree means it: no leading or trailing slashes. */
+function cleanFolder(input: string): string {
+  let path = input.trim();
+  while (path.startsWith("/")) path = path.slice(1);
+  while (path.endsWith("/")) path = path.slice(0, -1);
+  return path;
+}
+
+/** What a parse is *of*: this file set, read as this stack. */
+function parseKey(files: readonly PlaygroundFile[], iacType: IacType): string {
+  return `${iacType} ${JSON.stringify(files)}`;
+}
+
 export type PlaygroundDocument = ReturnType<typeof usePlaygroundDocument>;
 
 export function usePlaygroundDocument() {
@@ -49,6 +69,13 @@ export function usePlaygroundDocument() {
   const [activePath, setActivePath] = useState<string>(
     EXAMPLE_FILES[0]?.path ?? "",
   );
+  // Which files are open as tabs, in the order they were opened (GP-245), and
+  // the folders somebody has made but not yet filled — a folder is a prefix of
+  // a path, so an empty one exists only here.
+  const [openPaths, setOpenPaths] = useState<string[]>(
+    EXAMPLE_FILES[0] ? [EXAMPLE_FILES[0].path] : [],
+  );
+  const [emptyFolders, setEmptyFolders] = useState<string[]>([]);
   // Which stack Visualize parses, and one snapshot slot per stack — flipping
   // the switch shows that mode's last render, never a blank canvas.
   const [iacType, setIacType] = useState<IacType>("terraform");
@@ -57,11 +84,6 @@ export function usePlaygroundDocument() {
   >({ terraform: null, kubernetes: null });
   const [parsing, setParsing] = useState(false);
   const [failure, setFailure] = useState<ParseFailure | null>(null);
-  // GP-128: per-file content at the last Visualize — the "modified" baseline.
-  const [parsedContent, setParsedContent] = useState<Map<
-    string,
-    string
-  > | null>(null);
   // Drafts (GP-126): the loaded draft, the baseline of the last save (for the
   // dirty flag), and what a failed save has to say.
   const [draft, setDraft] = useState<{ id: string; name: string } | null>(null);
@@ -88,6 +110,12 @@ export function usePlaygroundDocument() {
 
   const active = files.find((f) => f.path === activePath) ?? null;
   const snapshot = snapshots[iacType];
+  // What the draft holds, per file — the baseline a tab's unsaved dot compares
+  // against. An unsaved playground has no saved copy, so everything is new.
+  const savedByPath = useMemo(() => {
+    const saved = JSON.parse(savedSerial) as PlaygroundFile[];
+    return new Map(saved.map((f) => [f.path, f.content]));
+  }, [savedSerial]);
   const present: Record<IacType, boolean> = {
     terraform: files.some((f) => fileIacType(f.path) === "terraform"),
     kubernetes: files.some((f) => fileIacType(f.path) === "kubernetes"),
@@ -103,6 +131,30 @@ export function usePlaygroundDocument() {
     setIacType((current) => modeFor(files, current));
   }, [files]);
 
+  // Tabs follow the files and the selection, in one place rather than at each
+  // of the seven call sites that can change either: a file that stops existing
+  // stops being a tab, and the file you are looking at is always one.
+  useEffect(() => {
+    setOpenPaths((prev) => {
+      const next = prev.filter((path) => files.some((f) => f.path === path));
+      if (activePath && !next.includes(activePath)) next.push(activePath);
+      const same =
+        next.length === prev.length && next.every((p, i) => p === prev[i]);
+      return same ? prev : next;
+    });
+  }, [files, activePath]);
+
+  // A folder stops being empty — and stops needing to be remembered — the
+  // moment something is in it.
+  useEffect(() => {
+    setEmptyFolders((prev) => {
+      const next = prev.filter(
+        (folder) => !files.some((f) => f.path.startsWith(`${folder}/`)),
+      );
+      return next.length === prev.length ? prev : next;
+    });
+  }, [files]);
+
   // Leaving with unsaved changes deserves a warning (GP-126).
   useEffect(() => {
     if (!dirty) return;
@@ -113,13 +165,15 @@ export function usePlaygroundDocument() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
+  // What the diagram on screen was drawn from. The debounce below compares
+  // against it, so an edit that puts a file back the way it was redraws
+  // nothing, and an eager parse (opening a draft) cancels the pending one.
+  const drawn = useRef<string>("");
+
   const runParse = useCallback(
     async (input: PlaygroundFile[], mode: IacType) => {
+      drawn.current = parseKey(input, mode);
       setParsing(true);
-      // What this parse saw, per file — the baseline the "modified" marker
-      // compares against (GP-128). Recorded whether or not it succeeds: the
-      // marker answers "did I change anything since I last looked?".
-      setParsedContent(new Map(input.map((f) => [f.path, f.content])));
       try {
         const parsed = await parsePlayground(input, mode);
         setSnapshots((prev) => ({ ...prev, [mode]: parsed }));
@@ -150,6 +204,20 @@ export function usePlaygroundDocument() {
     () => runParse(files, iacType),
     [runParse, files, iacType],
   );
+
+  /**
+   * The diagram keeps up by itself (GP-245): a pause after typing redraws it.
+   * Explicitly *not* on every keystroke — half-written HCL parses to an error,
+   * and a diagram that flickers between a stack and a red banner is worse than
+   * one that waits a second. Visualize stays as "redraw it now".
+   */
+  useEffect(() => {
+    if (parseKey(files, iacType) === drawn.current) return;
+    const timer = setTimeout(() => {
+      void runParse(files, iacType);
+    }, PARSE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [files, iacType, runParse]);
 
   /** Switching stacks never re-parses; the failure described the last parse, so it clears. */
   const switchIacType = useCallback((next: IacType) => {
@@ -281,9 +349,59 @@ export function usePlaygroundDocument() {
         prev.map((f) => (f.path === oldPath ? { ...f, path: name } : f)),
       );
       setActivePath((current) => (current === oldPath ? name : current));
+      // A renamed file is the same file: it keeps its tab, in place.
+      setOpenPaths((prev) => prev.map((p) => (p === oldPath ? name : p)));
     },
     [files],
   );
+
+  /** Close a tab. The file stays; only the way you were looking at it goes. */
+  const closeFile = useCallback((path: string) => {
+    setOpenPaths((prev) => {
+      const next = prev.filter((p) => p !== path);
+      setActivePath((current) => (current === path ? (next.at(-1) ?? "") : current));
+      return next;
+    });
+  }, []);
+
+  /**
+   * Make a folder. It exists in the tree and nowhere else until something is
+   * in it — a draft stores files, and a folder is a prefix of a path.
+   */
+  const addFolder = useCallback((folder: string) => {
+    const path = cleanFolder(folder);
+    if (!path) return;
+    setEmptyFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));
+  }, []);
+
+  /** Renaming a folder is renaming every path under it — nothing else can be. */
+  const renameFolder = useCallback((from: string, to: string) => {
+    const next = cleanFolder(to);
+    if (!next || next === from) return;
+    const moved = (path: string) =>
+      path === from || path.startsWith(`${from}/`)
+        ? `${next}${path.slice(from.length)}`
+        : path;
+    setFiles((prev) => prev.map((f) => ({ ...f, path: moved(f.path) })));
+    setActivePath(moved);
+    setOpenPaths((prev) => prev.map(moved));
+    setEmptyFolders((prev) => prev.map(moved));
+  }, []);
+
+  /** Delete a folder and everything under it — said out loud before it happens. */
+  const removeFolder = useCallback((folder: string) => {
+    const under = (path: string) => path.startsWith(`${folder}/`);
+    setFiles((prev) => {
+      const next = prev.filter((f) => !under(f.path));
+      setActivePath((current) =>
+        under(current) ? (next[0]?.path ?? "") : current,
+      );
+      return next;
+    });
+    setEmptyFolders((prev) =>
+      prev.filter((f) => f !== folder && !under(f)),
+    );
+  }, []);
 
   const updateContent = useCallback((path: string, content: string) => {
     setFiles((prev) =>
@@ -388,6 +506,13 @@ export function usePlaygroundDocument() {
     active,
     activePath,
     setActivePath,
+    openPaths,
+    closeFile,
+    emptyFolders,
+    addFolder,
+    renameFolder,
+    removeFolder,
+    savedByPath,
     addFile,
     removeFile,
     renameFile,
@@ -399,7 +524,6 @@ export function usePlaygroundDocument() {
     snapshot,
     parsing,
     failure,
-    parsedContent,
     visualize,
     runParse,
     draft,

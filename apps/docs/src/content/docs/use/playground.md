@@ -15,8 +15,15 @@ involved, and nothing you type is pushed anywhere.
 - Up to **50 files**, and **1 MB** in total. Beyond that it is a repository, and
   a repository is what [attaching one](/quickstart/) is for.
 
-Editing is a real editor (syntax highlighting, multiple tabs), because pasting
-four files into one textarea is not a workflow.
+Editing is a real editor, because pasting four files into one textarea is not a
+workflow: a file tree with folders (so a module layout stays a module layout),
+open-file tabs that remember where you were in each file, and syntax
+highlighting. The diagram beside it redraws itself a moment after you stop
+typing — and when the files stop parsing, the last good diagram stays on screen
+with the error named beside it, rather than a blank canvas.
+
+Selecting a resource on the diagram opens the file that declares it, at the
+right line.
 
 ## What you get
 

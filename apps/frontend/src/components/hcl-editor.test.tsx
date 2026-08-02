@@ -131,3 +131,55 @@ it("ignores an error line beyond the document", () => {
   );
   expect(container.querySelector(".cm-error-line")).toBeNull();
 });
+
+it("marks and selects the located line — the diagram's jump into code (GP-245)", () => {
+  const { container } = render(
+    <HclEditor
+      value={DOC}
+      onChange={() => {}}
+      ariaLabel="File content"
+      locatedLine={3}
+    />,
+  );
+
+  const marked = container.querySelectorAll(".cm-located-line");
+  expect(marked).toHaveLength(1);
+  expect(marked[0]?.textContent).toContain("westeurope");
+  // The cursor lands there too, so the keyboard carries on from the answer.
+  const view = viewOf(container);
+  expect(view.state.selection.main.head).toBe(view.state.doc.line(3).from);
+});
+
+it("keeps each document's cursor and history when tabs are switched (GP-245)", () => {
+  const props = { onChange: () => {}, ariaLabel: "File content" };
+  const { container, rerender } = render(
+    <HclEditor {...props} docId="main.tf" value={DOC} />,
+  );
+
+  const view = viewOf(container);
+  view.dispatch({ selection: { anchor: view.state.doc.line(3).from } });
+  const parked = view.state.selection.main.head;
+
+  rerender(<HclEditor {...props} docId="network.tf" value="a = 1" />);
+  // A different document, with a cursor of its own — not the other one's.
+  expect(viewOf(container).state.doc.toString()).toBe("a = 1");
+  expect(viewOf(container).state.selection.main.head).toBe(0);
+
+  rerender(<HclEditor {...props} docId="main.tf" value={DOC} />);
+  expect(viewOf(container).state.doc.toString()).toBe(DOC);
+  expect(viewOf(container).state.selection.main.head).toBe(parked);
+  // The same EditorView throughout: switching a tab is not a remount.
+  expect(viewOf(container)).toBe(view);
+});
+
+it("takes an external edit to a document that is not open", () => {
+  const props = { onChange: () => {}, ariaLabel: "File content" };
+  const { container, rerender } = render(
+    <HclEditor {...props} docId="main.tf" value={DOC} />,
+  );
+  rerender(<HclEditor {...props} docId="network.tf" value="a = 1" />);
+  // main.tf was replaced (an upload) while network.tf was open.
+  rerender(<HclEditor {...props} docId="main.tf" value="# replaced" />);
+
+  expect(viewOf(container).state.doc.toString()).toBe("# replaced");
+});

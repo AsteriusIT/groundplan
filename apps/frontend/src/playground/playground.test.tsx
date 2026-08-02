@@ -1,5 +1,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { axe } from "vitest-axe";
 
@@ -26,17 +33,23 @@ vi.mock("@/components/hcl-editor", () => ({
     onChange,
     ariaLabel,
     errorLine,
+    locatedLine,
+    docId,
   }: {
     value: string;
     onChange: (content: string) => void;
     ariaLabel: string;
     errorLine?: number | null;
+    locatedLine?: number | null;
+    docId?: string;
   }) => (
     <textarea
       aria-label={ariaLabel}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       data-error-line={errorLine ?? ""}
+      data-located-line={locatedLine ?? ""}
+      data-doc-id={docId ?? ""}
     />
   ),
 }));
@@ -45,12 +58,24 @@ vi.mock("@/components/graph-canvas", () => ({
   GraphCanvas: ({
     graph,
     variant,
+    onNodeSelect,
   }: {
-    graph: { nodes: unknown[] };
+    graph: { nodes: { id: string }[] };
     variant: string;
+    onNodeSelect?: (node: unknown) => void;
   }) => (
     <div data-testid="canvas" data-variant={variant}>
       {graph.nodes.length} nodes
+      {onNodeSelect &&
+        graph.nodes.map((node) => (
+          <button
+            key={node.id}
+            type="button"
+            onClick={() => onNodeSelect(node)}
+          >
+            select {node.id}
+          </button>
+        ))}
     </div>
   ),
 }));
@@ -72,6 +97,7 @@ import type {
   PlaygroundSnapshot,
 } from "@/api/types";
 import { resetBuilderStatus } from "@/lib/use-builder-status";
+import { PARSE_DEBOUNCE_MS } from "./use-playground-document";
 import { PlaygroundRoutes } from "./playground-routes";
 
 const parsePlaygroundMock = vi.mocked(parsePlayground);
@@ -151,6 +177,16 @@ function renderPlayground(path = "/playground/editor") {
       <LocationProbe />
     </MemoryRouter>,
   );
+}
+
+/** A file's row in the tree — its accessible name is the whole path. */
+function treeFile(path: string) {
+  return screen.getByRole("button", { name: path });
+}
+
+/** A file's tab, if it is open. */
+function tab(path: string) {
+  return screen.getByRole("button", { name: `Open ${path}` });
 }
 
 function goTo(view: "Editor" | "Build Editor") {
@@ -243,8 +279,13 @@ it("keeps the whole document while walking between the two views", async () => {
 it("preloads a small Azure example so the page is never empty", () => {
   renderPlayground();
 
-  expect(screen.getByText("main.tf")).toBeInTheDocument();
-  expect(screen.getByText("network.tf")).toBeInTheDocument();
+  expect(treeFile("main.tf")).toBeInTheDocument();
+  expect(treeFile("network.tf")).toBeInTheDocument();
+  // One of them is open as a tab; the other is a click away.
+  expect(tab("main.tf")).toHaveAttribute("aria-current", "true");
+  expect(
+    screen.queryByRole("button", { name: "Open network.tf" }),
+  ).not.toBeInTheDocument();
   // The editor shows the selected file's HCL.
   const editor = screen.getByRole<HTMLTextAreaElement>("textbox", {
     name: /file content/i,
@@ -331,7 +372,9 @@ it("adds a new file from the + menu, all in local state", async () => {
   fireEvent.click(
     await screen.findByRole("menuitem", { name: /new terraform file/i }),
   );
-  expect(screen.getByText("untitled-1.tf")).toBeInTheDocument();
+  expect(treeFile("untitled-1.tf")).toBeInTheDocument();
+  // A file you just made is a file you are about to write: it opens.
+  expect(tab("untitled-1.tf")).toHaveAttribute("aria-current", "true");
 });
 
 it("deletes a file only after an inline confirmation (GP-128)", async () => {
@@ -342,39 +385,48 @@ it("deletes a file only after an inline confirmation (GP-128)", async () => {
     await screen.findByRole("menuitem", { name: /new terraform file/i }),
   );
 
-  fireEvent.click(
-    screen.getByRole("button", { name: /delete untitled-1\.tf/i }),
-  );
-  // Nothing removed yet — the confirm is the decision point.
-  expect(screen.getByText("untitled-1.tf")).toBeInTheDocument();
+  // Backing out of the confirmation leaves the file exactly where it was.
+  fireEvent.click(screen.getByRole("button", { name: /^delete untitled-1\.tf/i }));
+  fireEvent.click(screen.getByRole("button", { name: /cancel delete/i }));
+  expect(treeFile("untitled-1.tf")).toBeInTheDocument();
 
+  fireEvent.click(screen.getByRole("button", { name: /^delete untitled-1\.tf/i }));
   fireEvent.click(
     screen.getByRole("button", { name: /confirm delete untitled-1\.tf/i }),
   );
-  expect(screen.queryByText("untitled-1.tf")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "untitled-1.tf" }),
+  ).not.toBeInTheDocument();
 });
 
-it("marks a file modified since the last Visualize, cleared by the next one", async () => {
-  parsePlaygroundMock.mockResolvedValue(snap(1));
+it("marks the files with unsaved changes, cleared by saving (GP-245)", async () => {
+  createDraftMock.mockImplementation(async (input) => ({
+    ...DRAFT,
+    name: input.name,
+    files: input.files,
+  }));
+  updateDraftMock.mockResolvedValue(DRAFT);
   renderPlayground();
 
-  // No Visualize yet — nothing to be modified *since*.
-  expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
-  await screen.findByTestId("canvas");
-  expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument();
+  await saveAsDraft("my stack");
+  expect(screen.queryByLabelText(/has unsaved changes/i)).not.toBeInTheDocument();
 
   fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
     target: { value: "# touched" },
   });
+  // The edited file is marked; the one beside it is not.
   expect(
-    screen.getByLabelText(/main\.tf modified since last visualize/i),
+    screen.getByLabelText("main.tf has unsaved changes"),
   ).toBeInTheDocument();
+  expect(
+    screen.queryByLabelText("network.tf has unsaved changes"),
+  ).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  fireEvent.click(screen.getByRole("button", { name: /unsaved changes/i }));
   await waitFor(() =>
-    expect(screen.queryByLabelText(/modified since/i)).not.toBeInTheDocument(),
+    expect(
+      screen.queryByLabelText(/has unsaved changes/i),
+    ).not.toBeInTheDocument(),
   );
 });
 
@@ -395,27 +447,13 @@ it("identifies the selected file and follows selection", () => {
   );
 });
 
-it("collapses the files panel to a rail and expands it back", () => {
+it("drags the divider between the editor and the diagram (GP-245)", () => {
   renderPlayground();
 
-  fireEvent.click(
-    screen.getByRole("button", { name: /collapse files panel/i }),
-  );
-  expect(screen.queryByText("main.tf")).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: /expand files panel/i }));
-  expect(screen.getByText("main.tf")).toBeInTheDocument();
-});
-
-it("resizes the files panel from its edge handle", () => {
-  renderPlayground();
-
-  const handle = screen.getByRole("separator", {
-    name: /resize files panel/i,
-  });
+  const handle = screen.getByRole("separator", { name: /resize editor/i });
   const before = Number(handle.getAttribute("aria-valuenow"));
   fireEvent.keyDown(handle, { key: "ArrowRight" });
-  expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before + 16);
+  expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before + 5);
   fireEvent.keyDown(handle, { key: "ArrowLeft" });
   expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before);
 });
@@ -424,12 +462,18 @@ it("renames a file inline", async () => {
   renderPlayground();
 
   fireEvent.click(screen.getByRole("button", { name: /rename main\.tf/i }));
-  const input = screen.getByRole("textbox", { name: /new name/i });
+  const input = screen.getByRole("textbox", { name: /new name for main\.tf/i });
   fireEvent.change(input, { target: { value: "renamed.tf" } });
   fireEvent.keyDown(input, { key: "Enter" });
 
-  expect(await screen.findByText("renamed.tf")).toBeInTheDocument();
-  expect(screen.queryByText("main.tf")).not.toBeInTheDocument();
+  expect(
+    await screen.findByRole("button", { name: "renamed.tf" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "main.tf" }),
+  ).not.toBeInTheDocument();
+  // The tab followed it: a renamed file is the same file.
+  expect(tab("renamed.tf")).toBeInTheDocument();
 });
 
 it("editing the active file feeds the next parse", async () => {
@@ -454,7 +498,9 @@ it("uploads .tf files through the file input", async () => {
   });
   fireEvent.change(input, { target: { files: [file] } });
 
-  expect(await screen.findByText("uploaded.tf")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("button", { name: "uploaded.tf" }),
+  ).toBeInTheDocument();
 });
 
 it("has no axe violations", async () => {
@@ -463,6 +509,211 @@ it("has no axe violations", async () => {
     const results = await axe(baseElement);
     expect(results.violations).toEqual([]);
   });
+});
+
+// ---------------------------------------------------------------------------
+// The editor proper (GP-245): folders, tabs, a diagram that keeps up, and the
+// way back from a node to the block that declares it.
+// ---------------------------------------------------------------------------
+
+it("nests a module layout under the folders its paths describe", async () => {
+  renderPlayground();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new folder/i }));
+  // An empty folder is in the tree and nowhere else — a draft stores files.
+  const folder = await screen.findByRole("button", { name: "new-folder" });
+  expect(folder).toHaveAttribute("aria-expanded", "true");
+
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: "Actions for new-folder" }),
+    { key: "Enter" },
+  );
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /new terraform file/i }),
+  );
+  expect(treeFile("new-folder/untitled-1.tf")).toBeInTheDocument();
+});
+
+it("renames a folder by renaming everything under it", async () => {
+  renderPlayground();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new folder/i }));
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: "Actions for new-folder" }),
+    { key: "Enter" },
+  );
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /new terraform file/i }),
+  );
+
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: "Actions for new-folder" }),
+    { key: "Enter" },
+  );
+  fireEvent.click(await screen.findByRole("menuitem", { name: /rename/i }));
+  const input = screen.getByRole("textbox", { name: /new name for new-folder/i });
+  fireEvent.change(input, { target: { value: "modules/network" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  expect(
+    await screen.findByRole("button", { name: "modules/network/untitled-1.tf" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "new-folder/untitled-1.tf" }),
+  ).not.toBeInTheDocument();
+});
+
+it("deletes a folder and what is in it, after saying so", async () => {
+  renderPlayground();
+
+  openAddMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name: /new folder/i }));
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: "Actions for new-folder" }),
+    { key: "Enter" },
+  );
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /new terraform file/i }),
+  );
+
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: "Actions for new-folder" }),
+    { key: "Enter" },
+  );
+  fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+  expect(
+    await screen.findByText(/and everything in it/),
+  ).toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Confirm delete new-folder" }),
+  );
+  expect(
+    screen.queryByRole("button", { name: "new-folder/untitled-1.tf" }),
+  ).not.toBeInTheDocument();
+});
+
+it("opens files as tabs, and closing one keeps the file", () => {
+  renderPlayground();
+
+  // One tab to start with; opening the other from the tree adds a second.
+  fireEvent.click(treeFile("network.tf"));
+  expect(tab("main.tf")).not.toHaveAttribute("aria-current");
+  expect(tab("network.tf")).toHaveAttribute("aria-current", "true");
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", {
+    name: /file content/i,
+  });
+  expect(editor).toHaveAttribute("data-doc-id", "network.tf");
+
+  fireEvent.click(screen.getByRole("button", { name: "Close network.tf" }));
+  expect(
+    screen.queryByRole("button", { name: "Open network.tf" }),
+  ).not.toBeInTheDocument();
+  // The file itself is untouched — a tab is a view of it, not the thing.
+  expect(treeFile("network.tf")).toBeInTheDocument();
+  expect(tab("main.tf")).toHaveAttribute("aria-current", "true");
+});
+
+it("redraws the diagram a beat after typing stops (GP-245)", async () => {
+  vi.useFakeTimers();
+  try {
+    parsePlaygroundMock.mockResolvedValue(snap(3));
+    renderPlayground();
+
+    fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
+      target: { value: '# still typing' },
+    });
+    // Mid-pause: nothing has been sent anywhere.
+    await act(async () => {
+      vi.advanceTimersByTime(PARSE_DEBOUNCE_MS - 200);
+    });
+    expect(parsePlaygroundMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(parsePlaygroundMock).toHaveBeenCalledTimes(1);
+    expect(parsePlaygroundMock.mock.calls[0]?.[0]?.[0]?.content).toBe(
+      "# still typing",
+    );
+    expect(screen.getByTestId("canvas")).toHaveTextContent("3 nodes");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("does not redraw what is already on screen", async () => {
+  vi.useFakeTimers();
+  try {
+    parsePlaygroundMock.mockResolvedValue(snap(1));
+    renderPlayground();
+    const editor = screen.getByRole<HTMLTextAreaElement>("textbox", {
+      name: /file content/i,
+    });
+
+    fireEvent.change(editor, { target: { value: "# typed" } });
+    await act(async () => {
+      vi.advanceTimersByTime(PARSE_DEBOUNCE_MS);
+    });
+    expect(parsePlaygroundMock).toHaveBeenCalledTimes(1);
+
+    // Selecting another file, or an edit that puts the text back the way the
+    // diagram already has it, is not a reason to parse anything.
+    fireEvent.click(treeFile("network.tf"));
+    fireEvent.click(treeFile("main.tf"));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: /file content/i }),
+      { target: { value: "# typed" } },
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(PARSE_DEBOUNCE_MS);
+    });
+    expect(parsePlaygroundMock).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("jumps from a node on the diagram to the block that declares it", async () => {
+  const withSource = snap(1);
+  withSource.graph.nodes[0] = {
+    ...withSource.graph.nodes[0]!,
+    source: {
+      file: "network.tf",
+      start_line: 6,
+      end_line: 9,
+      code: 'resource "azurerm_network_security_group" "app" {}',
+    },
+  };
+  parsePlaygroundMock.mockResolvedValue(withSource);
+  renderPlayground();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /select n0/ }));
+
+  // The file it was declared in is open, at its line.
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", {
+    name: /file content/i,
+  });
+  expect(editor).toHaveAttribute("data-doc-id", "network.tf");
+  expect(editor).toHaveAttribute("data-located-line", "6");
+  expect(tab("network.tf")).toHaveAttribute("aria-current", "true");
+});
+
+it("does not navigate for a node the producer recorded no source for", async () => {
+  parsePlaygroundMock.mockResolvedValue(snap(1));
+  renderPlayground();
+
+  fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /select n0/ }));
+
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", {
+    name: /file content/i,
+  });
+  expect(editor).toHaveAttribute("data-doc-id", "main.tf");
+  expect(editor).toHaveAttribute("data-located-line", "");
 });
 
 // ---------------------------------------------------------------------------
@@ -680,7 +931,9 @@ it("opens a draft: files restored, parse re-runs automatically", async () => {
     await screen.findByRole("button", { name: /open azure sketch/i }),
   );
 
-  expect(await screen.findByText("saved.tf")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("button", { name: "saved.tf" }),
+  ).toBeInTheDocument();
   await waitFor(() => expect(parsePlaygroundMock).toHaveBeenCalledTimes(1));
   expect(parsePlaygroundMock.mock.calls[0]?.[0]).toEqual(DRAFT.files);
   expect(await screen.findByTestId("canvas")).toHaveTextContent("1 nodes");
@@ -759,7 +1012,9 @@ it("warns before unload only when there are unsaved changes", () => {
   fireEvent.change(screen.getByRole("textbox", { name: /file content/i }), {
     target: { value: "# touched" },
   });
-  expect(screen.getByLabelText(/unsaved changes/i)).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Unsaved changes" }),
+  ).toBeInTheDocument();
 
   const dirty = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(dirty);
@@ -800,7 +1055,7 @@ it("New manifest enables the Kubernetes side; switching mutes the .tf files", as
 
   openAddMenu();
   fireEvent.click(await screen.findByRole("menuitem", { name: /new manifest/i }));
-  expect(screen.getByText("untitled-1.yaml")).toBeInTheDocument();
+  expect(treeFile("untitled-1.yaml")).toBeInTheDocument();
 
   const k8s = screen.getByRole("button", { name: "Kubernetes" });
   expect(k8s).toBeEnabled();
@@ -970,7 +1225,9 @@ it("previews the generated files before writing them (GP-135)", async () => {
   );
   // Nothing has been written yet, and nothing has moved.
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByText("generated.tf")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "generated.tf" }),
+  ).not.toBeInTheDocument();
   expect(lastPath).toBe("/playground/build");
 });
 
@@ -987,7 +1244,9 @@ it("writes the files, returns to the Editor and visualizes them (GP-135)", async
   // on the merged set — the loop closes on the diagram.
   await waitFor(() => expect(parsePlaygroundMock).toHaveBeenCalled());
   expect(lastPath).toBe("/playground/editor");
-  expect(await screen.findByText("generated.tf")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("button", { name: "generated.tf" }),
+  ).toBeInTheDocument();
   expect(screen.getByLabelText("Playground files")).toBeInTheDocument();
   const [written] = parsePlaygroundMock.mock.calls.at(-1) ?? [];
   expect((written as PlaygroundFile[]).map((f) => f.path)).toContain(
