@@ -14,8 +14,17 @@
  * account. Adding a resource type to the catalog therefore adds its nesting
  * rules with it, exactly as GP-132 intended for everything else.
  */
-import { CATALOG, resourceDef, type ResourceDef, type ReferenceSlot } from "./catalog.js";
-import type { BuilderGraph, BuilderNode } from "./builder-graph.js";
+import { CATALOG, defFor, type ResourceDef, type ReferenceSlot } from "./catalog.js";
+import type { BuilderGraph, BuilderMode, BuilderNode } from "./builder-graph.js";
+
+/** What containment needs to know about a node: its type, and how it is read. */
+export type ContainedType = { type: string; mode?: BuilderMode };
+
+/** A bare type name, as the shorthand every caller that has one may still pass. */
+export type TypeOrNode = string | ContainedType;
+
+const asNode = (value: TypeOrNode): ContainedType =>
+  typeof value === "string" ? { type: value } : value;
 
 /**
  * A slot that space can express: one target, so the child is inside one thing.
@@ -28,16 +37,21 @@ function nestable(slot: ReferenceSlot): boolean {
 }
 
 /**
- * The slot on `childType` that a container of `parentType` fills, if there is
+ * The slot on the child that a container of `parentType` fills, if there is
  * one. A required slot wins over an optional one: a subnet's resource group and
  * its virtual network are both slots, and the vnet is the tighter home.
+ *
+ * The child may be given as a node, because the slots are read from *its*
+ * schema and a lookup's are the data source's (GP-248). The parent is a type:
+ * a slot accepts a type, and whether that node is declared or looked up changes
+ * only the address the reference renders as.
  */
 export function containmentSlot(
-  childType: string,
+  child: TypeOrNode,
   parentType: string,
   catalog: readonly ResourceDef[] = CATALOG,
 ): ReferenceSlot | undefined {
-  const def = resourceDef(childType, catalog);
+  const def = defFor(asNode(child), catalog);
   if (!def) return undefined;
   const slots = def.references.filter(
     (slot) => nestable(slot) && slot.targetTypes.includes(parentType),
@@ -45,13 +59,13 @@ export function containmentSlot(
   return slots.find((slot) => slot.required) ?? slots[0];
 }
 
-/** May a `childType` be drawn inside a `parentType`? */
+/** May the child be drawn inside a `parentType`? */
 export function canContain(
   parentType: string,
-  childType: string,
+  child: TypeOrNode,
   catalog: readonly ResourceDef[] = CATALOG,
 ): boolean {
-  return containmentSlot(childType, parentType, catalog) !== undefined;
+  return containmentSlot(child, parentType, catalog) !== undefined;
 }
 
 /**
@@ -65,7 +79,9 @@ export function containerTypes(
   for (const def of catalog) {
     for (const slot of def.references.filter(nestable)) {
       for (const type of slot.targetTypes) {
-        if (resourceDef(type, catalog)) targets.add(type);
+        // Any definition of that type will do: a resource group looked up is
+        // as much a place to put things as one declared (GP-248).
+        if (catalog.some((d) => d.type === type)) targets.add(type);
       }
     }
   }

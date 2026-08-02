@@ -172,7 +172,7 @@ describe("build editor geometry (GP-247)", () => {
         graph,
         boxes,
         { x: 100, y: 120 },
-        { childType: "azurerm_resource_group" },
+        { child: "azurerm_resource_group" },
       ),
     ).toBeUndefined();
   });

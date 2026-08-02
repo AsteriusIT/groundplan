@@ -16,6 +16,7 @@ import {
   validateBuilderGraph,
   type BuilderGraph,
   type BuilderIssue,
+  type BuilderMode,
   type BuilderValue,
   type ResourceDef,
 } from "@groundplan/builder";
@@ -46,6 +47,12 @@ export type BuilderController = {
   rename: (id: string, name: string) => void;
   /** Retype a custom resource (the only node whose type the user writes). */
   retype: (id: string, type: string) => void;
+  /**
+   * Declare this resource, or look it up (GP-248). `def` is the definition it
+   * is about to be described by — the caller has just fetched it, exactly as
+   * `addNode` does, because the two schemas are two different reads.
+   */
+  setMode: (id: string, mode: BuilderMode, def?: ResourceDef) => void;
   /** Rename the attribute a custom resource's reference is written into. */
   renameReference: (from: string, attribute: string, next: string) => void;
   /** Set which attribute of the target a custom reference reads. */
@@ -189,6 +196,13 @@ export function useBuilderGraph(
     setGraph((current) => ops.retypeNode(current, id, type));
   }, []);
 
+  const setMode = useCallback(
+    (id: string, mode: BuilderMode, def?: ResourceDef) => {
+      setGraph((current) => ops.setMode(current, id, mode, def));
+    },
+    [],
+  );
+
   const renameReference = useCallback(
     (from: string, attribute: string, next: string) => {
       setGraph((current) => ops.renameReference(current, from, attribute, next));
@@ -221,6 +235,7 @@ export function useBuilderGraph(
     addNode,
     rename,
     retype,
+    setMode,
     renameReference,
     setTargetAttribute,
     setAttribute,

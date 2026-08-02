@@ -16,6 +16,16 @@
 /** A value a catalog attribute can hold, per its declared `kind`. */
 export type BuilderValue = string | number | boolean | string[];
 
+/**
+ * Which Terraform block a node becomes (GP-248): one this composition declares,
+ * or one it merely looks up.
+ *
+ * Nothing else changes with it. A lookup sits on the same canvas, fills the
+ * same slots and is drawn as the same frame — the difference is that Terraform
+ * will not create it, and that its address is `data.<type>.<name>`.
+ */
+export type BuilderMode = "resource" | "data";
+
 /** Where a node sits on the builder canvas. Ignored by generation. */
 export type BuilderPosition = { x: number; y: number };
 
@@ -29,6 +39,14 @@ export type BuilderNode = {
   type: string;
   /** The Terraform local name — the `this` in `resource "azurerm_subnet" "this"`. */
   name: string;
+  /**
+   * `resource` (absent, and the default) or `data` (GP-248) — infrastructure
+   * this composition declares, or infrastructure it only points at. A lookup is
+   * described by the provider's *data source* schema, which is a different set
+   * of arguments: what identifies an existing resource group is its name, and
+   * everything else about it is read, not written.
+   */
+  mode?: BuilderMode;
   /** Catalog attribute name → value. Absent = not filled in yet. */
   attributes: Record<string, BuilderValue>;
   position: BuilderPosition;
@@ -78,7 +96,22 @@ export function emptyBuilderGraph(): BuilderGraph {
   return { nodes: [], references: [] };
 }
 
-/** The Terraform address a node will be generated as. */
-export function addressOf(node: Pick<BuilderNode, "type" | "name">): string {
-  return `${node.type}.${node.name}`;
+/**
+ * The Terraform address a node will be generated as — and, for a lookup, read
+ * back through: `data.azurerm_resource_group.existing.name` (GP-248).
+ *
+ * It is also what makes a name unique. `azurerm_subnet.app` and
+ * `data.azurerm_subnet.app` are two different addresses, so the two may share
+ * a name; two resources of a type may not.
+ */
+export function addressOf(node: Pick<BuilderNode, "type" | "name" | "mode">): string {
+  const address = `${node.type}.${node.name}`;
+  return node.mode === "data" ? `data.${address}` : address;
+}
+
+/** The schema kind a node is described by: a lookup reads the data source's. */
+export function schemaKindOf(
+  node: Pick<BuilderNode, "mode">,
+): "resource" | "data_source" {
+  return node.mode === "data" ? "data_source" : "resource";
 }

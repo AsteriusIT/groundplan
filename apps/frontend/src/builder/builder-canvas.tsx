@@ -40,8 +40,8 @@ import {
 import {
   ancestorsOf,
   CATALOG,
+  defFor,
   issuesByNode,
-  resourceDef,
   type BuilderGraph,
   type BuilderIssue,
   type ResourceDef,
@@ -193,7 +193,7 @@ function Canvas({
         zIndex: CARD_Z + held,
         data: {
           node,
-          def: resourceDef(node.type, catalog),
+          def: defFor(node, catalog),
           issues: byNode.get(node.id) ?? [],
           inputs: inputsOf(graph, node, catalog),
         },
@@ -324,7 +324,7 @@ function Canvas({
           containerAt(graph, boxes, point, {
             ignore: node.id,
             catalog,
-            childType: dragged?.type,
+            ...(dragged ? { child: dragged } : {}),
           }) ?? null,
         );
       }}
@@ -336,7 +336,7 @@ function Canvas({
         const target = containerAt(graph, boxes, point, {
           ignore: node.id,
           catalog,
-          childType: dragged?.type,
+          ...(dragged ? { child: dragged } : {}),
         });
         const current = graph.nodes.find((n) => n.id === node.id)?.parentId;
         onMove(node.id, absoluteOf(node.id, node.position));
@@ -374,7 +374,7 @@ function Canvas({
         });
         const parentId = containerAt(graph, boxes, point, {
           catalog,
-          childType: type,
+          child: type,
         });
         const parent = parentId ? boxes.get(parentId) : undefined;
         // Dropped into a frame: keep the point, but never under its own label.

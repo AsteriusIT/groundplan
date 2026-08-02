@@ -20,6 +20,7 @@ import {
   CATALOG,
   mergeCatalog,
   resourceDefFromSchema,
+  schemaKindOf,
   type BuilderGraph,
   type ResourceDef,
 } from "@groundplan/builder";
@@ -55,23 +56,35 @@ function providerNameOf(type: string): string {
 export async function catalogForGraph(
   graph: BuilderGraph,
   deps: {
-    repo: CatalogRepository;
+    /** Only what assembling a catalog reads — the rest of the repository is not its business. */
+    repo: Pick<
+      CatalogRepository,
+      "getLatestReadyVersion" | "listTypeNames" | "getResourceSchemas"
+    >;
     allowlist: readonly ProviderRef[];
   },
 ): Promise<BuilderCatalog> {
   const curated = new Set(CATALOG.map((def) => def.type));
-  const wanted = new Map<string, Set<string>>();
+  // Per provider, per kind: a node is described by its own schema, and a `data`
+  // lookup's is the data source's (GP-248). The curated dozen answer for
+  // resources only — there is no hand-written data source, and inventing one
+  // from a resource's arguments would generate a file Terraform rejects.
+  const wanted = new Map<string, { resource: Set<string>; data_source: Set<string> }>();
   for (const node of graph.nodes) {
     // A custom resource is the user's word about a type nobody described; it is
     // validated as syntax and never looked up. A curated type needs no lookup
     // either — its definition is compiled in, which is what lets the twelve go
     // on working on a deployment with no catalog at all.
     if (node.custom || node.type.trim() === "") continue;
-    if (curated.has(node.type)) continue;
+    const kind = schemaKindOf(node);
+    if (kind === "resource" && curated.has(node.type)) continue;
     const provider = providerNameOf(node.type);
-    const types = wanted.get(provider) ?? new Set<string>();
-    types.add(node.type);
-    wanted.set(provider, types);
+    const kinds = wanted.get(provider) ?? {
+      resource: new Set<string>(),
+      data_source: new Set<string>(),
+    };
+    kinds[kind].add(node.type);
+    wanted.set(provider, kinds);
   }
   // Nothing to look up: no query, and the curated catalog is the answer.
   if (wanted.size === 0) return { catalog: [...CATALOG], versions: {}, warming: [] };
@@ -80,7 +93,7 @@ export async function catalogForGraph(
   const versions: Record<string, string> = {};
   const warming: string[] = [];
 
-  for (const [name, types] of [...wanted].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, kinds] of [...wanted].sort(([a], [b]) => a.localeCompare(b))) {
     const ref = deps.allowlist.find((provider) => provider.name === name);
     // Not allowlisted: there is no catalog for it and there never will be. The
     // curated entries may still cover the type; if they do not, validation
@@ -94,12 +107,17 @@ export async function catalogForGraph(
     }
     versions[name] = version.version;
 
-    const [names, schemas] = await Promise.all([
+    const [names, resources, lookups] = await Promise.all([
       deps.repo.listTypeNames(version.versionId),
-      deps.repo.getResourceSchemas(version.versionId, [...types]),
+      deps.repo.getResourceSchemas(version.versionId, [...kinds.resource]),
+      deps.repo.getResourceSchemas(
+        version.versionId,
+        [...kinds.data_source],
+        "data_source",
+      ),
     ]);
     const known = new Set(names);
-    for (const schema of schemas.values()) {
+    for (const schema of [...resources.values(), ...lookups.values()]) {
       derived.push(resourceDefFromSchema(schema, known));
     }
   }

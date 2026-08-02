@@ -1009,6 +1009,8 @@ export interface BuilderGraphInput {
     id: string;
     type: string;
     name: string;
+    /** `data` writes a lookup instead of a declaration (GP-248). */
+    mode?: "resource" | "data";
     attributes: Record<string, string | number | boolean | string[]>;
     position: { x: number; y: number };
     /** What it is drawn inside (GP-247). Ignored by generation. */

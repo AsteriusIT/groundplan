@@ -20,10 +20,13 @@ import {
   canConnect,
   canContain,
   containmentSlot,
+  defFor,
   descendantsOf,
   referenceSlot,
   resourceDef,
+  schemaKindOf,
   type BuilderGraph,
+  type BuilderMode,
   type BuilderNode,
   type BuilderValue,
   type ResourceDef,
@@ -219,11 +222,11 @@ function fillFromAncestors(
   catalog: readonly ResourceDef[] = CATALOG,
 ): BuilderGraph {
   const node = graph.nodes.find((n) => n.id === id);
-  const def = node ? resourceDef(node.type, catalog) : undefined;
+  const def = node ? defFor(node, catalog) : undefined;
   if (!node || !def) return graph;
   let next = graph;
   for (const ancestor of ancestorsOf(graph, id)) {
-    const slot = containmentSlot(node.type, ancestor.type, catalog);
+    const slot = containmentSlot(node, ancestor.type, catalog);
     if (!slot) continue;
     const filled = next.references.some(
       (r) => r.from === id && r.attribute === slot.attribute,
@@ -256,7 +259,7 @@ export function canNest(
   const parent = graph.nodes.find((n) => n.id === parentId);
   if (!child || !parent) return false;
   if (descendantsOf(graph, childId).some((n) => n.id === parentId)) return false;
-  return canContain(parent.type, child.type, catalog);
+  return canContain(parent.type, child, catalog);
 }
 
 /**
@@ -295,7 +298,7 @@ export function reparent(
   // entitled to rewrite.
   const answered = new Set(
     ancestorsOf({ ...graph, nodes: moved }, childId).flatMap((ancestor) => {
-      const slot = containmentSlot(child.type, ancestor.type, catalog);
+      const slot = containmentSlot(child, ancestor.type, catalog);
       return slot ? [slot.attribute] : [];
     }),
   );
@@ -303,7 +306,7 @@ export function reparent(
   // where the new place has something to put in their stead.
   const stale = new Set(
     ancestorsOf(graph, childId).flatMap((ancestor) => {
-      const slot = containmentSlot(child.type, ancestor.type, catalog);
+      const slot = containmentSlot(child, ancestor.type, catalog);
       if (!slot) return [];
       const replaced = parentId === undefined || answered.has(slot.attribute);
       return replaced ? [`${slot.attribute}|${ancestor.id}`] : [];
@@ -355,6 +358,58 @@ function placeInside(
     y: bottom + (siblings.length > 0 ? CONTAINER_PADDING : 0),
   };
   return moveNode(graph, childId, position);
+}
+
+/**
+ * Declare it, or look it up (GP-248).
+ *
+ * The node keeps its identity — same id, same Terraform name, same place on the
+ * canvas, same connections — and changes what describes it. `def` is the
+ * definition it is about to be read by, and everything is reconciled against
+ * it: an argument the new schema does not have is dropped rather than left to
+ * be reported forever (a `data "azurerm_resource_group"` takes no location,
+ * because the location of an existing group is something Terraform reads), the
+ * new schema's defaults are filled in as they would be on a fresh node, and a
+ * reference through a slot it does not have goes the same way.
+ *
+ * Without a `def` only the mode changes, which is what a caller with no catalog
+ * can honestly do.
+ */
+export function setMode(
+  graph: BuilderGraph,
+  id: string,
+  mode: BuilderMode,
+  def?: ResourceDef,
+): BuilderGraph {
+  const node = graph.nodes.find((n) => n.id === id);
+  // A custom resource is the user's own word about a type nobody described;
+  // there is no data source of something the catalog has never heard of.
+  if (!node || node.custom) return graph;
+
+  const { mode: _previous, ...rest } = node;
+  const next: BuilderNode = {
+    ...rest,
+    ...(mode === "data" ? { mode } : {}),
+  };
+
+  if (def) {
+    const known = new Set(def.attributes.map(attributeKey));
+    next.attributes = Object.fromEntries(
+      Object.entries(node.attributes).filter(([key]) => known.has(key)),
+    );
+    for (const attribute of def.attributes) {
+      const value = attributeValue(attribute, next);
+      if (value !== undefined) next.attributes[attributeKey(attribute)] = value;
+    }
+  }
+
+  const slots = def ? new Set(def.references.map((slot) => slot.attribute)) : null;
+  return {
+    nodes: graph.nodes.map((n) => (n.id === id ? next : n)),
+    references: graph.references.filter(
+      (r) => r.from !== id || !slots || slots.has(r.attribute),
+    ),
+  };
 }
 
 /** Retype a custom resource — the one node whose type is the user's to write. */
@@ -466,9 +521,13 @@ export function canAttach(
   const source = graph.nodes.find((n) => n.id === from);
   const target = graph.nodes.find((n) => n.id === to);
   if (!source || !target) return false;
-  if (!canConnect(source.type, attribute, target.type, catalog)) return false;
+  if (
+    !canConnect(source.type, attribute, target.type, catalog, schemaKindOf(source))
+  ) {
+    return false;
+  }
 
-  const def = resourceDef(source.type, catalog);
+  const def = defFor(source, catalog);
   const slot = def ? referenceSlot(def, attribute) : undefined;
   if (!slot) return false;
 
@@ -512,13 +571,13 @@ export function connect(
   const home = graph.nodes.find((n) => n.id === source?.parentId);
   const drawn =
     source && home
-      ? containmentSlot(source.type, home.type, catalog)?.attribute
+      ? containmentSlot(source, home.type, catalog)?.attribute
       : undefined;
   const nests =
     source &&
     target &&
     (drawn === undefined || drawn === attribute) &&
-    containmentSlot(source.type, target.type, catalog)?.attribute === attribute &&
+    containmentSlot(source, target.type, catalog)?.attribute === attribute &&
     canNest(connected, from, to, catalog);
   return nests ? reparent(connected, from, to, catalog) : connected;
 }

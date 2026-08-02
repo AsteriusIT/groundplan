@@ -28,6 +28,7 @@ import {
   resourceDefFromSchema,
   type ProviderResourceSummary,
   type ResourceDef,
+  type SchemaResourceKind,
 } from "@groundplan/builder";
 
 import {
@@ -39,6 +40,14 @@ import type { CatalogProvider, CatalogProviders } from "@/api/types";
 
 /** How many matches a search asks for. A picker nobody scrolls needs no more. */
 export const SEARCH_LIMIT = 25;
+
+/** How a definition is keyed while it loads and once it is cached. */
+export function catalogKey(
+  type: string,
+  kind: SchemaResourceKind = "resource",
+): string {
+  return `${kind}:${type}`;
+}
 
 export type CatalogState = {
   /** Null while the providers are still being asked for. */
@@ -63,9 +72,21 @@ export type CatalogState = {
    * It answers with the definition rather than a flag on purpose: the caller
    * needs it *in that tick*, and waiting for React to re-render with the new
    * catalog would add a node the ops layer still could not describe.
+   *
+   * The kind is part of the question (GP-248): `data_source` asks for the
+   * arguments that identify an existing one, which are not the resource's, and
+   * null there means this type has no data source — or that no catalog is
+   * configured to say. Either way the answer is the same: it cannot be looked
+   * up here, and the form says so rather than inventing a schema.
    */
-  ensure: (type: string) => Promise<ResourceDef | null>;
-  /** Which types are currently being fetched, for a spinner on the entry. */
+  ensure: (
+    type: string,
+    kind?: SchemaResourceKind,
+  ) => Promise<ResourceDef | null>;
+  /**
+   * Which definitions are currently being fetched, for a spinner on the entry.
+   * Keyed `<kind>:<type>` — see {@link loadingType}.
+   */
   loading: ReadonlySet<string>;
 };
 
@@ -158,40 +179,46 @@ export function useCatalog(): CatalogState {
   );
 
   const ensure = useCallback(
-    async (type: string): Promise<ResourceDef | null> => {
-      // Curated first: those need no network, ever.
-      const curated = CATALOG.find((def) => def.type === type);
+    async (
+      type: string,
+      kind: SchemaResourceKind = "resource",
+    ): Promise<ResourceDef | null> => {
+      // Curated first: those need no network, ever. They are resources — there
+      // is no hand-written data source, and a lookup always asks the provider.
+      const curated =
+        kind === "resource" ? CATALOG.find((def) => def.type === type) : undefined;
       if (curated) return curated;
-      const cached = schemas.get(type);
+      const key = catalogKey(type, kind);
+      const cached = schemas.get(key);
       if (cached) return cached;
       if (!active) return null;
 
-      const inFlight = pending.current.get(type);
+      const inFlight = pending.current.get(key);
       if (inFlight) return inFlight;
 
       const load = (async () => {
-        setLoading((current) => new Set(current).add(type));
+        setLoading((current) => new Set(current).add(key));
         try {
           const [{ schema }, known] = await Promise.all([
-            getCatalogResourceSchema(active.provider, type),
+            getCatalogResourceSchema(active.provider, type, kind),
             typeNames(active.provider),
           ]);
           const def = resourceDefFromSchema(schema, known);
-          setSchemas((current) => new Map(current).set(type, def));
+          setSchemas((current) => new Map(current).set(key, def));
           return def;
         } catch {
           return null;
         } finally {
           setLoading((current) => {
             const next = new Set(current);
-            next.delete(type);
+            next.delete(key);
             return next;
           });
-          pending.current.delete(type);
+          pending.current.delete(key);
         }
       })();
 
-      pending.current.set(type, load);
+      pending.current.set(key, load);
       return load;
     },
     [active, schemas, typeNames],

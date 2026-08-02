@@ -11,8 +11,8 @@ import { addressOf } from "./builder-graph.js";
 import {
   attributeKey,
   CATALOG,
+  defFor,
   referenceSlot,
-  resourceDef,
   type AttributeDef,
   type ResourceDef,
 } from "./catalog.js";
@@ -244,7 +244,7 @@ function validateReference(
     validateCustomReference(reference, from, byId, issues);
     return;
   }
-  const def = resourceDef(from.type, catalog);
+  const def = defFor(from, catalog);
   if (!def) return; // already reported as unknown_type
   const slot = referenceSlot(def, reference.attribute);
   if (!slot) {
@@ -317,12 +317,15 @@ export function validateBuilderGraph(
       validateCustomNode(node, nameOwners, issues);
       continue;
     }
-    const def = resourceDef(node.type, catalog);
+    const def = defFor(node, catalog);
     if (!def) {
       issues.push({
         nodeId: node.id,
         reason: "unknown_type",
-        message: `"${node.type}" is not a resource type the builder knows`,
+        message:
+          node.mode === "data"
+            ? `"${node.type}" is not a data source the builder can read`
+            : `"${node.type}" is not a resource type the builder knows`,
       });
       continue;
     }
@@ -338,7 +341,7 @@ export function validateBuilderGraph(
 
   for (const node of graph.nodes) {
     if (node.custom) continue;
-    const def = resourceDef(node.type, catalog);
+    const def = defFor(node, catalog);
     if (!def) continue;
     for (const slot of def.references) {
       if (slot.required && !filled.has(slotKey(node.id, slot.attribute))) {

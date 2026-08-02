@@ -20,8 +20,8 @@
  */
 import {
   canContain,
+  defFor,
   isContainerType,
-  resourceDef,
   type BuilderGraph,
   type BuilderNode,
   type ResourceDef,
@@ -45,6 +45,14 @@ export function azureName(node: BuilderNode): string | null {
 /** A card's type line: a resource type, or the absence of one. */
 export function typeLabel(node: BuilderNode): string {
   return node.type === "" ? "custom resource" : shortResourceType(node.type);
+}
+
+/** The word a lookup carries on its card and its frame (GP-248). */
+export const DATA_MARK = "data";
+
+/** Is this node drawn as one that already exists? */
+export function isLookup(node: Pick<BuilderNode, "mode">): boolean {
+  return node.mode === "data";
 }
 
 /** One input row on a card: a slot, or a custom node's named reference. */
@@ -86,7 +94,7 @@ export function inputsOf(
     }));
   }
 
-  const def = resourceDef(node.type, catalog);
+  const def = defFor(node, catalog);
   return (def?.references ?? []).map((slot) => ({
     attribute: slot.attribute,
     label: slot.label,
@@ -130,6 +138,8 @@ const ICON = 16;
 const BADGE = 34;
 /** The same reservation for a slot row's problem dot. */
 const DOT = 14;
+/** The `data` chip on a lookup's type line, plus the gap before it. */
+const MARK = GAP + 30;
 
 /** The narrowest a card is drawn, however little it has to say. */
 export const CARD_MIN_WIDTH = 240;
@@ -167,11 +177,11 @@ export function acceptsDrop(
   graph: BuilderGraph,
   id: string,
   catalog?: readonly ResourceDef[],
-  childType?: string,
+  child?: string | Pick<BuilderNode, "type" | "mode">,
 ): boolean {
   const node = graph.nodes.find((n) => n.id === id);
   if (!node) return false;
-  if (childType) return canContain(node.type, childType, catalog);
+  if (child) return canContain(node.type, child, catalog);
   return catalog
     ? isContainerType(node.type, catalog)
     : isContainerType(node.type);
@@ -195,7 +205,7 @@ export function cardWidth(
     ICON +
     GAP +
     Math.max(
-      textWidth(typeLabel(node), 12),
+      textWidth(typeLabel(node), 12) + (isLookup(node) ? MARK : 0),
       textWidth(azureName(node) ?? "unnamed", 11),
       textWidth(`.${node.name}`, 10),
     ) +
@@ -249,6 +259,7 @@ export function frameLabelWidth(node: BuilderNode): number {
     CHIP_ICON +
     CHIP_GAP +
     textWidth(typeLabel(node), 10, CHIP_TRACKING) +
+    (isLookup(node) ? MARK : 0) +
     CHIP_GAP +
     textWidth(azureName(node) ?? "unnamed", 10) +
     CHIP_GAP +
@@ -364,14 +375,14 @@ export function containerAt(
     /** The node being dragged: never its own destination. */
     ignore?: string;
     catalog?: readonly ResourceDef[];
-    /** Only offer frames that can actually take this type. */
-    childType?: string;
+    /** Only offer frames that can actually take this node (or bare type). */
+    child?: string | Pick<BuilderNode, "type" | "mode">;
   } = {},
 ): string | undefined {
-  const { ignore, catalog, childType } = options;
+  const { ignore, catalog, child } = options;
   const hits = graph.nodes.filter((node) => {
     if (node.id === ignore) return false;
-    if (!acceptsDrop(graph, node.id, catalog, childType)) return false;
+    if (!acceptsDrop(graph, node.id, catalog, child)) return false;
     const box = boxes.get(node.id);
     return (
       box !== undefined &&

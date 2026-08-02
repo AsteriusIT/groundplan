@@ -22,6 +22,7 @@ import {
   type ProviderResourceSummary,
   type RawProvidersSchema,
   type ResourceDef,
+  type SchemaResourceKind,
 } from "@groundplan/builder";
 
 import { BuildMode } from "./build-mode";
@@ -52,9 +53,9 @@ function summaryOf(type: string): ProviderResourceSummary {
   };
 }
 
-function defOf(type: string): ResourceDef {
+function defOf(type: string, kind: SchemaResourceKind = "resource"): ResourceDef {
   return resourceDefFromSchema(
-    SCHEMAS.find((s) => s.type === type && s.kind === "resource")!,
+    SCHEMAS.find((s) => s.type === type && s.kind === kind)!,
     TYPES,
   );
 }
@@ -93,8 +94,12 @@ function Harness({ catalog }: Readonly<{ catalog: CatalogState }>) {
     () => ({
       ...catalog,
       defs,
-      ensure: async (type: string) => {
-        const def = await catalog.ensure(type);
+      ensure: async (type: string, kind?: SchemaResourceKind) => {
+        // Forwarded exactly as it arrived, kind and all — a double that always
+        // passed one would hide which question the caller actually asked.
+        const def = await (kind
+          ? catalog.ensure(type, kind)
+          : catalog.ensure(type));
         if (def) setLoaded((current) => [...current, def]);
         return def;
       },
@@ -255,4 +260,65 @@ it("does not add a resource whose schema could not be fetched", async () => {
   // A card the form would have nothing to say about is worse than no card.
   expect(screen.queryByTestId("builder-node-n1")).not.toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("Nothing composed yet");
+});
+
+// --- Data lookups (GP-248) -------------------------------------------------
+
+it("switches a resource to the data source that looks it up", async () => {
+  const ensure = vi.fn(
+    async (type: string, kind: SchemaResourceKind = "resource") =>
+      kind === "data_source" ? defOf(type, "data_source") : null,
+  );
+  render(<Harness catalog={readyCatalog({ ensure })} />);
+
+  // Curated, so it is placed without a network call of any kind.
+  fireEvent.click(within(palette()).getByRole("button", { name: /Subnet/ }));
+  const form = () => screen.getByLabelText("Resource details");
+  expect(within(form()).getByLabelText(/Address prefixes/)).toBeInTheDocument();
+  expect(ensure).not.toHaveBeenCalled();
+
+  fireEvent.click(within(form()).getByRole("button", { name: "data" }));
+
+  // The other schema is read — the resource's arguments are not a lookup's.
+  await waitFor(() =>
+    expect(ensure).toHaveBeenCalledWith("azurerm_subnet", "data_source"),
+  );
+  await waitFor(() =>
+    expect(
+      within(screen.getByTestId("builder-node-n1")).getByText("data"),
+    ).toBeInTheDocument(),
+  );
+
+  // The address everything will reference it by says what it is…
+  expect(within(form()).getByText("data.azurerm_subnet.subnet")).toBeInTheDocument();
+  // …an existing subnet is found by name, not described by its address space…
+  expect(
+    within(form()).queryByLabelText(/Address prefixes/),
+  ).not.toBeInTheDocument();
+  // …and it is still connected to the network it is in.
+  expect(within(form()).getByLabelText(/Virtual network/)).toBeInTheDocument();
+});
+
+it("says a type cannot be looked up rather than pretending it switched", async () => {
+  // The provider has no `data "azurerm_resource_group"` in this fixture, which
+  // is exactly the case that must not silently do nothing.
+  const ensure = vi.fn(async () => null);
+  render(<Harness catalog={readyCatalog({ ensure })} />);
+
+  fireEvent.click(within(palette()).getByRole("button", { name: /Resource group/ }));
+  const form = () => screen.getByLabelText("Resource details");
+  fireEvent.click(within(form()).getByRole("button", { name: "data" }));
+
+  await waitFor(() =>
+    expect(
+      within(form()).getByText(/no data source for azurerm_resource_group/),
+    ).toBeInTheDocument(),
+  );
+  // And the node is what it always was.
+  expect(
+    within(form()).getByRole("button", { name: "resource" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(
+    within(screen.getByTestId("builder-node-n1")).queryByText("data"),
+  ).not.toBeInTheDocument();
 });

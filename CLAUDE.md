@@ -407,7 +407,7 @@ the document (`use-playground-document.ts`: files, parse, draft, composition,
 catalog) so walking between the views loses nothing; the views bring their own
 toolbars.
 
-**Visual builder (GP-131..135, GP-247, flagged).** `BUILDER_ENABLED=true` adds
+**Visual builder (GP-131..135, GP-247, GP-248, flagged).** `BUILDER_ENABLED=true` adds
 the **Build Editor** view to the playground: compose Azure resources on a canvas,
 then generate Terraform from them. Off by default — the `AI_API_KEY` posture
 applied to a boolean: `/builder/status` reports it, `POST /builder/generate`
@@ -423,7 +423,16 @@ frame has no handles (dropping into it is the connection) while every card
 keeps them, a move rewrites only the slots its new home answers, and a
 connection made on any other slot stays a wire. Dragging a node out onto the
 canvas is still the gesture that empties what the frame filled. `parentId` is
-the drawing; `references` stays the model and is all generation reads. A composition saves into a playground draft beside the
+the drawing; `references` stays the model and is all generation reads.
+A node is a `resource` or a **`data` lookup** (GP-248, `BuilderNode.mode`):
+same canvas, same containment, same wires — `addressOf` renders
+`data.<type>.<name>` and every reference to it follows. A lookup is described
+by the provider's *data source* schema, so `ResourceDef` carries its `kind` and
+every definition is identified by (kind, type) — `defFor(node, catalog)` is the
+one place that asks. No schema, no lookup: a resource's arguments are not a
+data source's, and writing `location` into a `data "azurerm_resource_group"`
+would generate a file Terraform rejects, so the toggle says what it cannot do
+rather than inventing one. A composition saves into a playground draft beside the
 files (`playground_drafts.composition`) — two documents, neither derived from
 the other (ADR #5). `packages/builder` holds everything both
 sides need, so the browser composes against the same rules the server generates
@@ -515,7 +524,7 @@ provider catalog (GP-234..240: model & store, registry watcher, sandboxed
 extraction worker, read API, schema-driven builder, bundled snapshot, trust-model
 wording) · GP-241 app modes & Playground revamp (GP-242..247: mode switcher,
 collapsible rail, two Playground routes, the real editor, the layout toggle,
-containment in the Build Editor).
+containment in the Build Editor) · GP-248 data lookups in the Build Editor.
 
 **Open:**
 

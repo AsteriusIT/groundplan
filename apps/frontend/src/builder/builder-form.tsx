@@ -10,6 +10,7 @@
 import { useState } from "react";
 
 import {
+  addressOf,
   attributeKey,
   attributeValue,
   CATALOG,
@@ -17,9 +18,11 @@ import {
   isBlank,
   isNameIssue,
   isTypeIssue,
+  schemaKindOf,
   type AttributeDef,
   type BuilderGraph,
   type BuilderIssue,
+  type BuilderMode,
   type BuilderNode,
   type BuilderValue,
   type ReferenceSlot,
@@ -187,7 +190,13 @@ function SlotField({
   const candidates = graph.nodes.filter(
     (candidate) =>
       candidate.id !== node.id &&
-      canConnect(node.type, slot.attribute, candidate.type, catalog) &&
+      canConnect(
+        node.type,
+        slot.attribute,
+        candidate.type,
+        catalog,
+        schemaKindOf(node),
+      ) &&
       !targets.some((t) => t.id === candidate.id),
   );
 
@@ -203,7 +212,7 @@ function SlotField({
           {targets.map((target) => (
             <li key={target.id} className="flex items-center gap-1">
               <span className="bg-muted min-w-0 flex-1 truncate rounded px-2 py-1 font-mono text-[11px]">
-                {target.type}.{target.name}
+                {addressOf(target)}
               </span>
               <Button
                 variant="ghost"
@@ -236,7 +245,7 @@ function SlotField({
           </option>
           {candidates.map((candidate) => (
             <option key={candidate.id} value={candidate.id}>
-              {candidate.type}.{candidate.name}
+              {addressOf(candidate)}
             </option>
           ))}
         </select>
@@ -419,6 +428,58 @@ function CustomFields({
   );
 }
 
+/**
+ * Declared here, or already out there (GP-248).
+ *
+ * Two buttons rather than a checkbox, because these are two kinds of Terraform
+ * block and not a flag on one — and the sentence underneath says what the
+ * choice *means*, since "data source" is exactly the piece of Terraform
+ * vocabulary somebody composing visually may not have met yet.
+ */
+function ModeToggle({
+  node,
+  busy,
+  error,
+  onSetMode,
+}: Readonly<{
+  node: BuilderNode;
+  busy: boolean;
+  error: string | null;
+  onSetMode: (mode: BuilderMode) => void;
+}>) {
+  const mode: BuilderMode = node.mode ?? "resource";
+  return (
+    <fieldset className="space-y-1">
+      <legend className="text-[11px] font-medium">Terraform block</legend>
+      <div className="border-input flex gap-0.5 rounded-md border p-0.5">
+        {(["resource", "data"] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={mode === option}
+            disabled={busy}
+            onClick={() => onSetMode(option)}
+            className={cn(
+              "flex-1 rounded px-2 py-1 font-mono text-[11px] transition-colors disabled:opacity-60",
+              mode === option
+                ? "bg-accent text-ink"
+                : "text-muted-foreground hover:text-ink",
+            )}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+      <p className="text-muted-foreground text-[11px]">
+        {mode === "data"
+          ? "Looked up, not created: this one already exists and Terraform only reads it."
+          : "Declared here: Terraform creates it and owns it from then on."}
+      </p>
+      {error && <p className="text-destructive text-[11px]">{error}</p>}
+    </fieldset>
+  );
+}
+
 export function BuilderForm({
   node,
   def,
@@ -432,6 +493,9 @@ export function BuilderForm({
   onDisconnect,
   onRenameReference,
   onSetTargetAttribute,
+  onSetMode,
+  modeBusy = false,
+  modeError = null,
   onDelete,
 }: Readonly<{
   node: BuilderNode;
@@ -448,6 +512,12 @@ export function BuilderForm({
   onDisconnect: (attribute: string, to: string) => void;
   onRenameReference: (attribute: string, next: string) => void;
   onSetTargetAttribute: (attribute: string, targetAttribute: string) => void;
+  /** Switch between declaring this resource and looking it up (GP-248). */
+  onSetMode?: (mode: BuilderMode) => void;
+  /** A switch is in flight: the other schema is being read. */
+  modeBusy?: boolean;
+  /** Why the last switch did not happen — usually "there is no data source". */
+  modeError?: string | null;
   onDelete: () => void;
 }>) {
   // The Terraform name's problems are the ones about the name, not the ones
@@ -497,11 +567,24 @@ export function BuilderForm({
           {nameProblem ? (
             <p className="text-destructive text-[11px]">{nameProblem}</p>
           ) : (
+            // The address it will be referenced by — `data.` and all (GP-248).
             <p className="text-muted-foreground font-mono text-[11px]">
-              {node.type}.{node.name}
+              {addressOf(node)}
             </p>
           )}
         </div>
+
+        {/* A custom resource has no schema to switch to: the user is the
+            schema there, and there is no data source of a type nobody
+            described. */}
+        {onSetMode && !node.custom && (
+          <ModeToggle
+            node={node}
+            busy={modeBusy}
+            error={modeError}
+            onSetMode={onSetMode}
+          />
+        )}
 
         {def === undefined ? (
           <CustomFields

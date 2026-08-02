@@ -33,7 +33,7 @@ import { Input } from "@/components/ui/input";
 import { PALETTE_MIME } from "./builder-canvas";
 import { shortResourceType } from "./builder-layout";
 import { CUSTOM_TYPE } from "./builder-ops";
-import type { CatalogState } from "./use-catalog";
+import { catalogKey, type CatalogState } from "./use-catalog";
 
 const ENTRY =
   "hover:bg-accent/60 flex w-full cursor-grab items-center gap-2 px-4 py-1 text-left active:cursor-grabbing disabled:cursor-wait disabled:opacity-60";
@@ -245,7 +245,7 @@ export function BuilderPalette({
                         ? `${resource.type} — ${resource.summary}`
                         : resource.type
                     }
-                    busy={catalog.loading.has(resource.type)}
+                    busy={catalog.loading.has(catalogKey(resource.type))}
                     icon={
                       <ResourceIcon
                         type={resource.type}

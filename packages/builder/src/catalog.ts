@@ -12,6 +12,7 @@
  * reviewed. It is not the azurerm provider schema and must never be generated
  * from it — a form with ninety optional arguments is not a builder.
  */
+import type { SchemaResourceKind } from "./provider-schema.js";
 
 /** How a value is entered, and how it is rendered into HCL. */
 export type AttributeKind = "string" | "number" | "bool" | "enum" | "list";
@@ -84,6 +85,17 @@ export type ResourceCategory = "foundation" | "network" | "compute" | "data";
 
 export type ResourceDef = {
   type: string;
+  /**
+   * Which schema this describes (GP-248): the type's `resource`, or its
+   * `data_source` — the arguments that identify one that already exists. Absent
+   * means `resource`, which every curated entry is.
+   *
+   * A definition is therefore identified by (kind, type), not by type alone:
+   * `azurerm_resource_group` as a resource needs a name *and* a location, and
+   * as a data source needs only the name, because everything else about an
+   * existing one is read rather than written.
+   */
+  kind?: SchemaResourceKind;
   label: string;
   /**
    * The curated grouping. Absent on a definition derived from a provider schema
@@ -469,12 +481,34 @@ export const CATALOG: readonly ResourceDef[] = [
   },
 ];
 
-/** The definition of a type, or undefined when the catalog does not know it. */
+/**
+ * The definition of a type, or undefined when the catalog does not know it.
+ *
+ * A type has as many definitions as it has schemas — one as a resource, one as
+ * a data source (GP-248) — so the kind is part of the question. It defaults to
+ * `resource`, which is what every caller that never heard of data sources
+ * meant, and what every curated entry is.
+ */
 export function resourceDef(
   type: string,
   catalog: readonly ResourceDef[] = CATALOG,
+  kind: SchemaResourceKind = "resource",
 ): ResourceDef | undefined {
-  return catalog.find((def) => def.type === type);
+  return catalog.find(
+    (def) => def.type === type && (def.kind ?? "resource") === kind,
+  );
+}
+
+/** The definition that describes a node — its type, read as its own kind. */
+export function defFor(
+  node: { type: string; mode?: "resource" | "data" },
+  catalog: readonly ResourceDef[] = CATALOG,
+): ResourceDef | undefined {
+  return resourceDef(
+    node.type,
+    catalog,
+    node.mode === "data" ? "data_source" : "resource",
+  );
 }
 
 /** Where an attribute's value lives on a node. */
@@ -494,14 +528,20 @@ export function referenceSlot(
  * May `toType` be connected into `fromType`'s `attribute` slot? The one place
  * the answer is decided — the canvas asks it while a connection is being
  * dragged, and validation asks it again about the graph it was given.
+ *
+ * The *source's* kind matters, because the slots are its: a data source looks
+ * an existing subnet up by name and a resource declares one. The target's does
+ * not — a slot accepts a type, and whether that node is declared or looked up
+ * changes only the address the reference renders as.
  */
 export function canConnect(
   fromType: string,
   attribute: string,
   toType: string,
   catalog: readonly ResourceDef[] = CATALOG,
+  fromKind: SchemaResourceKind = "resource",
 ): boolean {
-  const def = resourceDef(fromType, catalog);
+  const def = resourceDef(fromType, catalog, fromKind);
   if (!def) return false;
   const slot = referenceSlot(def, attribute);
   return slot ? slot.targetTypes.includes(toType) : false;

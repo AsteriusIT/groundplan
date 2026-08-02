@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils";
 
 import {
   azureName,
+  DATA_MARK,
+  isLookup,
   slotValue,
   typeLabel,
   type BuilderInput,
@@ -80,6 +82,13 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
             )}
           >
             {typeLabel(node)}
+            {/* A lookup is not a resource this composition owns, and the card
+                has to say so where the type is read (GP-248). */}
+            {isLookup(node) && (
+              <span className="text-muted-foreground border-border ml-2 rounded border px-1 py-px align-middle font-mono text-[9px] tracking-[0.08em] uppercase">
+                {DATA_MARK}
+              </span>
+            )}
           </p>
           {/* The name it will carry, then the Terraform label underneath — the
               two names a reader needs, and they are rarely the same. */}

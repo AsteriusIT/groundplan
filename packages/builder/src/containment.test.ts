@@ -11,6 +11,7 @@ import {
   isContainerType,
   rootNodes,
 } from "./containment.js";
+import { mergeCatalog } from "./schema-def.js";
 import type { BuilderGraph, BuilderNode } from "./builder-graph.js";
 
 function node(id: string, type: string, parentId?: string): BuilderNode {
@@ -148,4 +149,38 @@ test("a relationship with several is not containment", () => {
     false,
   );
   assert.equal(isContainerType("azurerm_network_interface"), false);
+});
+
+test("a lookup nests exactly as a resource does (GP-248)", () => {
+  // What a `data "azurerm_subnet"` needs in order to be found: the network and
+  // the group it is in — the same two slots, so the same two frames.
+  const catalog = mergeCatalog([
+    {
+      type: "azurerm_subnet",
+      kind: "data_source" as const,
+      label: "Subnet",
+      description: "An existing subnet.",
+      attributes: [{ name: "name", label: "Name", kind: "string" as const, required: true }],
+      references: [
+        {
+          attribute: "virtual_network_name",
+          label: "Virtual network",
+          targetTypes: ["azurerm_virtual_network"],
+          targetAttribute: "name",
+          required: true,
+        },
+      ],
+    },
+  ]);
+
+  const lookup = { type: "azurerm_subnet", mode: "data" as const };
+  assert.ok(canContain("azurerm_virtual_network", lookup, catalog));
+  assert.equal(
+    containmentSlot(lookup, "azurerm_virtual_network", catalog)?.attribute,
+    "virtual_network_name",
+  );
+  // The resource's own slots are not the lookup's: a subnet resource also sits
+  // in a resource group, and this data source is not asked for one.
+  assert.equal(canContain("azurerm_resource_group", lookup, catalog), false);
+  assert.ok(canContain("azurerm_resource_group", "azurerm_subnet", catalog));
 });

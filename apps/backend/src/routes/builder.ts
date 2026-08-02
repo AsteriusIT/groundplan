@@ -11,10 +11,12 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import {
+  addressOf,
   generateTerraform,
   validateBuilderGraph,
   type BuilderGraph,
   type BuilderIssue,
+  type BuilderMode,
 } from "@groundplan/builder";
 
 import { catalogForGraph } from "../services/builder-catalog.js";
@@ -49,6 +51,15 @@ const graphSchema = {
           // The Terraform local name is checked properly by the validator,
           // which can say *why* it is wrong; the schema only bounds it.
           name: { type: "string", maxLength: 200 },
+          // Declared, or looked up (GP-248). Anything a node carries has to be
+          // named here: Ajv is configured to *remove* what a schema does not
+          // declare, so an omission is not a rejection — it is a silent loss.
+          mode: { type: "string", enum: ["resource", "data"] },
+          // A type the catalog does not describe, validated as syntax alone.
+          custom: { type: "boolean" },
+          // The drawing (GP-247). Generation never reads it; it rides along so
+          // a graph that went to the server comes back the way it was drawn.
+          parentId: { type: "string", maxLength: 200 },
           // Deliberately untyped here. An attribute value is a string, a
           // number, a boolean or a list of strings depending on what the
           // catalog says the attribute is — a job for `validateBuilderGraph`,
@@ -72,6 +83,9 @@ const graphSchema = {
           from: { type: "string", minLength: 1, maxLength: 200 },
           to: { type: "string", minLength: 1, maxLength: 200 },
           attribute: { type: "string", minLength: 1, maxLength: 200 },
+          // Which attribute of the target is read. A custom node has no slot to
+          // decide it, so the reference carries it.
+          targetAttribute: { type: "string", maxLength: 200 },
         },
       },
     },
@@ -91,6 +105,9 @@ type WireGraph = {
     id: string;
     type: string;
     name: string;
+    mode?: BuilderMode;
+    custom?: boolean;
+    parentId?: string;
     attributes?: BuilderGraph["nodes"][number]["attributes"];
     position?: { x: number; y: number };
   }[];
@@ -104,6 +121,9 @@ export function toBuilderGraph(wire: WireGraph): BuilderGraph {
       id: node.id,
       type: node.type,
       name: node.name,
+      ...(node.mode ? { mode: node.mode } : {}),
+      ...(node.custom ? { custom: true } : {}),
+      ...(node.parentId ? { parentId: node.parentId } : {}),
       attributes: node.attributes ?? {},
       position: node.position ?? { x: 0, y: 0 },
     })),
@@ -124,7 +144,7 @@ export function toFields(
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   return issues.map((issue) => {
     const node = byId.get(issue.nodeId);
-    const address = node ? `${node.type}.${node.name}` : issue.nodeId;
+    const address = node ? addressOf(node) : issue.nodeId;
     return {
       field: issue.attribute ? `${address}.${issue.attribute}` : address,
       message: issue.message,

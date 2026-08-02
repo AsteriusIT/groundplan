@@ -254,6 +254,7 @@ export function resourceDefFromSchema(
 
   return {
     type: schema.type,
+    ...(schema.kind === "data_source" ? { kind: "data_source" as const } : {}),
     label: labelForType(schema.type),
     description: describe(schema),
     // Everything of a provider goes to one file named after it. Deterministic
@@ -280,9 +281,35 @@ export function mergeCatalog(
   derived: readonly ResourceDef[],
   curated: readonly ResourceDef[] = CATALOG,
 ): ResourceDef[] {
-  const byType = new Map(derived.map((def) => [def.type, def]));
-  for (const def of curated) byType.set(def.type, def);
-  return [...byType.values()].sort((a, b) => a.type.localeCompare(b.type));
+  const key = (def: ResourceDef) => `${def.kind ?? "resource"}:${def.type}`;
+  const byKind = new Map(derived.map((def) => [key(def), def]));
+  for (const def of curated) byKind.set(key(def), def);
+
+  // A lookup of a curated type is written where that type is written (GP-248):
+  // `data "azurerm_resource_group"` belongs beside the resource groups, not in
+  // a file of its own. Only the destination is borrowed — the arguments stay
+  // the data source's, which is the whole reason the two are separate defs.
+  const curatedResources = new Map(
+    curated
+      .filter((def) => (def.kind ?? "resource") === "resource")
+      .map((def) => [def.type, def]),
+  );
+  const merged = [...byKind.values()].map((def) => {
+    const twin = def.kind === "data_source" ? curatedResources.get(def.type) : undefined;
+    if (!twin) return def;
+    const { file: _derived, ...rest } = def;
+    return {
+      ...rest,
+      ...(twin.category ? { category: twin.category } : {}),
+      ...(twin.file ? { file: twin.file } : {}),
+    };
+  });
+
+  return merged.sort((a, b) =>
+    a.type === b.type
+      ? (a.kind ?? "resource").localeCompare(b.kind ?? "resource")
+      : a.type.localeCompare(b.type),
+  );
 }
 
 /** Every type name of a set of schemas — what the reference rule is given. */

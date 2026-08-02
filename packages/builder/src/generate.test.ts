@@ -5,8 +5,9 @@ import { parse } from "@groundplan/graph-parser";
 
 import type { BuilderGraph } from "./builder-graph.js";
 import { addressOf } from "./builder-graph.js";
-import { CATALOG, resourceDef } from "./catalog.js";
+import { CATALOG, resourceDef, type ResourceDef } from "./catalog.js";
 import { generateTerraform } from "./generate.js";
+import { mergeCatalog } from "./schema-def.js";
 import { validateBuilderGraph } from "./validate.js";
 import { demoGraph } from "./__fixtures__/demo-graph.js";
 
@@ -220,5 +221,188 @@ describe("the golden invariant (GP-134)", () => {
         .map((e) => `${e.from} -> ${e.to}`),
     );
     assert.deepEqual([...parsed].sort(), [...composed].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Data lookups (GP-248): the same canvas, for infrastructure that already
+// exists.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the provider says about `data "azurerm_resource_group"`: a name to look
+ * it up by, and nothing else — everything else about an existing group is read.
+ * The real one comes from the catalog; this is the shape of it.
+ */
+const RG_LOOKUP: ResourceDef = {
+  type: "azurerm_resource_group",
+  kind: "data_source",
+  label: "Resource group",
+  description: "An existing resource group, looked up by name.",
+  attributes: [
+    { name: "name", label: "Name", kind: "string", required: true },
+  ],
+  references: [],
+};
+
+/** A network in a resource group this composition does not own. */
+function withLookup(): BuilderGraph {
+  return {
+    nodes: [
+      {
+        id: "rg",
+        type: "azurerm_resource_group",
+        mode: "data",
+        name: "existing",
+        attributes: { name: "rg-platform-shared" },
+        position: { x: 0, y: 0 },
+      },
+      {
+        id: "vnet",
+        type: "azurerm_virtual_network",
+        name: "app",
+        attributes: { name: "vnet-app", address_space: ["10.0.0.0/16"] },
+        position: { x: 0, y: 160 },
+      },
+    ],
+    references: [
+      { from: "vnet", to: "rg", attribute: "resource_group_name" },
+    ],
+  };
+}
+
+describe("data lookups (GP-248)", () => {
+  const catalog = mergeCatalog([RG_LOOKUP]);
+
+  it("writes a data block, and addresses every reference to it through data.", () => {
+    const graph = withLookup();
+    assert.deepEqual(validateBuilderGraph(graph, catalog), []);
+
+    const files = new Map(
+      generateTerraform(graph, { catalog }).map((f) => [f.path, f.content]),
+    );
+    // The lookup lands where its resource counterpart would, not in a file of
+    // its own — a curated type keeps its file whichever way it is read.
+    assert.match(
+      files.get("main.tf") ?? "",
+      /data "azurerm_resource_group" "existing" \{\n {2}name = "rg-platform-shared"\n\}/,
+    );
+    // Nothing declares the group: it is somebody else's, and Terraform is only
+    // being told where to find it.
+    assert.doesNotMatch(files.get("main.tf") ?? "", /resource "azurerm_resource_group"/);
+    assert.match(
+      files.get("network.tf") ?? "",
+      /resource_group_name = data\.azurerm_resource_group\.existing\.name/,
+    );
+  });
+
+  it("holds the golden invariant", () => {
+    const graph = withLookup();
+    const { snapshot, diagnostics } = parse(generateTerraform(graph, { catalog }));
+    assert.deepEqual(
+      diagnostics.filter((d) => d.severity === "error"),
+      [],
+    );
+    // Producer B reads a data block as `data.<type>.<name>`, which is exactly
+    // the address the builder composed it under.
+    assert.deepEqual(
+      snapshot.nodes.map((n) => n.id).sort((a, b) => a.localeCompare(b)),
+      [
+        "azurerm_virtual_network.app",
+        "data.azurerm_resource_group.existing",
+      ],
+    );
+    assert.deepEqual(
+      snapshot.edges
+        .filter((e) => e.kind === "depends_on")
+        .map((e) => `${e.from} -> ${e.to}`),
+      ["azurerm_virtual_network.app -> data.azurerm_resource_group.existing"],
+    );
+  });
+
+  it("judges a lookup by the data source's arguments, not the resource's", () => {
+    const graph = withLookup();
+    const rg = graph.nodes[0]!;
+    // A resource group *resource* is declared somewhere; an existing one simply
+    // is somewhere, and `data "azurerm_resource_group"` takes no location at
+    // all — writing one would produce a file Terraform rejects.
+    const located = {
+      ...rg,
+      attributes: { ...rg.attributes, location: "westeurope" },
+    };
+
+    assert.deepEqual(
+      validateBuilderGraph(
+        { ...graph, nodes: [located, ...graph.nodes.slice(1)] },
+        catalog,
+      ).map((i) => `${i.reason}: ${i.message}`),
+      ['unknown_attribute: Resource group has no attribute "location"'],
+    );
+    // The very same node, declared rather than looked up, is fine.
+    assert.deepEqual(
+      validateBuilderGraph(
+        {
+          ...graph,
+          nodes: [{ ...located, mode: "resource" }, ...graph.nodes.slice(1)],
+        },
+        catalog,
+      ),
+      [],
+    );
+  });
+
+  it("refuses a lookup of a type it has no data source for", () => {
+    const graph: BuilderGraph = {
+      nodes: [
+        {
+          id: "vm",
+          type: "azurerm_linux_virtual_machine",
+          mode: "data",
+          name: "existing",
+          attributes: {},
+          position: { x: 0, y: 0 },
+        },
+      ],
+      references: [],
+    };
+    assert.deepEqual(
+      validateBuilderGraph(graph, catalog).map((i) => i.message),
+      ['"azurerm_linux_virtual_machine" is not a data source the builder can read'],
+    );
+  });
+
+  it("lets a lookup and a resource of one type share a name", () => {
+    const graph: BuilderGraph = {
+      nodes: [
+        {
+          id: "a",
+          type: "azurerm_resource_group",
+          mode: "data",
+          name: "shared",
+          attributes: { name: "rg-existing" },
+          position: { x: 0, y: 0 },
+        },
+        {
+          id: "b",
+          type: "azurerm_resource_group",
+          name: "shared",
+          attributes: { name: "rg-new", location: "westeurope" },
+          position: { x: 0, y: 160 },
+        },
+      ],
+      references: [],
+    };
+    // `data.azurerm_resource_group.shared` and `azurerm_resource_group.shared`
+    // are two different addresses, and Terraform is happy with both.
+    assert.deepEqual(validateBuilderGraph(graph, catalog), []);
+
+    const clash: BuilderGraph = {
+      ...graph,
+      nodes: [graph.nodes[0]!, { ...graph.nodes[0]!, id: "c" }],
+    };
+    assert.deepEqual(
+      validateBuilderGraph(clash, catalog).map((i) => i.reason),
+      ["duplicate_name", "duplicate_name"],
+    );
   });
 });

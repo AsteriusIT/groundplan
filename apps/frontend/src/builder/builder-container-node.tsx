@@ -24,7 +24,13 @@ import type { BuilderIssue, BuilderNode } from "@groundplan/builder";
 import { ResourceIcon } from "@groundplan/canvas";
 import { cn } from "@/lib/utils";
 
-import { azureName, typeLabel, type BuilderInput } from "./builder-layout";
+import {
+  azureName,
+  DATA_MARK,
+  isLookup,
+  typeLabel,
+  type BuilderInput,
+} from "./builder-layout";
 
 /** An anchor for a wire, not a place to start one. */
 const ANCHOR = "!size-2 !border-0 !bg-transparent !opacity-0";
@@ -88,6 +94,12 @@ function ContainerFrame({ data, selected }: NodeProps<BuilderContainerFlowNode>)
       >
         <ResourceIcon type={node.type} className="size-3.5 shrink-0" />
         <span className="tracking-[0.14em] uppercase">{typeLabel(node)}</span>
+        {/* Somebody else's resource group, with our resources inside it. */}
+        {isLookup(node) && (
+          <span className="text-muted-foreground border-border rounded border px-1 py-px font-mono text-[9px] tracking-[0.08em] uppercase">
+            {DATA_MARK}
+          </span>
+        )}
         <span className="text-ink font-semibold">
           {name ?? <span className="text-faint">unnamed</span>}
         </span>

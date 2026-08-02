@@ -218,6 +218,52 @@ test("POST /builder/generate: an unknown resource type is refused, not skipped",
   }
 });
 
+test("POST /builder/generate: the wire keeps everything a node carries (GP-248)", async () => {
+  // Ajv is configured to *remove* what the schema does not declare, so a field
+  // missing from it is not rejected — it silently never arrives. A custom
+  // resource is the proof: strip `custom` and the type is unknown, strip
+  // `targetAttribute` and its reference cannot be written at all.
+  const app = await buildApp(builderEnv, { pool: poisonedPool() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/builder/generate",
+      payload: {
+        graph: {
+          nodes: [
+            {
+              id: "n1",
+              type: "azurerm_resource_group",
+              name: "this",
+              attributes: { name: "rg-demo", location: "westeurope" },
+              position: { x: 0, y: 0 },
+            },
+            {
+              id: "n2",
+              type: "azurerm_management_lock",
+              name: "lock",
+              custom: true,
+              parentId: "n1",
+              attributes: { lock_level: "CanNotDelete" },
+              position: { x: 0, y: 160 },
+            },
+          ],
+          references: [
+            { from: "n2", to: "n1", attribute: "scope", targetAttribute: "id" },
+          ],
+        },
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const { files } = res.json() as { files: { path: string; content: string }[] };
+    const custom = files.find((f) => f.path === "custom.tf")?.content ?? "";
+    assert.match(custom, /resource "azurerm_management_lock" "lock"/);
+    assert.match(custom, /scope\s+= azurerm_resource_group\.this\.id/);
+  } finally {
+    await app.close();
+  }
+});
+
 test("POST /builder/generate: a malformed body is a schema 422, not a stack trace", async () => {
   const app = await buildApp(builderEnv, { pool: poisonedPool() });
   try {

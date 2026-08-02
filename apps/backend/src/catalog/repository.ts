@@ -356,10 +356,15 @@ export function catalogRepository(db: NodePgDatabase) {
     return row ? unpackSchema(row.schema) : null;
   }
 
-  /** Several types' schemas at once — what validating a whole composition needs. */
+  /**
+   * Several types' schemas at once — what validating a whole composition needs.
+   * One kind per call: a composition can hold both a resource and a lookup of
+   * one type (GP-248), and they are two different schemas under one name.
+   */
   async function getResourceSchemas(
     versionId: string,
     types: readonly string[],
+    kind: ProviderResourceSummary["kind"] = "resource",
   ): Promise<Map<string, ProviderResourceSchema>> {
     const wanted = [...new Set(types)];
     if (wanted.length === 0) return new Map();
@@ -376,7 +381,7 @@ export function catalogRepository(db: NodePgDatabase) {
       .where(
         and(
           eq(catalogResourceTypes.versionId, versionId),
-          eq(catalogResourceTypes.kind, "resource"),
+          eq(catalogResourceTypes.kind, kind),
           inArray(catalogResourceTypes.name, wanted),
         ),
       );

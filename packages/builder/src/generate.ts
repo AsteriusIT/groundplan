@@ -12,7 +12,7 @@ import type { BuilderGraph, BuilderNode, BuilderValue } from "./builder-graph.js
 import { addressOf } from "./builder-graph.js";
 import {
   CATALOG,
-  resourceDef,
+  defFor,
   type AttributeDef,
   type ReferenceSlot,
   type ResourceCategory,
@@ -124,6 +124,15 @@ type Line = { key: string; value: string };
 /** A string as HCL: quoted, with quotes and backslashes escaped. */
 function quote(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Which block a node is written as (GP-248). The only difference between the
+ * two, on this side: `data` reads what exists, `resource` declares it — and
+ * every reference to a lookup is addressed through `data.` (see `addressOf`).
+ */
+function blockKeyword(node: BuilderNode): string {
+  return node.mode === "data" ? "data" : "resource";
 }
 
 /** A builder value as the HCL literal it stands for. */
@@ -269,7 +278,7 @@ function renderCustomResource(
     .sort((a, b) => a.key.localeCompare(b.key));
 
   return [
-    `resource ${quote(node.type)} ${quote(node.name)} {`,
+    `${blockKeyword(node)} ${quote(node.type)} ${quote(node.name)} {`,
     ...align([...lines, ...references], "  "),
     "}",
   ].join("\n");
@@ -300,7 +309,7 @@ export function renderResource(
     renderBlock(block.name, node, def, bySlot),
   );
   return [
-    `resource ${quote(node.type)} ${quote(node.name)} {`,
+    `${blockKeyword(node)} ${quote(node.type)} ${quote(node.name)} {`,
     ...body,
     ...blocks.flatMap((block) => (body.length > 0 ? ["", block] : [block])),
     "}",
@@ -327,7 +336,7 @@ function providersOf(
   for (const node of graph.nodes) {
     // A custom resource's provider counts too: the user typed a real Terraform
     // type, and the file it lands in needs that provider declared.
-    if (!node.custom && !resourceDef(node.type, catalog)) continue;
+    if (!node.custom && !defFor(node, catalog)) continue;
     if (node.type.trim() === "") continue;
     names.add(providerOf(node.type));
   }
@@ -373,11 +382,14 @@ export function generateTerraform(
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const byFile = new Map<string, string[]>();
 
-  const ordered = [...graph.nodes].sort((a, b) =>
-    a.type === b.type
-      ? a.name.localeCompare(b.name)
-      : a.type.localeCompare(b.type),
-  );
+  // By type, then lookups before declarations of that type, then by name — so
+  // neither the order nodes were created in nor where they sit on the canvas
+  // can change a byte, and a `data` block reads before what uses it.
+  const ordered = [...graph.nodes].sort((a, b) => {
+    if (a.type !== b.type) return a.type.localeCompare(b.type);
+    const mode = (a.mode ?? "resource").localeCompare(b.mode ?? "resource");
+    return mode === 0 ? a.name.localeCompare(b.name) : mode;
+  });
 
   for (const node of ordered) {
     if (node.custom) {
@@ -387,7 +399,7 @@ export function generateTerraform(
       ]);
       continue;
     }
-    const def = resourceDef(node.type, catalog);
+    const def = defFor(node, catalog);
     if (!def) continue;
     const path = fileOf(def);
     byFile.set(path, [

@@ -5,9 +5,16 @@
  * The playground owns the controller so the composition survives a trip
  * through Edit HCL; this component is what it looks like.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { CATALOG, resourceDef, type BuilderIssue } from "@groundplan/builder";
+import {
+  CATALOG,
+  defFor,
+  resourceDef,
+  schemaKindOf,
+  type BuilderIssue,
+  type BuilderMode,
+} from "@groundplan/builder";
 
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
@@ -83,6 +90,52 @@ export function BuildMode({
   );
 
   /**
+   * Everything on the canvas needs the definition that describes it, and a
+   * composition does not always arrive one node at a time: a draft reopens with
+   * whatever was in it, including types nobody searched for this session and
+   * lookups whose data source has never been read (GP-248). Anything the
+   * catalog cannot describe yet is fetched here — `ensure` caches and
+   * de-duplicates, so this settles in one pass and then does nothing.
+   */
+  const { defs, ensure } = catalog;
+  useEffect(() => {
+    for (const node of builder.graph.nodes) {
+      if (node.custom || node.type.trim() === "") continue;
+      if (defFor(node, defs)) continue;
+      void ensure(node.type, schemaKindOf(node));
+    }
+  }, [builder.graph.nodes, defs, ensure]);
+
+  /**
+   * Declaring a resource and looking one up are two different schemas, so the
+   * switch is "read the other schema, then change the node" — the same shape as
+   * placing one. A type with no data source cannot be looked up at all, and the
+   * form says so instead of pretending the click did something.
+   */
+  const [modeError, setModeError] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const setMode = useCallback(
+    (id: string, type: string, mode: BuilderMode) => {
+      setModeError(null);
+      setSwitching(true);
+      void catalog
+        .ensure(type, mode === "data" ? "data_source" : "resource")
+        .then((def) => {
+          if (def) builder.setMode(id, mode, def);
+          else if (mode === "data") {
+            setModeError(
+              `The catalog has no data source for ${type}. It can only be declared here.`,
+            );
+          } else {
+            setModeError(`The catalog has no schema for ${type}.`);
+          }
+        })
+        .finally(() => setSwitching(false));
+    },
+    [catalog, builder],
+  );
+
+  /**
    * Deleting a container is two intentions (GP-247), and neither is safe to
    * assume: take the branch, or keep what is inside it. A leaf has no such
    * question, so it goes without one.
@@ -99,9 +152,7 @@ export function BuildMode({
   const selected = builder.graph.nodes.find((n) => n.id === builder.selectedId);
   // A custom resource has no definition, and that is what makes it custom.
   const selectedDef =
-    selected && !selected.custom
-      ? resourceDef(selected.type, catalog.defs)
-      : undefined;
+    selected && !selected.custom ? defFor(selected, catalog.defs) : undefined;
   const selectedIssues = issues.filter(
     (issue) => issue.nodeId === builder.selectedId,
   );
@@ -139,11 +190,15 @@ export function BuildMode({
 
         {selected && (selectedDef || selected.custom) && (
           <BuilderForm
+            key={selected.id}
             node={selected}
             def={selectedDef}
             catalog={catalog.defs}
             graph={builder.graph}
             issues={selectedIssues}
+            onSetMode={(mode) => setMode(selected.id, selected.type, mode)}
+            modeBusy={switching}
+            modeError={modeError}
             onRename={(name) => builder.rename(selected.id, name)}
             onRetype={(type) => builder.retype(selected.id, type)}
             onAttribute={(attribute, value) =>

@@ -1138,9 +1138,13 @@ export function listCatalogResources(
 export function getCatalogResourceSchema(
   provider: string,
   type: string,
+  kind: "resource" | "data_source" = "resource",
 ): Promise<CatalogResourceSchemaResponse> {
+  // A type has two schemas at most, and they are different questions: what it
+  // takes to create one, and what it takes to find one (GP-248).
+  const query = kind === "resource" ? "" : `?kind=${kind}`;
   return request<CatalogResourceSchemaResponse>(
-    `/catalog/providers/${provider}/resources/${encode(type)}`,
+    `/catalog/providers/${provider}/resources/${encode(type)}${query}`,
   );
 }
 
