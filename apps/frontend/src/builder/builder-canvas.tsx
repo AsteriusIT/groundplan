@@ -4,12 +4,15 @@
  * deleting is a different job from rendering a snapshot, and that canvas is also
  * the VS Code webview's.
  *
- * Hierarchy is drawn as **space, not arrows**: a subnet inside a virtual network
- * inside a resource group. There is no edge tool, because there is nothing an
- * edge would say that the nesting does not — dropping a node into a frame fills
- * the reference slot that takes that frame's type (see `builder-ops.reparent`).
- * References the nesting cannot express — a public IP on a NIC — are still
- * drawn, and still made in the form: they are shown, never dragged.
+ * Hierarchy can be drawn as **space**: a subnet inside a virtual network inside
+ * a resource group. Dropping a node into a frame fills the reference slot that
+ * takes that frame's type (see `builder-ops.reparent`), so nesting and wiring
+ * are two ways of saying one thing rather than two models.
+ *
+ * Both ways stay open. Dragging a wire from what a resource offers to what
+ * another needs is how this canvas has always worked, and a connection that
+ * containment could express also nests the node — the frame moving is the
+ * confirmation the connection was made.
  *
  * Positions live in React Flow while a node is being dragged and land in the
  * document when the drag ends. Feeding every frame back through the document
@@ -28,7 +31,9 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  type Connection,
   type Edge,
+  type IsValidConnection,
   type NodeChange,
 } from "@xyflow/react";
 
@@ -56,8 +61,10 @@ import {
   drawsAsContainer,
   relativePosition,
 } from "./builder-layout";
+import { canAttach } from "./builder-ops";
 import {
   BuilderResourceNode,
+  NEW_REFERENCE_HANDLE,
   type BuilderFlowNode,
   type BuilderInput,
 } from "./builder-node";
@@ -79,6 +86,8 @@ export type BuilderCanvasProps = {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, position: { x: number; y: number }) => void;
+  onConnect: (from: string, attribute: string, to: string) => void;
+  onDisconnect: (from: string, attribute: string, to: string) => void;
   /** Draw a node inside a container, or (no parent) back onto the canvas. */
   onNest: (id: string, parentId: string | undefined) => void;
   onDelete: (id: string) => void;
@@ -148,6 +157,8 @@ function Canvas({
   selectedId,
   onSelect,
   onMove,
+  onConnect,
+  onDisconnect,
   onNest,
   onDelete,
   onDrop,
@@ -184,6 +195,7 @@ function Canvas({
           data: {
             node,
             issues: byNode.get(node.id) ?? [],
+            inputs: inputsOf(node, graph, names, catalog),
             depth: ancestorsOf(graph, node.id).length,
             dropping: dropTarget === node.id,
           },
@@ -233,6 +245,7 @@ function Canvas({
         // offered and arrives at what needs it.
         source: reference.to,
         target: reference.from,
+        targetHandle: reference.attribute,
         label: reference.attribute,
         labelStyle: { fontSize: 10 },
       }));
@@ -248,6 +261,49 @@ function Canvas({
         : position;
     },
     [graph, boxes],
+  );
+
+  // The one place a connection is judged, and the reason an incompatible one
+  // cannot be made rather than being explained after the fact.
+  const isValidConnection = useCallback<IsValidConnection>(
+    (connection) => {
+      if (!connection.source || !connection.target || !connection.targetHandle) {
+        return false;
+      }
+      // A custom resource takes any reference — it has no slots to disagree.
+      if (connection.targetHandle === NEW_REFERENCE_HANDLE) {
+        return connection.source !== connection.target;
+      }
+      return canAttach(
+        graph,
+        connection.target,
+        connection.targetHandle,
+        connection.source,
+        catalog,
+      );
+    },
+    [graph, catalog],
+  );
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      if (!connection.source || !connection.target || !connection.targetHandle) {
+        return;
+      }
+      onConnect(connection.target, connection.targetHandle, connection.source);
+    },
+    [onConnect],
+  );
+
+  const handleEdgesDelete = useCallback(
+    (removed: Edge[]) => {
+      for (const edge of removed) {
+        if (edge.targetHandle) {
+          onDisconnect(edge.target, edge.targetHandle, edge.source);
+        }
+      }
+    },
+    [onDisconnect],
   );
 
   const handleNodesChange = useCallback(
@@ -287,9 +343,10 @@ function Canvas({
         onMove(node.id, absoluteOf(node.id, node.position));
         if (target !== current) onNest(node.id, target);
       }}
-      // No connection is dragged in this editor: hierarchy is containment, and
-      // the references containment cannot express are made in the form.
-      nodesConnectable={false}
+      onEdgesDelete={handleEdgesDelete}
+      onConnect={handleConnect}
+      isValidConnection={isValidConnection}
+      nodesConnectable
       // Both keys, because both are "delete this" depending on the keyboard:
       // Backspace is React Flow's default and the only one a Mac laptop has,
       // Delete is what everyone else reaches for. Safe next to the form and

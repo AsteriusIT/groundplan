@@ -1240,17 +1240,30 @@ it("a draft saved before there were compositions reopens with an empty canvas", 
   );
 });
 
-it("exposes no way to draw an edge, and says it is experimental (GP-247)", async () => {
+it("keeps both ways of connecting: a wire to drag, and a frame to drop into", async () => {
   await composeOneResource();
   expect(screen.getByTestId("builder-node-n1")).toBeInTheDocument();
-
   expect(screen.getByText("Experimental")).toBeInTheDocument();
-  // React Flow's connection handles are what an edge is drawn from. A resource
-  // group is a frame you drop things into, and there is nothing to grab.
-  expect(document.querySelectorAll(".react-flow__handle")).toHaveLength(0);
+
+  // A second resource, so there is something to connect.
+  fireEvent.click(
+    within(screen.getByLabelText("Resource palette")).getByRole("button", {
+      name: /Virtual network/i,
+    }),
+  );
+
+  // The slot a wire lands on is there, and it is connectable — which is what
+  // was missing when the canvas drew handles it would not let anybody grab.
+  const slot = document.querySelector<HTMLElement>(
+    '[data-handleid="resource_group_name"]',
+  );
+  expect(slot).not.toBeNull();
+  expect(slot).toHaveClass("connectable");
+  // And the resource group — a frame, since things go inside it — still offers
+  // what it has: being drawn as a place must not cost it its handles.
   expect(
-    document.querySelectorAll(".react-flow__pane.connectable"),
-  ).toHaveLength(0);
+    screen.getByTestId("builder-node-n1").querySelectorAll(".source"),
+  ).not.toHaveLength(0);
 });
 
 const GENERATED = [

@@ -129,6 +129,8 @@ export function BuildMode({
             selectedId={builder.selectedId}
             onSelect={builder.select}
             onMove={builder.move}
+            onConnect={builder.connect}
+            onDisconnect={builder.disconnect}
             onNest={builder.nest}
             onDelete={remove}
             onDrop={addResource}
